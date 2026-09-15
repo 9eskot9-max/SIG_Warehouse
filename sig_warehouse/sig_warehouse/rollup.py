@@ -92,6 +92,12 @@ def recompute_mr_dispatch_state(mr_name):
             {"custom_qty_issued": issued, "custom_qty_remaining": remaining, "custom_line_status": state},
             update_modified=False,
         )
+        # A child row fetched directly (e.g. REST GET /api/resource/Material
+        # Request Item/<name>) is cached under its OWN (doctype, name) key,
+        # separate from the parent Material Request's cache entry - clearing
+        # only the parent (below) does not invalidate it. Found live: the
+        # parent-only clear alone still served stale child rows.
+        frappe.clear_document_cache("Material Request Item", mri.name)
         total_requested += qty
         total_capped += min(issued, qty)
         line_states.append(state)
@@ -210,6 +216,9 @@ def recompute_return_state(se_name):
             disposition = "PENDING"
             state = "PENDING"
         frappe.db.set_value("Stock Entry Detail", row.name, "custom_return_disposition", disposition, update_modified=False)
+        # same child-row cache gap as Material Request Item above - clear
+        # each detail row's own cache entry, not just the parent Stock Entry.
+        frappe.clear_document_cache("Stock Entry Detail", row.name)
         line_states.append(state)
 
     has_non_declared = any(s != "DECLARED" for s in line_states)
