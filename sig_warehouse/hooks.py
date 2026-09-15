@@ -5,6 +5,10 @@ app_description = "ERP-native warehouse workbench: dispatch, returns and custody
 app_email = "it@sigtele.com"
 app_license = "mit"
 
+doctype_js = {
+    "Material Request": "public/js/material_request.js",
+}
+
 doc_events = {
     "Stock Entry": {
         "on_submit": "sig_warehouse.sig_warehouse.rollup.on_stock_entry_submit",

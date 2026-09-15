@@ -1,0 +1,18 @@
+{
+ "doctype":"DocType",
+ "module":"SIG Warehouse",
+ "name":"SIG Dispatch Operation",
+ "autoname":"field:operation_id",
+ "permissions":[{"role":"System Manager","read":1,"report":1,"export":1},{"role":"Stock Manager","read":1,"report":1}],
+ "field_order":["operation_id","mr","stock_entry","operator","state","signature","line_count","created_at"],
+ "fields":[
+  {"fieldname":"operation_id","fieldtype":"Data","label":"Operation ID","unique":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"mr","fieldtype":"Link","options":"Material Request","label":"Material Request","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"stock_entry","fieldtype":"Link","options":"Stock Entry","label":"Stock Entry","read_only":1,"in_list_view":1},
+  {"fieldname":"operator","fieldtype":"Link","options":"User","label":"Operator","read_only":1,"in_list_view":1},
+  {"fieldname":"state","fieldtype":"Select","options":"SUBMITTED\nFAILED","label":"State","read_only":1,"in_standard_filter":1},
+  {"fieldname":"signature","fieldtype":"Data","label":"Line Signature","read_only":1,"description":"SHA-256 of the operation's line content - identical payload replayed under the same operation_id returns the original result (duplicate); a changed payload under the same operation_id is refused (conflict)."},
+  {"fieldname":"line_count","fieldtype":"Int","label":"Line Count","read_only":1},
+  {"fieldname":"created_at","fieldtype":"Datetime","label":"Created At","read_only":1}
+ ]
+}
