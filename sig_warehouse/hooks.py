@@ -15,6 +15,7 @@ doc_events = {
         "on_cancel": "sig_warehouse.sig_warehouse.rollup.on_stock_entry_cancel",
     },
     "Material Request": {
+        "on_submit": "sig_warehouse.sig_warehouse.rollup.on_material_request_submit",
         "on_cancel": "sig_warehouse.sig_warehouse.rollup.on_material_request_cancel",
         "on_update_after_submit": "sig_warehouse.sig_warehouse.rollup.on_material_request_update_after_submit",
     },

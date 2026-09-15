@@ -143,6 +143,17 @@ def on_stock_entry_cancel(doc, method=None):
         frappe.db.commit()
 
 
+def on_material_request_submit(doc, method=None):
+    # Initializes the derived fields (remaining=qty, PENDING) the moment the MR
+    # itself is submitted - without this, a freshly submitted MR with no prior
+    # dispatch activity has never had the rollup run on it at all, and
+    # custom_qty_remaining stays at its unset default (0) instead of qty. That
+    # gap let a real dispatch's cap-check see remaining=0 on a brand-new MR
+    # and refuse every dispatch attempt (found live, Stage 2 proving pack).
+    recompute_mr_dispatch_state(doc.name)
+    frappe.db.commit()
+
+
 def on_material_request_cancel(doc, method=None):
     recompute_mr_dispatch_state(doc.name)
     frappe.db.commit()
