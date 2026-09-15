@@ -6,6 +6,8 @@ are external gates which an authorised operator must attest to in the
 cutover document.  A dispatch writer calls :func:`allocate_dn_voucher` only
 after the warehouse has an ACTIVE, accepted cutover.
 """
+import hashlib
+import json
 import re
 
 import frappe
@@ -56,6 +58,33 @@ def _counter():
     if not frappe.db.exists("SIG DN Voucher Counter", COUNTER):
         frappe.throw(_("SIG DN Voucher Counter has not been initialized."), frappe.ValidationError)
     return frappe.get_doc("SIG DN Voucher Counter", COUNTER)
+
+
+def _erp_bin_snapshot(warehouse):
+    """Return the current non-zero ERP Bin position and its stable hash.
+
+    This is the explicit ERP-only opening path for a warehouse that has no
+    legacy WH workbook to reconcile.  The snapshot is taken server-side from
+    Bin, so the caller cannot supply or alter the opening quantities.
+    """
+    rows = frappe.get_all(
+        "Bin",
+        filters={"warehouse": warehouse},
+        fields=["item_code", "warehouse", "actual_qty"],
+        limit_page_length=0,
+    )
+    lines = [
+        {
+            "item_code": str(row.item_code or ""),
+            "warehouse": str(row.warehouse or warehouse),
+            "qty": str(row.actual_qty or "0"),
+        }
+        for row in rows
+        if row.item_code and row.actual_qty
+    ]
+    lines.sort(key=lambda row: (row["item_code"], row["warehouse"]))
+    payload = json.dumps(lines, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return lines, hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def suggested_next_number():
@@ -125,6 +154,51 @@ def _cutover_ready(doc):
 
 
 @frappe.whitelist()
+def create_erp_only_reconciliation(warehouse, notes=None):
+    """Create a reviewable ERP-only opening baseline for one warehouse.
+
+    This does not silently weaken the original WH-reconciled route.  It is a
+    separate, explicit mode for the owner's decision to retire the legacy WH
+    writer without using a workbook snapshot.  The server captures the ERP
+    Bin position and records a hash; acceptance is still a separate manager
+    action through ``accept_reconciliation``.
+    """
+    _require_manager()
+    warehouse = str(warehouse or "").strip()
+    if not warehouse or not frappe.db.exists("Warehouse", warehouse):
+        frappe.throw(_("A valid ERP Warehouse is required."), frappe.ValidationError)
+    if frappe.db.exists("SIG Warehouse Cutover", {"warehouse": warehouse, "state": "ACTIVE"}):
+        frappe.throw(_("This warehouse already has an ACTIVE cutover."), frappe.ValidationError)
+    if frappe.db.exists("SIG Warehouse Reconciliation", {"warehouse": warehouse, "baseline_mode": "ERP_ONLY", "state": "ACCEPTED"}):
+        frappe.throw(_("An accepted ERP-only baseline already exists for this warehouse."), frappe.ValidationError)
+    lines, digest = _erp_bin_snapshot(warehouse)
+    doc = frappe.get_doc({
+        "doctype": "SIG Warehouse Reconciliation",
+        "warehouse": warehouse,
+        "as_of": now_datetime(),
+        "baseline_mode": "ERP_ONLY",
+        "state": "REVIEW",
+        "erp_snapshot_sha256": digest,
+        "erp_line_count": len(lines),
+        "wh_line_count": 0,
+        "matched_line_count": 0,
+        "mismatch_line_count": 0,
+        "notes": str(notes or "").strip(),
+    })
+    if not doc.notes:
+        frappe.throw(_("Record the owner-approved ERP-only baseline reason in notes."), frappe.ValidationError)
+    doc.insert(ignore_permissions=True)
+    return {
+        "result": "review",
+        "reconciliation": doc.name,
+        "baseline_mode": "ERP_ONLY",
+        "erp_line_count": len(lines),
+        "erp_snapshot_sha256": digest,
+        "as_of": doc.as_of,
+    }
+
+
+@frappe.whitelist()
 def apply_reconciliation_summary(reconciliation, wh_snapshot_sha256, erp_line_count,
                                  wh_line_count, matched_line_count, mismatch_line_count):
     """Store output from the reproducible offline reconciliation package.
@@ -149,7 +223,12 @@ def accept_reconciliation(reconciliation):
     """Accept a reviewed reconciliation with a documented exception register."""
     _require_manager()
     doc = frappe.get_doc("SIG Warehouse Reconciliation", reconciliation)
-    if doc.state != "REVIEW" or not doc.wh_snapshot_file or not doc.wh_snapshot_sha256:
+    if doc.state != "REVIEW":
+        frappe.throw(_("A reconciliation in REVIEW state is required."), frappe.ValidationError)
+    if doc.baseline_mode == "ERP_ONLY":
+        if not doc.erp_snapshot_sha256 or not doc.erp_line_count or not doc.notes:
+            frappe.throw(_("The ERP-only baseline hash, line count and owner reason are required."), frappe.ValidationError)
+    elif not doc.wh_snapshot_file or not doc.wh_snapshot_sha256:
         frappe.throw(_("A frozen WH snapshot and reviewed summary are required."), frappe.ValidationError)
     if cint(doc.mismatch_line_count) and not doc.exception_register:
         frappe.throw(_("Mismatches require an accepted exception register before cutover."), frappe.ValidationError)
