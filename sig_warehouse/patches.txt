@@ -1,0 +1,1 @@
+# No schema patches required for the initial (Stage 1 hooks-only) release.
