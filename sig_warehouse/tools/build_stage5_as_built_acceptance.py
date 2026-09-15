@@ -252,6 +252,11 @@ def build_report(wh_path, env_path):
         if row["exceptions"]:
             erp_exceptions[key].extend(row["exceptions"])
 
+    erp_unallocated_by_item = defaultdict(float)
+    for (site, item), qty in erp_issue.items():
+        if site is None:
+            erp_unallocated_by_item[item] += qty
+
     wh_keys = set(wh_issued) | set(wh_returned) | set(wh_custody)
     erp_keys = set(erp_issue) | set(erp_as_built)
     rows = []
@@ -263,8 +268,14 @@ def build_report(wh_path, env_path):
         flags = sorted(set(erp_exceptions.get(key, [])))
         if wh_expected < -EPS:
             flags.append("WH_ALLOCATION_EXCEEDS_ISSUED")
+        unallocated_qty = erp_unallocated_by_item.get(item, 0.0)
         if flags:
             status = "EXCEPTION"
+        elif unallocated_qty and (site is None or key not in erp_keys):
+            # Do not pretend an untagged ERP line is a clean WH-only or
+            # ERP-only delta.  It may belong to one of several WH sites and
+            # needs source-line allocation evidence before acceptance.
+            status = "SITE_ALLOCATION_REVIEW"
         elif key not in erp_keys:
             status = "WH_ONLY"
         elif key not in wh_keys:
@@ -280,6 +291,7 @@ def build_report(wh_path, env_path):
             "wh_expected_as_built": round(wh_expected, 6),
             "erp_issued": round(erp_issue.get(key, 0.0), 6),
             "erp_as_built": round(erp_value, 6), "difference_erp_minus_wh": round(difference, 6),
+            "erp_unallocated_item_qty": round(unallocated_qty, 6),
             "status": status, "exceptions": ";".join(sorted(set(flags))),
         })
 
@@ -294,7 +306,7 @@ def build_report(wh_path, env_path):
         "acceptance": {
             "status": "NOT_ACCEPTED",
             "reason": "The first comparison contains exceptions and classified deltas; review and classify each non-MATCH row before any cutover gate.",
-            "blocking_statuses": [status for status in ("EXCEPTION", "MISMATCH", "WH_ONLY", "ERP_ONLY") if counts.get(status)],
+            "blocking_statuses": [status for status in ("EXCEPTION", "MISMATCH", "SITE_ALLOCATION_REVIEW", "WH_ONLY", "ERP_ONLY") if counts.get(status)],
         },
         "rows": rows,
     }
