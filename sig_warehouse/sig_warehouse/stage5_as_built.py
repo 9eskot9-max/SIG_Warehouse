@@ -56,23 +56,24 @@ def _line_rows(sources, site=None, project=None):
 
 
 def _as_built_line(row, source_by_name):
-    issued = float(row.qty or 0)
-    returned = max(0.0, float(row.custom_qty_returned or 0))
-    custody = max(0.0, float(row.custom_qty_custody or 0))
+    issued = float(getattr(row, "qty", 0) or 0)
+    returned = max(0.0, float(getattr(row, "custom_qty_returned", 0) or 0))
+    custody = max(0.0, float(getattr(row, "custom_qty_custody", 0) or 0))
     # Do not let a bad historical row make the report claim negative
     # consumption. The exception remains visible to the caller.
     source = source_by_name[str(row.parent)]
     flags = []
     if returned + custody > issued + EPS:
         flags.append("ALLOCATION_EXCEEDS_ISSUED")
-    if not row.custom_site:
+    site = getattr(row, "custom_site", None)
+    if not site:
         flags.append("MISSING_SITE")
     # A store-to-store transfer is not site consumption merely because it has
     # a Stock Entry Detail row.  Only a transfer explicitly tagged to a site
     # is included in the As-Built quantity; the untagged movement remains an
     # auditable exception rather than silently inflating project consumption.
     purpose = getattr(source, "purpose", None)
-    if purpose == "Material Transfer" and not row.custom_site:
+    if purpose == "Material Transfer" and not site:
         flags.append("NON_SITE_TRANSFER")
         consumed = 0.0
     else:
@@ -81,16 +82,16 @@ def _as_built_line(row, source_by_name):
         "stock_entry": row.parent,
         "posting_date": str(source.posting_date),
         "purpose": purpose,
-        "item_code": row.item_code,
-        "uom": row.uom,
-        "site": row.custom_site,
-        "project": row.project,
-        "row_key": row.custom_row_key,
+        "item_code": getattr(row, "item_code", None),
+        "uom": getattr(row, "uom", None),
+        "site": site,
+        "project": getattr(row, "project", None),
+        "row_key": getattr(row, "custom_row_key", None),
         "issued_qty": issued,
         "returned_qty": returned,
         "custody_qty": custody,
         "as_built_qty": consumed,
-        "disposition": row.custom_return_disposition,
+        "disposition": getattr(row, "custom_return_disposition", None),
         "exceptions": flags,
     }
 
