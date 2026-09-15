@@ -138,7 +138,9 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
     se.submit()
     frappe.db.commit()
 
-    mr_state = rollup.recompute_mr_dispatch_state(mr)
+    mr_state = rollup.recompute_mr_dispatch_state(mr)  # also clears the MR's document cache
+    # the new dispatch SE itself needs its own clear - see rollup.py for why.
+    frappe.clear_document_cache("Stock Entry", se.name)
 
     frappe.get_doc({
         "doctype": "SIG Dispatch Operation", "operation_id": operation_id, "mr": mr,

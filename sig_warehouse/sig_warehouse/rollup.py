@@ -112,6 +112,14 @@ def recompute_mr_dispatch_state(mr_name):
         {"custom_dispatch_stage": stage, "custom_sync_status": legacy},
         update_modified=False,
     )
+    # frappe.db.set_value is a raw SQL write - bypasses the document cache
+    # entirely, so a doc already cached (e.g. by an earlier frappe.get_doc/
+    # REST read in the same or a prior request) can keep serving stale
+    # derived fields indefinitely even though the DB row is correct (found
+    # live via raw-SQL-vs-REST comparison, 9A.9 Stage 3). Centralized here
+    # so every caller (both endpoints, both doc_events hooks) gets it for
+    # free instead of repeating it at each call site.
+    frappe.clear_document_cache("Material Request", mr_name)
     return {
         "mr": mr_name,
         "stage": stage,
@@ -218,4 +226,5 @@ def recompute_return_state(se_name):
         update["custom_return_closed_by"] = frappe.session.user
         update["custom_return_closed_on"] = frappe.utils.now()
     frappe.db.set_value("Stock Entry", se_name, update, update_modified=False)
+    frappe.clear_document_cache("Stock Entry", se_name)  # see recompute_mr_dispatch_state
     return header_state

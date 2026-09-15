@@ -206,7 +206,12 @@ def sig_declare_disposition(operation_id, action, source_se, line_count=0, to_wh
             frappe.db.set_value("Stock Entry Detail", line["sed"], "custom_return_closed", 1, update_modified=False)
         frappe.db.commit()
 
-    return_state = rollup.recompute_return_state(source_se)
+    return_state = rollup.recompute_return_state(source_se)  # also clears source_se's document cache
+    if stock_entry_name:
+        # the newly created return/transfer SE itself - recompute_return_state
+        # only invalidates source_se, so this one needs its own clear (see
+        # rollup.recompute_mr_dispatch_state for why this matters at all).
+        frappe.clear_document_cache("Stock Entry", stock_entry_name)
 
     frappe.get_doc({
         "doctype": "SIG Dispatch Operation", "operation_id": operation_id, "op_type": "DISPOSITION",
