@@ -173,6 +173,15 @@ def on_material_request_cancel(doc, method=None):
     frappe.db.commit()
 
 
+def set_display_title(doc, method=None):
+    # ERPNext's own auto-generated `title` ("Material Issue Request for <item
+    # descriptions>") is unusable as a Kanban card / breadcrumb label once a
+    # request has more than one or two long item names. custom_display_title
+    # is a short "<name> <site>" shown instead (see title_field Property
+    # Setter) - runs on every save, draft or submitted, so it's never stale.
+    doc.custom_display_title = " ".join(filter(None, [doc.name, doc.get("custom_site")]))
+
+
 def on_material_request_update_after_submit(doc, method=None):
     recompute_mr_dispatch_state(doc.name)
     frappe.db.commit()

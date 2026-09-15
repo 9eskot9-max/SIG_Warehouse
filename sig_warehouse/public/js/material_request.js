@@ -9,6 +9,74 @@ frappe.ui.form.on('Material Request', {
     }
 });
 
+// Kanban-only enhancements below (card-count badges, quick search). Not wired
+// through frappe.listview_settings' onload/refresh - Kanban's exact call
+// timing into those hooks isn't independently confirmed on this Frappe build
+// and there is no desk session available in this project's tooling to watch
+// it render, so a router-change watcher (fires on every route, cheap no-op
+// guard for anything that isn't this Kanban board) is the safer bet: it does
+// not depend on an unverified internal API surface, only on the route and the
+// DOM Frappe's own kanban_column.html/kanban_card.html templates produce.
+frappe.router.on('change', () => sig_maybe_setup_kanban());
+sig_maybe_setup_kanban();
+
+function sig_maybe_setup_kanban() {
+    const route = frappe.get_route ? frappe.get_route() : [];
+    if (route[0] !== 'List' || route[1] !== 'Material Request' || route[2] !== 'Kanban') return;
+    sig_wait_for_kanban_board(($board) => {
+        sig_setup_kanban_counts($board);
+        sig_setup_kanban_search($board);
+    });
+}
+
+function sig_wait_for_kanban_board(callback, attemptsLeft = 40) {
+    const $board = $('.kanban-board');
+    if ($board.length) {
+        callback($board);
+        return;
+    }
+    if (attemptsLeft <= 0) return;
+    setTimeout(() => sig_wait_for_kanban_board(callback, attemptsLeft - 1), 250);
+}
+
+function sig_setup_kanban_counts($board) {
+    const update = () => {
+        $board.find('.kanban-column').each(function () {
+            const $col = $(this);
+            const count = $col.find('.kanban-cards .kanban-card-wrapper:visible').length;
+            let $badge = $col.find('.sig-kanban-count');
+            if (!$badge.length) {
+                $badge = $('<span class="sig-kanban-count badge pull-right" style="font-weight:normal;"></span>');
+                $col.find('.kanban-column-title').append($badge);
+            }
+            $badge.text(count);
+        });
+    };
+    update();
+    if ($board.data('sig-count-observer')) return; // already watching this board instance
+    const observer = new MutationObserver(() => update());
+    observer.observe($board.get(0), { childList: true, subtree: true });
+    $board.data('sig-count-observer', observer);
+}
+
+function sig_setup_kanban_search($board) {
+    if ($('.sig-kanban-search').length) return; // already inserted for this page
+    const $box = $(`<div class="sig-kanban-search" style="margin: 0 15px 10px;">
+        <input type="text" class="form-control input-sm" placeholder="${__('Search MR #, site (e.g. 1011, ZMK113)...')}">
+    </div>`);
+    $board.before($box);
+    $box.find('input').on('input', function () {
+        const q = $(this).val().trim().toLowerCase();
+        $board.find('.kanban-card-wrapper').each(function () {
+            const $card = $(this);
+            const match = !q || $card.text().toLowerCase().includes(q);
+            $card.toggle(match);
+        });
+        // card visibility changed - refresh the per-column counts to match
+        sig_setup_kanban_counts($board);
+    });
+}
+
 function sig_gen_operation_id(warehouse) {
     const now = new Date();
     const pad = (n) => String(n).padStart(2, '0');
