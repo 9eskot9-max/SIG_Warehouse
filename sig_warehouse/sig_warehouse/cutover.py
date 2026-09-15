@@ -245,7 +245,9 @@ def attest_cutover_gate(cutover, gate):
 
     ``wh_writer_disabled`` means the workbook/mirror writer was disabled and
     archived by its owner. ``delivery_route`` means the ERP sender's recipient
-    routing and print format were proved for this warehouse.
+    routing and print format were proved for this warehouse. An explicit
+    ``ERP_PRINT_ONLY`` route proves the native ERP print format and deliberately
+    does not claim that WhatsApp delivery is enabled.
     """
     _require_manager()
     doc = frappe.get_doc("SIG Warehouse Cutover", cutover)
@@ -255,7 +257,10 @@ def attest_cutover_gate(cutover, gate):
         doc.wh_writer_disabled_confirmed = 1
         doc.wh_writer_disabled_at = now_datetime()
     elif gate == "delivery_route":
-        if not doc.delivery_route_evidence:
+        if doc.delivery_route_mode == "ERP_PRINT_ONLY":
+            if not frappe.db.exists("Print Format", {"name": "SIG Material Issue"}):
+                frappe.throw(_("The SIG Material Issue ERP print format is not installed."), frappe.ValidationError)
+        elif not doc.delivery_route_evidence:
             frappe.throw(_("Attach delivery-route proof before attesting this gate."), frappe.ValidationError)
         doc.delivery_route_confirmed = 1
     else:
