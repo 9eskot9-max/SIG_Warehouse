@@ -1,0 +1,18 @@
+{
+ "doctype":"DocType",
+ "module":"SIG Warehouse",
+ "name":"SIG IH Position",
+ "autoname":"field:position_key",
+ "permissions":[{"role":"System Manager","read":1,"report":1,"export":1},{"role":"Stock Manager","read":1,"report":1}],
+ "field_order":["position_key","custodian","custodian_name","item_code","condition","qty_open","last_event_at","last_source_se"],
+ "fields":[
+  {"fieldname":"position_key","fieldtype":"Data","label":"Position Key","unique":1,"read_only":1,"in_list_view":1,"description":"{custodian}|{item_code}|{condition}"},
+  {"fieldname":"custodian","fieldtype":"Link","options":"Employee","label":"Custodian","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"custodian_name","fieldtype":"Data","label":"Custodian Name","read_only":1},
+  {"fieldname":"item_code","fieldtype":"Link","options":"Item","label":"Item","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"condition","fieldtype":"Data","label":"Condition","read_only":1},
+  {"fieldname":"qty_open","fieldtype":"Float","label":"Qty Open","read_only":1,"in_list_view":1},
+  {"fieldname":"last_event_at","fieldtype":"Datetime","label":"Last Event At","read_only":1},
+  {"fieldname":"last_source_se","fieldtype":"Link","options":"Stock Entry","label":"Last Source Stock Entry","read_only":1}
+ ]
+}

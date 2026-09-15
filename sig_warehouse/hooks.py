@@ -7,6 +7,7 @@ app_license = "mit"
 
 doctype_js = {
     "Material Request": "public/js/material_request.js",
+    "Stock Entry": "public/js/stock_entry.js",
 }
 
 doc_events = {

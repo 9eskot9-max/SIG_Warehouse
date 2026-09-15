@@ -162,3 +162,60 @@ def on_material_request_cancel(doc, method=None):
 def on_material_request_update_after_submit(doc, method=None):
     recompute_mr_dispatch_state(doc.name)
     frappe.db.commit()
+
+
+def recompute_return_state(se_name):
+    """Recompute per-line custom_return_disposition and the header
+    custom_return_state on the ORIGINAL DN (source_se) from its own detail
+    rows' custom_qty_returned/custom_qty_custody/custom_return_closed.
+    Mirrors WH's own per-row disposition grain (white paper: Source DN Line,
+    Qty Return, In-Hand flag, Closed?) rather than a scalar MR-wide sum.
+    Called by sig_declare_disposition after every RETURN/CUSTODY/CLOSE."""
+    rows = frappe.get_all(
+        "Stock Entry Detail",
+        filters={"parent": se_name, "parenttype": "Stock Entry"},
+        fields=["name", "qty", "custom_qty_returned", "custom_qty_custody", "custom_return_closed"],
+    )
+    if not rows:
+        return None
+    line_states = []
+    for row in rows:
+        qty = float(row.qty or 0)
+        returned = float(row.custom_qty_returned or 0)
+        custody = float(row.custom_qty_custody or 0)
+        closed = bool(row.custom_return_closed)
+        allocated = returned + custody
+        if closed or allocated + EPS >= qty:
+            if closed and allocated < EPS:
+                disposition = "CONSUMED_CLOSED"
+            elif returned + EPS >= qty and custody < EPS:
+                disposition = "RETURNED"
+            elif custody + EPS >= qty and returned < EPS:
+                disposition = "IN_HAND"
+            else:
+                disposition = "CONSUMED_CLOSED" if closed else "PARTIAL"
+            state = "DECLARED"
+        elif allocated > EPS:
+            disposition = "PARTIAL"
+            state = "PARTIAL"
+        else:
+            disposition = "PENDING"
+            state = "PENDING"
+        frappe.db.set_value("Stock Entry Detail", row.name, "custom_return_disposition", disposition, update_modified=False)
+        line_states.append(state)
+
+    has_non_declared = any(s != "DECLARED" for s in line_states)
+    has_progress = any(s in ("PARTIAL", "DECLARED") for s in line_states)
+    if not has_non_declared:
+        header_state = "DECLARED"
+    elif has_progress:
+        header_state = "PARTIAL"
+    else:
+        header_state = "PENDING"
+
+    update = {"custom_return_state": header_state}
+    if header_state == "DECLARED":
+        update["custom_return_closed_by"] = frappe.session.user
+        update["custom_return_closed_on"] = frappe.utils.now()
+    frappe.db.set_value("Stock Entry", se_name, update, update_modified=False)
+    return header_state
