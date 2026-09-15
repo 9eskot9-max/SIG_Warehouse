@@ -270,6 +270,25 @@ def attest_cutover_gate(cutover, gate):
 
 
 @frappe.whitelist()
+def set_erp_print_only_route(cutover):
+    """Select the explicit ERP-native print-only delivery route.
+
+    This is intentionally a cutover action rather than a client-side field
+    edit.  The route is valid only when the ERP print format is installed and
+    the cutover is still DRAFT; activation remains a separate gate.
+    """
+    _require_manager()
+    doc = frappe.get_doc("SIG Warehouse Cutover", cutover)
+    if doc.state != "DRAFT":
+        frappe.throw(_("The ERP print-only route can only be selected on a DRAFT cutover."), frappe.ValidationError)
+    if not frappe.db.exists("Print Format", {"name": "SIG Material Issue"}):
+        frappe.throw(_("The SIG Material Issue ERP print format is not installed."), frappe.ValidationError)
+    doc.delivery_route_mode = "ERP_PRINT_ONLY"
+    _save_with_gate(doc, "sig_warehouse_cutover_transition")
+    return {"result": "route_selected", "cutover": doc.name, "delivery_route_mode": doc.delivery_route_mode}
+
+
+@frappe.whitelist()
 def mark_cutover_ready(cutover):
     """Mark a cutover READY after its evidence is complete, before activation."""
     _require_manager()
