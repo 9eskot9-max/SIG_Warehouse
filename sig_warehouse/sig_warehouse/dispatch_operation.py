@@ -159,7 +159,7 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
     }).insert(ignore_permissions=True)
     frappe.db.commit()
 
-    whatsapp_notify = _notify_dispatch_whatsapp(warehouse, se.name)
+    whatsapp_notify = _notify_dispatch_whatsapp(lines, se.name)
 
     return {
         "result": "created", "operation_id": operation_id, "stock_entry": se.name,
@@ -169,14 +169,21 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
     }
 
 
-def _notify_dispatch_whatsapp(warehouse, stock_entry_name):
+def _notify_dispatch_whatsapp(lines, stock_entry_name):
     """Best-effort default: send the DN print to WhatsApp after a successful
-    dispatch, per warehouse-configured group/number (Maytapi Settings >
-    Dispatch Recipients). Never raises - a WhatsApp failure must not block,
-    fail, or reverse an already-submitted, already-committed Stock Entry;
-    that would make a side-channel notification a hard dependency of the
-    actual stock movement, which it isn't. Silently a no-op if SIG WhatsApp
-    isn't installed, disabled, or this warehouse has no recipient configured.
+    dispatch, group resolved by the dispatch's project text (Maytapi Settings
+    > Dispatch Recipients, matched case-insensitive startswith) - mirrors
+    WH's own MaytapiSend.bas ResolveGroupIdForProject exactly (DNs go to a
+    WhatsApp GROUP resolved from the line's Project text, not the
+    warehouse). Uses the first dispatched line's Material Request Item
+    custom_source_project_name, matching VBA's single projectText parameter
+    for the whole DN. Never raises - a WhatsApp failure must not block, fail,
+    or reverse an already-submitted, already-committed Stock Entry; that
+    would make a side-channel notification a hard dependency of the actual
+    stock movement, which it isn't. Silently a no-op if SIG WhatsApp isn't
+    installed, disabled, or the project text matches no configured prefix
+    (WH's own VBA prompts the operator in that case; there is no interactive
+    operator here, so it is logged and skipped rather than sent blind).
     """
     try:
         if not frappe.db.exists("DocType", "Maytapi Settings"):
@@ -184,12 +191,21 @@ def _notify_dispatch_whatsapp(warehouse, stock_entry_name):
         settings = frappe.get_single("Maytapi Settings")
         if not settings.enabled or not settings.dispatch_notify_enabled:
             return {"sent": False, "reason": "disabled"}
+        if not lines:
+            return {"sent": False, "reason": "no dispatched lines"}
+        project_text = frappe.db.get_value(
+            "Material Request Item", lines[0]["mri"], "custom_source_project_name"
+        ) or ""
+        project_text = project_text.strip().lower()
+        if not project_text:
+            return {"sent": False, "reason": "dispatched line has no project text"}
         recipient = next(
-            (row.recipient for row in (settings.dispatch_recipients or []) if row.warehouse == warehouse),
+            (row.recipient for row in (settings.dispatch_recipients or [])
+             if row.project_prefix and project_text.startswith(row.project_prefix.strip().lower())),
             None,
         )
         if not recipient:
-            return {"sent": False, "reason": "no recipient configured for this warehouse"}
+            return {"sent": False, "reason": f"project text '{project_text}' matched no configured group"}
         from sig_whatsapp.maytapi import send_document
         result = send_document("Stock Entry", stock_entry_name, to=recipient)
         return {"sent": True, "status": result.get("status"), "message_id": result.get("message_id")}
