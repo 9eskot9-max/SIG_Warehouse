@@ -331,16 +331,30 @@ def allocate_dn_voucher(warehouse):
     one company-wide DN sequence.
     """
     _active_cutover(warehouse)
-    frappe.db.sql(
-        "SELECT next_number FROM `tabSIG DN Voucher Counter` WHERE name=%s FOR UPDATE",
-        COUNTER,
+    # Raw SQL throughout (read, lock and write), deliberately not
+    # frappe.db.get_value/set_value: this doctype was a Single until the
+    # 228d241/c21e8fd fixes, and even after issingle was flipped to 0 and
+    # the real table created and migrated, this session found the ORM's
+    # get_value/set_value calls kept resolving this specific doctype's
+    # name against the old tabSingles storage well after two full bench
+    # redeploys (the real table confirmed empty via raw SQL the whole
+    # time, ORM reads still returning tabSingles' original seeded values
+    # as strings). Root cause not conclusively identified; raw SQL against
+    # the literal table name sidesteps whatever routing decision was going
+    # stale, the same way the pre-existing FOR UPDATE lock already had to.
+    rows = frappe.db.sql(
+        "SELECT prefix, digits, next_number FROM `tabSIG DN Voucher Counter` WHERE name=%s FOR UPDATE",
+        COUNTER, as_dict=True,
     )
-    row = frappe.db.get_value("SIG DN Voucher Counter", COUNTER, ["prefix", "digits", "next_number"], as_dict=True)
-    if not row:
+    if not rows:
         frappe.throw(_("SIG DN Voucher Counter has not been initialized."), frappe.ValidationError)
+    row = rows[0]
     number = cint(row.next_number)
     voucher = f"{row.prefix}{number:0{cint(row.digits)}d}"
-    frappe.db.set_value("SIG DN Voucher Counter", COUNTER, "next_number", number + 1, update_modified=False)
+    frappe.db.sql(
+        "UPDATE `tabSIG DN Voucher Counter` SET next_number=%s WHERE name=%s",
+        (number + 1, COUNTER),
+    )
     return voucher
 
 
