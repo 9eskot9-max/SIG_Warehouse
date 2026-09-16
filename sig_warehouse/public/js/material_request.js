@@ -54,6 +54,7 @@ function sig_maybe_setup_kanban() {
         sig_setup_kanban_updates($board);
         sig_setup_kanban_search($board);
         sig_setup_kanban_actions($board);
+        sig_setup_dispatch_tool_button($board);
     });
 }
 
@@ -129,6 +130,82 @@ function sig_setup_kanban_search($board) {
         // card visibility changed - refresh the per-column counts to match
         sig_setup_kanban_updates($board);
     });
+}
+
+// Standalone tool/equipment custody dispatch - deliberately NOT reachable
+// from a Material Request (owner decision: issuing consumable material is
+// linked to a site/project/return chain; a tool going out to a person isn't
+// - it has no site/project, and comes back through custody return, not the
+// MR-line return flow). Lives on the Dispatch Board's toolbar instead, next
+// to the search box, since that's the warehouse's general action surface.
+function sig_setup_dispatch_tool_button($board) {
+    if ($('.sig-dispatch-tool-btn').length) return;
+    const $btn = $(`<button type="button" class="btn btn-default btn-sm sig-dispatch-tool-btn" style="margin: 0 15px 10px;">
+        ${__('Dispatch Tool')}
+    </button>`);
+    $('.sig-kanban-search').after($btn);
+    $btn.on('click', () => sig_open_dispatch_tool_dialog());
+}
+
+function sig_open_dispatch_tool_dialog() {
+    const d = new frappe.ui.Dialog({
+        title: __('Dispatch Tool (Custody)'),
+        fields: [
+            { fieldtype: 'Link', fieldname: 'item_code', label: __('Item'), options: 'Item', reqd: 1,
+              get_query: () => ({ filters: { disabled: 0 } }) },
+            { fieldtype: 'Link', fieldname: 'from_wh', label: __('From Warehouse'), options: 'Warehouse', reqd: 1,
+              get_query: () => ({ filters: { is_group: 0, disabled: 0 } }) },
+            { fieldtype: 'Float', fieldname: 'qty', label: __('Qty'), default: 1, reqd: 1 },
+            { fieldtype: 'Column Break' },
+            { fieldtype: 'Select', fieldname: 'custodian_type', label: __('Custodian'),
+              options: ['Employee', 'Other'], default: 'Employee', reqd: 1 },
+            { fieldtype: 'Link', fieldname: 'custodian', label: __('Employee'), options: 'Employee',
+              depends_on: 'eval:doc.custodian_type=="Employee"', mandatory_depends_on: 'eval:doc.custodian_type=="Employee"' },
+            { fieldtype: 'Data', fieldname: 'custodian_name', label: __('Name'),
+              depends_on: 'eval:doc.custodian_type=="Other"', mandatory_depends_on: 'eval:doc.custodian_type=="Other"' },
+            { fieldtype: 'Data', fieldname: 'custodian_phone', label: __('Phone'),
+              depends_on: 'eval:doc.custodian_type=="Other"' },
+            { fieldtype: 'Section Break' },
+            { fieldtype: 'Small Text', fieldname: 'reason', label: __('Reason / Remarks') },
+        ],
+        primary_action_label: __('Confirm Dispatch'),
+        primary_action(values) {
+            frappe.confirm(
+                __('Dispatch {0} x {1} from {2} to {3}?<br><br>This creates and <b>submits</b> a Stock Entry immediately - it cannot be un-submitted from here.',
+                    [values.qty, values.item_code, values.from_wh, values.custodian_type === 'Employee' ? values.custodian : values.custodian_name]),
+                () => {
+                    frappe.call({
+                        method: 'sig_warehouse.sig_warehouse.custody.sig_dispatch_tool',
+                        args: {
+                            operation_id: sig_gen_operation_id('TOOL-' + values.from_wh),
+                            item_code: values.item_code, qty: values.qty, from_wh: values.from_wh,
+                            custodian_type: values.custodian_type, custodian: values.custodian,
+                            custodian_name: values.custodian_name, custodian_phone: values.custodian_phone,
+                            reason: values.reason,
+                        },
+                        freeze: true, freeze_message: __('Dispatching...'),
+                        callback: (r) => {
+                            const res = r.message || {};
+                            if (res.result === 'created' || res.result === 'duplicate') {
+                                frappe.msgprint({
+                                    title: __('Dispatched'), indicator: 'green',
+                                    message: __('Stock Entry {0} created and submitted. In custody of {1}.', [
+                                        `<a href="/app/stock-entry/${res.stock_entry}">${res.stock_entry}</a>`, res.custodian_name || '']),
+                                });
+                                d.hide();
+                            } else {
+                                frappe.msgprint({
+                                    title: __('Dispatch failed'), indicator: 'red',
+                                    message: __('{0}', [JSON.stringify(res)]),
+                                });
+                            }
+                        },
+                    });
+                }
+            );
+        },
+    });
+    d.show();
 }
 
 // Per-card action menu, replacing Frappe's built-in assign-avatar icon (CSS-
