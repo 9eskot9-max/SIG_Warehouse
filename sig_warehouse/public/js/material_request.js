@@ -5,7 +5,14 @@ frappe.ui.form.on('Material Request', {
         if (!['PENDING', 'PARTIAL'].includes(frm.doc.custom_dispatch_stage)) return;
         if (frm.__sig_dispatch_button_added) return;
         frm.__sig_dispatch_button_added = true;
-        frm.add_custom_button(__('Dispatch'), () => sig_open_dispatch_dialog(frm), __('Actions'));
+        // Standalone primary button (not nested under "Actions") so it is
+        // immediately visible on the page - a separate Client Script
+        // ("SIG MR Issue Button") tried to add this as a shortcut by
+        // simulating a click on the old dropdown item via a data-label
+        // selector that Frappe's dropdown markup doesn't actually expose,
+        // so it silently did nothing. Consolidated into this one real
+        // button instead of maintaining two.
+        frm.add_custom_button(__('Issue'), () => sig_open_dispatch_dialog(frm));
     }
 });
 
@@ -148,10 +155,10 @@ function sig_show_kanban_action_menu($anchor, mrNameEncoded) {
             const stage = doc.custom_dispatch_stage;
             const actions = [];
             if (stage === 'PENDING') {
-                actions.push([__('Dispatch'), () => sig_kanban_dispatch(doc)]);
+                actions.push([__('Issue'), () => sig_kanban_dispatch(doc)]);
                 actions.push([__('Cancel remaining'), () => sig_kanban_cancel(doc)]);
             } else if (stage === 'PARTIAL') {
-                actions.push([__('Dispatch'), () => sig_kanban_dispatch(doc)]);
+                actions.push([__('Issue'), () => sig_kanban_dispatch(doc)]);
                 actions.push([__('Return'), () => sig_kanban_return(doc)]);
                 actions.push([__('Cancel remaining'), () => sig_kanban_cancel(doc)]);
             } else if (stage === 'DISPATCHED') {
