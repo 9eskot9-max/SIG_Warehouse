@@ -159,11 +159,43 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
     }).insert(ignore_permissions=True)
     frappe.db.commit()
 
+    whatsapp_notify = _notify_dispatch_whatsapp(warehouse, se.name)
+
     return {
         "result": "created", "operation_id": operation_id, "stock_entry": se.name,
         "dn_voucher": dn_voucher,
         "lines": len(items), "readback_ok": len(se.items) == len(items), "mr_state": mr_state,
+        "whatsapp_notify": whatsapp_notify,
     }
+
+
+def _notify_dispatch_whatsapp(warehouse, stock_entry_name):
+    """Best-effort default: send the DN print to WhatsApp after a successful
+    dispatch, per warehouse-configured group/number (Maytapi Settings >
+    Dispatch Recipients). Never raises - a WhatsApp failure must not block,
+    fail, or reverse an already-submitted, already-committed Stock Entry;
+    that would make a side-channel notification a hard dependency of the
+    actual stock movement, which it isn't. Silently a no-op if SIG WhatsApp
+    isn't installed, disabled, or this warehouse has no recipient configured.
+    """
+    try:
+        if not frappe.db.exists("DocType", "Maytapi Settings"):
+            return {"sent": False, "reason": "sig_whatsapp not installed"}
+        settings = frappe.get_single("Maytapi Settings")
+        if not settings.enabled or not settings.dispatch_notify_enabled:
+            return {"sent": False, "reason": "disabled"}
+        recipient = next(
+            (row.recipient for row in (settings.dispatch_recipients or []) if row.warehouse == warehouse),
+            None,
+        )
+        if not recipient:
+            return {"sent": False, "reason": "no recipient configured for this warehouse"}
+        from sig_whatsapp.maytapi import send_document
+        result = send_document("Stock Entry", stock_entry_name, to=recipient)
+        return {"sent": True, "status": result.get("status"), "message_id": result.get("message_id")}
+    except Exception as e:
+        frappe.log_error(title="SIG Warehouse: dispatch WhatsApp notify failed", message=frappe.get_traceback())
+        return {"sent": False, "reason": str(e)[:200]}
 
 
 @frappe.whitelist()
