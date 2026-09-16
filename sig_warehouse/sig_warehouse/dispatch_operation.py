@@ -179,6 +179,65 @@ def sig_check_dispatch_status(operation_id):
 
 
 @frappe.whitelist()
+def sig_add_mr_line(mr, item_code, qty, uom=None, site=None, project=None):
+    """Append a new line to an already-submitted Material Issue MR, so the
+    Issue dialog can offer 'add an item that wasn't on the original request'
+    without a separate MR-editing flow. A direct child-row insert (not
+    mr_doc.save()) because Material Request's items table isn't
+    allow_on_submit for a fresh row - same "act on the row directly, not
+    through the parent's submit-guard" approach this app already uses
+    elsewhere for submitted-doc gaps (see rollup.py). The caller (the Issue
+    dialog) only calls this at the moment of Confirm, for items the operator
+    chose to keep - anything added-then-removed in the dialog never reaches
+    here, so there's nothing to clean up on a change of mind.
+    """
+    if not mr or not item_code:
+        return {"result": "exception", "reason": "mr/item_code required"}
+    try:
+        qty = float(qty)
+    except (TypeError, ValueError):
+        qty = -1
+    if qty <= 0:
+        return {"result": "exception", "reason": "invalid qty"}
+
+    mr_doc = frappe.get_doc("Material Request", mr)
+    if mr_doc.docstatus != 1:
+        return {"result": "exception", "reason": "Material Request is not submitted"}
+    if mr_doc.material_request_type != "Material Issue":
+        return {"result": "exception", "reason": "Not a Material Issue request"}
+
+    warehouse = mr_doc.set_warehouse
+    if not warehouse:
+        return {"result": "exception", "reason": "MR has no warehouse set"}
+    _authorize(mr_doc, warehouse)
+
+    if not frappe.db.exists("Item", item_code):
+        return {"result": "exception", "reason": "UNKNOWN_ITEM", "item": item_code}
+    item_uom = uom or frappe.db.get_value("Item", item_code, "stock_uom")
+
+    max_idx = frappe.db.sql(
+        "SELECT MAX(idx) FROM `tabMaterial Request Item` WHERE parent=%s", mr
+    )[0][0] or 0
+
+    row = frappe.get_doc({
+        "doctype": "Material Request Item", "parent": mr, "parentfield": "items",
+        "parenttype": "Material Request", "idx": max_idx + 1,
+        "item_code": item_code, "qty": qty, "uom": item_uom,
+        "warehouse": warehouse, "schedule_date": frappe.utils.nowdate(),
+        "cost_center": "Main - SIG", "custom_site": site or mr_doc.get("custom_site"),
+        "project": project,
+    })
+    row.insert(ignore_permissions=True)
+    frappe.db.commit()
+
+    mr_state = rollup.recompute_mr_dispatch_state(mr)
+    frappe.clear_document_cache("Material Request", mr)
+
+    return {"result": "created", "mri": row.name, "item_code": item_code, "uom": item_uom,
+            "qty": qty, "mr_state": mr_state}
+
+
+@frappe.whitelist()
 def sig_cancel_mr_lines(operation_id, mr, line_count=0, **kwargs):
     """Mark remaining undispatched qty on one or more MR lines as no longer
     needed. No stock movement - only custom_qty_cancelled, which the rollup

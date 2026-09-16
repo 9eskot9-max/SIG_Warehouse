@@ -457,6 +457,7 @@ function sig_render_dispatch_dialog(frm, openLines, fromWarehouse, availability)
                         <option value="PENDING">${__('Leave pending')}</option>
                     </select>
                 </td>
+                <td></td>
             </tr>`;
     }).join('');
 
@@ -477,16 +478,24 @@ function sig_render_dispatch_dialog(frm, openLines, fromWarehouse, availability)
                         <th>${__('Item')}</th><th class="text-right">${__('Requested')}</th>
                         <th class="text-right">${__('Issued')}</th><th class="text-right">${__('Remaining')}</th>
                         <th class="text-right">${__('Available')}</th><th>${__('Qty to Dispatch')}</th>
-                        <th>${__('Outcome')}</th>
+                        <th>${__('Outcome')}</th><th></th>
                     </tr></thead>
                     <tbody>${rowsHtml}</tbody>
                 </table></div>`,
             },
+            { fieldtype: 'Section Break', label: __('Add an item not on this request') },
+            { fieldtype: 'Link', fieldname: 'new_item_code', label: __('Item'), options: 'Item',
+              get_query: () => ({ filters: { disabled: 0 } }) },
+            { fieldtype: 'Column Break' },
+            { fieldtype: 'Float', fieldname: 'new_item_qty', label: __('Qty'), default: 1 },
+            { fieldtype: 'Column Break' },
+            { fieldtype: 'Button', fieldname: 'add_item_btn', label: __('+ Add to list'),
+              click: () => sig_add_line_to_dispatch_dialog(d) },
         ],
         primary_action_label: __('Confirm Dispatch'),
-        primary_action() {
+        async primary_action() {
             const rows = [...d.$wrapper.find('.sig-dispatch-lines tbody tr')];
-            const lines = rows.map((row) => {
+            const existingLines = rows.filter((row) => !$(row).data('new')).map((row) => {
                 const $row = $(row);
                 return {
                     mri: $row.data('mri'),
@@ -494,7 +503,40 @@ function sig_render_dispatch_dialog(frm, openLines, fromWarehouse, availability)
                     outcome: $row.find('.sig-outcome').val(),
                 };
             }).filter((l) => l.outcome === 'DISPATCH' && l.qty > 0);
+            const newRows = rows.filter((row) => $(row).data('new'));
 
+            // New items chosen via "Add an item not on this request" only
+            // become real Material Request lines now, at Confirm - not when
+            // added to this table. Anything removed from the table before
+            // this point (the x button) never touches the server, so there
+            // is nothing to undo for a plain change of mind.
+            const addedLines = [];
+            for (const row of newRows) {
+                const $row = $(row);
+                const qty = parseFloat($row.find('.sig-qty').val() || '0');
+                if (!(qty > 0)) continue;
+                let res;
+                try {
+                    res = (await frappe.call({
+                        method: 'sig_warehouse.sig_warehouse.dispatch_operation.sig_add_mr_line',
+                        args: { mr: frm.doc.name, item_code: $row.data('item'), qty, uom: $row.data('uom') },
+                        freeze: true, freeze_message: __('Adding {0}...', [$row.data('item')]),
+                    })).message || {};
+                } catch (e) {
+                    res = { result: 'exception', reason: String(e) };
+                }
+                if (res.result !== 'created') {
+                    frappe.msgprint({
+                        title: __('Could not add {0}', [$row.data('item')]),
+                        indicator: 'red',
+                        message: __('{0}', [JSON.stringify(res)]),
+                    });
+                    return; // stop before dispatching anything on a partial failure
+                }
+                addedLines.push({ mri: res.mri, qty, outcome: 'DISPATCH' });
+            }
+
+            const lines = existingLines.concat(addedLines);
             if (!lines.length) {
                 frappe.msgprint(__('No lines selected to dispatch.'));
                 return;
@@ -560,4 +602,37 @@ function sig_render_dispatch_dialog(frm, openLines, fromWarehouse, availability)
         },
     });
     d.show();
+}
+
+function sig_add_line_to_dispatch_dialog(d) {
+    const itemCode = d.get_value('new_item_code');
+    const qty = parseFloat(d.get_value('new_item_qty') || '0');
+    if (!itemCode) {
+        frappe.msgprint(__('Pick an item first.'));
+        return;
+    }
+    if (!(qty > 0)) {
+        frappe.msgprint(__('Qty must be greater than 0.'));
+        return;
+    }
+    frappe.db.get_value('Item', itemCode, 'stock_uom').then((r) => {
+        const uom = (r.message && r.message.stock_uom) || '';
+        const $row = $(`
+            <tr data-new="1" data-item="${itemCode}" data-uom="${uom}">
+                <td>${frappe.utils.escape_html(itemCode)} <span class="text-muted">(${__('new')})</span></td>
+                <td class="text-right">-</td>
+                <td class="text-right">-</td>
+                <td class="text-right">-</td>
+                <td class="text-right">-</td>
+                <td><input type="number" class="form-control input-sm sig-qty" step="any" min="0" value="${qty}"></td>
+                <td><select class="form-control input-sm sig-outcome">
+                        <option value="DISPATCH" selected>${__('Dispatch')}</option>
+                    </select></td>
+                <td><span class="sig-remove-new-row text-danger" style="cursor:pointer;" title="${__('Remove')}">&times;</span></td>
+            </tr>`);
+        $row.find('.sig-remove-new-row').on('click', () => $row.remove());
+        d.$wrapper.find('.sig-dispatch-lines tbody').append($row);
+        d.set_value('new_item_code', '');
+        d.set_value('new_item_qty', 1);
+    });
 }
