@@ -3,7 +3,7 @@
  "issingle": 0,
  "module": "SIG Warehouse",
  "name": "SIG DN Voucher Counter",
- "permissions": [{"role": "System Manager", "read": 1, "write": 1}, {"role": "Stock Manager", "read": 1}],
+ "permissions": [{"role": "System Manager", "read": 1, "write": 1, "create": 1}, {"role": "Stock Manager", "read": 1}],
  "field_order": ["prefix", "digits", "next_number", "seeded_from_erp_next", "seeded_by", "seeded_at"],
  "fields": [
   {"fieldname": "prefix", "fieldtype": "Data", "label": "Voucher Prefix", "read_only": 1},
