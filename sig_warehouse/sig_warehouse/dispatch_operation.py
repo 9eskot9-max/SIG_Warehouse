@@ -128,11 +128,9 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
         items.append(detail)
 
     dn_voucher = None
-    dn_voucher_error = None  # TEMP diagnostic - remove once allocation is confirmed working
     try:
         dn_voucher = cutover.allocate_dn_voucher(warehouse)
     except frappe.ValidationError as e:
-        dn_voucher_error = str(e)
         if "is not active" not in str(e):
             raise  # a real problem (e.g. counter never seeded) - do not swallow it
 
@@ -163,7 +161,7 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
 
     return {
         "result": "created", "operation_id": operation_id, "stock_entry": se.name,
-        "dn_voucher": dn_voucher, "dn_voucher_error": dn_voucher_error,
+        "dn_voucher": dn_voucher,
         "lines": len(items), "readback_ok": len(se.items) == len(items), "mr_state": mr_state,
     }
 

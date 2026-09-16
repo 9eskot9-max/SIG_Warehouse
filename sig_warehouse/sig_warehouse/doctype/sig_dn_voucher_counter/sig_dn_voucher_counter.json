@@ -1,6 +1,6 @@
 {
  "doctype": "DocType",
- "issingle": 1,
+ "issingle": 0,
  "module": "SIG Warehouse",
  "name": "SIG DN Voucher Counter",
  "permissions": [{"role": "System Manager", "read": 1, "write": 1}, {"role": "Stock Manager", "read": 1}],
