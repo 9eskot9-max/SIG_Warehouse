@@ -176,3 +176,81 @@ def sig_check_dispatch_status(operation_id):
         return {"state": "not_found"}
     return {"state": "submitted" if row.state == "SUBMITTED" else "failed",
             "stock_entry": row.stock_entry, "mr": row.mr}
+
+
+@frappe.whitelist()
+def sig_cancel_mr_lines(operation_id, mr, line_count=0, **kwargs):
+    """Mark remaining undispatched qty on one or more MR lines as no longer
+    needed. No stock movement - only custom_qty_cancelled, which the rollup
+    folds into custom_qty_remaining (recompute_mr_dispatch_state). Same
+    idempotency/authorization shape as sig_dispatch_mr so it is safe to
+    trigger from a UI action (e.g. the Kanban card menu) without special-case
+    retry handling on the caller's side.
+    """
+    if not operation_id or not mr:
+        return {"result": "exception", "reason": "operation_id/mr required"}
+
+    lines = []
+    for i in range(1, int(line_count or 0) + 1):
+        mri = kwargs.get(f"mri_{i}")
+        if not mri:
+            continue
+        qty_raw = kwargs.get(f"qty_{i}")
+        try:
+            qty = float(qty_raw or 0)
+        except (TypeError, ValueError):
+            qty = -1
+        if qty <= 0:
+            return {"result": "exception", "reason": f"Invalid qty on line {i}: {qty_raw}"}
+        lines.append({"mri": mri, "qty": qty})
+    if not lines:
+        return {"result": "exception", "reason": "no lines"}
+
+    mr_doc = frappe.get_doc("Material Request", mr)
+    if mr_doc.docstatus != 1:
+        return {"result": "exception", "reason": "Material Request is not submitted"}
+
+    sig = _signature(mr, [{**l, "outcome": "CANCEL"} for l in lines])
+    existing = frappe.db.get_value(
+        "SIG Dispatch Operation", {"operation_id": operation_id},
+        ["name", "signature"], as_dict=True,
+    )
+    if existing:
+        if existing.signature != sig:
+            return {"result": "conflict", "operation_id": operation_id}
+        return {"result": "duplicate", "operation_id": operation_id}
+
+    mri_names = [line["mri"] for line in lines]
+    mri_rows = {
+        row.name: row for row in frappe.get_all(
+            "Material Request Item", filters={"name": ["in", mri_names]},
+            fields=["name", "warehouse", "custom_qty_remaining", "custom_qty_cancelled"],
+        )
+    }
+    for line in lines:
+        row = mri_rows.get(line["mri"])
+        if not row:
+            return {"result": "exception", "reason": "UNKNOWN_LINE", "line": line["mri"]}
+        warehouse = WH_MAP.get(row.warehouse, row.warehouse)
+        _authorize(mr_doc, warehouse)
+        remaining = float(row.custom_qty_remaining or 0)
+        if line["qty"] - remaining > EPS:
+            return {"result": "exception", "reason": "CAP_EXCEEDED", "line": line["mri"],
+                     "requested": line["qty"], "remaining": remaining}
+
+    for line in lines:
+        row = mri_rows[line["mri"]]
+        new_cancelled = float(row.custom_qty_cancelled or 0) + line["qty"]
+        frappe.db.set_value("Material Request Item", line["mri"], "custom_qty_cancelled", new_cancelled, update_modified=False)
+        frappe.clear_document_cache("Material Request Item", line["mri"])
+
+    mr_state = rollup.recompute_mr_dispatch_state(mr)  # also clears the MR's document cache
+
+    frappe.get_doc({
+        "doctype": "SIG Dispatch Operation", "operation_id": operation_id, "op_type": "CANCEL",
+        "action": "CANCEL", "mr": mr, "operator": frappe.session.user, "state": "SUBMITTED",
+        "signature": sig, "line_count": len(lines), "created_at": frappe.utils.now(),
+    }).insert(ignore_permissions=True)
+    frappe.db.commit()
+
+    return {"result": "created", "operation_id": operation_id, "lines": len(lines), "mr_state": mr_state}

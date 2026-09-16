@@ -7,7 +7,7 @@
  "field_order":["operation_id","op_type","action","mr","source_se","stock_entry","operator","state","signature","line_count","created_at"],
  "fields":[
   {"fieldname":"operation_id","fieldtype":"Data","label":"Operation ID","unique":1,"read_only":1,"in_list_view":1,"in_standard_filter":1},
-  {"fieldname":"op_type","fieldtype":"Select","options":"DISPATCH\nDISPOSITION","default":"DISPATCH","label":"Operation Type","read_only":1,"in_list_view":1,"in_standard_filter":1},
+  {"fieldname":"op_type","fieldtype":"Select","options":"DISPATCH\nDISPOSITION\nCANCEL","default":"DISPATCH","label":"Operation Type","read_only":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"action","fieldtype":"Data","label":"Action","read_only":1,"description":"For DISPOSITION: RETURN/CUSTODY/CLOSE."},
   {"fieldname":"mr","fieldtype":"Link","options":"Material Request","label":"Material Request","read_only":1,"in_list_view":1,"in_standard_filter":1},
   {"fieldname":"source_se","fieldtype":"Link","options":"Stock Entry","label":"Source Stock Entry (disposition)","read_only":1,"in_standard_filter":1},

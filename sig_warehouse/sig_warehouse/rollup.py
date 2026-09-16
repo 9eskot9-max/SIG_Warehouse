@@ -72,20 +72,38 @@ def recompute_mr_dispatch_state(mr_name):
                     qty *= float(factor)
             dispatched[item_name] = dispatched.get(item_name, 0) + qty
 
+    cancelled_by_item = {}
+    if item_names:
+        cancelled_rows = frappe.get_all(
+            "Material Request Item",
+            filters={"name": ["in", item_names]},
+            fields=["name", "custom_qty_cancelled"],
+        )
+        cancelled_by_item = {str(r.name): float(r.custom_qty_cancelled or 0) for r in cancelled_rows}
+
     total_requested = 0.0
     total_capped = 0.0
     line_states = []
+    any_cancelled = False
     for mri in mr_items:
         qty = float(mri.qty or 0)
         issued = float(dispatched.get(str(mri.name), 0))
-        remaining = qty - issued
+        cancelled = min(cancelled_by_item.get(str(mri.name), 0.0), max(0.0, qty - issued))
+        remaining = qty - issued - cancelled
         if remaining < EPS:
             remaining = 0.0
-            state = "DISPATCHED"
-        elif issued > EPS:
+            # A line resolved purely by cancellation (never dispatched at
+            # all) is CANCELLED; a line resolved by dispatch - whether or
+            # not part of it was separately cancelled first - is DISPATCHED.
+            # The header-level distinction between a clean full dispatch and
+            # one that involved a cancellation is CLOSED vs DISPATCHED below.
+            state = "CANCELLED" if issued < EPS and cancelled > EPS else "DISPATCHED"
+        elif issued > EPS or cancelled > EPS:
             state = "PARTIAL"
         else:
             state = "PENDING"
+        if cancelled > EPS:
+            any_cancelled = True
         frappe.db.set_value(
             "Material Request Item",
             mri.name,
@@ -102,15 +120,19 @@ def recompute_mr_dispatch_state(mr_name):
         total_capped += min(issued, qty)
         line_states.append(state)
 
+    resolved = ("DISPATCHED", "CANCELLED")
     if not line_states:
         stage = "PENDING"
-    elif all(s == "DISPATCHED" for s in line_states):
-        stage = "DISPATCHED"
-    elif any(s in ("PARTIAL", "DISPATCHED") for s in line_states):
+    elif all(s in resolved for s in line_states):
+        # Every line is done, one way or another. CLOSED (not DISPATCHED)
+        # only when at least one line's resolution involved a cancellation -
+        # a pure full dispatch keeps the exact prior DISPATCHED behaviour.
+        stage = "CLOSED" if any_cancelled else "DISPATCHED"
+    elif any(s in ("PARTIAL",) + resolved for s in line_states):
         stage = "PARTIAL"
     else:
         stage = "PENDING"
-    legacy = {"DISPATCHED": "DISPATCHED", "PARTIAL": "PARTIALLY_DISPATCHED"}.get(stage, "PARTIALLY_CONFIRMED")
+    legacy = {"DISPATCHED": "DISPATCHED", "CLOSED": "DISPATCHED", "PARTIAL": "PARTIALLY_DISPATCHED"}.get(stage, "PARTIALLY_CONFIRMED")
 
     frappe.db.set_value(
         "Material Request",

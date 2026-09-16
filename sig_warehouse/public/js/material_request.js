@@ -26,6 +26,7 @@ function sig_maybe_setup_kanban() {
     sig_wait_for_kanban_board(($board) => {
         sig_setup_kanban_updates($board);
         sig_setup_kanban_search($board);
+        sig_setup_kanban_actions($board);
     });
 }
 
@@ -100,6 +101,273 @@ function sig_setup_kanban_search($board) {
         });
         // card visibility changed - refresh the per-column counts to match
         sig_setup_kanban_updates($board);
+    });
+}
+
+// Per-card action menu, replacing Frappe's built-in assign-avatar icon (CSS-
+// hidden below, scoped to this board only) - no assign-to-user workflow is
+// needed here; PENDING/PARTIAL/DISPATCHED cards get Dispatch/Return/Cancel
+// actions instead, calling the same three backend operations already proven
+// from the Material Request form (Dispatch) and the Stock Entry form
+// (Return, via sig_declare_disposition) plus the new sig_cancel_mr_lines.
+// Not visually verified in this environment (no desk session available to
+// render a Kanban board) - built from the confirmed-live DOM structure and
+// the same dialog patterns already proven working from their form contexts.
+function sig_setup_kanban_actions($board) {
+    if (!$('#sig-kanban-hide-assign-style').length) {
+        $('<style id="sig-kanban-hide-assign-style">.kanban-board .kanban-assignments { display: none !important; }</style>').appendTo('head');
+    }
+    $board.find('.kanban-card-wrapper').each(function () {
+        const $card = $(this);
+        if ($card.find('.sig-kanban-action-btn').length) return;
+        const $btn = $(`<span class="sig-kanban-action-btn" title="${__('Actions')}"
+            style="position:absolute; top:6px; right:6px; cursor:pointer; opacity:0.6; z-index:2;">
+            <svg class="icon icon-sm"><use href="#icon-dot-horizontal"></use></svg>
+        </span>`);
+        $card.css('position', 'relative');
+        $card.find('.kanban-card.content').first().append($btn);
+        $btn.on('click', function (e) {
+            e.stopPropagation();
+            e.preventDefault();
+            sig_show_kanban_action_menu($btn, $card.attr('data-name'));
+        });
+    });
+}
+
+function sig_show_kanban_action_menu($anchor, mrNameEncoded) {
+    const mrName = decodeURIComponent(mrNameEncoded);
+    $('.sig-kanban-action-menu').remove();
+    frappe.call({
+        method: 'frappe.client.get',
+        args: { doctype: 'Material Request', name: mrName },
+        freeze: true,
+        freeze_message: __('Loading...'),
+        callback: (r) => {
+            const doc = r.message;
+            if (!doc) return;
+            const stage = doc.custom_dispatch_stage;
+            const actions = [];
+            if (stage === 'PENDING') {
+                actions.push([__('Dispatch'), () => sig_kanban_dispatch(doc)]);
+                actions.push([__('Cancel remaining'), () => sig_kanban_cancel(doc)]);
+            } else if (stage === 'PARTIAL') {
+                actions.push([__('Dispatch'), () => sig_kanban_dispatch(doc)]);
+                actions.push([__('Return'), () => sig_kanban_return(doc)]);
+                actions.push([__('Cancel remaining'), () => sig_kanban_cancel(doc)]);
+            } else if (stage === 'DISPATCHED') {
+                actions.push([__('Return'), () => sig_kanban_return(doc)]);
+            } else {
+                frappe.msgprint(__('No actions available for stage {0}.', [stage]));
+                return;
+            }
+            const $menu = $('<div class="sig-kanban-action-menu"></div>').css({
+                position: 'absolute', zIndex: 1000, background: 'var(--card-bg, #fff)',
+                border: '1px solid var(--border-color, #d1d8dd)', borderRadius: '6px',
+                boxShadow: '0 2px 8px rgba(0,0,0,.15)', minWidth: '160px',
+            });
+            actions.forEach(([label, fn]) => {
+                const $item = $('<div class="sig-kanban-action-item"></div>')
+                    .css({ padding: '8px 12px', cursor: 'pointer' }).text(label);
+                $item.on('click', () => { $menu.remove(); fn(); });
+                $item.on('mouseenter', function () { $(this).css('background', 'var(--fg-hover-color, #f4f5f6)'); });
+                $item.on('mouseleave', function () { $(this).css('background', ''); });
+                $menu.append($item);
+            });
+            $('body').append($menu);
+            const offset = $anchor.offset();
+            $menu.css({ top: offset.top + $anchor.outerHeight() + 2, left: offset.left - $menu.outerWidth() + $anchor.outerWidth() });
+            setTimeout(() => { $(document).one('click', () => $menu.remove()); }, 0);
+        },
+    });
+}
+
+function sig_kanban_dispatch(doc) {
+    sig_open_dispatch_dialog({ doc, reload_doc: () => {} });
+}
+
+function sig_kanban_cancel(doc) {
+    const openLines = (doc.items || []).filter((it) => (it.custom_qty_remaining || 0) > 0.000001);
+    if (!openLines.length) {
+        frappe.msgprint(__('No open lines to cancel on this request.'));
+        return;
+    }
+    const rowsHtml = openLines.map((it) => `
+        <tr data-mri="${it.name}">
+            <td>${frappe.utils.escape_html(it.item_code)}</td>
+            <td class="text-right">${it.custom_qty_remaining}</td>
+            <td><input type="number" class="form-control input-sm sig-cancel-qty" step="any" min="0"
+                max="${it.custom_qty_remaining}" value="${it.custom_qty_remaining}"></td>
+        </tr>`).join('');
+    const d = new frappe.ui.Dialog({
+        title: __('Cancel remaining - {0}', [doc.name]),
+        fields: [{
+            fieldtype: 'HTML', fieldname: 'lines_html',
+            options: `<div class="table-responsive"><table class="table table-bordered">
+                <thead><tr><th>${__('Item')}</th><th class="text-right">${__('Remaining')}</th><th>${__('Qty to Cancel')}</th></tr></thead>
+                <tbody>${rowsHtml}</tbody></table></div>`,
+        }],
+        primary_action_label: __('Confirm Cancel'),
+        primary_action() {
+            const rows = [...d.$wrapper.find('tbody tr')];
+            const lines = rows.map((row) => {
+                const $row = $(row);
+                return { mri: $row.data('mri'), qty: parseFloat($row.find('.sig-cancel-qty').val() || '0') };
+            }).filter((l) => l.qty > 0);
+            if (!lines.length) {
+                frappe.msgprint(__('No lines selected.'));
+                return;
+            }
+            frappe.confirm(
+                __('Cancel remaining demand on {0} line(s) of {1}? This cannot be undone from here.', [lines.length, doc.name]),
+                () => {
+                    const args = { operation_id: sig_gen_operation_id('CANCEL'), mr: doc.name, line_count: lines.length };
+                    lines.forEach((l, i) => { args[`mri_${i + 1}`] = l.mri; args[`qty_${i + 1}`] = l.qty; });
+                    frappe.call({
+                        method: 'sig_warehouse.sig_warehouse.dispatch_operation.sig_cancel_mr_lines',
+                        args, freeze: true, freeze_message: __('Cancelling...'),
+                        callback: (r) => {
+                            const res = r.message || {};
+                            if (res.result === 'created' || res.result === 'duplicate') {
+                                frappe.show_alert({ message: __('Cancelled.'), indicator: 'green' });
+                                d.hide();
+                            } else if (res.result === 'exception' && res.reason === 'CAP_EXCEEDED') {
+                                frappe.msgprint({ title: __('Cannot cancel'), indicator: 'red',
+                                    message: __('Line {0}: requested {1} exceeds remaining {2}.', [res.line, res.requested, res.remaining]) });
+                            } else if (res.result === 'conflict') {
+                                frappe.msgprint({ title: __('Conflict'), indicator: 'red', message: __('This attempt changed after the operation ID was generated. Retry.') });
+                            } else {
+                                frappe.msgprint({ title: __('Failed'), indicator: 'red', message: __('{0}', [JSON.stringify(res)]) });
+                            }
+                        },
+                    });
+                }
+            );
+        },
+    });
+    d.show();
+}
+
+function sig_kanban_return(doc) {
+    frappe.call({
+        method: 'frappe.client.get_list',
+        args: {
+            doctype: 'SIG Dispatch Operation',
+            filters: { mr: doc.name, op_type: 'DISPATCH', state: 'SUBMITTED' },
+            fields: ['stock_entry'],
+            limit_page_length: 0,
+        },
+        freeze: true, freeze_message: __('Finding dispatch...'),
+        callback: (r) => {
+            const ses = [...new Set((r.message || []).map((x) => x.stock_entry).filter(Boolean))];
+            if (!ses.length) {
+                frappe.msgprint(__('No dispatch Stock Entry found for {0}.', [doc.name]));
+                return;
+            }
+            if (ses.length > 1) {
+                const d = new frappe.ui.Dialog({
+                    title: __('Select dispatch to return against'),
+                    fields: [{ fieldtype: 'Select', fieldname: 'se', label: __('Stock Entry'), options: ses.join('\n'), reqd: 1 }],
+                    primary_action_label: __('Continue'),
+                    primary_action() {
+                        const se = d.get_value('se');
+                        d.hide();
+                        sig_open_kanban_return_dialog(se);
+                    },
+                });
+                d.show();
+                return;
+            }
+            sig_open_kanban_return_dialog(ses[0]);
+        },
+    });
+}
+
+function sig_open_kanban_return_dialog(sourceSe) {
+    frappe.call({
+        method: 'frappe.client.get',
+        args: { doctype: 'Stock Entry', name: sourceSe },
+        freeze: true, freeze_message: __('Loading...'),
+        callback: (r) => {
+            const se = r.message;
+            if (!se) return;
+            const openLines = (se.items || []).filter((it) => {
+                const returned = it.custom_qty_returned || 0;
+                const custody = it.custom_qty_custody || 0;
+                const undeclared = it.qty - returned - custody;
+                return !it.custom_return_closed && undeclared > 0.000001;
+            });
+            if (!openLines.length) {
+                frappe.msgprint(__('No undeclared lines on {0}.', [sourceSe]));
+                return;
+            }
+            const rowsHtml = openLines.map((it) => {
+                const returned = it.custom_qty_returned || 0;
+                const custody = it.custom_qty_custody || 0;
+                const undeclared = it.qty - returned - custody;
+                return `
+                    <tr data-sed="${it.name}">
+                        <td>${frappe.utils.escape_html(it.item_code)}</td>
+                        <td class="text-right">${undeclared}</td>
+                        <td><input type="number" class="form-control input-sm sig-return-qty" step="any" min="0" max="${undeclared}" value="${undeclared}"></td>
+                    </tr>`;
+            }).join('');
+            const d = new frappe.ui.Dialog({
+                title: __('Return - {0}', [sourceSe]),
+                size: 'large',
+                fields: [
+                    { fieldtype: 'Data', fieldname: 'to_wh', label: __('To Warehouse'), default: openLines[0].s_warehouse, reqd: 1 },
+                    { fieldtype: 'Section Break' },
+                    {
+                        fieldtype: 'HTML', fieldname: 'lines_html',
+                        options: `<div class="table-responsive"><table class="table table-bordered">
+                            <thead><tr><th>${__('Item')}</th><th class="text-right">${__('Undeclared')}</th><th>${__('Qty to Return')}</th></tr></thead>
+                            <tbody>${rowsHtml}</tbody></table></div>`,
+                    },
+                ],
+                primary_action_label: __('Confirm Return'),
+                primary_action() {
+                    const rows = [...d.$wrapper.find('tbody tr')];
+                    const lines = rows.map((row) => {
+                        const $row = $(row);
+                        return { sed: $row.data('sed'), qty: parseFloat($row.find('.sig-return-qty').val() || '0') };
+                    }).filter((l) => l.qty > 0);
+                    if (!lines.length) {
+                        frappe.msgprint(__('No lines selected.'));
+                        return;
+                    }
+                    const toWh = d.get_value('to_wh');
+                    frappe.confirm(
+                        __('Return {0} line(s) from {1} to {2}? This submits a Stock Entry immediately.', [lines.length, sourceSe, toWh]),
+                        () => {
+                            const args = {
+                                operation_id: sig_gen_operation_id('RETURN'), action: 'RETURN', source_se: sourceSe,
+                                to_wh: toWh, line_count: lines.length,
+                            };
+                            lines.forEach((l, i) => { args[`sed_${i + 1}`] = l.sed; args[`qty_${i + 1}`] = l.qty; });
+                            frappe.call({
+                                method: 'sig_warehouse.sig_warehouse.disposition.sig_declare_disposition',
+                                args, freeze: true, freeze_message: __('Returning...'),
+                                callback: (res2) => {
+                                    const res = res2.message || {};
+                                    if (res.result === 'created' || res.result === 'duplicate') {
+                                        frappe.show_alert({ message: __('Returned.'), indicator: 'green' });
+                                        d.hide();
+                                    } else if (res.result === 'exception' && res.reason === 'CAP_EXCEEDED') {
+                                        frappe.msgprint({ title: __('Cannot return'), indicator: 'red',
+                                            message: __('Line {0}: requested {1} exceeds remaining {2}.', [res.line, res.requested, res.remaining]) });
+                                    } else if (res.result === 'conflict') {
+                                        frappe.msgprint({ title: __('Conflict'), indicator: 'red', message: __('This attempt changed after the operation ID was generated. Retry.') });
+                                    } else {
+                                        frappe.msgprint({ title: __('Failed'), indicator: 'red', message: __('{0}', [JSON.stringify(res)]) });
+                                    }
+                                },
+                            });
+                        }
+                    );
+                },
+            });
+            d.show();
+        },
     });
 }
 
