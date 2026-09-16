@@ -24,7 +24,7 @@ function sig_maybe_setup_kanban() {
     const route = frappe.get_route ? frappe.get_route() : [];
     if (route[0] !== 'List' || route[1] !== 'Material Request' || route[2] !== 'Kanban') return;
     sig_wait_for_kanban_board(($board) => {
-        sig_setup_kanban_counts($board);
+        sig_setup_kanban_updates($board);
         sig_setup_kanban_search($board);
     });
 }
@@ -39,24 +39,44 @@ function sig_wait_for_kanban_board(callback, attemptsLeft = 40) {
     setTimeout(() => sig_wait_for_kanban_board(callback, attemptsLeft - 1), 250);
 }
 
-function sig_setup_kanban_counts($board) {
+// Column title text is the raw custom_dispatch_stage value (Kanban groups by
+// that field) - matched case-insensitively since Kanban Board column labels
+// are free text and could get re-cased/renamed independently of the field.
+const SIG_STAGE_COLORS = {
+    PENDING: '#94a3b8',
+    PARTIAL: '#f59e0b',
+    DISPATCHED: '#16a34a',
+};
+
+function sig_stage_color_for_column($col) {
+    const title = $col.find('.kanban-column-title').first().clone()
+        .children('.sig-kanban-count').remove().end()
+        .text().trim().toUpperCase();
+    return SIG_STAGE_COLORS[title] || null;
+}
+
+function sig_setup_kanban_updates($board) {
     const update = () => {
         $board.find('.kanban-column').each(function () {
             const $col = $(this);
-            const count = $col.find('.kanban-cards .kanban-card-wrapper:visible').length;
+            const $cards = $col.find('.kanban-cards .kanban-card-wrapper');
+            const count = $cards.filter(':visible').length;
             let $badge = $col.find('.sig-kanban-count');
             if (!$badge.length) {
                 $badge = $('<span class="sig-kanban-count badge pull-right" style="font-weight:normal;"></span>');
                 $col.find('.kanban-column-title').append($badge);
             }
             $badge.text(count);
+
+            const color = sig_stage_color_for_column($col);
+            $cards.find('.kanban-card').css('border-left', color ? `4px solid ${color}` : '');
         });
     };
     update();
-    if ($board.data('sig-count-observer')) return; // already watching this board instance
+    if ($board.data('sig-update-observer')) return; // already watching this board instance
     const observer = new MutationObserver(() => update());
     observer.observe($board.get(0), { childList: true, subtree: true });
-    $board.data('sig-count-observer', observer);
+    $board.data('sig-update-observer', observer);
 }
 
 function sig_setup_kanban_search($board) {
@@ -73,7 +93,7 @@ function sig_setup_kanban_search($board) {
             $card.toggle(match);
         });
         // card visibility changed - refresh the per-column counts to match
-        sig_setup_kanban_counts($board);
+        sig_setup_kanban_updates($board);
     });
 }
 
