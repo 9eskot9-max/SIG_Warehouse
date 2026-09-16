@@ -4,18 +4,19 @@ live WH VBA mirror) per 9A.9's writer-placement decision - different
 authorization model (a real operator's own session, not a service key),
 different identity family (operation_id, not a WH voucher).
 
-Not yet implemented here: DN26 voucher allocation (9A.9 decision 2). That
-needs a per-warehouse cutover date that hasn't been set - allocating real
-DN26 numbers from this endpoint before WH's own VBA has stopped issuing
-them for a given warehouse risks a live numbering collision. Stock Entries
-created here get ERPNext's own naming series in the meantime; voucher
-allocation is a follow-up once a cutover date exists.
+DN26 voucher allocation (9A.9 decision 2): a Stock Entry created here gets a
+real DN26-#### voucher (sig_warehouse.cutover.allocate_dn_voucher) only once
+its warehouse has an ACTIVE, accepted Stage 4 cutover - allocating real DN26
+numbers before WH's own VBA has stopped issuing them for a given warehouse
+would risk a live numbering collision. Before that warehouse's cutover, the
+Stock Entry gets no voucher and keeps ERPNext's own naming series only, same
+as before Stage 4 existed.
 """
 import hashlib
 
 import frappe
 
-from sig_warehouse.sig_warehouse import rollup
+from sig_warehouse.sig_warehouse import cutover, rollup
 
 WH_MAP = {
     "Riyadh": "مستودع المزاحمية - SIG", "Ry": "مستودع المزاحمية - SIG",
@@ -126,6 +127,13 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
             detail["allow_zero_valuation_rate"] = 1
         items.append(detail)
 
+    dn_voucher = None
+    try:
+        dn_voucher = cutover.allocate_dn_voucher(warehouse)
+    except frappe.ValidationError as e:
+        if "is not active" not in str(e):
+            raise  # a real problem (e.g. counter never seeded) - do not swallow it
+
     se = frappe.get_doc({
         "doctype": "Stock Entry", "stock_entry_type": "Material Issue", "purpose": "Material Issue",
         "company": COMPANY,
@@ -134,9 +142,11 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
         "remarks": (remarks or "SIG Warehouse dispatch") + f" | operation {operation_id}",
         "items": items,
     })
+    if dn_voucher:
+        se.custom_source_id = dn_voucher
     se.insert(ignore_permissions=False)
     se.submit()
-    frappe.db.commit()
+    frappe.db.commit()  # commits the allocated voucher together with its Stock Entry, or not at all
 
     mr_state = rollup.recompute_mr_dispatch_state(mr)  # also clears the MR's document cache
     # the new dispatch SE itself needs its own clear - see rollup.py for why.
@@ -151,6 +161,7 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
 
     return {
         "result": "created", "operation_id": operation_id, "stock_entry": se.name,
+        "dn_voucher": dn_voucher,
         "lines": len(items), "readback_ok": len(se.items) == len(items), "mr_state": mr_state,
     }
 
