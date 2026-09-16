@@ -15,7 +15,16 @@ from frappe import _
 from frappe.utils import cint, now_datetime
 
 
-COUNTER = "SIG DN Voucher Counter"
+COUNTER = "GLOBAL"  # Frappe reserves the literal doctype-name string as a
+# document name for any non-Single doctype (raises NameError: "Name of X
+# cannot be X") - this table was a Single (issingle:1) originally, where
+# name==doctype-name is normal/expected, so COUNTER used the doctype name
+# too. After the issingle:0 fix (see allocate_dn_voucher's own comment),
+# that name became unusable for a real insert; found live when the table
+# was discovered empty post-fix (its data was stranded in the old
+# tabSingles row, never migrated) and a straight re-seed hit this reserved-
+# name error. "GLOBAL" is arbitrary - only the constant matters, since
+# every lookup goes through COUNTER, never a literal string.
 ALLOWED_ROLES = ("Stock Manager", "System Manager")
 
 
