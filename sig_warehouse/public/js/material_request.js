@@ -30,7 +30,10 @@ function sig_maybe_setup_kanban() {
 }
 
 function sig_wait_for_kanban_board(callback, attemptsLeft = 40) {
-    const $board = $('.kanban-board');
+    // Frappe v15's Kanban root wrapper class is '.kanban', not '.kanban-board'
+    // (confirmed live on this site's Frappe 15.106.0) - the old selector never
+    // matched, so none of the enhancements below ever activated in production.
+    const $board = $('.kanban');
     if ($board.length) {
         callback($board);
         return;
@@ -39,20 +42,23 @@ function sig_wait_for_kanban_board(callback, attemptsLeft = 40) {
     setTimeout(() => sig_wait_for_kanban_board(callback, attemptsLeft - 1), 250);
 }
 
-// Column title text is the raw custom_dispatch_stage value (Kanban groups by
-// that field) - matched case-insensitively since Kanban Board column labels
-// are free text and could get re-cased/renamed independently of the field.
+// Each real column carries its group value in data-column-value (confirmed
+// live on this site's Frappe 15 Kanban DOM: <div class="kanban-column"
+// data-column-value="PENDING">) - the field grouping the board is
+// custom_dispatch_stage, so this is that value verbatim. Falls back to the
+// title text (case-insensitive) in case a future Frappe version drops the
+// attribute, since Kanban Board column labels are otherwise free text.
 const SIG_STAGE_COLORS = {
     PENDING: '#94a3b8',
     PARTIAL: '#f59e0b',
     DISPATCHED: '#16a34a',
+    CLOSED: '#64748b',
 };
 
 function sig_stage_color_for_column($col) {
-    const title = $col.find('.kanban-column-title').first().clone()
-        .children('.sig-kanban-count').remove().end()
-        .text().trim().toUpperCase();
-    return SIG_STAGE_COLORS[title] || null;
+    const key = ($col.attr('data-column-value') || $col.find('.kanban-title').first().text())
+        .trim().toUpperCase();
+    return SIG_STAGE_COLORS[key] || null;
 }
 
 function sig_setup_kanban_updates($board) {
@@ -64,7 +70,7 @@ function sig_setup_kanban_updates($board) {
             let $badge = $col.find('.sig-kanban-count');
             if (!$badge.length) {
                 $badge = $('<span class="sig-kanban-count badge pull-right" style="font-weight:normal;"></span>');
-                $col.find('.kanban-column-title').append($badge);
+                $col.find('.kanban-column-header').first().append($badge);
             }
             $badge.text(count);
 
