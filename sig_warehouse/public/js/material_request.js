@@ -12,7 +12,27 @@ frappe.ui.form.on('Material Request', {
         // selector that Frappe's dropdown markup doesn't actually expose,
         // so it silently did nothing. Consolidated into this one real
         // button instead of maintaining two.
-        frm.add_custom_button(__('Issue'), () => sig_open_dispatch_dialog(frm));
+        const $btn = frm.add_custom_button(__('Issue'), () => sig_open_dispatch_dialog(frm));
+        $btn.removeClass('btn-default').addClass('btn-primary');
+
+        // ERPNext's own core script adds a native "Create > Stock Entry" /
+        // "Issue Material" shortcut for a submitted Material Issue MR - it
+        // bypasses this app's whole flow (DN voucher allocation, remaining-
+        // qty caps, the dispatch rollup, SIG Dispatch Operation audit trail),
+        // so having both next to each other is confusing and the native one
+        // is actively wrong to use here. Core's refresh handler runs before
+        // this one (this app's JS bundle loads after erpnext's), so the
+        // button already exists in the DOM by the time we get here - find it
+        // by text under the "Create" dropdown rather than guessing its exact
+        // label/version, and drop it silently if the version in use doesn't
+        // add one at all.
+        (frm.page.wrapper.find('.menu-btn-group, .custom-actions').find('.dropdown-menu a.dropdown-item') || [])
+            .each(function () {
+                const $item = $(this);
+                if (/stock entry|issue material/i.test($item.text().trim())) {
+                    $item.closest('li').remove();
+                }
+            });
     }
 });
 
