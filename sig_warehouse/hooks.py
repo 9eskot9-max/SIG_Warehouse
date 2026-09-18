@@ -21,10 +21,20 @@ doctype_js = {
 # TDZ ordering crash) stopped preventing the script from running at all.
 # Fixed by only writing when the value actually changes - repro confirmed
 # clean afterward (2 update() calls total, matching expectations, vs 2000+
-# before). Re-enabled after that verification.
-doctype_list_js = {
-    "Material Request": "public/js/material_request_list.js",
-}
+# before).
+#
+# NOT using doctype_list_js for material_request_list.js (2026-09-19):
+# confirmed live that Frappe only reliably evaluates a doctype's __list_js
+# when its full meta happens to already be cached - e.g. switching from the
+# plain List view to the Kanban sub-view client-side works, because the
+# List view's own load already pulled it in - but a direct page load or a
+# plain reload of the Kanban URL itself does not reliably trigger it, so
+# the whole enhancement (including the availability dots) silently doesn't
+# run on a fresh visit. app_include_js loads unconditionally on every desk
+# page instead, sidestepping that lazy-meta dependency entirely; the file's
+# own sig_maybe_setup_kanban() already checks frappe.get_route() before
+# doing anything, so it is a safe no-op everywhere except this one board.
+app_include_js = ["/assets/sig_warehouse/js/material_request_list.js"]
 
 doc_events = {
     "Stock Entry": {
