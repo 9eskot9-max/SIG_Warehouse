@@ -104,11 +104,21 @@ const SIG_AVAILABILITY_COLOR = { green: '#16a34a', yellow: '#eab308', red: '#dc2
 let sig_availability_fetch_pending = false;
 
 function sig_refresh_kanban_availability($board) {
-    const $wrappers = $board.find('.kanban-card-wrapper').filter(function () {
-        return !$(this).find('.sig-kanban-availability-dot').length;
-    });
+    // Marked "checked" (not just "has a dot") the moment a card is picked up
+    // for this batch, synchronously, before the async frappe.call even
+    // returns - a card with no open lines never gets a dot back from the
+    // server, so filtering on the dot alone would make this function pick
+    // the same never-dotted cards again on every subsequent mutation
+    // (including the mutation caused by THIS batch's own dot insertions),
+    // looping indefinitely and freezing the board. Filtering on the
+    // "checked" marker instead guarantees the candidate set strictly
+    // shrinks to empty after one pass, regardless of how many cards never
+    // get a dot. Confirmed live 2026-09-18: the dot-only version froze the
+    // real board (216 cards, most DISPATCHED/CLOSED with no open lines).
+    const $wrappers = $board.find('.kanban-card-wrapper').not('.sig-kanban-availability-checked');
     if (!$wrappers.length || sig_availability_fetch_pending) return;
     const names = [...new Set($wrappers.map(function () { return decodeURIComponent($(this).attr('data-name')); }).get())];
+    $wrappers.addClass('sig-kanban-availability-checked');
     if (!names.length) return;
     sig_availability_fetch_pending = true;
     frappe.call({
