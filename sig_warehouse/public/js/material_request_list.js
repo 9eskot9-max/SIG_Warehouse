@@ -11,8 +11,19 @@
 // the Kanban/List view). Moved here under doctype_list_js instead, which
 // Frappe does load for List/Kanban (confirmed live: erpnext's own core
 // material_request_list.js already arrives via this exact hook).
-frappe.router.on('change', () => sig_maybe_setup_kanban());
-sig_maybe_setup_kanban();
+//
+// The bootstrap call itself (frappe.router.on + the initial call) is at the
+// BOTTOM of this file, not here, on purpose: when this script evaluates, the
+// Kanban board's DOM is often already present, so sig_maybe_setup_kanban()
+// runs synchronously all the way down into functions that read `const`
+// declarations further down this same file (SIG_STAGE_COLORS etc.) - a
+// `const` is in the temporal dead zone until its own declaration line runs,
+// so calling this before those declarations throws "Cannot access before
+// initialization" and aborts the whole script silently. Confirmed live
+// 2026-09-18: this was the actual reason nothing ever rendered, even after
+// fixing the doctype_js/doctype_list_js hook above - not a Frappe loading
+// problem at all, just this ordering bug (present since the very first
+// version of this file, before the doctype_list_js split too).
 
 function sig_maybe_setup_kanban() {
     const route = frappe.get_route ? frappe.get_route() : [];
@@ -724,3 +735,11 @@ function sig_add_line_to_dispatch_dialog(d) {
         d.set_value('new_item_qty', 1);
     });
 }
+
+// Bootstrap - must be the LAST thing in this file. See the comment near
+// sig_maybe_setup_kanban's definition above for why: this can run
+// synchronously all the way through to code that reads a `const` declared
+// earlier in this file, and that only works once every such declaration has
+// already executed.
+frappe.router.on('change', () => sig_maybe_setup_kanban());
+sig_maybe_setup_kanban();
