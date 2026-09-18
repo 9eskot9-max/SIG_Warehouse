@@ -25,16 +25,41 @@
 // problem at all, just this ordering bug (present since the very first
 // version of this file, before the doctype_list_js split too).
 
+// Tracks the exact .kanban DOM node our setup last ran against - not just
+// whether we've "ever" set up. Confirmed live 2026-09-19 (after switching
+// this file to app_include_js, which loads it much earlier than the old
+// doctype_list_js path did): Frappe can still be constructing the Kanban
+// board when this first runs, and later replaces that early/premature
+// .kanban element wholesale with the real, fully-populated one - our
+// MutationObserver only protects against mutations on the SAME node, not
+// the node itself being swapped out, so a setup that fires too early binds
+// to a node Frappe is about to discard and nothing (badges/dots/search/
+// dispatch button) shows up on the real board that replaces it, even
+// though comment-hiding still visibly worked (that part is a global CSS
+// rule keyed by selector, not tied to a specific node reference). Re-
+// checking on every call and re-running setup whenever the live node
+// differs from last time is a cheap, robust fix regardless of exactly when
+// Frappe decides to do that replacement.
+let __sig_last_kanban_node = null;
 function sig_maybe_setup_kanban() {
     const route = frappe.get_route ? frappe.get_route() : [];
     if (route[0] !== 'List' || route[1] !== 'Material Request' || route[2] !== 'Kanban') return;
     sig_wait_for_kanban_board(($board) => {
+        const node = $board.get(0);
+        if (node === __sig_last_kanban_node && document.body.contains(node)) return;
+        __sig_last_kanban_node = node;
         sig_setup_kanban_updates($board);
         sig_setup_kanban_search($board);
         sig_setup_kanban_actions($board);
         sig_setup_dispatch_tool_button($board);
     });
 }
+// Route changes alone don't cover an in-place node replacement (no route
+// change happens when Frappe swaps the board out from under us), so also
+// poll cheaply while this tab might be sitting on the Kanban route. The
+// node-identity check above makes repeated calls a fast no-op once the
+// board has stabilized.
+setInterval(() => sig_maybe_setup_kanban(), 1000);
 
 function sig_wait_for_kanban_board(callback, attemptsLeft = 40) {
     // Frappe v15's Kanban root wrapper class is '.kanban', not '.kanban-board'
