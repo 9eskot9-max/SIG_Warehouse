@@ -10,18 +10,21 @@ doctype_js = {
     "Stock Entry": "public/js/stock_entry.js",
 }
 
-# doctype_list_js intentionally NOT registered right now: enabling it
-# (2026-09-18) made the live Kanban board's tab become unresponsive to any
-# further script injection on the real board (216 cards) - root cause not
-# yet confirmed (a fix for one identified feedback loop in
-# sig_refresh_kanban_availability did not resolve it, so something else is
-# also at fault). Pulled from production as a safety measure until the real
-# cause is found and verified fixed against the live card count, not a
-# smaller test board. material_request_list.js itself is left in place,
-# just not wired up - re-enable this dict only after that verification.
-# doctype_list_js = {
-#     "Material Request": "public/js/material_request_list.js",
-# }
+# Root cause of the 2026-09-18 freeze found and fixed (isolated offline
+# repro against 216 mock cards, no live server involved): sig_setup_kanban_
+# updates wrote $badge.text(count) unconditionally on every call. .text()
+# replaces the DOM text node even when the value is unchanged - a real
+# childList mutation - and this ran inside a MutationObserver watching
+# childList:true, so every write re-triggered the observer, forever. This
+# line predates this session's availability-dot work entirely; it was only
+# ever exposed once two earlier, unrelated bugs (wrong hook, then a
+# TDZ ordering crash) stopped preventing the script from running at all.
+# Fixed by only writing when the value actually changes - repro confirmed
+# clean afterward (2 update() calls total, matching expectations, vs 2000+
+# before). Re-enabled after that verification.
+doctype_list_js = {
+    "Material Request": "public/js/material_request_list.js",
+}
 
 doc_events = {
     "Stock Entry": {

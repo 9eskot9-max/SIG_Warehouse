@@ -78,7 +78,17 @@ function sig_setup_kanban_updates($board) {
                 $badge = $('<span class="sig-kanban-count badge pull-right" style="font-weight:normal;"></span>');
                 $col.find('.kanban-column-header').first().append($badge);
             }
-            $badge.text(count);
+            // Only write when the value actually changes: .text() replaces
+            // the text node even when the string is identical, which is a
+            // real childList mutation - inside a MutationObserver watching
+            // childList:true, an unconditional write here re-triggers the
+            // observer on every single call, forever. Confirmed live in an
+            // isolated repro (2026-09-19): this pre-existing line, not the
+            // availability-dot feature added this session, was the actual
+            // cause of the Kanban board becoming unresponsive - update()
+            // ran 2000+ times in 8 seconds from this alone, with the
+            // server only ever called once as expected.
+            if ($badge.text() !== String(count)) $badge.text(count);
 
             const color = sig_stage_color_for_column($col);
             $cards.find('.kanban-card').css('border-left', color ? `4px solid ${color}` : '');
