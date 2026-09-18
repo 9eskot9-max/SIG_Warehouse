@@ -162,7 +162,15 @@ function sig_refresh_kanban_availability($board) {
         callback: (r) => {
             sig_availability_fetch_pending = false;
             const statuses = r.message || {};
-            $board.find('.kanban-card-wrapper').each(function () {
+            // Re-select the board fresh from the live document instead of
+            // using the $board this call closed over: confirmed live
+            // 2026-09-19 that Frappe can re-render this board's cards
+            // (new DOM nodes replacing the old ones) while this request is
+            // in flight - by the time this callback runs, the captured
+            // $board can point at a detached snapshot, so writing into it
+            // silently succeeds in JS terms but never appears on screen
+            // (no error, no dots, response data was fine the whole time).
+            $('.kanban').find('.kanban-card-wrapper').each(function () {
                 const $card = $(this);
                 if ($card.find('.sig-kanban-availability-dot').length) return;
                 const mrName = decodeURIComponent($card.attr('data-name'));
