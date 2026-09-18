@@ -361,3 +361,64 @@ def sig_cancel_mr_lines(operation_id, mr, line_count=0, **kwargs):
     frappe.db.commit()
 
     return {"result": "created", "operation_id": operation_id, "lines": len(lines), "mr_state": mr_state}
+
+
+@frappe.whitelist()
+def sig_kanban_availability_status(mrs):
+    """Per-MR stock-availability traffic light for the Kanban board.
+
+    green: every open (undispatched-remaining) line is covered by its own
+    warehouse's current Bin qty. yellow: not fully covered locally, but every
+    short line has enough qty somewhere else in the system. red: at least one
+    open line has no warehouse - own or otherwise - holding enough. A card
+    with no open lines (fully dispatched/cancelled) is left out of the result
+    entirely; the caller treats "no entry" as "no light".
+    """
+    if isinstance(mrs, str):
+        mrs = frappe.parse_json(mrs)
+    mrs = [m for m in (mrs or []) if m]
+    if not mrs:
+        return {}
+
+    mri_rows = frappe.get_all(
+        "Material Request Item",
+        filters={"parent": ["in", mrs]},
+        fields=["parent", "item_code", "warehouse", "custom_qty_remaining"],
+    )
+    open_rows = [r for r in mri_rows if float(r.custom_qty_remaining or 0) > EPS]
+    if not open_rows:
+        return {}
+
+    item_codes = list({r.item_code for r in open_rows})
+    bins = frappe.get_all(
+        "Bin", filters={"item_code": ["in", item_codes]},
+        fields=["item_code", "warehouse", "actual_qty"],
+    )
+    qty_by_item_wh = {(b.item_code, b.warehouse): float(b.actual_qty or 0) for b in bins}
+    qty_by_item = {}
+    for b in bins:
+        qty_by_item.setdefault(b.item_code, {})[b.warehouse] = float(b.actual_qty or 0)
+
+    by_mr = {}
+    for r in open_rows:
+        by_mr.setdefault(r.parent, []).append(r)
+
+    result = {}
+    for mr, rows in by_mr.items():
+        covered_locally = True
+        covered_elsewhere = True
+        for r in rows:
+            remaining = float(r.custom_qty_remaining or 0)
+            own_qty = qty_by_item_wh.get((r.item_code, r.warehouse), 0.0)
+            if own_qty + EPS >= remaining:
+                continue
+            covered_locally = False
+            best_other = max(
+                (qty for wh, qty in qty_by_item.get(r.item_code, {}).items() if wh != r.warehouse),
+                default=0.0,
+            )
+            if best_other + EPS < remaining:
+                covered_elsewhere = False
+        result[mr] = "green" if covered_locally else ("yellow" if covered_elsewhere else "red")
+
+    return result

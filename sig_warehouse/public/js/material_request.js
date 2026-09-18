@@ -106,12 +106,55 @@ function sig_setup_kanban_updates($board) {
             const color = sig_stage_color_for_column($col);
             $cards.find('.kanban-card').css('border-left', color ? `4px solid ${color}` : '');
         });
+        sig_refresh_kanban_availability($board);
     };
     update();
     if ($board.data('sig-update-observer')) return; // already watching this board instance
     const observer = new MutationObserver(() => update());
     observer.observe($board.get(0), { childList: true, subtree: true });
     $board.data('sig-update-observer', observer);
+}
+
+// Per-MR stock-availability traffic light (green/yellow/red dot on each
+// card), separate from the stage-color left border above. Debounced and
+// deduped: the MutationObserver in sig_setup_kanban_updates fires on every
+// DOM change (including the dot being added), so without both guards this
+// would call the server in a tight loop. A card with no dot (server left it
+// out of the response - no open lines) gets no dot at all, not a default
+// color, so a fully-dispatched/cancelled MR is left unmarked rather than
+// implying a stock state that doesn't apply to it.
+const SIG_AVAILABILITY_COLOR = { green: '#16a34a', yellow: '#eab308', red: '#dc2626' };
+let sig_availability_fetch_pending = false;
+
+function sig_refresh_kanban_availability($board) {
+    const $wrappers = $board.find('.kanban-card-wrapper').filter(function () {
+        return !$(this).find('.sig-kanban-availability-dot').length;
+    });
+    if (!$wrappers.length || sig_availability_fetch_pending) return;
+    const names = [...new Set($wrappers.map(function () { return decodeURIComponent($(this).attr('data-name')); }).get())];
+    if (!names.length) return;
+    sig_availability_fetch_pending = true;
+    frappe.call({
+        method: 'sig_warehouse.sig_warehouse.dispatch_operation.sig_kanban_availability_status',
+        args: { mrs: names },
+        callback: (r) => {
+            sig_availability_fetch_pending = false;
+            const statuses = r.message || {};
+            $board.find('.kanban-card-wrapper').each(function () {
+                const $card = $(this);
+                if ($card.find('.sig-kanban-availability-dot').length) return;
+                const mrName = decodeURIComponent($card.attr('data-name'));
+                const status = statuses[mrName];
+                if (!status) return;
+                const $dot = $(`<span class="sig-kanban-availability-dot" title="${__('Stock availability')}: ${status}"
+                    style="position:absolute; top:6px; left:6px; width:9px; height:9px; border-radius:50%; z-index:2;
+                    background:${SIG_AVAILABILITY_COLOR[status]};"></span>`);
+                $card.css('position', 'relative');
+                $card.find('.kanban-card.content').first().append($dot);
+            });
+        },
+        error: () => { sig_availability_fetch_pending = false; },
+    });
 }
 
 function sig_setup_kanban_search($board) {
