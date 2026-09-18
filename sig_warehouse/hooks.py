@@ -10,9 +10,18 @@ doctype_js = {
     "Stock Entry": "public/js/stock_entry.js",
 }
 
-doctype_list_js = {
-    "Material Request": "public/js/material_request_list.js",
-}
+# doctype_list_js intentionally NOT registered right now: enabling it
+# (2026-09-18) made the live Kanban board's tab become unresponsive to any
+# further script injection on the real board (216 cards) - root cause not
+# yet confirmed (a fix for one identified feedback loop in
+# sig_refresh_kanban_availability did not resolve it, so something else is
+# also at fault). Pulled from production as a safety measure until the real
+# cause is found and verified fixed against the live card count, not a
+# smaller test board. material_request_list.js itself is left in place,
+# just not wired up - re-enable this dict only after that verification.
+# doctype_list_js = {
+#     "Material Request": "public/js/material_request_list.js",
+# }
 
 doc_events = {
     "Stock Entry": {
