@@ -42,17 +42,30 @@
 // Frappe decides to do that replacement.
 let __sig_last_kanban_node = null;
 function sig_maybe_setup_kanban() {
-    const route = frappe.get_route ? frappe.get_route() : [];
-    if (route[0] !== 'List' || route[1] !== 'Material Request' || route[2] !== 'Kanban') return;
-    sig_wait_for_kanban_board(($board) => {
-        const node = $board.get(0);
-        if (node === __sig_last_kanban_node && document.body.contains(node)) return;
-        __sig_last_kanban_node = node;
-        sig_setup_kanban_updates($board);
-        sig_setup_kanban_search($board);
-        sig_setup_kanban_actions($board);
-        sig_setup_dispatch_tool_button($board);
-    });
+    // Defensive: confirmed live 2026-09-19 that something inside this call
+    // chain (most likely frappe.get_route() itself, or frappe internals it
+    // touches) can throw at certain moments now that this script - loaded
+    // via app_include_js - runs much earlier than before, sometimes ahead
+    // of Frappe's own router being fully ready. This runs on a 1s interval
+    // (see bottom of file) for the lifetime of the tab, so left unguarded a
+    // transient throw here is not fatal to the interval itself, but it is
+    // an uncaught exception on every tick until conditions change - swallow
+    // it and let the next tick retry instead.
+    try {
+        const route = frappe.get_route ? frappe.get_route() : [];
+        if (route[0] !== 'List' || route[1] !== 'Material Request' || route[2] !== 'Kanban') return;
+        sig_wait_for_kanban_board(($board) => {
+            const node = $board.get(0);
+            if (node === __sig_last_kanban_node && document.body.contains(node)) return;
+            __sig_last_kanban_node = node;
+            sig_setup_kanban_updates($board);
+            sig_setup_kanban_search($board);
+            sig_setup_kanban_actions($board);
+            sig_setup_dispatch_tool_button($board);
+        });
+    } catch (e) {
+        console.error('sig_maybe_setup_kanban: transient error, will retry', e);
+    }
 }
 // Route changes alone don't cover an in-place node replacement (no route
 // change happens when Frappe swaps the board out from under us), so also
