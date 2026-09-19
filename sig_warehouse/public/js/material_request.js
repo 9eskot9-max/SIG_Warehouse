@@ -51,18 +51,23 @@ function sig_gen_operation_id(warehouse) {
     return `SIG-DISPOP-${safeWh}-${stamp}-${Math.floor(Math.random() * 900 + 100)}`;
 }
 
-function sig_open_dispatch_dialog(frm) {
-    const openLines = (frm.doc.items || []).filter(it => (it.custom_qty_remaining || 0) > 0.000001);
-    if (!openLines.length) {
-        frappe.msgprint(__('No open lines to dispatch on this request.'));
-        return;
-    }
-    const fromWarehouse = openLines[0].warehouse;
+// Warehouses that can be a dispatch source. The request's WH text picks the
+// line's default warehouse at intake with no stock check, so a Makkah-area
+// request can point at a warehouse that has none of the item while another
+// holds it - the dispatch dialog therefore lets the operator choose the
+// source and pre-selects one that actually covers the lines.
+const SIG_SOURCE_WAREHOUSES = [
+    'مستودع المزاحمية - SIG',
+    'مستودع مكة - SIG',
+    'مستودع القصيم - SIG',
+    'مستودع جازان - SIG',
+];
 
-    frappe.call({
+function sig_check_availability(wh, openLines) {
+    return frappe.call({
         method: 'check_dn_availability',
         args: {
-            from_wh: fromWarehouse,
+            from_wh: wh,
             line_count: openLines.length,
             ...Object.fromEntries(openLines.flatMap((it, i) => [
                 [`code_${i + 1}`, it.item_code],
@@ -70,13 +75,42 @@ function sig_open_dispatch_dialog(frm) {
                 [`uom_${i + 1}`, it.uom],
             ])),
         },
-        freeze: true,
-        freeze_message: __('Checking availability...'),
-        callback: (r) => sig_render_dispatch_dialog(frm, openLines, fromWarehouse, r.message),
-    });
+    }).then((r) => r.message);
 }
 
-function sig_render_dispatch_dialog(frm, openLines, fromWarehouse, availability) {
+async function sig_open_dispatch_dialog(frm, overrideWh) {
+    const openLines = (frm.doc.items || []).filter(it => (it.custom_qty_remaining || 0) > 0.000001);
+    if (!openLines.length) {
+        frappe.msgprint(__('No open lines to dispatch on this request.'));
+        return;
+    }
+    let fromWarehouse = overrideWh || openLines[0].warehouse;
+    let note = '';
+    frappe.dom.freeze(__('Checking availability...'));
+    try {
+        let availability = await sig_check_availability(fromWarehouse, openLines);
+        const short = (a) => a && a.result === 'ok' && a.lines.some((l) => !l.sufficient);
+        if (!overrideWh && short(availability)) {
+            for (const wh of SIG_SOURCE_WAREHOUSES.filter((w) => w !== fromWarehouse)) {
+                const alt = await sig_check_availability(wh, openLines);
+                if (alt && alt.result === 'ok' && alt.lines.every((l) => l.sufficient)) {
+                    note = __('Stock is not fully available in {0}; source switched to {1}, which covers every line. Change the warehouse below if that is wrong.',
+                        [fromWarehouse, wh]);
+                    fromWarehouse = wh;
+                    availability = alt;
+                    break;
+                }
+            }
+        }
+        frappe.dom.unfreeze();
+        sig_render_dispatch_dialog(frm, openLines, fromWarehouse, availability, note);
+    } catch (e) {
+        frappe.dom.unfreeze();
+        throw e;
+    }
+}
+
+function sig_render_dispatch_dialog(frm, openLines, fromWarehouse, availability, note) {
     const avByLine = {};
     if (availability && availability.result === 'ok') {
         availability.lines.forEach((l) => { avByLine[l.line] = l; });
@@ -110,7 +144,14 @@ function sig_render_dispatch_dialog(frm, openLines, fromWarehouse, availability)
         title: __('Dispatch {0}', [frm.doc.name]),
         size: 'large',
         fields: [
-            { fieldtype: 'Data', fieldname: 'from_wh', label: __('From Warehouse'), default: fromWarehouse, read_only: 1 },
+            ...(note ? [{ fieldtype: 'HTML', fieldname: 'switch_note',
+                          options: `<div class="alert alert-warning" style="margin-bottom:8px;">${frappe.utils.escape_html(note)}</div>` }] : []),
+            { fieldtype: 'Select', fieldname: 'from_wh', label: __('From Warehouse'),
+              options: [...new Set([fromWarehouse, ...SIG_SOURCE_WAREHOUSES])].join('\n'), default: fromWarehouse,
+              change() {
+                  const v = d.get_value('from_wh');
+                  if (v && v !== fromWarehouse) { d.hide(); sig_open_dispatch_dialog(frm, v); }
+              } },
             { fieldtype: 'Date', fieldname: 'posting_date', label: __('Posting Date'), default: frappe.datetime.get_today() },
             { fieldtype: 'Column Break' },
             { fieldtype: 'Link', fieldname: 'dispatched_to', label: __('Dispatched To'), options: 'Employee' },
