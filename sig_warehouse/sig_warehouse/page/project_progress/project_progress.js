@@ -13,10 +13,12 @@ frappe.pages['project-progress'].on_page_load = function (wrapper) {
                 <option value="blockers">${__('Reported blockers')}</option><option value="review">${__('Needs review')}</option><option value="history">${__('History')}</option>
             </select></label>
             <label class="sig-pp-field" style="min-width:220px">${__('Site or reference')}<input class="sig-pp-search form-control" placeholder="${__('Search site, PO or WO')}"></label>
+            <button type="button" class="btn btn-default btn-sm sig-pp-insights">${__('Open Ops KPIs')}</button>
         </div><div class="sig-pp-summary"></div><div class="sig-pp-main"><div class="sig-pp-table-wrap"></div><aside class="sig-pp-detail"></aside></div>`);
         root.find('.sig-pp-project').on('change', function () { state.project = this.value; load(); });
         root.find('.sig-pp-view').on('change', function () { state.view = this.value; load(); });
         root.find('.sig-pp-search').on('input', frappe.utils.debounce(function () { state.search = this.value; load(); }, 250));
+        root.find('.sig-pp-insights').on('click', function () { window.open('/insights/dashboard/dh657cqj78', '_blank', 'noopener'); });
     }
 
     function renderFilters() {
