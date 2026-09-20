@@ -6,7 +6,7 @@ app_email = "it@sigtele.com"
 app_license = "mit"
 
 doctype_js = {
-    "Material Request": "public/js/material_request.js",
+    "Material Request": "public/js/material_request.js?v=20260921-1",
     "Stock Entry": "public/js/stock_entry.js",
 }
 
