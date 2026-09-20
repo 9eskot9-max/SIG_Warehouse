@@ -278,7 +278,27 @@ def sig_add_mr_line(mr, item_code, qty, uom=None, site=None, project=None):
 
     if not frappe.db.exists("Item", item_code):
         return {"result": "exception", "reason": "UNKNOWN_ITEM", "item": item_code}
-    item_uom = uom or frappe.db.get_value("Item", item_code, "stock_uom")
+
+    # Material Request Item has mandatory stock_uom/conversion_factor fields.
+    # The dialog normally supplies the item's stock UOM, but this endpoint is
+    # also callable directly and must not rely on the client-side item-detail
+    # fill. Resolve the requested UOM against the Item master so a new line is
+    # valid on insert and remains correct for any alternate UOM the item owns.
+    item_doc = frappe.get_doc("Item", item_code)
+    stock_uom = str(item_doc.stock_uom or "").strip()
+    item_uom = str(uom or stock_uom).strip()
+    conversion_factor = None
+    if stock_uom and item_uom.casefold() == stock_uom.casefold():
+        conversion_factor = 1.0
+    else:
+        for item_uom_row in (item_doc.uoms or []):
+            candidate = str(item_uom_row.uom or "").strip()
+            if candidate and candidate.casefold() == item_uom.casefold():
+                conversion_factor = float(item_uom_row.conversion_factor or 0)
+                break
+    if not stock_uom or not item_uom or not conversion_factor or conversion_factor <= 0:
+        return {"result": "exception", "reason": "UOM_CONVERSION_NOT_FOUND",
+                "item": item_code, "uom": item_uom, "stock_uom": stock_uom}
 
     max_idx = frappe.db.sql(
         "SELECT MAX(idx) FROM `tabMaterial Request Item` WHERE parent=%s", mr
@@ -288,6 +308,8 @@ def sig_add_mr_line(mr, item_code, qty, uom=None, site=None, project=None):
         "doctype": "Material Request Item", "parent": mr, "parentfield": "items",
         "parenttype": "Material Request", "idx": max_idx + 1,
         "item_code": item_code, "qty": qty, "uom": item_uom,
+        "stock_uom": stock_uom, "conversion_factor": conversion_factor,
+        "stock_qty": qty * conversion_factor,
         "warehouse": warehouse, "schedule_date": frappe.utils.nowdate(),
         "cost_center": "Main - SIG", "custom_site": site or mr_doc.get("custom_site"),
         "project": project,
