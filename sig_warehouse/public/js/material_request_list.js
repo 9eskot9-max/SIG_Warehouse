@@ -52,7 +52,7 @@ function sig_maybe_setup_kanban() {
     // an uncaught exception on every tick until conditions change - swallow
     // it and let the next tick retry instead.
     try {
-        const route = frappe.get_route ? frappe.get_route() : [];
+        const route = (frappe.get_route && frappe.get_route()) || [];
         if (route[0] !== 'List' || route[1] !== 'Material Request' || route[2] !== 'Kanban') return;
         sig_wait_for_kanban_board(($board) => {
             // Frappe can add the native toolbar/column-create controls after
