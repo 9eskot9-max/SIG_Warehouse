@@ -151,6 +151,11 @@ function sig_hide_kanban_create_controls($board) {
     // in every column; each creates a new Material Request rather than
     // issuing an existing one. Suppress them only on this SIG route.
     const hiddenLabels = new Set(['add material request', '+ add material request', '+ add column']);
+    // Frappe's current Kanban renderer uses stable structural classes for
+    // these native creation affordances. Hide them directly so late-rendered
+    // controls cannot escape the text-based fallback below.
+    $('.page-container .standard-actions .primary-action').hide();
+    $('.page-container .kanban-column.add-new-column, .page-container .kanban-column .add-card').hide();
     $('.page-container button, .page-container a, .page-container span, .page-container div')
         .filter(function () {
         return hiddenLabels.has($(this).text().replace(/\s+/g, ' ').trim().toLowerCase());
