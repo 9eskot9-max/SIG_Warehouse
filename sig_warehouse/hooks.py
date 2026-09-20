@@ -6,7 +6,6 @@ app_email = "it@sigtele.com"
 app_license = "mit"
 
 doctype_js = {
-    "Material Request": "public/js/material_request.js?v=20260921-1",
     "Stock Entry": "public/js/stock_entry.js",
 }
 
@@ -38,6 +37,7 @@ doctype_js = {
 # deploy; the unversioned app-included URL can remain cached for a long time.
 app_include_js = [
     "/assets/sig_warehouse/js/material_request_list.js?v=20260921-1",
+    "/assets/sig_warehouse/js/material_request.js?v=20260921-1",
 ]
 
 doc_events = {
