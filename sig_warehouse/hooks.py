@@ -38,6 +38,11 @@ app_include_js = ["/assets/sig_warehouse/js/material_request_list.js"]
 
 doc_events = {
     "Stock Entry": {
+        # Child-line custom_site is the authoritative allocation.  A
+        # single-site entry gets a header summary at insert time so normal
+        # Stock Entry search/filtering finds it too; multi-site entries stay
+        # header-blank rather than being assigned a misleading first site.
+        "before_insert": "sig_warehouse.sig_warehouse.site_material_issue.sync_stock_entry_site_summary",
         "on_submit": "sig_warehouse.sig_warehouse.rollup.on_stock_entry_submit",
         "on_cancel": "sig_warehouse.sig_warehouse.rollup.on_stock_entry_cancel",
     },

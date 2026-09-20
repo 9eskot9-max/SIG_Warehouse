@@ -107,7 +107,7 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
     mri_rows = {
         row.name: row for row in frappe.get_all(
             "Material Request Item", filters={"name": ["in", mri_names]},
-            fields=["name", "item_code", "uom", "custom_qty_remaining"],
+            fields=["name", "item_code", "uom", "custom_qty_remaining", "custom_site"],
         )
     }
     for line in lines:
@@ -127,6 +127,13 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
             "s_warehouse": warehouse, "material_request": mr, "material_request_item": line["mri"],
             "cost_center": "Main - SIG",
         }
+        # Site is recorded at the Stock Entry detail grain.  The before_insert
+        # hook mirrors it to the Stock Entry header only when all lines agree,
+        # preserving correct search behavior without inventing a site for a
+        # genuinely multi-site dispatch.
+        site = row.custom_site or mr_doc.get("custom_site")
+        if site and frappe.get_meta("Stock Entry Detail").has_field("custom_site"):
+            detail["custom_site"] = site
         if line["rowkey"]:
             detail["custom_row_key"] = line["rowkey"]
         rate = frappe.db.get_value(
