@@ -73,7 +73,10 @@ function sig_gen_operation_id(warehouse) {
 // request can point at a warehouse that has none of the item while another
 // holds it - the dispatch dialog therefore lets the operator choose the
 // source and pre-selects one that actually covers the lines.
-const SIG_SOURCE_WAREHOUSES = [
+// `material_request.js` can be injected by both the cached doctype hook and
+// app_include_js during a bench transition; `var` keeps the second load
+// harmless while the hook metadata settles.
+var SIG_SOURCE_WAREHOUSES = [
     'مستودع المزاحمية - SIG',
     'مستودع مكة - SIG',
     'مستودع القصيم - SIG',
