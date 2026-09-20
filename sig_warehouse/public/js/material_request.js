@@ -43,7 +43,14 @@ function sig_hide_native_issue_action(frm) {
     // Issue action; the dropdown may still be collapsed when this runs.
     frm.page.wrapper.find('button').filter(function () {
         return /^create$/i.test($(this).text().trim());
-    }).closest('.dropdown, .menu-btn-group').hide();
+    }).each(function () {
+        // In some Frappe builds the Create control is itself the dropdown
+        // trigger (not nested below a .dropdown/menu-btn-group), so hiding
+        // only its ancestor leaves the blue button visible.
+        const $button = $(this);
+        const $container = $button.closest('.dropdown, .menu-btn-group');
+        ($container.length ? $container : $button).hide();
+    });
 }
 
 // Dispatch dialog builder - used by the form "Issue" button above. Also
