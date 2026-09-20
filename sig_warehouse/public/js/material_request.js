@@ -32,8 +32,6 @@ function sig_hide_native_issue_action(frm) {
     // the former .dropdown-item selector no longer matched the live action.
     const $nativeItems = frm.page.wrapper.find('.dropdown-menu a, .dropdown-menu button')
         .filter(function () { return /^(stock entry|issue material)$/i.test($(this).text().trim()); });
-    if (!$nativeItems.length) return;
-
     $nativeItems.each(function () {
         const $item = $(this);
         const $row = $item.closest('li');
@@ -41,9 +39,8 @@ function sig_hide_native_issue_action(frm) {
         else $item.remove();
     });
 
-    // For a submitted Material Issue request this dropdown only exposed the
-    // bypass route. Do not leave an empty blue Create control competing with
-    // the real SIG Issue action.
+    // Do not leave the native blue Create control competing with the real SIG
+    // Issue action; the dropdown may still be collapsed when this runs.
     frm.page.wrapper.find('button').filter(function () {
         return /^create$/i.test($(this).text().trim());
     }).closest('.dropdown, .menu-btn-group').hide();
