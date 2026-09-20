@@ -76,7 +76,7 @@ function sig_gen_operation_id(warehouse) {
 // `material_request.js` can be injected by both the cached doctype hook and
 // app_include_js during a bench transition; `var` keeps the second load
 // harmless while the hook metadata settles.
-var SIG_SOURCE_WAREHOUSES = [
+var SIG_SOURCE_WAREHOUSES_V2 = [
     'مستودع المزاحمية - SIG',
     'مستودع مكة - SIG',
     'مستودع القصيم - SIG',
@@ -111,7 +111,7 @@ async function sig_open_dispatch_dialog(frm, overrideWh) {
         let availability = await sig_check_availability(fromWarehouse, openLines);
         const short = (a) => a && a.result === 'ok' && a.lines.some((l) => !l.sufficient);
         if (!overrideWh && short(availability)) {
-            for (const wh of SIG_SOURCE_WAREHOUSES.filter((w) => w !== fromWarehouse)) {
+            for (const wh of SIG_SOURCE_WAREHOUSES_V2.filter((w) => w !== fromWarehouse)) {
                 const alt = await sig_check_availability(wh, openLines);
                 if (alt && alt.result === 'ok' && alt.lines.every((l) => l.sufficient)) {
                     note = __('Stock is not fully available in {0}; source switched to {1}, which covers every line. Change the warehouse below if that is wrong.',
@@ -167,7 +167,7 @@ function sig_render_dispatch_dialog(frm, openLines, fromWarehouse, availability,
             ...(note ? [{ fieldtype: 'HTML', fieldname: 'switch_note',
                           options: `<div class="alert alert-warning" style="margin-bottom:8px;">${frappe.utils.escape_html(note)}</div>` }] : []),
             { fieldtype: 'Select', fieldname: 'from_wh', label: __('From Warehouse'),
-              options: [...new Set([fromWarehouse, ...SIG_SOURCE_WAREHOUSES])].join('\n'), default: fromWarehouse,
+              options: [...new Set([fromWarehouse, ...SIG_SOURCE_WAREHOUSES_V2])].join('\n'), default: fromWarehouse,
               change() {
                   const v = d.get_value('from_wh');
                   if (v && v !== fromWarehouse) { d.hide(); sig_open_dispatch_dialog(frm, v); }
