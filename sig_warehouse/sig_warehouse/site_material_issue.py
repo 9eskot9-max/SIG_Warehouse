@@ -55,10 +55,29 @@ def sync_stock_entry_site_summary(doc, method=None):
     if not frappe.get_meta("Stock Entry").has_field("custom_site"):
         return
     site = single_line_site(getattr(doc, "items", None))
-    if site:
+    header_site = canonical_sig_site_name(site)
+    if header_site:
         # The child rows are the authoritative allocation.  Their sole site
         # is safe to mirror at the header for Frappe's list/global search.
-        doc.custom_site = site
+        # The header is a Link, so it must contain the SIG Site document name,
+        # not merely its human-facing Site ID.
+        doc.custom_site = header_site
+
+
+def canonical_sig_site_name(site):
+    """Return the SIG Site document name for a Link-field header.
+
+    Stock Entry Detail historically stores the business site ID (for example
+    ``Z95004``), while Stock Entry.custom_site is a Link and stores the SIG
+    Site document name (for example ``1``).  Keeping that conversion here
+    prevents a valid line allocation from becoming an invalid header Link.
+    """
+    query = _text(site)
+    if not query:
+        return None
+    if frappe.db.exists("SIG Site", query):
+        return query
+    return _text(frappe.db.get_value("SIG Site", {"site_id": query}, "name")) or None
 
 
 def resolve_site_references(site):
@@ -67,8 +86,9 @@ def resolve_site_references(site):
     if not query:
         return []
     names = {query}  # supports historical rows whose Link stores the raw ID
-    if frappe.db.exists("SIG Site", query):
-        names.add(query)
+    canonical_name = canonical_sig_site_name(query)
+    if canonical_name:
+        names.add(canonical_name)
     names.update(
         _text(row.name)
         for row in frappe.get_all("SIG Site", filters={"site_id": query}, fields=["name"])
@@ -159,15 +179,18 @@ def sig_backfill_material_issue_site_summaries(apply=0, limit=5000):
         ):
             detail_by_parent[str(row.parent)].append(row)
 
-    filled, multi_site, untagged = [], [], []
+    filled, multi_site, untagged, unresolved = [], [], [], []
     for name in blank_names:
         site = single_line_site(detail_by_parent.get(str(name), []))
         tagged = {_text(row.custom_site) for row in detail_by_parent.get(str(name), []) if _text(row.custom_site)}
-        if site:
-            filled.append({"stock_entry": name, "site": site})
+        header_site = canonical_sig_site_name(site)
+        if header_site:
+            filled.append({"stock_entry": name, "site_id": site, "site": header_site})
             if apply:
-                frappe.db.set_value("Stock Entry", name, "custom_site", site, update_modified=False)
+                frappe.db.set_value("Stock Entry", name, "custom_site", header_site, update_modified=False)
                 frappe.clear_document_cache("Stock Entry", name)
+        elif site:
+            unresolved.append({"stock_entry": name, "site_id": site})
         elif tagged:
             multi_site.append(name)
         else:
@@ -177,5 +200,5 @@ def sig_backfill_material_issue_site_summaries(apply=0, limit=5000):
     return {
         "result": "applied" if apply else "dry_run", "considered": len(blank_names),
         "fillable": len(filled), "filled": filled, "multi_site": multi_site,
-        "untagged": untagged,
+        "untagged": untagged, "unresolved_site_ids": unresolved,
     }
