@@ -55,6 +55,10 @@ function sig_maybe_setup_kanban() {
         const route = frappe.get_route ? frappe.get_route() : [];
         if (route[0] !== 'List' || route[1] !== 'Material Request' || route[2] !== 'Kanban') return;
         sig_wait_for_kanban_board(($board) => {
+            // Frappe can add the native toolbar/column-create controls after
+            // the board node exists. Re-run this cheap cleanup on every poll,
+            // even when the board node itself has not changed.
+            sig_hide_kanban_create_controls($board);
             const node = $board.get(0);
             if (node === __sig_last_kanban_node && document.body.contains(node)) return;
             __sig_last_kanban_node = node;
@@ -147,9 +151,10 @@ function sig_hide_kanban_create_controls($board) {
     // in every column; each creates a new Material Request rather than
     // issuing an existing one. Suppress them only on this SIG route.
     const hiddenLabels = new Set(['add material request', '+ add material request', '+ add column']);
-    $('button, a, .kanban-add-column').filter(function () {
+    $('.page-container button, .page-container a, .page-container span, .page-container div')
+        .filter(function () {
         return hiddenLabels.has($(this).text().replace(/\s+/g, ' ').trim().toLowerCase());
-    }).hide();
+        }).hide();
 }
 
 // Per-MR stock-availability traffic light (green/yellow/red dot on each
