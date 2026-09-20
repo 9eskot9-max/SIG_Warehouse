@@ -32,8 +32,6 @@ function sig_hide_native_issue_action(frm) {
     // the former .dropdown-item selector no longer matched the live action.
     const $nativeItems = frm.page.wrapper.find('.dropdown-menu a, .dropdown-menu button')
         .filter(function () { return /^(stock entry|issue material)$/i.test($(this).text().trim()); });
-    if (!$nativeItems.length) return;
-
     $nativeItems.each(function () {
         const $item = $(this);
         const $row = $item.closest('li');
@@ -41,9 +39,8 @@ function sig_hide_native_issue_action(frm) {
         else $item.remove();
     });
 
-    // For a submitted Material Issue request this dropdown only exposed the
-    // bypass route. Do not leave an empty blue Create control competing with
-    // the real SIG Issue action.
+    // Do not leave the native blue Create control competing with the real SIG
+    // Issue action; the dropdown may still be collapsed when this runs.
     frm.page.wrapper.find('button').filter(function () {
         return /^create$/i.test($(this).text().trim());
     }).closest('.dropdown, .menu-btn-group').hide();
@@ -167,7 +164,12 @@ function sig_render_dispatch_dialog(frm, openLines, fromWarehouse, availability,
               } },
             { fieldtype: 'Date', fieldname: 'posting_date', label: __('Posting Date'), default: frappe.datetime.get_today() },
             { fieldtype: 'Column Break' },
-            { fieldtype: 'Link', fieldname: 'dispatched_to', label: __('Dispatched To'), options: 'Employee' },
+            { fieldtype: 'Select', fieldname: 'recipient_type', label: __('Dispatched To Type'),
+              options: 'Employee\nOther', default: 'Employee', reqd: 1 },
+            { fieldtype: 'Link', fieldname: 'dispatched_to', label: __('Employee'), options: 'Employee',
+              depends_on: 'eval:doc.recipient_type=="Employee"', mandatory_depends_on: 'eval:doc.recipient_type=="Employee"' },
+            { fieldtype: 'Data', fieldname: 'dispatched_to_other', label: __('Other recipient'),
+              depends_on: 'eval:doc.recipient_type=="Other"', mandatory_depends_on: 'eval:doc.recipient_type=="Other"' },
             { fieldtype: 'Small Text', fieldname: 'remarks', label: __('Remarks') },
             { fieldtype: 'Section Break' },
             {
@@ -242,6 +244,14 @@ function sig_render_dispatch_dialog(frm, openLines, fromWarehouse, availability,
             }
             const totalQty = lines.reduce((s, l) => s + l.qty, 0);
             const values = d.get_values();
+            if (values.recipient_type === 'Employee' && !values.dispatched_to) {
+                frappe.msgprint(__('Select the employee receiving this dispatch.'));
+                return;
+            }
+            if (values.recipient_type === 'Other' && !String(values.dispatched_to_other || '').trim()) {
+                frappe.msgprint(__('Enter the manual recipient for Other.'));
+                return;
+            }
             const operationId = sig_gen_operation_id(fromWarehouse);
 
             frappe.confirm(
@@ -251,6 +261,7 @@ function sig_render_dispatch_dialog(frm, openLines, fromWarehouse, availability,
                     const args = {
                         operation_id: operationId, mr: frm.doc.name, from_wh: fromWarehouse,
                         posting_date: values.posting_date, dispatched_to: values.dispatched_to,
+                        dispatched_to_other: values.recipient_type === 'Other' ? values.dispatched_to_other : '',
                         remarks: values.remarks, line_count: lines.length,
                     };
                     lines.forEach((l, i) => {
