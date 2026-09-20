@@ -107,6 +107,7 @@ function sig_stage_color_for_column($col) {
 
 function sig_setup_kanban_updates($board) {
     const update = () => {
+        sig_hide_kanban_create_controls($board);
         $board.find('.kanban-column').each(function () {
             const $col = $(this);
             const $cards = $col.find('.kanban-cards .kanban-card-wrapper');
@@ -138,6 +139,17 @@ function sig_setup_kanban_updates($board) {
     const observer = new MutationObserver(() => update());
     observer.observe($board.get(0), { childList: true, subtree: true });
     $board.data('sig-update-observer', observer);
+}
+
+function sig_hide_kanban_create_controls($board) {
+    // This is an operational dispatch board, not a request-intake board.
+    // Frappe's Kanban adds one native create control in the toolbar and one
+    // in every column; each creates a new Material Request rather than
+    // issuing an existing one. Suppress them only on this SIG route.
+    const hiddenLabels = new Set(['add material request', '+ add material request', '+ add column']);
+    $('button, a, .kanban-add-column').filter(function () {
+        return hiddenLabels.has($(this).text().replace(/\s+/g, ' ').trim().toLowerCase());
+    }).hide();
 }
 
 // Per-MR stock-availability traffic light (green/yellow/red dot on each

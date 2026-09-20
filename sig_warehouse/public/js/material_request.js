@@ -3,6 +3,13 @@ frappe.ui.form.on('Material Request', {
         if (frm.doc.material_request_type !== 'Material Issue') return;
         if (frm.doc.docstatus !== 1) return;
         if (!['PENDING', 'PARTIAL'].includes(frm.doc.custom_dispatch_stage)) return;
+        // ERPNext installs its native Create > Issue Material action during
+        // its own refresh work. Run after that work as well as on subsequent
+        // refreshes: a one-time synchronous cleanup can race core and leave
+        // the unsafe native route visible.
+        [0, 100, 500].forEach((delay) => {
+            setTimeout(() => sig_hide_native_issue_action(frm), delay);
+        });
         if (frm.__sig_dispatch_button_added) return;
         frm.__sig_dispatch_button_added = true;
         // Standalone primary button (not nested under "Actions") so it is
@@ -15,26 +22,32 @@ frappe.ui.form.on('Material Request', {
         const $btn = frm.add_custom_button(__('Issue'), () => sig_open_dispatch_dialog(frm));
         $btn.removeClass('btn-default').addClass('btn-primary');
 
-        // ERPNext's own core script adds a native "Create > Stock Entry" /
-        // "Issue Material" shortcut for a submitted Material Issue MR - it
-        // bypasses this app's whole flow (DN voucher allocation, remaining-
-        // qty caps, the dispatch rollup, SIG Dispatch Operation audit trail),
-        // so having both next to each other is confusing and the native one
-        // is actively wrong to use here. Core's refresh handler runs before
-        // this one (this app's JS bundle loads after erpnext's), so the
-        // button already exists in the DOM by the time we get here - find it
-        // by text under the "Create" dropdown rather than guessing its exact
-        // label/version, and drop it silently if the version in use doesn't
-        // add one at all.
-        (frm.page.wrapper.find('.menu-btn-group, .custom-actions').find('.dropdown-menu a.dropdown-item') || [])
-            .each(function () {
-                const $item = $(this);
-                if (/stock entry|issue material/i.test($item.text().trim())) {
-                    $item.closest('li').remove();
-                }
-            });
     }
 });
+
+function sig_hide_native_issue_action(frm) {
+    // Native Issue Material bypasses the SIG dispatch contract (voucher
+    // allocation, caps, rollup, and audit operation). The selector is
+    // deliberately broad because Frappe 15 changed the dropdown markup and
+    // the former .dropdown-item selector no longer matched the live action.
+    const $nativeItems = frm.page.wrapper.find('.dropdown-menu a, .dropdown-menu button')
+        .filter(function () { return /^(stock entry|issue material)$/i.test($(this).text().trim()); });
+    if (!$nativeItems.length) return;
+
+    $nativeItems.each(function () {
+        const $item = $(this);
+        const $row = $item.closest('li');
+        if ($row.length) $row.remove();
+        else $item.remove();
+    });
+
+    // For a submitted Material Issue request this dropdown only exposed the
+    // bypass route. Do not leave an empty blue Create control competing with
+    // the real SIG Issue action.
+    frm.page.wrapper.find('button').filter(function () {
+        return /^create$/i.test($(this).text().trim());
+    }).closest('.dropdown, .menu-btn-group').hide();
+}
 
 // Dispatch dialog builder - used by the form "Issue" button above. Also
 // duplicated (not imported) in material_request_list.js for the Kanban
