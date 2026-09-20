@@ -34,7 +34,9 @@ doctype_js = {
 # page instead, sidestepping that lazy-meta dependency entirely; the file's
 # own sig_maybe_setup_kanban() already checks frappe.get_route() before
 # doing anything, so it is a safe no-op everywhere except this one board.
-app_include_js = ["/assets/sig_warehouse/js/material_request_list.js"]
+# Version query forces Desk clients/CDNs to fetch the current bundle after a
+# deploy; the unversioned app-included URL can remain cached for a long time.
+app_include_js = ["/assets/sig_warehouse/js/material_request_list.js?v=20260921-1"]
 
 doc_events = {
     "Stock Entry": {
