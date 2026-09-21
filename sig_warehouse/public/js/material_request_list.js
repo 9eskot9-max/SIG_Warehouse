@@ -249,71 +249,175 @@ function sig_setup_kanban_search($board) {
 function sig_setup_dispatch_tool_button($board) {
     if ($('.sig-dispatch-tool-btn').length) return;
     const $btn = $(`<button type="button" class="btn btn-default btn-sm sig-dispatch-tool-btn" style="margin: 0 15px 10px;">
-        ${__('Dispatch Tool')}
+        ${__('Dispatch / Return')}
     </button>`);
     $('.sig-kanban-search').after($btn);
-    $btn.on('click', () => sig_open_dispatch_tool_dialog());
+    $btn.on('click', () => sig_open_dispatch_dialog());
 }
 
-function sig_open_dispatch_tool_dialog() {
+// One entry point, type picked first. "Tool" = stock item out via Material
+// Issue + custody ledger (custody.sig_dispatch_tool). "Asset" = tagged
+// capital asset out/back via a native Asset Movement (asset_ops) - fixed-asset
+// Items are non-stock, so no Stock Entry. Each type shows only its own fields.
+function sig_open_dispatch_dialog() {
+    const T = 'doc.kind=="Tool"', A = 'doc.kind=="Asset"';
+    const AD = A + ' && doc.mode=="Dispatch"', AR = A + ' && doc.mode=="Return"';
+    const TE = T + ' && doc.custodian_type=="Employee"', TO = T + ' && doc.custodian_type=="Other"';
     const d = new frappe.ui.Dialog({
-        title: __('Dispatch Tool (Custody)'),
+        title: __('Dispatch / Return'),
         fields: [
             { fieldtype: 'Link', fieldname: 'item_code', label: __('Item'), options: 'Item', reqd: 1,
-              get_query: () => ({ filters: { disabled: 0 } }) },
-            { fieldtype: 'Link', fieldname: 'from_wh', label: __('From Warehouse'), options: 'Warehouse', reqd: 1,
+              get_query: () => ({ filters: { disabled: 0 } }),
+              change() {
+                  const code = d.get_value('item_code');
+                  if (!code) return;
+                  frappe.db.get_value('Item', code, 'is_fixed_asset').then(r => {
+                      d.set_value('kind', (r.message && r.message.is_fixed_asset) ? 'Asset' : 'Tool');
+                      d.set_value('asset', '');
+                  });
+              } },
+            { fieldtype: 'Data', fieldname: 'kind', hidden: 1, default: 'Tool' },
+            { fieldtype: 'Select', fieldname: 'mode', label: __('Action'), options: ['Dispatch', 'Return'], default: 'Dispatch',
+              depends_on: 'eval:' + A },
+            // --- Tool (stock) ---
+            { fieldtype: 'Link', fieldname: 'from_wh', label: __('From Warehouse'), options: 'Warehouse',
+              depends_on: 'eval:' + T, mandatory_depends_on: 'eval:' + T,
               get_query: () => ({ filters: { is_group: 0, disabled: 0 } }) },
-            { fieldtype: 'Float', fieldname: 'qty', label: __('Qty'), default: 1, reqd: 1 },
+            { fieldtype: 'Float', fieldname: 'qty', label: __('Qty'), default: 1, depends_on: 'eval:' + T + ' && !doc.as_asset' },
+            { fieldtype: 'Check', fieldname: 'as_asset', label: __('Register this unit as an Asset (capitalize from stock)'),
+              depends_on: 'eval:' + T },
+            { fieldtype: 'Link', fieldname: 'store_location', label: __('Asset Location (store)'), options: 'Location',
+              depends_on: 'eval:' + T + ' && doc.as_asset', mandatory_depends_on: 'eval:' + T + ' && doc.as_asset' },
+            { fieldtype: 'Data', fieldname: 'tag', label: __('Asset Tag / Serial'), depends_on: 'eval:' + T + ' && doc.as_asset' },
+            // --- Asset ---
+            { fieldtype: 'Link', fieldname: 'asset', label: __('Asset (tag / serial)'), options: 'Asset',
+              depends_on: 'eval:' + A, mandatory_depends_on: 'eval:' + A,
+              get_query: () => ({ filters: { docstatus: 1, item_code: d.get_value('item_code') } }),
+              change() {
+                  const v = d.get_value('asset');
+                  if (!v) return;
+                  frappe.db.get_value('Asset', v, ['asset_name', 'location', 'custom_custody_status', 'custom_custodian_employee']).then(r => {
+                      const a = r.message || {};
+                      d.set_df_property('info', 'options', `<b>${frappe.utils.escape_html(a.asset_name || '')}</b> - ${__('at')} ${frappe.utils.escape_html(a.location || '-')} - ${__('custody')}: ${frappe.utils.escape_html(a.custom_custody_status || 'In Store')} ${frappe.utils.escape_html(a.custom_custodian_employee || '')}`);
+                      d.refresh();
+                  });
+              } },
+            { fieldtype: 'HTML', fieldname: 'info', depends_on: 'eval:' + A },
             { fieldtype: 'Column Break' },
-            { fieldtype: 'Select', fieldname: 'custodian_type', label: __('Custodian'),
-              options: ['Employee', 'Other'], default: 'Employee', reqd: 1 },
+            // --- Destination ---
+            { fieldtype: 'Select', fieldname: 'custodian_type', label: __('Custodian'), options: ['Employee', 'Other'],
+              default: 'Employee', depends_on: 'eval:' + T },
+            { fieldtype: 'Select', fieldname: 'dest_type', label: __('To'), options: ['Employee', 'Site', 'Subcontractor'],
+              default: 'Employee', depends_on: 'eval:' + AD },
             { fieldtype: 'Link', fieldname: 'custodian', label: __('Employee'), options: 'Employee',
-              depends_on: 'eval:doc.custodian_type=="Employee"', mandatory_depends_on: 'eval:doc.custodian_type=="Employee"' },
-            { fieldtype: 'Data', fieldname: 'custodian_name', label: __('Name'),
-              depends_on: 'eval:doc.custodian_type=="Other"', mandatory_depends_on: 'eval:doc.custodian_type=="Other"' },
-            { fieldtype: 'Data', fieldname: 'custodian_phone', label: __('Phone'),
-              depends_on: 'eval:doc.custodian_type=="Other"' },
+              depends_on: 'eval:' + TE, mandatory_depends_on: 'eval:' + TE },
+            { fieldtype: 'Link', fieldname: 'employee', label: __('Employee'), options: 'Employee',
+              depends_on: 'eval:' + AD + ' && doc.dest_type=="Employee"',
+              mandatory_depends_on: 'eval:' + AD + ' && doc.dest_type=="Employee"' },
+            { fieldtype: 'Data', fieldname: 'custodian_name', label: __('Name'), depends_on: 'eval:' + TO, mandatory_depends_on: 'eval:' + TO },
+            { fieldtype: 'Data', fieldname: 'custodian_phone', label: __('Phone'), depends_on: 'eval:' + TO },
+            { fieldtype: 'Link', fieldname: 'location', label: __('Destination Location'), options: 'Location',
+              depends_on: 'eval:' + AD + ' && doc.dest_type!="Employee"',
+              mandatory_depends_on: 'eval:' + AD + ' && doc.dest_type!="Employee"' },
+            { fieldtype: 'Link', fieldname: 'sig_site', label: __('SIG Site'), options: 'SIG Site',
+              depends_on: 'eval:' + AD + ' && doc.dest_type=="Site"' },
+            { fieldtype: 'Link', fieldname: 'to_location', label: __('Return to Location'), options: 'Location',
+              depends_on: 'eval:' + AR, mandatory_depends_on: 'eval:' + AR },
+            { fieldtype: 'Select', fieldname: 'condition', label: __('Condition on Return'),
+              options: ['Good', 'Needs Repair', 'Damaged', 'Unserviceable'], default: 'Good', depends_on: 'eval:' + AR },
+            { fieldtype: 'Date', fieldname: 'expected_return', label: __('Expected Return'), depends_on: 'eval:' + AD },
+            { fieldtype: 'Data', fieldname: 'handover_ref', label: __('Handover Ref'), depends_on: 'eval:' + A },
             { fieldtype: 'Section Break' },
             { fieldtype: 'Small Text', fieldname: 'reason', label: __('Reason / Remarks') },
         ],
-        primary_action_label: __('Confirm Dispatch'),
-        primary_action(values) {
-            frappe.confirm(
-                __('Dispatch {0} x {1} from {2} to {3}?<br><br>This creates and <b>submits</b> a Stock Entry immediately - it cannot be un-submitted from here.',
-                    [values.qty, values.item_code, values.from_wh, values.custodian_type === 'Employee' ? values.custodian : values.custodian_name]),
-                () => {
-                    frappe.call({
-                        method: 'sig_warehouse.sig_warehouse.custody.sig_dispatch_tool',
-                        args: {
-                            operation_id: sig_gen_operation_id('TOOL-' + values.from_wh),
-                            item_code: values.item_code, qty: values.qty, from_wh: values.from_wh,
-                            custodian_type: values.custodian_type, custodian: values.custodian,
-                            custodian_name: values.custodian_name, custodian_phone: values.custodian_phone,
-                            reason: values.reason,
-                        },
-                        freeze: true, freeze_message: __('Dispatching...'),
-                        callback: (r) => {
-                            const res = r.message || {};
-                            if (res.result === 'created' || res.result === 'duplicate') {
-                                frappe.msgprint({
-                                    title: __('Dispatched'), indicator: 'green',
-                                    message: __('Stock Entry {0} created and submitted. In custody of {1}.', [
-                                        `<a href="/app/stock-entry/${res.stock_entry}">${res.stock_entry}</a>`, res.custodian_name || '']),
-                                });
-                                d.hide();
-                            } else {
-                                frappe.msgprint({
-                                    title: __('Dispatch failed'), indicator: 'red',
-                                    message: __('{0}', [JSON.stringify(res)]),
-                                });
-                            }
-                        },
-                    });
-                }
-            );
-        },
+        primary_action_label: __('Confirm'),
+        primary_action(v) { (v.kind === 'Asset' ? sig_submit_asset_dispatch : sig_submit_tool_dispatch)(d, v); },
     });
     d.show();
+}
+
+// Stock -> Asset: capitalize one unit of the stock Item (Asset Capitalization,
+// native). The new Asset is dispatched afterwards by picking its FA- item.
+function sig_submit_tool_capitalize(d, v) {
+    const opId = sig_gen_operation_id('CAP-' + v.from_wh);
+    frappe.call({
+        method: 'sig_warehouse.sig_warehouse.asset_ops.sig_capitalize_tool',
+        args: { operation_id: opId, stock_item: v.item_code, warehouse: v.from_wh, location: v.store_location,
+                tag: v.tag, remarks: v.reason },
+        freeze: true, freeze_message: __('Capitalizing...'),
+        callback: (r) => {
+            const res = r.message || {};
+            if (res.result !== 'created' && res.result !== 'duplicate') {
+                frappe.msgprint({ title: __('Failed'), indicator: 'red', message: frappe.utils.escape_html(JSON.stringify(res)) });
+                return;
+            }
+            const done = () => {
+                frappe.msgprint({ title: __('Asset created'), indicator: 'green',
+                    message: __('Asset {0} created from stock (Asset Capitalization {1}). Dispatch it by picking its FA- item.',
+                        [`<a href="/app/asset/${res.asset}">${res.asset}</a>`, res.asset_capitalization]) });
+                d.hide();
+            };
+            done();
+        },
+    });
+}
+
+function sig_submit_tool_dispatch(d, values) {
+    if (values.as_asset) return sig_submit_tool_capitalize(d, values);
+    frappe.confirm(
+        __('Dispatch {0} x {1} from {2} to {3}?<br><br>This creates and <b>submits</b> a Stock Entry immediately - it cannot be un-submitted from here.',
+            [values.qty, values.item_code, values.from_wh, values.custodian_type === 'Employee' ? values.custodian : values.custodian_name]),
+        () => {
+            frappe.call({
+                method: 'sig_warehouse.sig_warehouse.custody.sig_dispatch_tool',
+                args: {
+                    operation_id: sig_gen_operation_id('TOOL-' + values.from_wh),
+                    item_code: values.item_code, qty: values.qty, from_wh: values.from_wh,
+                    custodian_type: values.custodian_type, custodian: values.custodian,
+                    custodian_name: values.custodian_name, custodian_phone: values.custodian_phone,
+                    reason: values.reason,
+                },
+                freeze: true, freeze_message: __('Dispatching...'),
+                callback: (r) => {
+                    const res = r.message || {};
+                    if (res.result === 'created' || res.result === 'duplicate') {
+                        frappe.msgprint({
+                            title: __('Dispatched'), indicator: 'green',
+                            message: __('Stock Entry {0} created and submitted. In custody of {1}.', [
+                                `<a href="/app/stock-entry/${res.stock_entry}">${res.stock_entry}</a>`, res.custodian_name || '']),
+                        });
+                        d.hide();
+                    } else {
+                        frappe.msgprint({ title: __('Dispatch failed'), indicator: 'red', message: frappe.utils.escape_html(JSON.stringify(res)) });
+                    }
+                },
+            });
+        }
+    );
+}
+
+function sig_submit_asset_dispatch(d, v) {
+    const ret = v.mode === 'Return';
+    frappe.call({
+        method: 'sig_warehouse.sig_warehouse.asset_ops.' + (ret ? 'sig_return_asset' : 'sig_dispatch_asset'),
+        args: ret
+            ? { operation_id: sig_gen_operation_id('ASSET-R-' + v.asset), asset: v.asset, to_location: v.to_location,
+                condition: v.condition, handover_ref: v.handover_ref, remarks: v.reason }
+            : { operation_id: sig_gen_operation_id('ASSET-D-' + v.asset), asset: v.asset, dest_type: v.dest_type,
+                employee: v.employee, location: v.location, sig_site: v.sig_site,
+                expected_return: v.expected_return, handover_ref: v.handover_ref, remarks: v.reason },
+        freeze: true, freeze_message: __('Submitting...'),
+        callback: (r) => {
+            const res = r.message || {};
+            if (res.result === 'created' || res.result === 'duplicate') {
+                frappe.msgprint({ title: __('Done'), indicator: 'green',
+                    message: __('Asset Movement {0} submitted.', [`<a href="/app/asset-movement/${res.asset_movement}">${res.asset_movement}</a>`]) });
+                d.hide();
+            } else {
+                frappe.msgprint({ title: __('Failed'), indicator: 'red', message: frappe.utils.escape_html(JSON.stringify(res)) });
+            }
+        },
+    });
 }
 
 // Per-card actions. Repurposes Frappe's native card-corner "+" (normally

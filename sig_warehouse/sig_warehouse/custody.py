@@ -78,6 +78,8 @@ def sig_dispatch_tool(operation_id, item_code, qty, from_wh, custodian_type,
 
     if not frappe.db.exists("Item", item_code):
         return {"result": "exception", "reason": "UNKNOWN_ITEM", "item": item_code}
+    if frappe.db.get_value("Item", item_code, "is_fixed_asset"):
+        return {"result": "exception", "reason": "FIXED_ASSET_USE_ASSET_DISPATCH", "item": item_code}
 
     sig = _signature(item_code, qty, from_wh, custodian_key)
     existing = frappe.db.get_value(
