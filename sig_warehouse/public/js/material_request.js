@@ -141,9 +141,12 @@ function sig_render_dispatch_dialog(frm, openLines, fromWarehouse, availability,
         const available = av ? av.available : '?';
         const defaultQty = av ? Math.min(it.custom_qty_remaining, av.available) : it.custom_qty_remaining;
         const shortFlag = av && !av.sufficient ? ' <span class="text-danger">(short)</span>' : '';
+        const description = it.description || it.item_name || '';
         return `
             <tr data-mri="${it.name}" data-item="${it.item_code}" data-uom="${it.uom}">
-                <td>${frappe.utils.escape_html(it.item_code)}</td>
+                <td class="sig-line-no text-center text-muted">${i + 1}</td>
+                <td class="sig-item-code">${frappe.utils.escape_html(it.item_code)}</td>
+                <td class="sig-item-description" title="${frappe.utils.escape_html(description)}">${frappe.utils.escape_html(description) || '<span class="text-muted">—</span>'}</td>
                 <td class="text-right">${it.qty}</td>
                 <td class="text-right">${(it.custom_qty_issued || 0)}</td>
                 <td class="text-right">${it.custom_qty_remaining}</td>
@@ -160,6 +163,27 @@ function sig_render_dispatch_dialog(frm, openLines, fromWarehouse, availability,
             </tr>`;
     }).join('');
 
+    if (!$('#sig-dispatch-table-style').length) {
+        $('<style id="sig-dispatch-table-style">' +
+          '.sig-dispatch-dialog .modal-dialog{width:95vw;max-width:1500px;}' +
+          '.sig-dispatch-dialog .modal-body{padding-left:12px;padding-right:12px;}' +
+          '.sig-dispatch-lines{table-layout:fixed;min-width:1080px;}' +
+          '.sig-dispatch-lines th,.sig-dispatch-lines td{vertical-align:middle;}' +
+          '.sig-dispatch-lines th:nth-child(1),.sig-dispatch-lines td:nth-child(1){width:38px;}' +
+          '.sig-dispatch-lines th:nth-child(2),.sig-dispatch-lines td:nth-child(2){width:150px;}' +
+          '.sig-dispatch-lines th:nth-child(3),.sig-dispatch-lines td:nth-child(3){width:30%;}' +
+          '.sig-dispatch-lines th:nth-child(4),.sig-dispatch-lines td:nth-child(4){width:70px;}' +
+          '.sig-dispatch-lines th:nth-child(5),.sig-dispatch-lines td:nth-child(5){width:65px;}' +
+          '.sig-dispatch-lines th:nth-child(6),.sig-dispatch-lines td:nth-child(6){width:65px;}' +
+          '.sig-dispatch-lines th:nth-child(7),.sig-dispatch-lines td:nth-child(7){width:78px;}' +
+          '.sig-dispatch-lines th:nth-child(8),.sig-dispatch-lines td:nth-child(8){width:92px;}' +
+          '.sig-dispatch-lines th:nth-child(9),.sig-dispatch-lines td:nth-child(9){width:118px;}' +
+          '.sig-dispatch-lines th:nth-child(10),.sig-dispatch-lines td:nth-child(10){width:28px;}' +
+          '.sig-item-description{white-space:normal;overflow-wrap:anywhere;line-height:1.25;}' +
+          '.sig-item-code{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
+          '.sig-line-no{font-variant-numeric:tabular-nums;}' +
+          '</style>').appendTo('head');
+    }
     const d = new frappe.ui.Dialog({
         title: __('Dispatch {0}', [frm.doc.name]),
         size: 'large',
@@ -186,9 +210,10 @@ function sig_render_dispatch_dialog(frm, openLines, fromWarehouse, availability,
                 fieldtype: 'HTML', fieldname: 'lines_html',
                 options: `<div class="table-responsive"><table class="table table-bordered sig-dispatch-lines">
                     <thead><tr>
-                        <th>${__('Item')}</th><th class="text-right">${__('Requested')}</th>
-                        <th class="text-right">${__('Issued')}</th><th class="text-right">${__('Remaining')}</th>
-                        <th class="text-right">${__('Available')}</th><th>${__('Qty to Dispatch')}</th>
+                        <th class="text-center">#</th><th>${__('Item')}</th><th>${__('Description')}</th>
+                        <th class="text-right">${__('MR Qty')}</th><th class="text-right">${__('Issued')}</th>
+                        <th class="text-right">${__('Left')}</th><th class="text-right">${__('Available')}</th>
+                        <th class="text-right">${__('Dispatch')}<br>${__('Qty')}</th>
                         <th>${__('Outcome')}</th><th></th>
                     </tr></thead>
                     <tbody>${rowsHtml}</tbody>
@@ -321,6 +346,7 @@ function sig_render_dispatch_dialog(frm, openLines, fromWarehouse, availability,
             );
         },
     });
+    d.$wrapper.addClass('sig-dispatch-dialog');
     d.show();
 }
 
@@ -335,11 +361,15 @@ function sig_add_line_to_dispatch_dialog(d) {
         frappe.msgprint(__('Qty must be greater than 0.'));
         return;
     }
-    frappe.db.get_value('Item', itemCode, 'stock_uom').then((r) => {
+    frappe.db.get_value('Item', itemCode, ['stock_uom', 'description', 'item_name']).then((r) => {
         const uom = (r.message && r.message.stock_uom) || '';
+        const description = (r.message && (r.message.description || r.message.item_name)) || '';
+        const lineNo = d.$wrapper.find('.sig-dispatch-lines tbody tr').length + 1;
         const $row = $(`
             <tr data-new="1" data-item="${itemCode}" data-uom="${uom}">
-                <td>${frappe.utils.escape_html(itemCode)} <span class="text-muted">(${__('new')})</span></td>
+                <td class="sig-line-no text-center text-muted">${lineNo}</td>
+                <td class="sig-item-code">${frappe.utils.escape_html(itemCode)} <span class="text-muted">(${__('new')})</span></td>
+                <td class="sig-item-description" title="${frappe.utils.escape_html(description)}">${frappe.utils.escape_html(description) || '<span class="text-muted">—</span>'}</td>
                 <td class="text-right">-</td>
                 <td class="text-right">-</td>
                 <td class="text-right">-</td>
@@ -350,10 +380,18 @@ function sig_add_line_to_dispatch_dialog(d) {
                     </select></td>
                 <td><span class="sig-remove-new-row text-danger" style="cursor:pointer;" title="${__('Remove')}">&times;</span></td>
             </tr>`);
-        $row.find('.sig-remove-new-row').on('click', () => $row.remove());
+        $row.find('.sig-remove-new-row').on('click', () => {
+            $row.remove();
+            sig_renumber_dispatch_rows(d);
+        });
         d.$wrapper.find('.sig-dispatch-lines tbody').append($row);
+        sig_renumber_dispatch_rows(d);
         d.set_value('new_item_code', '');
         d.set_value('new_item_qty', 1);
     });
 }
-
+function sig_renumber_dispatch_rows(d) {
+    d.$wrapper.find('.sig-dispatch-lines tbody tr').each((i, row) => {
+        $(row).find('.sig-line-no').text(i + 1);
+    });
+}
