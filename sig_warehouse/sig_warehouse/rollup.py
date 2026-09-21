@@ -157,6 +157,53 @@ def recompute_mr_dispatch_state(mr_name):
     }
 
 
+def recompute_mr_lifecycle_state(mr_name):
+    """Layer the return/declaration lifecycle over an already-issued MR.
+
+    Dispatch arithmetic remains the source of truth for PENDING/PARTIAL and
+    whether an MR is fully issued. Once it is fully dispatched, however, the
+    operational cycle is not complete until every linked outbound Stock Entry
+    has a declared return disposition (returned, custody, or intentionally
+    consumed). Only then does the Kanban stage become CLOSED. Reopening a
+    consumed close naturally restores DISPATCHED without changing issued qty.
+    """
+    result = recompute_mr_dispatch_state(mr_name)
+    if not result or result["stage"] != "DISPATCHED":
+        return result
+
+    fulfilling_purpose = (
+        "Material Issue"
+        if frappe.db.get_value("Material Request", mr_name, "material_request_type") == "Material Issue"
+        else "Material Transfer"
+    )
+    parent_names = {
+        str(row.parent)
+        for row in frappe.get_all(
+            "Stock Entry Detail",
+            filters={"material_request": mr_name, "parenttype": "Stock Entry", "docstatus": 1},
+            fields=["parent"],
+        )
+    }
+    outbound = frappe.get_all(
+        "Stock Entry",
+        filters={"name": ["in", list(parent_names)], "docstatus": 1, "is_return": 0,
+                 "purpose": fulfilling_purpose},
+        fields=["name", "custom_return_state"],
+    ) if parent_names else []
+
+    if not outbound or any(row.custom_return_state != "DECLARED" for row in outbound):
+        return result
+
+    frappe.db.set_value(
+        "Material Request", mr_name,
+        {"custom_dispatch_stage": "CLOSED", "custom_sync_status": "DISPATCHED"},
+        update_modified=False,
+    )
+    frappe.clear_document_cache("Material Request", mr_name)
+    result["stage"] = "CLOSED"
+    return result
+
+
 def _linked_mr_names(stock_entry_doc):
     names = set()
     for row in stock_entry_doc.items:

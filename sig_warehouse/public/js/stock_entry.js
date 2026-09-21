@@ -3,9 +3,13 @@ frappe.ui.form.on('Stock Entry', {
         if (frm.doc.docstatus !== 1) return;
         if (frm.doc.is_return) return;
         if (!['Material Issue', 'Material Transfer'].includes(frm.doc.purpose)) return;
-        if (frm.doc.custom_return_state === 'DECLARED') return;
         if (frm.__sig_declare_buttons_added) return;
         frm.__sig_declare_buttons_added = true;
+
+        if (frm.doc.custom_return_state === 'DECLARED') {
+            frm.add_custom_button(__('Reopen for correction'), () => sig_open_disposition_dialog(frm, 'REOPEN'), __('Declare'));
+            return;
+        }
 
         frm.add_custom_button(__('Declare Return'), () => sig_open_disposition_dialog(frm, 'RETURN'), __('Declare'));
         frm.add_custom_button(__('Declare Custody'), () => sig_open_disposition_dialog(frm, 'CUSTODY'), __('Declare'));
@@ -22,6 +26,7 @@ function sig_gen_operation_id(prefix) {
 
 function sig_open_disposition_dialog(frm, action) {
     const openLines = (frm.doc.items || []).filter((it) => {
+        if (action === 'REOPEN') return !!it.custom_return_closed;
         const returned = it.custom_qty_returned || 0;
         const custody = it.custom_qty_custody || 0;
         const undeclared = it.qty - returned - custody;
@@ -50,6 +55,7 @@ function sig_open_disposition_dialog(frm, action) {
 
     const titleByAction = {
         RETURN: __('Declare Return'), CUSTODY: __('Declare Custody'), CLOSE: __('Close as Consumed'),
+        REOPEN: __('Reopen for Correction'),
     };
     const extraFields = [];
     if (action === 'RETURN') {
@@ -61,7 +67,8 @@ function sig_open_disposition_dialog(frm, action) {
         extraFields.push({ fieldtype: 'Link', fieldname: 'custodian', label: __('Custodian'),
             options: 'Employee', reqd: 1 });
     }
-    extraFields.push({ fieldtype: 'Small Text', fieldname: 'reason', label: __('Reason / Remarks') });
+    extraFields.push({ fieldtype: 'Small Text', fieldname: 'reason', label: __('Reason / Remarks'),
+        reqd: action === 'REOPEN' });
 
     const d = new frappe.ui.Dialog({
         title: `${titleByAction[action]} - ${frm.doc.name}`,
@@ -105,6 +112,8 @@ function sig_open_disposition_dialog(frm, action) {
 
             const confirmMsg = action === 'CLOSE'
                 ? __('Close {0} line(s) as consumed? No stock movement, cannot be undone from here.', [lines.length])
+                : action === 'REOPEN'
+                    ? __('Reopen {0} line(s) for correction? This changes no stock; it only permits a later declared return or custody action.', [lines.length])
                 : __('Declare {0} on {1} line(s)? This {2} immediately and cannot be undone from here.',
                     [titleByAction[action], lines.length, action === 'RETURN' ? __('submits a Stock Entry') : __('records custody')]);
 

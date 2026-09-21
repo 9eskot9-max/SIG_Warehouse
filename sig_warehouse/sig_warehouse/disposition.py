@@ -22,7 +22,7 @@ import frappe
 
 from sig_warehouse.sig_warehouse import rollup
 
-ALLOWED_ACTIONS = ("RETURN", "CUSTODY", "CLOSE")
+ALLOWED_ACTIONS = ("RETURN", "CUSTODY", "CLOSE", "REOPEN")
 ALLOWED_ROLES = ("Stock Manager", "System Manager")
 COMPANY = "Salah Ibrahim Algain Contracting Company Ltd"
 EPS = 1e-6
@@ -113,8 +113,10 @@ def sig_declare_disposition(operation_id, action, source_se, line_count=0, to_wh
         row = details.get(line["sed"])
         if not row:
             return {"result": "exception", "reason": "UNKNOWN_LINE", "line": line["sed"]}
-        if row.custom_return_closed:
+        if row.custom_return_closed and action != "REOPEN":
             return {"result": "exception", "reason": "LINE_CLOSED", "line": line["sed"]}
+        if action == "REOPEN" and not row.custom_return_closed:
+            return {"result": "exception", "reason": "LINE_NOT_CLOSED", "line": line["sed"]}
         if action in ("RETURN", "CUSTODY"):
             qty = line["qty"]
             if qty is None or qty <= 0:
@@ -206,7 +208,21 @@ def sig_declare_disposition(operation_id, action, source_se, line_count=0, to_wh
             frappe.db.set_value("Stock Entry Detail", line["sed"], "custom_return_closed", 1, update_modified=False)
         frappe.db.commit()
 
+    elif action == "REOPEN":
+        if not (reason or "").strip():
+            return {"result": "exception", "reason": "REASON_REQUIRED"}
+        # Reopen changes no stock and does not erase any recorded return or
+        # custody quantity. It only reopens an intentional consumed-close so
+        # a rare later physical return can be entered from the original DN.
+        for line in lines:
+            frappe.db.set_value("Stock Entry Detail", line["sed"], "custom_return_closed", 0, update_modified=False)
+        frappe.db.commit()
+
     return_state = rollup.recompute_return_state(source_se)  # also clears source_se's document cache
+    mr_lifecycle = {
+        mr_name: rollup.recompute_mr_lifecycle_state(mr_name)
+        for mr_name in rollup._linked_mr_names(source_doc)
+    }
     if stock_entry_name:
         # the newly created return/transfer SE itself - recompute_return_state
         # only invalidates source_se, so this one needs its own clear (see
@@ -224,6 +240,7 @@ def sig_declare_disposition(operation_id, action, source_se, line_count=0, to_wh
     return {
         "result": "created", "operation_id": operation_id, "action": action,
         "stock_entry": stock_entry_name, "lines": len(lines), "return_state": return_state,
+        "mr_lifecycle": mr_lifecycle,
     }
 
 
