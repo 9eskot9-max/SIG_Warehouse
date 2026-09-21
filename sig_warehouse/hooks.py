@@ -41,6 +41,20 @@ app_include_js = [
     "/assets/sig_warehouse/js/stock_entry.js?v=20260921-1",
 ]
 
+override_doctype_dashboards = {
+    "Material Request": "sig_warehouse.sig_warehouse.dashboards.material_request",
+    "Stock Entry": "sig_warehouse.sig_warehouse.dashboards.stock_entry",
+    "Delivery Note": "sig_warehouse.sig_warehouse.dashboards.delivery_note",
+    "Purchase Receipt": "sig_warehouse.sig_warehouse.dashboards.purchase_receipt",
+    "Sales Order": "sig_warehouse.sig_warehouse.dashboards.sales_order",
+    "Sales Invoice": "sig_warehouse.sig_warehouse.dashboards.sales_invoice",
+    "Purchase Order": "sig_warehouse.sig_warehouse.dashboards.purchase_order",
+    "Purchase Invoice": "sig_warehouse.sig_warehouse.dashboards.purchase_invoice",
+    "Payment Entry": "sig_warehouse.sig_warehouse.dashboards.payment_entry",
+    "Journal Entry": "sig_warehouse.sig_warehouse.dashboards.journal_entry",
+    "Asset": "sig_warehouse.sig_warehouse.dashboards.asset",
+}
+
 doc_events = {
     "Stock Entry": {
         # Child-line custom_site is the authoritative allocation.  A
