@@ -129,7 +129,7 @@ def run_feed(rebuild=False):
         window_start = "2000-01-01 00:00:00" if full else fs.fmt(ref - timedelta(hours=WINDOW_HOURS))
         trusted_from = "2000-01-01 00:00:00" if full else fs.fmt(ref - timedelta(hours=WINDOW_HOURS - 24))
         window = _load_window(window_start)
-        sites = {r.name for r in frappe.get_all("SIG Site", pluck="name", limit_page_length=0)}
+        sites = set(frappe.get_all("SIG Site", pluck="name", limit_page_length=0))
         sessions, exceptions = fs.assemble(window, ref, known_sites=sites)
         touched = _upsert_sessions(sessions, trusted_from, sites, _employee_by_phone())
         for e in exceptions:
