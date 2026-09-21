@@ -71,7 +71,8 @@ def _parse_lines(line_count, form):
 
 @frappe.whitelist()
 def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=None,
-                     initiated_by=None, remarks=None, line_count=0, **kwargs):
+                     dispatched_to_other=None, initiated_by=None, remarks=None,
+                     line_count=0, **kwargs):
     if not operation_id or not mr or not from_wh:
         return {"result": "exception", "reason": "operation_id/mr/from_wh required"}
 
@@ -82,6 +83,15 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
     mr_doc = frappe.get_doc("Material Request", mr)
     warehouse = WH_MAP.get(from_wh, from_wh)
     _authorize(mr_doc, warehouse)
+
+    dispatched_to = str(dispatched_to or "").strip()
+    dispatched_to_other = str(dispatched_to_other or "").strip()
+    if bool(dispatched_to) == bool(dispatched_to_other):
+        return {"result": "exception", "reason": "RECIPIENT_REQUIRED",
+                "detail": "Select one Employee or enter an Other recipient."}
+    if dispatched_to and not frappe.db.exists("Employee", dispatched_to):
+        return {"result": "exception", "reason": "RECIPIENT_EMPLOYEE_NOT_FOUND",
+                "employee": dispatched_to}
 
     sig = _signature(mr, lines)
     existing = frappe.db.get_value(
@@ -97,7 +107,7 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
     mri_rows = {
         row.name: row for row in frappe.get_all(
             "Material Request Item", filters={"name": ["in", mri_names]},
-            fields=["name", "item_code", "uom", "custom_qty_remaining"],
+            fields=["name", "item_code", "uom", "custom_qty_remaining", "custom_site"],
         )
     }
     for line in lines:
@@ -117,6 +127,13 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
             "s_warehouse": warehouse, "material_request": mr, "material_request_item": line["mri"],
             "cost_center": "Main - SIG",
         }
+        # Site is recorded at the Stock Entry detail grain.  The before_insert
+        # hook mirrors it to the Stock Entry header only when all lines agree,
+        # preserving correct search behavior without inventing a site for a
+        # genuinely multi-site dispatch.
+        site = row.custom_site or mr_doc.get("custom_site")
+        if site and frappe.get_meta("Stock Entry Detail").has_field("custom_site"):
+            detail["custom_site"] = site
         if line["rowkey"]:
             detail["custom_row_key"] = line["rowkey"]
         rate = frappe.db.get_value(
@@ -134,14 +151,21 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
         if "is not active" not in str(e):
             raise  # a real problem (e.g. counter never seeded) - do not swallow it
 
+    dispatch_remarks = (remarks or "SIG Warehouse dispatch") + f" | operation {operation_id}"
+    if dispatched_to_other:
+        dispatch_remarks += f" | dispatched to other: {dispatched_to_other}"
     se = frappe.get_doc({
         "doctype": "Stock Entry", "stock_entry_type": "Material Issue", "purpose": "Material Issue",
         "company": COMPANY,
         "posting_date": posting_date or frappe.utils.nowdate(),
         "set_posting_time": 1 if posting_date else 0,
-        "remarks": (remarks or "SIG Warehouse dispatch") + f" | operation {operation_id}",
+        "remarks": dispatch_remarks,
         "items": items,
     })
+    if dispatched_to:
+        se.custom_dispatched_to = dispatched_to
+    elif dispatched_to_other and frappe.get_meta("Stock Entry").has_field("custom_dispatched_to_other"):
+        se.custom_dispatched_to_other = dispatched_to_other
     if dn_voucher:
         se.custom_source_id = dn_voucher
     se.insert(ignore_permissions=False)
@@ -261,7 +285,27 @@ def sig_add_mr_line(mr, item_code, qty, uom=None, site=None, project=None):
 
     if not frappe.db.exists("Item", item_code):
         return {"result": "exception", "reason": "UNKNOWN_ITEM", "item": item_code}
-    item_uom = uom or frappe.db.get_value("Item", item_code, "stock_uom")
+
+    # Material Request Item has mandatory stock_uom/conversion_factor fields.
+    # The dialog normally supplies the item's stock UOM, but this endpoint is
+    # also callable directly and must not rely on the client-side item-detail
+    # fill. Resolve the requested UOM against the Item master so a new line is
+    # valid on insert and remains correct for any alternate UOM the item owns.
+    item_doc = frappe.get_doc("Item", item_code)
+    stock_uom = str(item_doc.stock_uom or "").strip()
+    item_uom = str(uom or stock_uom).strip()
+    conversion_factor = None
+    if stock_uom and item_uom.casefold() == stock_uom.casefold():
+        conversion_factor = 1.0
+    else:
+        for item_uom_row in (item_doc.uoms or []):
+            candidate = str(item_uom_row.uom or "").strip()
+            if candidate and candidate.casefold() == item_uom.casefold():
+                conversion_factor = float(item_uom_row.conversion_factor or 0)
+                break
+    if not stock_uom or not item_uom or not conversion_factor or conversion_factor <= 0:
+        return {"result": "exception", "reason": "UOM_CONVERSION_NOT_FOUND",
+                "item": item_code, "uom": item_uom, "stock_uom": stock_uom}
 
     max_idx = frappe.db.sql(
         "SELECT MAX(idx) FROM `tabMaterial Request Item` WHERE parent=%s", mr
@@ -271,6 +315,8 @@ def sig_add_mr_line(mr, item_code, qty, uom=None, site=None, project=None):
         "doctype": "Material Request Item", "parent": mr, "parentfield": "items",
         "parenttype": "Material Request", "idx": max_idx + 1,
         "item_code": item_code, "qty": qty, "uom": item_uom,
+        "stock_uom": stock_uom, "conversion_factor": conversion_factor,
+        "stock_qty": qty * conversion_factor,
         "warehouse": warehouse, "schedule_date": frappe.utils.nowdate(),
         "cost_center": "Main - SIG", "custom_site": site or mr_doc.get("custom_site"),
         "project": project,
@@ -422,3 +468,4 @@ def sig_kanban_availability_status(mrs):
         result[mr] = "green" if covered_locally else ("yellow" if covered_elsewhere else "red")
 
     return result
+
