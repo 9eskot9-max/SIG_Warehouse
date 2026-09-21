@@ -51,6 +51,48 @@ def _authorize(mr_doc, warehouse):
         frappe.throw(f"Not permitted to dispatch from {warehouse}", frappe.PermissionError)
 
 
+def _require_dispatch_role():
+    """Allow the recipient search only to people who can dispatch.
+
+    Employee is normally filtered by HR user-permissions.  A warehouse
+    operator must be able to select another active receiver, but should not
+    receive general Employee access.  This narrow endpoint returns only the
+    identity fields needed by a Link selector and is separately role-gated.
+    """
+    user = frappe.session.user
+    if user == "Guest" or not any(role in ALLOWED_DISPATCH_ROLES for role in frappe.get_roles(user)):
+        frappe.throw("Not authorized to select dispatch recipients", frappe.PermissionError)
+
+
+@frappe.whitelist()
+def sig_dispatch_recipient_query(doctype, txt, searchfield, start, page_len, filters=None):
+    """Link-query source for the immediate-issue employee recipient field.
+
+    It deliberately bypasses ordinary Employee user-permissions only after
+    :func:`_require_dispatch_role`, and exposes just code, name and linked
+    user for active employees.  This prevents a dispatcher such as Tahir
+    being limited to their own Employee record without granting broad HR
+    access elsewhere in ERP.
+    """
+    _require_dispatch_role()
+    if doctype != "Employee":
+        frappe.throw("Dispatch recipient lookup only supports Employee", frappe.ValidationError)
+
+    text = str(txt or "").strip()
+    like = f"%{text}%"
+    rows = frappe.get_all(
+        "Employee",
+        filters={"status": "Active"},
+        or_filters={"name": ["like", like], "employee_name": ["like", like]},
+        fields=["name", "employee_name", "user_id"],
+        order_by="employee_name asc, name asc",
+        limit_start=max(0, int(start or 0)),
+        limit_page_length=min(max(1, int(page_len or 20)), 50),
+        as_list=True,
+    )
+    return rows
+
+
 def _parse_lines(line_count, form):
     lines = []
     for i in range(1, int(line_count or 0) + 1):
@@ -72,7 +114,8 @@ def _parse_lines(line_count, form):
 @frappe.whitelist()
 def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=None,
                      dispatched_to_other=None, initiated_by=None, remarks=None,
-                     line_count=0, **kwargs):
+                     line_count=0, allow_mr_amendment=0, amendment_reason=None,
+                     **kwargs):
     if not operation_id or not mr or not from_wh:
         return {"result": "exception", "reason": "operation_id/mr/from_wh required"}
 
@@ -106,18 +149,49 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
     mri_names = [line["mri"] for line in lines]
     mri_rows = {
         row.name: row for row in frappe.get_all(
-            "Material Request Item", filters={"name": ["in", mri_names]},
-            fields=["name", "item_code", "uom", "custom_qty_remaining", "custom_site"],
+            "Material Request Item", filters={"name": ["in", mri_names], "parent": mr},
+            fields=["name", "item_code", "uom", "qty", "stock_qty", "conversion_factor",
+                    "custom_qty_remaining", "custom_site"],
         )
     }
+    requested_by_mri = {}
     for line in lines:
         row = mri_rows.get(line["mri"])
         if not row:
             return {"result": "exception", "reason": "UNKNOWN_LINE", "line": line["mri"]}
-        remaining = float(row.custom_qty_remaining or 0)
-        if line["qty"] - remaining > EPS:
-            return {"result": "exception", "reason": "CAP_EXCEEDED", "line": line["mri"],
-                     "requested": line["qty"], "remaining": remaining}
+        requested_by_mri[line["mri"]] = requested_by_mri.get(line["mri"], 0) + line["qty"]
+
+    amendments = []
+    for mri, requested in requested_by_mri.items():
+        remaining = float(mri_rows[mri].custom_qty_remaining or 0)
+        delta = requested - remaining
+        if delta > EPS:
+            amendments.append({"mri": mri, "requested": requested, "remaining": remaining, "delta": delta})
+
+    allow_mr_amendment = str(allow_mr_amendment).strip().lower() in ("1", "true", "yes", "on")
+    amendment_reason = str(amendment_reason or "").strip()
+    if amendments and not allow_mr_amendment:
+        first = amendments[0]
+        return {"result": "exception", "reason": "CAP_EXCEEDED", "line": first["mri"],
+                "requested": first["requested"], "remaining": first["remaining"],
+                "can_amend": True}
+    if amendments and not amendment_reason:
+        return {"result": "exception", "reason": "AMENDMENT_REASON_REQUIRED"}
+
+    # Raising an existing request quantity must be an explicit, auditable
+    # operator decision.  Do it in this same transaction as the Stock Entry:
+    # any later error rolls this child-row amendment back with the dispatch.
+    if amendments:
+        for amendment in amendments:
+            row = mri_rows[amendment["mri"]]
+            new_qty = float(row.qty or 0) + amendment["delta"]
+            factor = float(row.conversion_factor or 1)
+            frappe.db.set_value(
+                "Material Request Item", row.name,
+                {"qty": new_qty, "stock_qty": new_qty * factor},
+                update_modified=False,
+            )
+            frappe.clear_document_cache("Material Request Item", row.name)
 
     items = []
     for line in lines:
@@ -152,6 +226,11 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
             raise  # a real problem (e.g. counter never seeded) - do not swallow it
 
     dispatch_remarks = (remarks or "SIG Warehouse dispatch") + f" | operation {operation_id}"
+    if amendments:
+        detail = ", ".join(
+            f"{mri_rows[a['mri']].item_code} +{a['delta']:g}" for a in amendments
+        )
+        dispatch_remarks += f" | MR amended ({detail}): {amendment_reason}"
     if dispatched_to_other:
         dispatch_remarks += f" | dispatched to other: {dispatched_to_other}"
     se = frappe.get_doc({
@@ -162,14 +241,33 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
         "remarks": dispatch_remarks,
         "items": items,
     })
-    if dispatched_to:
-        se.custom_dispatched_to = dispatched_to
-    elif dispatched_to_other and frappe.get_meta("Stock Entry").has_field("custom_dispatched_to_other"):
+    # Keep the recipient choice exclusive.  The dialog may carry the current
+    # employee as a default even when the operator selects a manual recipient;
+    # never persist both, otherwise print formats can show the default employee.
+    if dispatched_to_other and frappe.get_meta("Stock Entry").has_field("custom_dispatched_to_other"):
+        se.custom_dispatched_to = None
         se.custom_dispatched_to_other = dispatched_to_other
+    elif dispatched_to:
+        se.custom_dispatched_to = dispatched_to
+        if frappe.get_meta("Stock Entry").has_field("custom_dispatched_to_other"):
+            se.custom_dispatched_to_other = None
     if dn_voucher:
         se.custom_source_id = dn_voucher
     se.insert(ignore_permissions=False)
     se.submit()
+
+    if amendments:
+        detail = ", ".join(
+            f"{mri_rows[a['mri']].item_code}: +{a['delta']:g}" for a in amendments
+        )
+        frappe.get_doc({
+            "doctype": "Comment", "comment_type": "Info",
+            "reference_doctype": "Material Request", "reference_name": mr,
+            "content": (
+                f"Dispatch amendment by {frappe.session.user}: increased requested quantity "
+                f"({detail}) before {se.name}. Reason: {frappe.utils.escape_html(amendment_reason)}"
+            ),
+        }).insert(ignore_permissions=True)
     frappe.db.commit()  # commits the allocated voucher together with its Stock Entry, or not at all
 
     mr_state = rollup.recompute_mr_dispatch_state(mr)  # also clears the MR's document cache
@@ -189,6 +287,7 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
         "result": "created", "operation_id": operation_id, "stock_entry": se.name,
         "dn_voucher": dn_voucher,
         "lines": len(items), "readback_ok": len(se.items) == len(items), "mr_state": mr_state,
+        "amended_lines": len(amendments),
         "whatsapp_notify": whatsapp_notify,
     }
 

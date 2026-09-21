@@ -152,7 +152,7 @@ function sig_render_dispatch_dialog(frm, openLines, fromWarehouse, availability,
                 <td class="text-right">${it.custom_qty_remaining}</td>
                 <td class="text-right">${available}${shortFlag}</td>
                 <td><input type="number" class="form-control input-sm sig-qty" step="any" min="0"
-                    max="${it.custom_qty_remaining}" value="${defaultQty}"></td>
+                    value="${defaultQty}" title="${__('A higher quantity requires an explicit MR amendment and reason.')}"></td>
                 <td>
                     <select class="form-control input-sm sig-outcome">
                         <option value="DISPATCH" selected>${__('Dispatch')}</option>
@@ -201,11 +201,16 @@ function sig_render_dispatch_dialog(frm, openLines, fromWarehouse, availability,
             { fieldtype: 'Select', fieldname: 'recipient_type', label: __('Dispatched To Type'),
               options: 'Employee\nOther', default: 'Employee', reqd: 1 },
             { fieldtype: 'Link', fieldname: 'dispatched_to', label: __('Employee recipient'), options: 'Employee',
-              get_query: () => ({ filters: { status: 'Active' } }),
+              get_query: () => ({ query: 'sig_warehouse.sig_warehouse.dispatch_operation.sig_dispatch_recipient_query' }),
               depends_on: 'eval:doc.recipient_type=="Employee"', mandatory_depends_on: 'eval:doc.recipient_type=="Employee"' },
             { fieldtype: 'Data', fieldname: 'dispatched_to_other', label: __('Other recipient'),
               depends_on: 'eval:doc.recipient_type=="Other"', mandatory_depends_on: 'eval:doc.recipient_type=="Other"' },
             { fieldtype: 'Small Text', fieldname: 'remarks', label: __('Remarks') },
+            { fieldtype: 'Check', fieldname: 'allow_mr_amendment',
+              label: __('Amend MR if dispatch quantity exceeds Left') },
+            { fieldtype: 'Small Text', fieldname: 'amendment_reason', label: __('Reason for MR amendment'),
+              depends_on: 'eval:doc.allow_mr_amendment==1', mandatory_depends_on: 'eval:doc.allow_mr_amendment==1',
+              description: __('This becomes a permanent MR audit comment and dispatch remark.') },
             { fieldtype: 'Section Break' },
             {
                 fieldtype: 'HTML', fieldname: 'lines_html',
@@ -288,6 +293,10 @@ function sig_render_dispatch_dialog(frm, openLines, fromWarehouse, availability,
                 frappe.msgprint(__('Enter the manual recipient for Other.'));
                 return;
             }
+            if (values.allow_mr_amendment && !String(values.amendment_reason || '').trim()) {
+                frappe.msgprint(__('Enter a reason before amending an MR quantity.'));
+                return;
+            }
             const operationId = sig_gen_operation_id(fromWarehouse);
 
             frappe.confirm(
@@ -299,6 +308,8 @@ function sig_render_dispatch_dialog(frm, openLines, fromWarehouse, availability,
                         posting_date: values.posting_date, dispatched_to: values.dispatched_to,
                         dispatched_to_other: values.recipient_type === 'Other' ? values.dispatched_to_other : '',
                         remarks: values.remarks, line_count: lines.length,
+                        allow_mr_amendment: values.allow_mr_amendment ? 1 : 0,
+                        amendment_reason: values.amendment_reason || '',
                     };
                     lines.forEach((l, i) => {
                         args[`mri_${i + 1}`] = l.mri;
@@ -316,8 +327,9 @@ function sig_render_dispatch_dialog(frm, openLines, fromWarehouse, availability,
                                 frappe.msgprint({
                                     title: __('Dispatched'),
                                     indicator: 'green',
-                                    message: __('Stock Entry {0} created and submitted.', [
-                                        `<a href="/app/stock-entry/${res.stock_entry}">${res.stock_entry}</a>`]),
+                                    message: __('Stock Entry {0} created and submitted.{1}', [
+                                        `<a href="/app/stock-entry/${res.stock_entry}">${res.stock_entry}</a>`,
+                                        res.amended_lines ? __(' MR quantity amended and logged.') : '']),
                                 });
                                 d.hide();
                                 frm.reload_doc();
@@ -325,9 +337,15 @@ function sig_render_dispatch_dialog(frm, openLines, fromWarehouse, availability,
                                 frappe.msgprint({
                                     title: __('Cannot dispatch'),
                                     indicator: 'red',
-                                    message: __('Line {0}: requested {1} exceeds remaining {2}. Reload and try again.',
-                                        [res.line, res.requested, res.remaining]),
+                                    message: res.can_amend
+                                        ? __('Line {0}: requested {1} exceeds remaining {2}. Tick “Amend MR if dispatch quantity exceeds Left”, enter the reason, then confirm again.',
+                                            [res.line, res.requested, res.remaining])
+                                        : __('Line {0}: requested {1} exceeds remaining {2}. Reload and try again.',
+                                            [res.line, res.requested, res.remaining]),
                                 });
+                            } else if (res.result === 'exception' && res.reason === 'AMENDMENT_REASON_REQUIRED') {
+                                frappe.msgprint({ title: __('Reason required'), indicator: 'orange',
+                                    message: __('Enter the reason for the MR amendment before dispatching.') });
                             } else if (res.result === 'conflict') {
                                 frappe.msgprint({
                                     title: __('Conflict'),
