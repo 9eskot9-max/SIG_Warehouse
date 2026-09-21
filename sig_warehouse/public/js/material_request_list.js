@@ -533,6 +533,8 @@ function sig_open_kanban_return_dialog(sourceSe) {
                 size: 'large',
                 fields: [
                     { fieldtype: 'Data', fieldname: 'to_wh', label: __('To Warehouse'), default: openLines[0].s_warehouse, reqd: 1 },
+                    { fieldtype: 'Check', fieldname: 'close_as_consumed',
+                        label: __('No material returned — close all undeclared lines as consumed'), default: 0 },
                     { fieldtype: 'Section Break' },
                     {
                         fieldtype: 'HTML', fieldname: 'lines_html',
@@ -541,33 +543,44 @@ function sig_open_kanban_return_dialog(sourceSe) {
                             <tbody>${rowsHtml}</tbody></table></div>`,
                     },
                 ],
-                primary_action_label: __('Confirm Return'),
+                primary_action_label: __('Confirm disposition'),
                 primary_action() {
                     const rows = [...d.$wrapper.find('tbody tr')];
-                    const lines = rows.map((row) => {
+                    const closeAsConsumed = !!d.get_value('close_as_consumed');
+                    const returnedLines = rows.map((row) => {
                         const $row = $(row);
                         return { sed: $row.data('sed'), qty: parseFloat($row.find('.sig-return-qty').val() || '0') };
                     }).filter((l) => l.qty > 0);
+                    const lines = closeAsConsumed
+                        ? rows.map((row) => ({ sed: $(row).data('sed'), qty: null }))
+                        : returnedLines;
                     if (!lines.length) {
-                        frappe.msgprint(__('No lines selected.'));
+                        frappe.msgprint(__('Enter a return quantity, or explicitly select close as consumed.'));
                         return;
                     }
                     const toWh = d.get_value('to_wh');
+                    const action = closeAsConsumed ? 'CLOSE' : 'RETURN';
                     frappe.confirm(
-                        __('Return {0} line(s) from {1} to {2}? This submits a Stock Entry immediately.', [lines.length, sourceSe, toWh]),
+                        closeAsConsumed
+                            ? __('Close {0} undeclared line(s) on {1} as consumed? No stock movement will be made. You may reopen the original Stock Entry later for a correction.', [lines.length, sourceSe])
+                            : __('Return {0} line(s) from {1} to {2}? This submits a Stock Entry immediately.', [lines.length, sourceSe, toWh]),
                         () => {
                             const args = {
-                                operation_id: sig_gen_operation_id('RETURN'), action: 'RETURN', source_se: sourceSe,
-                                to_wh: toWh, line_count: lines.length,
+                                operation_id: sig_gen_operation_id(action), action, source_se: sourceSe,
+                                line_count: lines.length,
                             };
-                            lines.forEach((l, i) => { args[`sed_${i + 1}`] = l.sed; args[`qty_${i + 1}`] = l.qty; });
+                            if (action === 'RETURN') args.to_wh = toWh;
+                            lines.forEach((l, i) => {
+                                args[`sed_${i + 1}`] = l.sed;
+                                if (l.qty !== null) args[`qty_${i + 1}`] = l.qty;
+                            });
                             frappe.call({
                                 method: 'sig_warehouse.sig_warehouse.disposition.sig_declare_disposition',
-                                args, freeze: true, freeze_message: __('Returning...'),
+                                args, freeze: true, freeze_message: closeAsConsumed ? __('Closing...') : __('Returning...'),
                                 callback: (res2) => {
                                     const res = res2.message || {};
                                     if (res.result === 'created' || res.result === 'duplicate') {
-                                        frappe.show_alert({ message: __('Returned.'), indicator: 'green' });
+                                        frappe.show_alert({ message: closeAsConsumed ? __('Closed as consumed.') : __('Returned.'), indicator: 'green' });
                                         d.hide();
                                     } else if (res.result === 'exception' && res.reason === 'CAP_EXCEEDED') {
                                         frappe.msgprint({ title: __('Cannot return'), indicator: 'red',
