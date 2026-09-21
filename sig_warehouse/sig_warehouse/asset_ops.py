@@ -193,11 +193,11 @@ def sig_capitalize_tool(operation_id, stock_item, warehouse, location, tag=None,
     if not it or not it.is_stock_item or it.is_fixed_asset:
         return {"result": "exception", "reason": "NOT_A_STOCK_ITEM"}
     sig = _sig(stock_item, warehouse, location, tag)
-    marker = f"op:{operation_id}"
-    prior = frappe.db.get_value("Asset Capitalization", {"remarks": ["like", f"%{marker}|%"]},
-                                ["name", "remarks", "target_asset"], as_dict=True)
+    title = f"{operation_id}|{sig[:16]}"
+    prior = frappe.db.get_value("Asset Capitalization", {"title": ["like", f"{operation_id}|%"]},
+                                ["name", "title", "target_asset"], as_dict=True)
     if prior:
-        if f"sig:{sig}" not in prior.remarks:
+        if prior.title != title:
             return {"result": "conflict", "operation_id": operation_id}
         return {"result": "duplicate", "operation_id": operation_id,
                 "asset_capitalization": prior.name, "asset": prior.target_asset}
@@ -209,9 +209,9 @@ def sig_capitalize_tool(operation_id, stock_item, warehouse, location, tag=None,
     ac = frappe.get_doc({
         "doctype": "Asset Capitalization", "company": COMPANY, "posting_date": frappe.utils.nowdate(),
         "target_item_code": _ensure_twin(stock_item), "target_qty": 1,
-        "target_asset_location": location,
+        "target_asset_location": location, "title": title, "cost_center": "Main - SIG",
+        "capitalization_method": "Create a new composite asset",
         "stock_items": [{"item_code": stock_item, "warehouse": warehouse, "stock_qty": 1}],
-        "remarks": f"{remarks or 'SIG tool capitalization'} | {marker}|sig:{sig}",
     })
     ac.insert()
     ac.submit()
