@@ -337,18 +337,22 @@ function sig_setup_kanban_actions($board) {
           '.kanban .kanban-assignments { cursor: pointer; }' +
           '</style>').appendTo('head');
     }
-    $board.find('.kanban-card-wrapper').each(function () {
-        const $card = $(this);
-        const assignEl = $card.find('.kanban-assignments').get(0);
-        if (!assignEl || assignEl.__sigBound) return;
-        assignEl.__sigBound = true;
-        assignEl.addEventListener('click', function (e) {
-            e.preventDefault();
-            e.stopPropagation();
-            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-            sig_show_kanban_action_menu($(assignEl), $card.attr('data-name'));
-        }, true);
-    });
+    // Cards are rendered and replaced after the Kanban node itself exists.
+    // Binding each currently visible '+' left later cards with Frappe's
+    // native Assign/ToDo action. One capture handler on document covers both
+    // initial and future cards, and runs before Frappe's delegated handler.
+    if (document.__sigKanbanActionCaptureBound) return;
+    document.__sigKanbanActionCaptureBound = true;
+    document.addEventListener('click', function (e) {
+        const target = e.target && e.target.closest && e.target.closest('.kanban-assignments');
+        if (!target || !target.closest('.kanban')) return;
+        const card = target.closest('.kanban-card-wrapper');
+        if (!card || !card.getAttribute('data-name')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+        sig_show_kanban_action_menu($(target), card.getAttribute('data-name'));
+    }, true);
 }
 
 function sig_show_kanban_action_menu($anchor, mrNameEncoded) {
