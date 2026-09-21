@@ -101,7 +101,7 @@ def assemble(messages, now, known_sites=None):
     seen = set()
 
     def new_exc(msg, code, note=""):
-        exceptions.append({"code": code, "at": fmt(msg["at"]), "stream": msg["stream"], "site": msg["site"],
+        exceptions.append({"code": code, "msg_key": msg["msg_key"], "at": fmt(msg["at"]), "stream": msg["stream"], "site": msg["site"],
                            "reporter": msg["reporter_name"], "text": msg["text"], "note": note})
 
     def close(s, at, status, diag=None):

@@ -41,6 +41,14 @@ app_include_js = [
     "/assets/sig_warehouse/js/stock_entry.js?v=20260921-1",
 ]
 
+# Field visit feed (gate F1: shadow; see docs/field_visit_feed_design.md). Runs every 15 minutes; mode is
+# SIG Field Ops Settings.feed_mode (Off / Shadow / Live) and defaults to Shadow.
+scheduler_events = {
+    "cron": {
+        "*/15 * * * *": ["sig_warehouse.sig_warehouse.field_feed.run_feed"],
+    },
+}
+
 override_doctype_dashboards = {
     "Material Request": "sig_warehouse.sig_warehouse.dashboards.material_request",
     "Stock Entry": "sig_warehouse.sig_warehouse.dashboards.stock_entry",
