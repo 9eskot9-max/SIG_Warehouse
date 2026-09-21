@@ -36,7 +36,7 @@ doctype_js = {
 # Version query forces Desk clients/CDNs to fetch the current bundle after a
 # deploy; the unversioned app-included URL can remain cached for a long time.
 app_include_js = [
-    "/assets/sig_warehouse/js/material_request_list.js?v=20260921-2",
+    "/assets/sig_warehouse/js/material_request_list.js?v=20260921-3",
     "/assets/sig_warehouse/js/material_request.js?v=20260921-2",
     "/assets/sig_warehouse/js/stock_entry.js?v=20260921-1",
 ]
