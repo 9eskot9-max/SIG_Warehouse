@@ -217,6 +217,11 @@ def sig_capitalize_tool(operation_id, stock_item, warehouse, location, tag=None,
     ac.submit()
     asset = ac.target_asset
     if asset:
+        # ERPNext leaves the created Asset as a draft; no depreciation is set for tools, so submit it.
+        ad = frappe.get_doc("Asset", asset)
+        if ad.docstatus == 0:
+            ad.custom_asset_tag_no = tag or asset
+            ad.submit()
         frappe.db.set_value("Asset", asset, {
             "custom_asset_tag_no": tag or asset, "custom_custody_status": "In Store",
             "custom_issuing_warehouse": warehouse,
