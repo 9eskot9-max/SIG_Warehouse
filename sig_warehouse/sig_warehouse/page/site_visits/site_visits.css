@@ -4,9 +4,18 @@
 .sig-sv-tile { background: var(--card-bg, #fff); border: 1px solid var(--border-color); border-radius: 6px; padding: 8px 14px; min-width: 100px; text-align: center; cursor: pointer; }
 .sig-sv-tile-n { font-size: 20px; font-weight: 600; }
 .sig-sv-tile-l { font-size: 11px; color: var(--text-muted); }
-.sig-sv-main { display: flex; gap: 16px; align-items: flex-start; }
-.sig-sv-table-wrap { flex: 1 1 auto; min-width: 0; overflow-x: auto; }
-.sig-sv-detail { flex: 0 0 340px; border: 1px solid var(--border-color); border-radius: 6px; padding: 12px; max-height: 75vh; overflow-y: auto; }
+/* flex-basis:0 (not auto) is required here - a wide <table> otherwise reports its
+   intrinsic content width as the flex item's basis and pushes .sig-sv-detail
+   completely out of the viewport instead of scrolling within table-wrap
+   (confirmed live 2026-09-22: detail panel rendered correctly off-screen at
+   left:861 on an 800px viewport - content was always right, layout was not). */
+.sig-sv-main { display: flex; gap: 16px; align-items: flex-start; min-width: 0; }
+.sig-sv-table-wrap { flex: 1 1 0; min-width: 0; overflow-x: auto; }
+.sig-sv-detail { flex: 0 0 340px; min-width: 0; border: 1px solid var(--border-color); border-radius: 6px; padding: 12px; max-height: 75vh; overflow-y: auto; }
+@media (max-width: 900px) {
+    .sig-sv-main { flex-direction: column; }
+    .sig-sv-detail { flex-basis: auto; width: 100%; }
+}
 .sig-sv-detail h5 { margin-top: 14px; margin-bottom: 6px; }
 .sig-sv-detail h5:first-child { margin-top: 0; }
 .sig-sv-block { font-size: 13px; }

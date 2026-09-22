@@ -69,6 +69,16 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
         "FROM `tabSIG Field Session` s WHERE " + ' AND '.join(where) +
         " ORDER BY s.start_at DESC LIMIT 500", tuple(values), as_dict=True,
     )
+    emp_ids = list({r.employee for r in rows if r.employee})
+    emp_names = frappe.db.get_values('Employee', {'name': ['in', emp_ids]}, ['name', 'employee_name'], as_dict=True) if emp_ids else []
+    emp_name_by_id = {e.name: e.employee_name for e in emp_names}
+
+    def display_name(r):
+        # The ERP Employee name once matched - never the raw WhatsApp profile name (owner
+        # decision, 2026-09-22): "Bs Adnan New" / "Love is Life ❤️" etc. are display names
+        # the reporter set on their phone, not who they are in ERP.
+        return emp_name_by_id.get(r.employee) or r.reporter_name
+
     site_keys = list({r.site_key for r in rows if r.site_key})
     cycles = {}
     if site_keys:
@@ -98,7 +108,7 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
         record = {
             'name': r.name, 'stream': r.stream, 'stream_label': STREAM_LABEL.get(r.stream, r.stream),
             'pm': STREAM_PM.get(r.stream, ''), 'group': r.group, 'site': r.site_key, 'site_linked': bool(r.site),
-            'reporter': r.reporter, 'reporter_name': r.reporter_name, 'employee': r.employee,
+            'reporter': r.reporter, 'reporter_name': display_name(r), 'whatsapp_name': r.reporter_name, 'employee': r.employee,
             'start_at': str(r.start_at or ''), 'end_at': str(r.end_at or ''), 'status': r.status,
             'hours': r.hours, 'activity_code': r.activity_code, 'photo_count': r.photo_count or 0,
             'diagnostics': diags, 'is_review': is_review, 'disposition': r.disposition,
@@ -152,11 +162,18 @@ def get_visit(session_key):
                                 ['name', 'project', 'erp_project', 'wo', 'stage', 'first_visit_at', 'last_visit_at',
                                  'sessions_completed'], as_dict=True, order_by='modified desc')
     prior = frappe.db.sql(
-        "SELECT name, start_at, reporter_name, status FROM `tabSIG Field Session` "
+        "SELECT name, start_at, reporter_name, employee, status FROM `tabSIG Field Session` "
         "WHERE site_key = %s AND name != %s ORDER BY start_at DESC LIMIT 5", (s.site_key, session_key), as_dict=True)
+    prior_emp_ids = list({p.employee for p in prior if p.employee})
+    prior_emp_names = {e.name: e.employee_name for e in frappe.db.get_values(
+        'Employee', {'name': ['in', prior_emp_ids]}, ['name', 'employee_name'], as_dict=True)} if prior_emp_ids else {}
+    for p in prior:
+        p['reporter_name'] = prior_emp_names.get(p.employee) or p.reporter_name
     comments = frappe.get_all('Comment', filters={'reference_doctype': 'SIG Field Session', 'reference_name': session_key,
                                                    'comment_type': 'Comment'},
                               fields=['content', 'owner', 'creation'], order_by='creation desc', limit_page_length=20)
+    # The WhatsApp timeline stays verbatim (design doc: "the original messages, verbatim") -
+    # it shows exactly what the sender's phone displayed, not an ERP-resolved identity.
     return {'result': 'ok', 'timeline': [{'at': str(m.occurred_at), 'who': m.reporter_name, 'kind': m.kind,
                                           'text': m.text} for m in timeline],
             'cycle': cycle, 'prior_visits': prior,
