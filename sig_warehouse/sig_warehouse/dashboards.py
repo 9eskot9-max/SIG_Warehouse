@@ -18,7 +18,20 @@ def material_request(data):
 
 
 def stock_entry(data):
-    return _add_site(data, "custom_site")
+    data = _add_site(data, "custom_site")
+    # Native Stock Entry dashboard omits Material Request (it has one at the item-row level,
+    # `items.material_request`) even though Material Request's own dashboard already shows
+    # Stock Entry - so the link was only visible from one side. STE-2026-0902 (owner report,
+    # 2026-09-22) had items.material_request set but no Connections entry pointing back to it.
+    data.setdefault("internal_links", {})["Material Request"] = ["items", "material_request"]
+    for group in data.get("transactions", []):
+        if group.get("label") == "Reference":
+            if "Material Request" not in group["items"]:
+                group["items"].append("Material Request")
+            break
+    else:
+        data.setdefault("transactions", []).append({"label": "Reference", "items": ["Material Request"]})
+    return data
 
 
 def delivery_note(data):
