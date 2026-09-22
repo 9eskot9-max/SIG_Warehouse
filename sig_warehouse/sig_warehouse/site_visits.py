@@ -275,6 +275,25 @@ def assign_person(reporter_phone, employee, reporter_name_seen=''):
 
 
 @frappe.whitelist()
+def list_unpaired_ends(site_key=''):
+    """Candidates for 'Pair a lonely End': recent End messages the assembler could not attach
+    to any session (END_WITHOUT_START / AMBIGUOUS_END_TARGET), newest first. Filtered to the
+    row's own site by default so a PM sees the End that actually belongs to it."""
+    _require_pm()
+    site_key = text_value(site_key).strip().upper()
+    where = ["diagnostic IN ('END_WITHOUT_START', 'AMBIGUOUS_END_TARGET')"]
+    values = []
+    if site_key:
+        where.append('site_key = %s')
+        values.append(site_key)
+    rows = frappe.db.sql(
+        "SELECT msg_key, occurred_at, reporter_name, site_key, diagnostic FROM `tabSIG Field Message` "
+        "WHERE " + ' AND '.join(where) + " ORDER BY occurred_at DESC LIMIT 30", tuple(values), as_dict=True)
+    return [{'msg_key': r.msg_key, 'at': str(r.occurred_at), 'who': r.reporter_name, 'site': r.site_key,
+             'diagnostic': r.diagnostic} for r in rows]
+
+
+@frappe.whitelist()
 def pair_end(end_msg, session_key):
     """Attach an unpaired End message (an END_WITHOUT_START / AMBIGUOUS_END_TARGET exception)
     to a chosen open or recently-auto-closed session, closing it as COMPLETED."""

@@ -155,8 +155,9 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
         const box = root.find('.sig-sv-detail .sig-sv-actions');
         if (row.posted) { box.html(`<span class="text-muted small">${__('Already posted - corrections go through an amendment on the Field Visit itself.')}</span>`); return; }
         const btn = (label, cls) => `<button type="button" class="btn btn-default btn-xs ${cls}" style="margin:2px">${label}</button>`;
+        const pairBtn = row.status !== 'COMPLETED' ? btn(__('Pair a lonely End'), 'sig-sv-act-pair') : '';
         box.html(btn(__('Set type / scope'), 'sig-sv-act-type') + btn(__('Fix site'), 'sig-sv-act-site')
-            + btn(__('Void'), 'sig-sv-act-void'));
+            + btn(__('Assign person'), 'sig-sv-act-assign') + pairBtn + btn(__('Void'), 'sig-sv-act-void'));
         box.find('.sig-sv-act-type').on('click', () => {
             const d2 = new frappe.ui.Dialog({title: __('Set Type / Scope'), fields: [
                 {fieldtype: 'Select', fieldname: 'activity_code', label: __('Type'), options: ACTIVITIES.join('\n'), default: row.activity_code || 'UNSPECIFIED'},
@@ -182,6 +183,39 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
                 const res = await call('void', {session_key: name, reason: v.reason});
                 if (reportResult(res, __('Voided.'))) { load(); root.find('.sig-sv-detail').html(''); }
             }, __('Void This Session'), __('Void'));
+        });
+        box.find('.sig-sv-act-assign').on('click', () => {
+            const d2 = new frappe.ui.Dialog({title: __('Assign Person'), fields: [
+                {fieldtype: 'Data', fieldname: 'reporter_phone', label: __('Reporter Phone'), default: row.reporter, read_only: 1},
+                {fieldtype: 'Data', fieldname: 'reporter_name_seen', label: __('Name Seen on WhatsApp'), default: row.whatsapp_name || row.reporter_name, read_only: 1},
+                {fieldtype: 'Link', fieldname: 'employee', label: __('Employee'), options: 'Employee', reqd: 1, default: row.employee}],
+                primary_action_label: __('Save'), primary_action: async (v) => {
+                    const res = await call('assign_person', {reporter_phone: v.reporter_phone, employee: v.employee,
+                        reporter_name_seen: v.reporter_name_seen}, __('Assigning...'));
+                    if (reportResult(res, __('Assigned ({0} session(s) updated).', [res.sessions_updated]))) {
+                        d2.hide(); load(); showDetail(name);
+                    }
+                }});
+            d2.show();
+        });
+        if (pairBtn) box.find('.sig-sv-act-pair').on('click', async () => {
+            const ends = await call('list_unpaired_ends', {site_key: row.site});
+            if (!Array.isArray(ends) || !ends.length) {
+                frappe.msgprint({title: __('No candidates'), message: __('No unpaired End messages found for this site.')});
+                return;
+            }
+            const opts = ends.map((e) => ({label: `${e.at.slice(0, 16)} - ${e.who} (${e.diagnostic})`, value: e.msg_key}));
+            const d2 = new frappe.ui.Dialog({title: __('Pair a Lonely End'), fields: [
+                {fieldtype: 'Select', fieldname: 'end_msg', label: __('End Message'),
+                 options: opts.map((o) => o.value).join('\n'), reqd: 1}],
+                primary_action_label: __('Pair'), primary_action: async (v) => {
+                    const res = await call('pair_end', {end_msg: v.end_msg, session_key: name});
+                    if (reportResult(res, __('Paired ({0}h).', [res.hours]))) { d2.hide(); load(); showDetail(name); }
+                }});
+            // Select field shows raw values; swap in readable labels post-render.
+            d2.show();
+            const $sel = d2.fields_dict.end_msg.$input;
+            opts.forEach((o, i) => $sel.find('option').eq(i).text(o.label));
         });
     }
 
