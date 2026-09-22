@@ -331,6 +331,34 @@ def pair_end(end_msg, session_key):
 
 
 @frappe.whitelist()
+def confirm(session_key, note=''):
+    """Acknowledge a REVIEW session as-is: no data changes, just a PM sign-off that the
+    auto-closed/duplicate-start/etc. estimate is good enough to stand (owner decision
+    2026-09-22: HARD_CAP_24H, NEW_START_MISSING_END, DUPLICATE_START and
+    INVALID_NEGATIVE_DURATION are judgment calls an operator makes, never an automated
+    guess - see white paper cp.md SS11.2/11.6 on that boundary). Clearing the flag must
+    never make an already-represented historical session eligible for live (re)posting,
+    so it lands on IN_ERP_WINDOW below the feed's own cutover point and PENDING only
+    at/after it - the same split field_feed._upsert_sessions uses when it first files a
+    session, so a confirmed session always ends up where the feed itself would have put
+    it once its diagnostics/disposition stopped saying REVIEW.
+    """
+    _require_pm()
+    doc = _session(session_key)
+    if doc.disposition != 'REVIEW':
+        return {'result': 'exception', 'reason': 'NOT_IN_REVIEW'}
+    note = text_value(note).strip()
+    if note:
+        frappe.get_doc({'doctype': 'Comment', 'comment_type': 'Comment', 'reference_doctype': 'SIG Field Session',
+                        'reference_name': session_key, 'content': note}).insert(ignore_permissions=True)
+    doc.disposition = ('IN_ERP_WINDOW' if str(doc.start_at) <= field_feed.ERP_LAST_VISIT
+                       else ('PENDING' if doc.status == 'COMPLETED' else doc.disposition))
+    doc.corrected_by = frappe.session.user
+    doc.save(ignore_permissions=True)
+    return {'result': 'ok', 'disposition': doc.disposition}
+
+
+@frappe.whitelist()
 def void(session_key, reason):
     _require_pm()
     reason = text_value(reason).strip()

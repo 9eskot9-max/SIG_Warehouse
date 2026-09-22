@@ -163,8 +163,15 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
         if (row.posted) { box.html(`<span class="text-muted small">${__('Already posted - corrections go through an amendment on the Field Visit itself.')}</span>`); return; }
         const btn = (label, cls) => `<button type="button" class="btn btn-default btn-xs ${cls}" style="margin:2px">${label}</button>`;
         const pairBtn = row.status !== 'COMPLETED' ? btn(__('Pair a lonely End'), 'sig-sv-act-pair') : '';
+        const confirmBtn = row.is_review ? btn(__('Confirm as-is'), 'sig-sv-act-confirm') : '';
         box.html(btn(__('Set type / scope'), 'sig-sv-act-type') + btn(__('Fix site'), 'sig-sv-act-site')
-            + btn(__('Assign person'), 'sig-sv-act-assign') + pairBtn + btn(__('Void'), 'sig-sv-act-void'));
+            + btn(__('Assign person'), 'sig-sv-act-assign') + pairBtn + confirmBtn + btn(__('Void'), 'sig-sv-act-void'));
+        if (confirmBtn) box.find('.sig-sv-act-confirm').on('click', () => {
+            frappe.prompt({fieldtype: 'Small Text', fieldname: 'note', label: __('Note (optional)')}, async (v) => {
+                const res = await call('confirm', {session_key: name, note: v.note});
+                if (reportResult(res, __('Confirmed.'))) { load(); showDetail(name); }
+            }, __('Confirm This Session As-Is'), __('Confirm'));
+        });
         box.find('.sig-sv-act-type').on('click', () => {
             const d2 = new frappe.ui.Dialog({title: __('Set Type / Scope'), fields: [
                 {fieldtype: 'Select', fieldname: 'activity_code', label: __('Type'), options: ACTIVITIES.join('\n'), default: row.activity_code || 'UNSPECIFIED'},
