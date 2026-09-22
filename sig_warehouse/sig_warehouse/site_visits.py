@@ -114,6 +114,22 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
             'diagnostics': diags, 'is_review': is_review, 'disposition': r.disposition,
             'posted': int(r.posted or 0), 'visit': r.visit, 'cycle': cycle_context(r.site_key),
         }
+        # Summary tile counts reflect every row that passed the base/search/stream/etc.
+        # filters above, independent of which view is currently selected - otherwise
+        # switching to a view with few/no matches (e.g. "Open now" when nothing is
+        # currently open) zeroes out the OTHER tiles too, since they'd only be counted
+        # from the same already-view-filtered subset (found live 2026-09-22).
+        if r.status == 'OPEN':
+            now_open_count += 1
+        if str(r.start_at or '')[:10] == today:
+            today_count += 1
+        if is_review:
+            review_count += 1
+        if (r.activity_code or 'UNSPECIFIED') == 'UNSPECIFIED':
+            unclassified_count += 1
+        if str(r.start_at or '')[:10] >= week_ago:
+            sites_this_week.add(r.site_key)
+
         if view == 'open' and r.status != 'OPEN':
             continue
         if view == 'review' and not is_review:
@@ -125,16 +141,6 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
         if view == 'thisweek' and str(r.start_at or '')[:10] < week_ago:
             continue
         result.append(record)
-        if r.status == 'OPEN':
-            now_open_count += 1
-        if str(r.start_at or '')[:10] == today:
-            today_count += 1
-        if is_review:
-            review_count += 1
-        if (r.activity_code or 'UNSPECIFIED') == 'UNSPECIFIED':
-            unclassified_count += 1
-        if str(r.start_at or '')[:10] >= week_ago:
-            sites_this_week.add(r.site_key)
 
     return {
         'result': 'ok', 'rows': result,
