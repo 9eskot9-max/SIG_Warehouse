@@ -1,117 +1,70 @@
 // Kanban/List-only enhancements (card-count badges, quick search, per-card
-// actions, stock-availability dots). This is a SEPARATE bundle from
-// material_request.js: Frappe loads `doctype_js` only on a Form page and
-// `doctype_list_js` (this file) only on a List/Kanban page - a bundle
-// registered under the wrong hook simply never executes on the page it was
-// meant for. This file was previously (wrongly) merged into material_request.js
-// under doctype_js, which is why none of this ever actually ran on the
-// Kanban board - confirmed live 2026-09-18 (frappe.boot had no doctype_js
-// entry for this page at all, and the doctype's __js bundle, while correctly
-// built and served, is only evaluated by Frappe's Form controller, not by
-// the Kanban/List view). Moved here under doctype_list_js instead, which
-// Frappe does load for List/Kanban (confirmed live: erpnext's own core
-// material_request_list.js already arrives via this exact hook).
-//
-// The bootstrap call itself (frappe.router.on + the initial call) is at the
-// BOTTOM of this file, not here, on purpose: when this script evaluates, the
-// Kanban board's DOM is often already present, so sig_maybe_setup_kanban()
-// runs synchronously all the way down into functions that read `const`
-// declarations further down this same file (SIG_STAGE_COLORS etc.) - a
-// `const` is in the temporal dead zone until its own declaration line runs,
-// so calling this before those declarations throws "Cannot access before
-// initialization" and aborts the whole script silently. Confirmed live
-// 2026-09-18: this was the actual reason nothing ever rendered, even after
-// fixing the doctype_js/doctype_list_js hook above - not a Frappe loading
-// problem at all, just this ordering bug (present since the very first
-// version of this file, before the doctype_list_js split too).
+// actions, stock-availability dots). Loaded via app_include_js (this file,
+// material_request.js and stock_entry.js all load on every desk page - see
+// hooks.py). Everything below is scoped inside one IIFE so this file's names
+// can never collide with the other two, whatever they declare (2026-09-22
+// fix: two files each declared a function literally named
+// `sig_open_dispatch_dialog` with a different signature; classic scripts
+// share one global scope, so the last one loaded silently won regardless of
+// which page you were on, and the toolbar button below - which always meant
+// to call the OTHER (custody) dialog - called the MR-dispatch one with no
+// argument instead and threw. The single MR-dispatch implementation now
+// lives only in material_request.js and is called here through
+// `window.sig_wh.open_mr_dispatch`, resolved at click time, never at
+// file-evaluation time, so load order can't matter again).
+(() => {
+    'use strict';
 
-// Tracks the exact .kanban DOM node our setup last ran against - not just
-// whether we've "ever" set up. Confirmed live 2026-09-19 (after switching
-// this file to app_include_js, which loads it much earlier than the old
-// doctype_list_js path did): Frappe can still be constructing the Kanban
-// board when this first runs, and later replaces that early/premature
-// .kanban element wholesale with the real, fully-populated one - our
-// MutationObserver only protects against mutations on the SAME node, not
-// the node itself being swapped out, so a setup that fires too early binds
-// to a node Frappe is about to discard and nothing (badges/dots/search/
-// dispatch button) shows up on the real board that replaces it, even
-// though comment-hiding still visibly worked (that part is a global CSS
-// rule keyed by selector, not tied to a specific node reference). Re-
-// checking on every call and re-running setup whenever the live node
-// differs from last time is a cheap, robust fix regardless of exactly when
-// Frappe decides to do that replacement.
-let __sig_last_kanban_node = null;
-function sig_maybe_setup_kanban() {
-    // Defensive: confirmed live 2026-09-19 that something inside this call
-    // chain (most likely frappe.get_route() itself, or frappe internals it
-    // touches) can throw at certain moments now that this script - loaded
-    // via app_include_js - runs much earlier than before, sometimes ahead
-    // of Frappe's own router being fully ready. This runs on a 1s interval
-    // (see bottom of file) for the lifetime of the tab, so left unguarded a
-    // transient throw here is not fatal to the interval itself, but it is
-    // an uncaught exception on every tick until conditions change - swallow
-    // it and let the next tick retry instead.
-    try {
-        const route = (frappe.get_route && frappe.get_route()) || [];
-        if (route[0] !== 'List' || route[1] !== 'Material Request' || route[2] !== 'Kanban') return;
-        sig_wait_for_kanban_board(($board) => {
-            // Frappe can add the native toolbar/column-create controls after
-            // the board node exists. Re-run this cheap cleanup on every poll,
-            // even when the board node itself has not changed.
-            sig_hide_kanban_create_controls($board);
-            const node = $board.get(0);
-            if (node === __sig_last_kanban_node && document.body.contains(node)) return;
-            __sig_last_kanban_node = node;
-            sig_setup_kanban_updates($board);
-            sig_setup_kanban_search($board);
-            sig_setup_kanban_actions($board);
-            sig_setup_dispatch_tool_button($board);
-        });
-    } catch (e) {
-        console.error('sig_maybe_setup_kanban: transient error, will retry', e);
+    const ROUTE = 'List/Material Request/Kanban/SIG Dispatch Queue';
+
+    function on_our_route() {
+        const r = (frappe.get_route && frappe.get_route()) || [];
+        return r[0] === 'List' && r[1] === 'Material Request' && r[2] === 'Kanban';
     }
-}
-// Route changes alone don't cover an in-place node replacement (no route
-// change happens when Frappe swaps the board out from under us), so also
-// poll cheaply while this tab might be sitting on the Kanban route. The
-// node-identity check above makes repeated calls a fast no-op once the
-// board has stabilized.
-setInterval(() => sig_maybe_setup_kanban(), 1000);
 
-function sig_wait_for_kanban_board(callback, attemptsLeft = 40) {
-    // Frappe v15's Kanban root wrapper class is '.kanban', not '.kanban-board'
-    // (confirmed live on this site's Frappe 15.106.0).
-    const $board = $('.kanban');
-    if ($board.length) {
-        callback($board);
-        return;
+    // ---------------------------------------------------------------------
+    // Static CSS instead of a polling text-scan. The previous version ran a
+    // 1-second setInterval for the tab's whole lifetime, text-scanning every
+    // button/link/span/div under .page-container (~4,300 elements on this
+    // board, confirmed live) on every tick - this was the board's main-thread
+    // lag. An attribute-selector CSS rule re-applies itself automatically the
+    // instant Frappe adds a matching node or updates data-page-route; no JS
+    // needs to run at all, on every tick or otherwise.
+    // ---------------------------------------------------------------------
+    function ensure_style_once() {
+        if (document.getElementById('sig-kanban-style')) return;
+        const scope = `.page-container[data-page-route="${ROUTE}"]`;
+        $(`<style id="sig-kanban-style">
+            ${scope} .kanban .add-card,
+            ${scope} .kanban-column.add-new-column,
+            ${scope} .standard-actions .primary-action,
+            ${scope} .kanban .list-comment-count { display: none !important; }
+            ${scope} .kanban .kanban-assignments { cursor: pointer; }
+        </style>`).appendTo('head');
     }
-    if (attemptsLeft <= 0) return;
-    setTimeout(() => sig_wait_for_kanban_board(callback, attemptsLeft - 1), 250);
-}
 
-// Each real column carries its group value in data-column-value (confirmed
-// live on this site's Frappe 15 Kanban DOM: <div class="kanban-column"
-// data-column-value="PENDING">) - the field grouping the board is
-// custom_dispatch_stage, so this is that value verbatim. Falls back to the
-// title text (case-insensitive) in case a future Frappe version drops the
-// attribute, since Kanban Board column labels are otherwise free text.
-const SIG_STAGE_COLORS = {
-    PENDING: '#94a3b8',
-    PARTIAL: '#f59e0b',
-    DISPATCHED: '#16a34a',
-    CLOSED: '#64748b',
-};
+    // ---------------------------------------------------------------------
+    // Card-count badges + stage-colored borders. Unchanged from the previous
+    // version except for the rename - still only writes when the value
+    // actually changes: .text() replaces the text node even when the string
+    // is identical, which is a real childList mutation and would re-trigger
+    // the observer below on every single call, forever (this exact bug froze
+    // the live board once already, 2026-09-19).
+    // ---------------------------------------------------------------------
+    const SIG_STAGE_COLORS = {
+        PENDING: '#94a3b8',
+        PARTIAL: '#f59e0b',
+        DISPATCHED: '#16a34a',
+        CLOSED: '#64748b',
+    };
 
-function sig_stage_color_for_column($col) {
-    const key = ($col.attr('data-column-value') || $col.find('.kanban-title').first().text())
-        .trim().toUpperCase();
-    return SIG_STAGE_COLORS[key] || null;
-}
+    function stage_color_for_column($col) {
+        const key = ($col.attr('data-column-value') || $col.find('.kanban-title').first().text())
+            .trim().toUpperCase();
+        return SIG_STAGE_COLORS[key] || null;
+    }
 
-function sig_setup_kanban_updates($board) {
-    const update = () => {
-        sig_hide_kanban_create_controls($board);
+    function paint_badges_and_borders($board) {
         $board.find('.kanban-column').each(function () {
             const $col = $(this);
             const $cards = $col.find('.kanban-cards .kanban-card-wrapper');
@@ -121,948 +74,649 @@ function sig_setup_kanban_updates($board) {
                 $badge = $('<span class="sig-kanban-count badge pull-right" style="font-weight:normal;"></span>');
                 $col.find('.kanban-column-header').first().append($badge);
             }
-            // Only write when the value actually changes: .text() replaces
-            // the text node even when the string is identical, which is a
-            // real childList mutation - inside a MutationObserver watching
-            // childList:true, an unconditional write here re-triggers the
-            // observer on every single call, forever. Confirmed live in an
-            // isolated repro (2026-09-19): this pre-existing line, not the
-            // availability-dot feature added this session, was the actual
-            // cause of the Kanban board becoming unresponsive - update()
-            // ran 2000+ times in 8 seconds from this alone, with the
-            // server only ever called once as expected.
             if ($badge.text() !== String(count)) $badge.text(count);
 
-            const color = sig_stage_color_for_column($col);
+            const color = stage_color_for_column($col);
             $cards.find('.kanban-card').css('border-left', color ? `4px solid ${color}` : '');
         });
-        sig_refresh_kanban_availability($board);
-    };
-    update();
-    if ($board.data('sig-update-observer')) return; // already watching this board instance
-    const observer = new MutationObserver(() => update());
-    observer.observe($board.get(0), { childList: true, subtree: true });
-    $board.data('sig-update-observer', observer);
-}
+    }
 
-function sig_hide_kanban_create_controls($board) {
-    // This is an operational dispatch board, not a request-intake board.
-    // Frappe's Kanban adds one native create control in the toolbar and one
-    // in every column; each creates a new Material Request rather than
-    // issuing an existing one. Suppress them only on this SIG route.
-    const hiddenLabels = new Set(['add material request', '+ add material request', '+ add column']);
-    // Frappe's current Kanban renderer uses stable structural classes for
-    // these native creation affordances. Hide them directly so late-rendered
-    // controls cannot escape the text-based fallback below.
-    $('.page-container .standard-actions .primary-action').hide();
-    $('.page-container .kanban-column.add-new-column, .page-container .kanban-column .add-card').hide();
-    $('.page-container button, .page-container a, .page-container span, .page-container div')
-        .filter(function () {
-        return hiddenLabels.has($(this).text().replace(/\s+/g, ' ').trim().toLowerCase());
-        }).hide();
-}
+    // ---------------------------------------------------------------------
+    // Search box. Always re-selects the live `.kanban` node at filter time
+    // instead of closing over the node captured when the box was inserted -
+    // Frappe replaces that node wholesale on redraw (confirmed live), so the
+    // old version's captured `$board` went stale and typing silently
+    // filtered a detached copy of the board until a full page reload.
+    // `decorate()` re-applies the current query after every redraw too, for
+    // the same reason.
+    // ---------------------------------------------------------------------
+    let sig_search_query = '';
 
-// Per-MR stock-availability traffic light (green/yellow/red dot on each
-// card), separate from the stage-color left border above. Debounced and
-// deduped: the MutationObserver in sig_setup_kanban_updates fires on every
-// DOM change (including the dot being added), so without both guards this
-// would call the server in a tight loop. A card with no dot (server left it
-// out of the response - no open lines) gets no dot at all, not a default
-// color, so a fully-dispatched/cancelled MR is left unmarked rather than
-// implying a stock state that doesn't apply to it.
-const SIG_AVAILABILITY_COLOR = { green: '#16a34a', yellow: '#eab308', red: '#dc2626' };
-let sig_availability_fetch_pending = false;
+    function ensure_search_box($board) {
+        if (document.getElementById('sig-kanban-search-input')) return;
+        const $box = $(`<div class="sig-kanban-search" style="margin: 0 15px 10px;">
+            <input type="text" id="sig-kanban-search-input" class="form-control input-sm" placeholder="${__('Search MR #, site (e.g. 1011, ZMK113)...')}">
+        </div>`);
+        $board.before($box);
+        $box.find('input').on('input', function () {
+            sig_search_query = $(this).val().trim().toLowerCase();
+            apply_search_filter($('.kanban').first());
+            paint_badges_and_borders($('.kanban').first());
+        });
+    }
 
-function sig_refresh_kanban_availability($board) {
-    // Marked "checked" (not just "has a dot") the moment a card is picked up
-    // for this batch, synchronously, before the async frappe.call even
-    // returns - a card with no open lines never gets a dot back from the
-    // server, so filtering on the dot alone would make this function pick
-    // the same never-dotted cards again on every subsequent mutation
-    // (including the mutation caused by THIS batch's own dot insertions),
-    // looping indefinitely and freezing the board. Filtering on the
-    // "checked" marker instead guarantees the candidate set strictly
-    // shrinks to empty after one pass, regardless of how many cards never
-    // get a dot. Confirmed live 2026-09-18: the dot-only version froze the
-    // real board (216 cards, most DISPATCHED/CLOSED with no open lines).
-    const $wrappers = $board.find('.kanban-card-wrapper').not('.sig-kanban-availability-checked');
-    if (!$wrappers.length || sig_availability_fetch_pending) return;
-    const names = [...new Set($wrappers.map(function () { return decodeURIComponent($(this).attr('data-name')); }).get())];
-    $wrappers.addClass('sig-kanban-availability-checked');
-    if (!names.length) return;
-    sig_availability_fetch_pending = true;
-    frappe.call({
-        method: 'sig_warehouse.sig_warehouse.dispatch_operation.sig_kanban_availability_status',
-        args: { mrs: names },
-        callback: (r) => {
-            sig_availability_fetch_pending = false;
-            const statuses = r.message || {};
-            // Re-select the board fresh from the live document instead of
-            // using the $board this call closed over: confirmed live
-            // 2026-09-19 that Frappe can re-render this board's cards
-            // (new DOM nodes replacing the old ones) while this request is
-            // in flight - by the time this callback runs, the captured
-            // $board can point at a detached snapshot, so writing into it
-            // silently succeeds in JS terms but never appears on screen
-            // (no error, no dots, response data was fine the whole time).
-            $('.kanban').find('.kanban-card-wrapper').each(function () {
-                const $card = $(this);
-                if ($card.find('.sig-kanban-availability-dot').length) return;
-                const mrName = decodeURIComponent($card.attr('data-name'));
-                const status = statuses[mrName];
-                if (!status) return;
-                const $dot = $(`<span class="sig-kanban-availability-dot" title="${__('Stock availability')}: ${status}"
-                    style="position:absolute; top:6px; left:6px; width:9px; height:9px; border-radius:50%; z-index:2;
-                    background:${SIG_AVAILABILITY_COLOR[status]};"></span>`);
-                $card.css('position', 'relative');
-                $card.find('.kanban-card.content').first().append($dot);
-            });
-        },
-        error: () => { sig_availability_fetch_pending = false; },
-    });
-}
-
-function sig_setup_kanban_search($board) {
-    if ($('.sig-kanban-search').length) return; // already inserted for this page
-    const $box = $(`<div class="sig-kanban-search" style="margin: 0 15px 10px;">
-        <input type="text" class="form-control input-sm" placeholder="${__('Search MR #, site (e.g. 1011, ZMK113)...')}">
-    </div>`);
-    $board.before($box);
-    $box.find('input').on('input', function () {
-        const q = $(this).val().trim().toLowerCase();
+    function apply_search_filter($board) {
+        if (!$board || !$board.length) return;
         $board.find('.kanban-card-wrapper').each(function () {
             const $card = $(this);
-            const match = !q || $card.text().toLowerCase().includes(q);
+            const match = !sig_search_query || $card.text().toLowerCase().includes(sig_search_query);
             $card.toggle(match);
         });
-        // card visibility changed - refresh the per-column counts to match
-        sig_setup_kanban_updates($board);
-    });
-}
+    }
 
-// Standalone tool/equipment custody dispatch - deliberately NOT reachable
-// from a Material Request (owner decision: issuing consumable material is
-// linked to a site/project/return chain; a tool going out to a person isn't
-// - it has no site/project, and comes back through custody return, not the
-// MR-line return flow). Lives on the Dispatch Board's toolbar instead, next
-// to the search box, since that's the warehouse's general action surface.
-function sig_setup_dispatch_tool_button($board) {
-    if ($('.sig-dispatch-tool-btn').length) return;
-    const $btn = $(`<button type="button" class="btn btn-default btn-sm sig-dispatch-tool-btn" style="margin: 0 15px 10px;">
-        ${__('Dispatch / Return')}
-    </button>`);
-    $('.sig-kanban-search').after($btn);
-    $btn.on('click', () => sig_open_dispatch_dialog());
-}
+    // ---------------------------------------------------------------------
+    // Per-MR stock-availability traffic light. Cached with a TTL instead of
+    // re-fetched on every redraw (previously: a card-identity "checked" flag
+    // stopped an infinite loop, but every board rebuild still re-fetched all
+    // ~270 MRs from scratch). The cache also records a lookup for an MR the
+    // server left out of the response (no open lines) so such a card is not
+    // endlessly re-requested. `invalidate_availability` is exported so a
+    // dispatch/return/cancel elsewhere (material_request.js, or the card
+    // actions below) can force a fresh check for just that one MR instead of
+    // waiting out the TTL.
+    // ---------------------------------------------------------------------
+    const SIG_AVAILABILITY_COLOR = { green: '#16a34a', yellow: '#eab308', red: '#dc2626' };
+    const SIG_AVAILABILITY_TTL_MS = 60000;
+    const sig_availability_cache = new Map(); // mrName -> { status: 'green'|'yellow'|'red'|null, at: epoch ms }
+    let sig_availability_fetch_pending = false;
 
-// One entry point, type picked first. "Tool" = stock item out via Material
-// Issue + custody ledger (custody.sig_dispatch_tool). "Asset" = tagged
-// capital asset out/back via a native Asset Movement (asset_ops) - fixed-asset
-// Items are non-stock, so no Stock Entry. Each type shows only its own fields.
-function sig_open_dispatch_dialog() {
-    const T = 'doc.kind=="Tool"', A = 'doc.kind=="Asset"';
-    const AD = A + ' && doc.mode=="Dispatch"', AR = A + ' && doc.mode=="Return"';
-    const TE = T + ' && doc.custodian_type=="Employee"', TO = T + ' && doc.custodian_type=="Other"';
-    const d = new frappe.ui.Dialog({
-        title: __('Dispatch / Return'),
-        fields: [
-            { fieldtype: 'Link', fieldname: 'item_code', label: __('Item'), options: 'Item', reqd: 1,
-              get_query: () => ({ filters: { disabled: 0 } }),
-              change() {
-                  const code = d.get_value('item_code');
-                  if (!code) return;
-                  frappe.db.get_value('Item', code, 'is_fixed_asset').then(r => {
-                      d.set_value('kind', (r.message && r.message.is_fixed_asset) ? 'Asset' : 'Tool');
-                      d.set_value('asset', '');
-                  });
-              } },
-            { fieldtype: 'Data', fieldname: 'kind', hidden: 1, default: 'Tool' },
-            { fieldtype: 'Select', fieldname: 'mode', label: __('Action'), options: ['Dispatch', 'Return'], default: 'Dispatch',
-              depends_on: 'eval:' + A },
-            // --- Tool (stock) ---
-            { fieldtype: 'Link', fieldname: 'from_wh', label: __('From Warehouse'), options: 'Warehouse',
-              depends_on: 'eval:' + T, mandatory_depends_on: 'eval:' + T,
-              get_query: () => ({ filters: { is_group: 0, disabled: 0 } }) },
-            { fieldtype: 'Float', fieldname: 'qty', label: __('Qty'), default: 1, depends_on: 'eval:' + T + ' && !doc.as_asset' },
-            { fieldtype: 'Check', fieldname: 'as_asset', label: __('Register this unit as an Asset (capitalize from stock)'),
-              depends_on: 'eval:' + T },
-            { fieldtype: 'Link', fieldname: 'store_location', label: __('Asset Location (store)'), options: 'Location',
-              depends_on: 'eval:' + T + ' && doc.as_asset', mandatory_depends_on: 'eval:' + T + ' && doc.as_asset' },
-            { fieldtype: 'Data', fieldname: 'tag', label: __('Asset Tag / Serial'), depends_on: 'eval:' + T + ' && doc.as_asset' },
-            // --- Asset ---
-            { fieldtype: 'Link', fieldname: 'asset', label: __('Asset (tag / serial)'), options: 'Asset',
-              depends_on: 'eval:' + A, mandatory_depends_on: 'eval:' + A,
-              get_query: () => ({ filters: { docstatus: 1, item_code: d.get_value('item_code') } }),
-              change() {
-                  const v = d.get_value('asset');
-                  if (!v) return;
-                  frappe.db.get_value('Asset', v, ['asset_name', 'location', 'custom_custody_status', 'custom_custodian_employee']).then(r => {
-                      const a = r.message || {};
-                      d.set_df_property('info', 'options', `<b>${frappe.utils.escape_html(a.asset_name || '')}</b> - ${__('at')} ${frappe.utils.escape_html(a.location || '-')} - ${__('custody')}: ${frappe.utils.escape_html(a.custom_custody_status || 'In Store')} ${frappe.utils.escape_html(a.custom_custodian_employee || '')}`);
-                      d.refresh();
-                  });
-              } },
-            { fieldtype: 'HTML', fieldname: 'info', depends_on: 'eval:' + A },
-            { fieldtype: 'Column Break' },
-            // --- Destination ---
-            { fieldtype: 'Select', fieldname: 'custodian_type', label: __('Custodian'), options: ['Employee', 'Other'],
-              default: 'Employee', depends_on: 'eval:' + T },
-            { fieldtype: 'Select', fieldname: 'dest_type', label: __('To'), options: ['Employee', 'Site', 'Subcontractor'],
-              default: 'Employee', depends_on: 'eval:' + AD },
-            { fieldtype: 'Link', fieldname: 'custodian', label: __('Employee'), options: 'Employee',
-              depends_on: 'eval:' + TE, mandatory_depends_on: 'eval:' + TE },
-            { fieldtype: 'Link', fieldname: 'employee', label: __('Employee'), options: 'Employee',
-              depends_on: 'eval:' + AD + ' && doc.dest_type=="Employee"',
-              mandatory_depends_on: 'eval:' + AD + ' && doc.dest_type=="Employee"' },
-            { fieldtype: 'Data', fieldname: 'custodian_name', label: __('Name'), depends_on: 'eval:' + TO, mandatory_depends_on: 'eval:' + TO },
-            { fieldtype: 'Data', fieldname: 'custodian_phone', label: __('Phone'), depends_on: 'eval:' + TO },
-            { fieldtype: 'Link', fieldname: 'location', label: __('Destination Location'), options: 'Location',
-              depends_on: 'eval:' + AD + ' && doc.dest_type!="Employee"',
-              mandatory_depends_on: 'eval:' + AD + ' && doc.dest_type!="Employee"' },
-            { fieldtype: 'Link', fieldname: 'sig_site', label: __('SIG Site'), options: 'SIG Site',
-              depends_on: 'eval:' + AD + ' && doc.dest_type=="Site"' },
-            { fieldtype: 'Link', fieldname: 'to_location', label: __('Return to Location'), options: 'Location',
-              depends_on: 'eval:' + AR, mandatory_depends_on: 'eval:' + AR },
-            { fieldtype: 'Select', fieldname: 'condition', label: __('Condition on Return'),
-              options: ['Good', 'Needs Repair', 'Damaged', 'Unserviceable'], default: 'Good', depends_on: 'eval:' + AR },
-            { fieldtype: 'Date', fieldname: 'expected_return', label: __('Expected Return'), depends_on: 'eval:' + AD },
-            { fieldtype: 'Data', fieldname: 'handover_ref', label: __('Handover Ref'), depends_on: 'eval:' + A },
-            { fieldtype: 'Section Break' },
-            { fieldtype: 'Small Text', fieldname: 'reason', label: __('Reason / Remarks') },
-        ],
-        primary_action_label: __('Confirm'),
-        primary_action(v) { (v.kind === 'Asset' ? sig_submit_asset_dispatch : sig_submit_tool_dispatch)(d, v); },
-    });
-    d.show();
-}
+    function invalidate_availability(mrName) {
+        sig_availability_cache.delete(mrName);
+    }
 
-// Stock -> Asset: capitalize one unit of the stock Item (Asset Capitalization,
-// native). The new Asset is dispatched afterwards by picking its FA- item.
-function sig_submit_tool_capitalize(d, v) {
-    const opId = sig_gen_operation_id('CAP-' + v.from_wh);
-    frappe.call({
-        method: 'sig_warehouse.sig_warehouse.asset_ops.sig_capitalize_tool',
-        args: { operation_id: opId, stock_item: v.item_code, warehouse: v.from_wh, location: v.store_location,
-                tag: v.tag, remarks: v.reason },
-        freeze: true, freeze_message: __('Capitalizing...'),
-        callback: (r) => {
-            const res = r.message || {};
-            if (res.result !== 'created' && res.result !== 'duplicate') {
-                frappe.msgprint({ title: __('Failed'), indicator: 'red', message: frappe.utils.escape_html(JSON.stringify(res)) });
-                return;
+    function paint_cached_dots($board) {
+        if (!$board || !$board.length) return;
+        $board.find('.kanban-card-wrapper').each(function () {
+            const $card = $(this);
+            const mrName = decodeURIComponent($card.attr('data-name') || '');
+            const cached = sig_availability_cache.get(mrName);
+            const status = cached && cached.status;
+            let $dot = $card.find('.sig-kanban-availability-dot');
+            if (!status) { $dot.remove(); return; }
+            if (!$dot.length) {
+                $dot = $('<span class="sig-kanban-availability-dot"></span>');
+                $card.css('position', 'relative');
+                $card.find('.kanban-card.content').first().append($dot);
             }
-            const done = () => {
+            $dot.attr('title', `${__('Stock availability')}: ${status}`).css({
+                position: 'absolute', top: '6px', left: '6px', width: '9px', height: '9px',
+                borderRadius: '50%', zIndex: 2, background: SIG_AVAILABILITY_COLOR[status],
+            });
+        });
+    }
+
+    function refresh_availability($board) {
+        paint_cached_dots($board);
+        if (sig_availability_fetch_pending) return;
+        const now = Date.now();
+        const names = [...new Set($board.find('.kanban-card-wrapper').map(function () {
+            return decodeURIComponent($(this).attr('data-name') || '');
+        }).get())].filter((n) => n && (!sig_availability_cache.has(n) || now - sig_availability_cache.get(n).at > SIG_AVAILABILITY_TTL_MS));
+        if (!names.length) return;
+        sig_availability_fetch_pending = true;
+        frappe.call({
+            method: 'sig_warehouse.sig_warehouse.dispatch_operation.sig_kanban_availability_status',
+            args: { mrs: names },
+            callback: (r) => {
+                sig_availability_fetch_pending = false;
+                const statuses = r.message || {};
+                const stamp = Date.now();
+                names.forEach((n) => { sig_availability_cache.set(n, { status: statuses[n] || null, at: stamp }); });
+                // Re-select fresh: Frappe can have replaced the board node
+                // while this call was in flight (confirmed live 2026-09-19).
+                paint_cached_dots($('.kanban').first());
+            },
+            error: () => { sig_availability_fetch_pending = false; },
+        });
+    }
+
+    // ---------------------------------------------------------------------
+    // Standalone tool/equipment custody dispatch - deliberately NOT
+    // reachable from a Material Request (owner decision: issuing consumable
+    // material is linked to a site/project/return chain; a tool going out to
+    // a person isn't - it has no site/project, and comes back through
+    // custody return, not the MR-line return flow). Lives on the board's
+    // toolbar, next to the search box.
+    //
+    // Renamed from `sig_open_dispatch_dialog` (2026-09-22): this file used to
+    // declare a function of that exact name twice - once here (2 args,
+    // custody) and once below where the MR-dispatch dialog was duplicated -
+    // the second declaration silently won even within this one file, so this
+    // custody dialog was ALREADY permanently unreachable before
+    // material_request.js's copy ever entered the picture. The toolbar
+    // "Dispatch / Return" button has therefore never actually opened this
+    // dialog on the live board. Fixed by giving each dialog its own name and
+    // deleting the duplicate MR-dispatch copy entirely (see the bottom of
+    // this file, where the Kanban card's Issue action now calls
+    // `window.sig_wh.open_mr_dispatch` in material_request.js instead).
+    // ---------------------------------------------------------------------
+    function sig_gen_operation_id(warehouse) {
+        const now = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+        const safeWh = (warehouse || 'WH').replace(/[^A-Za-z0-9]/g, '').slice(0, 12) || 'WH';
+        return `SIG-DISPOP-${safeWh}-${stamp}-${Math.floor(Math.random() * 900 + 100)}`;
+    }
+
+    function sig_open_custody_dialog() {
+        const T = 'doc.kind=="Tool"', A = 'doc.kind=="Asset"';
+        const AD = A + ' && doc.mode=="Dispatch"', AR = A + ' && doc.mode=="Return"';
+        const TE = T + ' && doc.custodian_type=="Employee"', TO = T + ' && doc.custodian_type=="Other"';
+        const d = new frappe.ui.Dialog({
+            title: __('Dispatch / Return'),
+            fields: [
+                { fieldtype: 'Link', fieldname: 'item_code', label: __('Item'), options: 'Item', reqd: 1,
+                  get_query: () => ({ filters: { disabled: 0 } }),
+                  change() {
+                      const code = d.get_value('item_code');
+                      if (!code) return;
+                      frappe.db.get_value('Item', code, 'is_fixed_asset').then(r => {
+                          d.set_value('kind', (r.message && r.message.is_fixed_asset) ? 'Asset' : 'Tool');
+                          d.set_value('asset', '');
+                      });
+                  } },
+                { fieldtype: 'Data', fieldname: 'kind', hidden: 1, default: 'Tool' },
+                { fieldtype: 'Select', fieldname: 'mode', label: __('Action'), options: ['Dispatch', 'Return'], default: 'Dispatch',
+                  depends_on: 'eval:' + A },
+                // --- Tool (stock) ---
+                { fieldtype: 'Link', fieldname: 'from_wh', label: __('From Warehouse'), options: 'Warehouse',
+                  depends_on: 'eval:' + T, mandatory_depends_on: 'eval:' + T,
+                  get_query: () => ({ filters: { is_group: 0, disabled: 0 } }) },
+                { fieldtype: 'Float', fieldname: 'qty', label: __('Qty'), default: 1, depends_on: 'eval:' + T + ' && !doc.as_asset' },
+                { fieldtype: 'Check', fieldname: 'as_asset', label: __('Register this unit as an Asset (capitalize from stock)'),
+                  depends_on: 'eval:' + T },
+                { fieldtype: 'Link', fieldname: 'store_location', label: __('Asset Location (store)'), options: 'Location',
+                  depends_on: 'eval:' + T + ' && doc.as_asset', mandatory_depends_on: 'eval:' + T + ' && doc.as_asset' },
+                { fieldtype: 'Data', fieldname: 'tag', label: __('Asset Tag / Serial'), depends_on: 'eval:' + T + ' && doc.as_asset' },
+                // --- Asset ---
+                { fieldtype: 'Link', fieldname: 'asset', label: __('Asset (tag / serial)'), options: 'Asset',
+                  depends_on: 'eval:' + A, mandatory_depends_on: 'eval:' + A,
+                  get_query: () => ({ filters: { docstatus: 1, item_code: d.get_value('item_code') } }),
+                  change() {
+                      const v = d.get_value('asset');
+                      if (!v) return;
+                      frappe.db.get_value('Asset', v, ['asset_name', 'location', 'custom_custody_status', 'custom_custodian_employee']).then(r => {
+                          const a = r.message || {};
+                          d.set_df_property('info', 'options', `<b>${frappe.utils.escape_html(a.asset_name || '')}</b> - ${__('at')} ${frappe.utils.escape_html(a.location || '-')} - ${__('custody')}: ${frappe.utils.escape_html(a.custom_custody_status || 'In Store')} ${frappe.utils.escape_html(a.custom_custodian_employee || '')}`);
+                          d.refresh();
+                      });
+                  } },
+                { fieldtype: 'HTML', fieldname: 'info', depends_on: 'eval:' + A },
+                { fieldtype: 'Column Break' },
+                // --- Destination ---
+                { fieldtype: 'Select', fieldname: 'custodian_type', label: __('Custodian'), options: ['Employee', 'Other'],
+                  default: 'Employee', depends_on: 'eval:' + T },
+                { fieldtype: 'Select', fieldname: 'dest_type', label: __('To'), options: ['Employee', 'Site', 'Subcontractor'],
+                  default: 'Employee', depends_on: 'eval:' + AD },
+                { fieldtype: 'Link', fieldname: 'custodian', label: __('Employee'), options: 'Employee',
+                  depends_on: 'eval:' + TE, mandatory_depends_on: 'eval:' + TE },
+                { fieldtype: 'Link', fieldname: 'employee', label: __('Employee'), options: 'Employee',
+                  depends_on: 'eval:' + AD + ' && doc.dest_type=="Employee"',
+                  mandatory_depends_on: 'eval:' + AD + ' && doc.dest_type=="Employee"' },
+                { fieldtype: 'Data', fieldname: 'custodian_name', label: __('Name'), depends_on: 'eval:' + TO, mandatory_depends_on: 'eval:' + TO },
+                { fieldtype: 'Data', fieldname: 'custodian_phone', label: __('Phone'), depends_on: 'eval:' + TO },
+                { fieldtype: 'Link', fieldname: 'location', label: __('Destination Location'), options: 'Location',
+                  depends_on: 'eval:' + AD + ' && doc.dest_type!="Employee"',
+                  mandatory_depends_on: 'eval:' + AD + ' && doc.dest_type!="Employee"' },
+                { fieldtype: 'Link', fieldname: 'sig_site', label: __('SIG Site'), options: 'SIG Site',
+                  depends_on: 'eval:' + AD + ' && doc.dest_type=="Site"' },
+                { fieldtype: 'Link', fieldname: 'to_location', label: __('Return to Location'), options: 'Location',
+                  depends_on: 'eval:' + AR, mandatory_depends_on: 'eval:' + AR },
+                { fieldtype: 'Select', fieldname: 'condition', label: __('Condition on Return'),
+                  options: ['Good', 'Needs Repair', 'Damaged', 'Unserviceable'], default: 'Good', depends_on: 'eval:' + AR },
+                { fieldtype: 'Date', fieldname: 'expected_return', label: __('Expected Return'), depends_on: 'eval:' + AD },
+                { fieldtype: 'Data', fieldname: 'handover_ref', label: __('Handover Ref'), depends_on: 'eval:' + A },
+                { fieldtype: 'Section Break' },
+                { fieldtype: 'Small Text', fieldname: 'reason', label: __('Reason / Remarks') },
+            ],
+            primary_action_label: __('Confirm'),
+            primary_action(v) { (v.kind === 'Asset' ? sig_submit_asset_dispatch : sig_submit_tool_dispatch)(d, v); },
+        });
+        d.show();
+    }
+
+    // Stock -> Asset: capitalize one unit of the stock Item (Asset Capitalization,
+    // native). The new Asset is dispatched afterwards by picking its FA- item.
+    function sig_submit_tool_capitalize(d, v) {
+        const opId = sig_gen_operation_id('CAP-' + v.from_wh);
+        frappe.call({
+            method: 'sig_warehouse.sig_warehouse.asset_ops.sig_capitalize_tool',
+            args: { operation_id: opId, stock_item: v.item_code, warehouse: v.from_wh, location: v.store_location,
+                    tag: v.tag, remarks: v.reason },
+            freeze: true, freeze_message: __('Capitalizing...'),
+            callback: (r) => {
+                const res = r.message || {};
+                if (res.result !== 'created' && res.result !== 'duplicate') {
+                    frappe.msgprint({ title: __('Failed'), indicator: 'red', message: frappe.utils.escape_html(JSON.stringify(res)) });
+                    return;
+                }
                 frappe.msgprint({ title: __('Asset created'), indicator: 'green',
                     message: __('Asset {0} created from stock (Asset Capitalization {1}). Dispatch it by picking its FA- item.',
                         [`<a href="/app/asset/${res.asset}">${res.asset}</a>`, res.asset_capitalization]) });
                 d.hide();
-            };
-            done();
-        },
-    });
-}
+            },
+        });
+    }
 
-function sig_submit_tool_dispatch(d, values) {
-    if (values.as_asset) return sig_submit_tool_capitalize(d, values);
-    frappe.confirm(
-        __('Dispatch {0} x {1} from {2} to {3}?<br><br>This creates and <b>submits</b> a Stock Entry immediately - it cannot be un-submitted from here.',
-            [values.qty, values.item_code, values.from_wh, values.custodian_type === 'Employee' ? values.custodian : values.custodian_name]),
-        () => {
-            frappe.call({
-                method: 'sig_warehouse.sig_warehouse.custody.sig_dispatch_tool',
-                args: {
-                    operation_id: sig_gen_operation_id('TOOL-' + values.from_wh),
-                    item_code: values.item_code, qty: values.qty, from_wh: values.from_wh,
-                    custodian_type: values.custodian_type, custodian: values.custodian,
-                    custodian_name: values.custodian_name, custodian_phone: values.custodian_phone,
-                    reason: values.reason,
-                },
-                freeze: true, freeze_message: __('Dispatching...'),
-                callback: (r) => {
-                    const res = r.message || {};
-                    if (res.result === 'created' || res.result === 'duplicate') {
-                        frappe.msgprint({
-                            title: __('Dispatched'), indicator: 'green',
-                            message: __('Stock Entry {0} created and submitted. In custody of {1}.', [
-                                `<a href="/app/stock-entry/${res.stock_entry}">${res.stock_entry}</a>`, res.custodian_name || '']),
-                        });
-                        d.hide();
-                    } else {
-                        frappe.msgprint({ title: __('Dispatch failed'), indicator: 'red', message: frappe.utils.escape_html(JSON.stringify(res)) });
-                    }
-                },
-            });
+    function sig_submit_tool_dispatch(d, values) {
+        if (values.as_asset) return sig_submit_tool_capitalize(d, values);
+        frappe.confirm(
+            __('Dispatch {0} x {1} from {2} to {3}?<br><br>This creates and <b>submits</b> a Stock Entry immediately - it cannot be un-submitted from here.',
+                [values.qty, values.item_code, values.from_wh, values.custodian_type === 'Employee' ? values.custodian : values.custodian_name]),
+            () => {
+                frappe.call({
+                    method: 'sig_warehouse.sig_warehouse.custody.sig_dispatch_tool',
+                    args: {
+                        operation_id: sig_gen_operation_id('TOOL-' + values.from_wh),
+                        item_code: values.item_code, qty: values.qty, from_wh: values.from_wh,
+                        custodian_type: values.custodian_type, custodian: values.custodian,
+                        custodian_name: values.custodian_name, custodian_phone: values.custodian_phone,
+                        reason: values.reason,
+                    },
+                    freeze: true, freeze_message: __('Dispatching...'),
+                    callback: (r) => {
+                        const res = r.message || {};
+                        if (res.result === 'created' || res.result === 'duplicate') {
+                            frappe.msgprint({
+                                title: __('Dispatched'), indicator: 'green',
+                                message: __('Stock Entry {0} created and submitted. In custody of {1}.', [
+                                    `<a href="/app/stock-entry/${res.stock_entry}">${res.stock_entry}</a>`, res.custodian_name || '']),
+                            });
+                            d.hide();
+                        } else {
+                            frappe.msgprint({ title: __('Dispatch failed'), indicator: 'red', message: frappe.utils.escape_html(JSON.stringify(res)) });
+                        }
+                    },
+                });
+            }
+        );
+    }
+
+    function sig_submit_asset_dispatch(d, v) {
+        const ret = v.mode === 'Return';
+        frappe.call({
+            method: 'sig_warehouse.sig_warehouse.asset_ops.' + (ret ? 'sig_return_asset' : 'sig_dispatch_asset'),
+            args: ret
+                ? { operation_id: sig_gen_operation_id('ASSET-R-' + v.asset), asset: v.asset, to_location: v.to_location,
+                    condition: v.condition, handover_ref: v.handover_ref, remarks: v.reason }
+                : { operation_id: sig_gen_operation_id('ASSET-D-' + v.asset), asset: v.asset, dest_type: v.dest_type,
+                    employee: v.employee, location: v.location, sig_site: v.sig_site,
+                    expected_return: v.expected_return, handover_ref: v.handover_ref, remarks: v.reason },
+            freeze: true, freeze_message: __('Submitting...'),
+            callback: (r) => {
+                const res = r.message || {};
+                if (res.result === 'created' || res.result === 'duplicate') {
+                    frappe.msgprint({ title: __('Done'), indicator: 'green',
+                        message: __('Asset Movement {0} submitted.', [`<a href="/app/asset-movement/${res.asset_movement}">${res.asset_movement}</a>`]) });
+                    d.hide();
+                } else {
+                    frappe.msgprint({ title: __('Failed'), indicator: 'red', message: frappe.utils.escape_html(JSON.stringify(res)) });
+                }
+            },
+        });
+    }
+
+    function ensure_dispatch_tool_button() {
+        if (document.getElementById('sig-dispatch-tool-btn')) return;
+        const $searchBox = $('.sig-kanban-search');
+        if (!$searchBox.length) return; // search box goes in first; button sits after it
+        const $btn = $(`<button type="button" id="sig-dispatch-tool-btn" class="btn btn-default btn-sm" style="margin: 0 15px 10px;">
+            ${__('Dispatch / Return')}
+        </button>`);
+        $searchBox.after($btn);
+        $btn.on('click', () => sig_open_custody_dialog());
+    }
+
+    // ---------------------------------------------------------------------
+    // Per-card actions. Repurposes Frappe's native card-corner "+" (normally
+    // "assign this document to a user" - .kanban-assignments/.avatar-action
+    // in the live DOM) into the Dispatch/Return/Cancel action menu instead:
+    // no assign-to-user workflow is needed here, and the single obvious way
+    // to act on a card should be its own "+", not a second icon next to an
+    // unrelated native one. Bound on the capture phase so this runs before
+    // Frappe's own delegated click handler ever sees the event. This is a
+    // document-level listener guarded by a one-time flag - unlike the
+    // painting/search/availability work above, it does not depend on which
+    // `.kanban` node currently exists (it re-checks `.closest('.kanban')` at
+    // click time), so it is bound once at bootstrap, not inside decorate().
+    // ---------------------------------------------------------------------
+    function bind_card_actions_once() {
+        if (document.__sigKanbanActionCaptureBound) return;
+        document.__sigKanbanActionCaptureBound = true;
+        document.addEventListener('click', function (e) {
+            const target = e.target && e.target.closest && e.target.closest('.kanban-assignments');
+            if (!target || !target.closest('.kanban')) return;
+            const card = target.closest('.kanban-card-wrapper');
+            if (!card || !card.getAttribute('data-name')) return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+            sig_show_kanban_action_menu($(target), card.getAttribute('data-name'));
+        }, true);
+    }
+
+    function sig_show_kanban_action_menu($anchor, mrNameEncoded) {
+        const mrName = decodeURIComponent(mrNameEncoded);
+        $('.sig-kanban-action-menu').remove();
+        frappe.call({
+            method: 'frappe.client.get',
+            args: { doctype: 'Material Request', name: mrName },
+            freeze: true,
+            freeze_message: __('Loading...'),
+            callback: (r) => {
+                const doc = r.message;
+                if (!doc) return;
+                const stage = doc.custom_dispatch_stage;
+                const actions = [];
+                if (stage === 'PENDING') {
+                    actions.push([__('Issue'), () => sig_kanban_dispatch(doc)]);
+                    actions.push([__('Cancel remaining'), () => sig_kanban_cancel(doc)]);
+                } else if (stage === 'PARTIAL') {
+                    actions.push([__('Issue'), () => sig_kanban_dispatch(doc)]);
+                    actions.push([__('Return'), () => sig_kanban_return(doc)]);
+                    actions.push([__('Cancel remaining'), () => sig_kanban_cancel(doc)]);
+                } else if (stage === 'DISPATCHED') {
+                    actions.push([__('Return'), () => sig_kanban_return(doc)]);
+                } else {
+                    frappe.msgprint(__('No actions available for stage {0}.', [stage]));
+                    return;
+                }
+                const $menu = $('<div class="sig-kanban-action-menu"></div>').css({
+                    position: 'absolute', zIndex: 1000, background: 'var(--card-bg, #fff)',
+                    border: '1px solid var(--border-color, #d1d8dd)', borderRadius: '6px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,.15)', minWidth: '160px',
+                });
+                actions.forEach(([label, fn]) => {
+                    const $item = $('<div class="sig-kanban-action-item"></div>')
+                        .css({ padding: '8px 12px', cursor: 'pointer' }).text(label);
+                    $item.on('click', () => { $menu.remove(); fn(); });
+                    $item.on('mouseenter', function () { $(this).css('background', 'var(--fg-hover-color, #f4f5f6)'); });
+                    $item.on('mouseleave', function () { $(this).css('background', ''); });
+                    $menu.append($item);
+                });
+                $('body').append($menu);
+                const offset = $anchor.offset();
+                $menu.css({ top: offset.top + $anchor.outerHeight() + 2, left: offset.left - $menu.outerWidth() + $anchor.outerWidth() });
+                setTimeout(() => { $(document).one('click', () => $menu.remove()); }, 0);
+            },
+        });
+    }
+
+    function sig_kanban_dispatch(doc) {
+        // Calls the single MR-dispatch implementation exported by
+        // material_request.js (see the header comment). Guarded in case that
+        // file has not evaluated yet for some reason - fails safe with a
+        // message instead of throwing.
+        if (window.sig_wh && window.sig_wh.open_mr_dispatch) {
+            window.sig_wh.open_mr_dispatch({ doc, reload_doc: () => {} });
+        } else {
+            frappe.msgprint(__('Dispatch module still loading - try again in a moment.'));
         }
-    );
-}
-
-function sig_submit_asset_dispatch(d, v) {
-    const ret = v.mode === 'Return';
-    frappe.call({
-        method: 'sig_warehouse.sig_warehouse.asset_ops.' + (ret ? 'sig_return_asset' : 'sig_dispatch_asset'),
-        args: ret
-            ? { operation_id: sig_gen_operation_id('ASSET-R-' + v.asset), asset: v.asset, to_location: v.to_location,
-                condition: v.condition, handover_ref: v.handover_ref, remarks: v.reason }
-            : { operation_id: sig_gen_operation_id('ASSET-D-' + v.asset), asset: v.asset, dest_type: v.dest_type,
-                employee: v.employee, location: v.location, sig_site: v.sig_site,
-                expected_return: v.expected_return, handover_ref: v.handover_ref, remarks: v.reason },
-        freeze: true, freeze_message: __('Submitting...'),
-        callback: (r) => {
-            const res = r.message || {};
-            if (res.result === 'created' || res.result === 'duplicate') {
-                frappe.msgprint({ title: __('Done'), indicator: 'green',
-                    message: __('Asset Movement {0} submitted.', [`<a href="/app/asset-movement/${res.asset_movement}">${res.asset_movement}</a>`]) });
-                d.hide();
-            } else {
-                frappe.msgprint({ title: __('Failed'), indicator: 'red', message: frappe.utils.escape_html(JSON.stringify(res)) });
-            }
-        },
-    });
-}
-
-// Per-card actions. Repurposes Frappe's native card-corner "+" (normally
-// "assign this document to a user" - .kanban-assignments/.avatar-action in
-// the live DOM) into the Dispatch/Return/Cancel action menu instead: no
-// assign-to-user workflow is needed here, and the owner wants the "+" to be
-// the obvious, single way to act on a card rather than a second icon next to
-// an unrelated native one. Bound on the capture phase so this runs before
-// Frappe's own delegated click handler ever sees the event, regardless of
-// whether that handler is bound on the element itself or delegated from a
-// distant ancestor - stopping propagation in the bubble phase alone would
-// only be guaranteed to beat a handler bound on this element or an ancestor
-// further out, not one bound directly on the assign icon itself.
-// Also drops the per-card comment-count badge (small chat-bubble icon) -
-// not useful on this board and adds visual noise; comments are still fully
-// visible from the document itself.
-function sig_setup_kanban_actions($board) {
-    if (!$('#sig-kanban-card-style').length) {
-        $('<style id="sig-kanban-card-style">' +
-          '.kanban .list-comment-count { display: none !important; } ' +
-          '.kanban .kanban-assignments { cursor: pointer; }' +
-          '</style>').appendTo('head');
     }
-    // Cards are rendered and replaced after the Kanban node itself exists.
-    // Binding each currently visible '+' left later cards with Frappe's
-    // native Assign/ToDo action. One capture handler on document covers both
-    // initial and future cards, and runs before Frappe's delegated handler.
-    if (document.__sigKanbanActionCaptureBound) return;
-    document.__sigKanbanActionCaptureBound = true;
-    document.addEventListener('click', function (e) {
-        const target = e.target && e.target.closest && e.target.closest('.kanban-assignments');
-        if (!target || !target.closest('.kanban')) return;
-        const card = target.closest('.kanban-card-wrapper');
-        if (!card || !card.getAttribute('data-name')) return;
-        e.preventDefault();
-        e.stopPropagation();
-        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-        sig_show_kanban_action_menu($(target), card.getAttribute('data-name'));
-    }, true);
-}
 
-function sig_show_kanban_action_menu($anchor, mrNameEncoded) {
-    const mrName = decodeURIComponent(mrNameEncoded);
-    $('.sig-kanban-action-menu').remove();
-    frappe.call({
-        method: 'frappe.client.get',
-        args: { doctype: 'Material Request', name: mrName },
-        freeze: true,
-        freeze_message: __('Loading...'),
-        callback: (r) => {
-            const doc = r.message;
-            if (!doc) return;
-            const stage = doc.custom_dispatch_stage;
-            const actions = [];
-            if (stage === 'PENDING') {
-                actions.push([__('Issue'), () => sig_kanban_dispatch(doc)]);
-                actions.push([__('Cancel remaining'), () => sig_kanban_cancel(doc)]);
-            } else if (stage === 'PARTIAL') {
-                actions.push([__('Issue'), () => sig_kanban_dispatch(doc)]);
-                actions.push([__('Return'), () => sig_kanban_return(doc)]);
-                actions.push([__('Cancel remaining'), () => sig_kanban_cancel(doc)]);
-            } else if (stage === 'DISPATCHED') {
-                actions.push([__('Return'), () => sig_kanban_return(doc)]);
-            } else {
-                frappe.msgprint(__('No actions available for stage {0}.', [stage]));
-                return;
-            }
-            const $menu = $('<div class="sig-kanban-action-menu"></div>').css({
-                position: 'absolute', zIndex: 1000, background: 'var(--card-bg, #fff)',
-                border: '1px solid var(--border-color, #d1d8dd)', borderRadius: '6px',
-                boxShadow: '0 2px 8px rgba(0,0,0,.15)', minWidth: '160px',
-            });
-            actions.forEach(([label, fn]) => {
-                const $item = $('<div class="sig-kanban-action-item"></div>')
-                    .css({ padding: '8px 12px', cursor: 'pointer' }).text(label);
-                $item.on('click', () => { $menu.remove(); fn(); });
-                $item.on('mouseenter', function () { $(this).css('background', 'var(--fg-hover-color, #f4f5f6)'); });
-                $item.on('mouseleave', function () { $(this).css('background', ''); });
-                $menu.append($item);
-            });
-            $('body').append($menu);
-            const offset = $anchor.offset();
-            $menu.css({ top: offset.top + $anchor.outerHeight() + 2, left: offset.left - $menu.outerWidth() + $anchor.outerWidth() });
-            setTimeout(() => { $(document).one('click', () => $menu.remove()); }, 0);
-        },
-    });
-}
-
-function sig_kanban_dispatch(doc) {
-    sig_open_dispatch_dialog({ doc, reload_doc: () => {} });
-}
-
-function sig_kanban_cancel(doc) {
-    const openLines = (doc.items || []).filter((it) => (it.custom_qty_remaining || 0) > 0.000001);
-    if (!openLines.length) {
-        frappe.msgprint(__('No open lines to cancel on this request.'));
-        return;
+    function sig_kanban_cancel(doc) {
+        const openLines = (doc.items || []).filter((it) => (it.custom_qty_remaining || 0) > 0.000001);
+        if (!openLines.length) {
+            frappe.msgprint(__('No open lines to cancel on this request.'));
+            return;
+        }
+        const rowsHtml = openLines.map((it) => `
+            <tr data-mri="${it.name}">
+                <td>${frappe.utils.escape_html(it.item_code)}</td>
+                <td class="text-right">${it.custom_qty_remaining}</td>
+                <td><input type="number" class="form-control input-sm sig-cancel-qty" step="any" min="0"
+                    max="${it.custom_qty_remaining}" value="${it.custom_qty_remaining}"></td>
+            </tr>`).join('');
+        const d = new frappe.ui.Dialog({
+            title: __('Cancel remaining - {0}', [doc.name]),
+            fields: [{
+                fieldtype: 'HTML', fieldname: 'lines_html',
+                options: `<div class="table-responsive"><table class="table table-bordered">
+                    <thead><tr><th>${__('Item')}</th><th class="text-right">${__('Remaining')}</th><th>${__('Qty to Cancel')}</th></tr></thead>
+                    <tbody>${rowsHtml}</tbody></table></div>`,
+            }],
+            primary_action_label: __('Confirm Cancel'),
+            primary_action() {
+                const rows = [...d.$wrapper.find('tbody tr')];
+                const lines = rows.map((row) => {
+                    const $row = $(row);
+                    return { mri: $row.data('mri'), qty: parseFloat($row.find('.sig-cancel-qty').val() || '0') };
+                }).filter((l) => l.qty > 0);
+                if (!lines.length) {
+                    frappe.msgprint(__('No lines selected.'));
+                    return;
+                }
+                frappe.confirm(
+                    __('Cancel remaining demand on {0} line(s) of {1}? This cannot be undone from here.', [lines.length, doc.name]),
+                    () => {
+                        const args = { operation_id: sig_gen_operation_id('CANCEL'), mr: doc.name, line_count: lines.length };
+                        lines.forEach((l, i) => { args[`mri_${i + 1}`] = l.mri; args[`qty_${i + 1}`] = l.qty; });
+                        frappe.call({
+                            method: 'sig_warehouse.sig_warehouse.dispatch_operation.sig_cancel_mr_lines',
+                            args, freeze: true, freeze_message: __('Cancelling...'),
+                            callback: (r) => {
+                                const res = r.message || {};
+                                if (res.result === 'created' || res.result === 'duplicate') {
+                                    frappe.show_alert({ message: __('Cancelled.'), indicator: 'green' });
+                                    invalidate_availability(doc.name);
+                                    d.hide();
+                                } else if (res.result === 'exception' && res.reason === 'CAP_EXCEEDED') {
+                                    frappe.msgprint({ title: __('Cannot cancel'), indicator: 'red',
+                                        message: __('Line {0}: requested {1} exceeds remaining {2}.', [res.line, res.requested, res.remaining]) });
+                                } else if (res.result === 'conflict') {
+                                    frappe.msgprint({ title: __('Conflict'), indicator: 'red', message: __('This attempt changed after the operation ID was generated. Retry.') });
+                                } else {
+                                    frappe.msgprint({ title: __('Failed'), indicator: 'red', message: __('{0}', [JSON.stringify(res)]) });
+                                }
+                            },
+                        });
+                    }
+                );
+            },
+        });
+        d.show();
     }
-    const rowsHtml = openLines.map((it) => `
-        <tr data-mri="${it.name}">
-            <td>${frappe.utils.escape_html(it.item_code)}</td>
-            <td class="text-right">${it.custom_qty_remaining}</td>
-            <td><input type="number" class="form-control input-sm sig-cancel-qty" step="any" min="0"
-                max="${it.custom_qty_remaining}" value="${it.custom_qty_remaining}"></td>
-        </tr>`).join('');
-    const d = new frappe.ui.Dialog({
-        title: __('Cancel remaining - {0}', [doc.name]),
-        fields: [{
-            fieldtype: 'HTML', fieldname: 'lines_html',
-            options: `<div class="table-responsive"><table class="table table-bordered">
-                <thead><tr><th>${__('Item')}</th><th class="text-right">${__('Remaining')}</th><th>${__('Qty to Cancel')}</th></tr></thead>
-                <tbody>${rowsHtml}</tbody></table></div>`,
-        }],
-        primary_action_label: __('Confirm Cancel'),
-        primary_action() {
-            const rows = [...d.$wrapper.find('tbody tr')];
-            const lines = rows.map((row) => {
-                const $row = $(row);
-                return { mri: $row.data('mri'), qty: parseFloat($row.find('.sig-cancel-qty').val() || '0') };
-            }).filter((l) => l.qty > 0);
-            if (!lines.length) {
-                frappe.msgprint(__('No lines selected.'));
-                return;
-            }
-            frappe.confirm(
-                __('Cancel remaining demand on {0} line(s) of {1}? This cannot be undone from here.', [lines.length, doc.name]),
-                () => {
-                    const args = { operation_id: sig_gen_operation_id('CANCEL'), mr: doc.name, line_count: lines.length };
-                    lines.forEach((l, i) => { args[`mri_${i + 1}`] = l.mri; args[`qty_${i + 1}`] = l.qty; });
-                    frappe.call({
-                        method: 'sig_warehouse.sig_warehouse.dispatch_operation.sig_cancel_mr_lines',
-                        args, freeze: true, freeze_message: __('Cancelling...'),
-                        callback: (r) => {
-                            const res = r.message || {};
-                            if (res.result === 'created' || res.result === 'duplicate') {
-                                frappe.show_alert({ message: __('Cancelled.'), indicator: 'green' });
-                                d.hide();
-                            } else if (res.result === 'exception' && res.reason === 'CAP_EXCEEDED') {
-                                frappe.msgprint({ title: __('Cannot cancel'), indicator: 'red',
-                                    message: __('Line {0}: requested {1} exceeds remaining {2}.', [res.line, res.requested, res.remaining]) });
-                            } else if (res.result === 'conflict') {
-                                frappe.msgprint({ title: __('Conflict'), indicator: 'red', message: __('This attempt changed after the operation ID was generated. Retry.') });
-                            } else {
-                                frappe.msgprint({ title: __('Failed'), indicator: 'red', message: __('{0}', [JSON.stringify(res)]) });
-                            }
+
+    function sig_kanban_return(doc) {
+        frappe.call({
+            method: 'frappe.client.get_list',
+            args: {
+                doctype: 'SIG Dispatch Operation',
+                filters: { mr: doc.name, op_type: 'DISPATCH', state: 'SUBMITTED' },
+                fields: ['stock_entry'],
+                limit_page_length: 0,
+            },
+            freeze: true, freeze_message: __('Finding dispatch...'),
+            callback: (r) => {
+                const ses = [...new Set((r.message || []).map((x) => x.stock_entry).filter(Boolean))];
+                if (!ses.length) {
+                    frappe.msgprint(__('No dispatch Stock Entry found for {0}.', [doc.name]));
+                    return;
+                }
+                if (ses.length > 1) {
+                    const d = new frappe.ui.Dialog({
+                        title: __('Select dispatch to return against'),
+                        fields: [{ fieldtype: 'Select', fieldname: 'se', label: __('Stock Entry'), options: ses.join('\n'), reqd: 1 }],
+                        primary_action_label: __('Continue'),
+                        primary_action() {
+                            const se = d.get_value('se');
+                            d.hide();
+                            sig_open_kanban_return_dialog(se, doc.name);
                         },
                     });
+                    d.show();
+                    return;
                 }
-            );
-        },
-    });
-    d.show();
-}
+                sig_open_kanban_return_dialog(ses[0], doc.name);
+            },
+        });
+    }
 
-function sig_kanban_return(doc) {
-    frappe.call({
-        method: 'frappe.client.get_list',
-        args: {
-            doctype: 'SIG Dispatch Operation',
-            filters: { mr: doc.name, op_type: 'DISPATCH', state: 'SUBMITTED' },
-            fields: ['stock_entry'],
-            limit_page_length: 0,
-        },
-        freeze: true, freeze_message: __('Finding dispatch...'),
-        callback: (r) => {
-            const ses = [...new Set((r.message || []).map((x) => x.stock_entry).filter(Boolean))];
-            if (!ses.length) {
-                frappe.msgprint(__('No dispatch Stock Entry found for {0}.', [doc.name]));
-                return;
-            }
-            if (ses.length > 1) {
+    function sig_open_kanban_return_dialog(sourceSe, mrName) {
+        frappe.call({
+            method: 'frappe.client.get',
+            args: { doctype: 'Stock Entry', name: sourceSe },
+            freeze: true, freeze_message: __('Loading...'),
+            callback: (r) => {
+                const se = r.message;
+                if (!se) return;
+                const openLines = (se.items || []).filter((it) => {
+                    const returned = it.custom_qty_returned || 0;
+                    const custody = it.custom_qty_custody || 0;
+                    const undeclared = it.qty - returned - custody;
+                    return !it.custom_return_closed && undeclared > 0.000001;
+                });
+                if (!openLines.length) {
+                    frappe.msgprint(__('No undeclared lines on {0}.', [sourceSe]));
+                    return;
+                }
+                const rowsHtml = openLines.map((it) => {
+                    const returned = it.custom_qty_returned || 0;
+                    const custody = it.custom_qty_custody || 0;
+                    const undeclared = it.qty - returned - custody;
+                    return `
+                        <tr data-sed="${it.name}">
+                            <td>${frappe.utils.escape_html(it.item_code)}</td>
+                            <td class="text-right">${undeclared}</td>
+                            <td><input type="number" class="form-control input-sm sig-return-qty" step="any" min="0" max="${undeclared}" value="${undeclared}"></td>
+                        </tr>`;
+                }).join('');
                 const d = new frappe.ui.Dialog({
-                    title: __('Select dispatch to return against'),
-                    fields: [{ fieldtype: 'Select', fieldname: 'se', label: __('Stock Entry'), options: ses.join('\n'), reqd: 1 }],
-                    primary_action_label: __('Continue'),
+                    title: __('Return - {0}', [sourceSe]),
+                    size: 'large',
+                    fields: [
+                        { fieldtype: 'Data', fieldname: 'to_wh', label: __('To Warehouse'), default: openLines[0].s_warehouse, reqd: 1 },
+                        { fieldtype: 'Check', fieldname: 'close_as_consumed',
+                            label: __('No material returned — close all undeclared lines as consumed'), default: 0 },
+                        { fieldtype: 'Section Break' },
+                        {
+                            fieldtype: 'HTML', fieldname: 'lines_html',
+                            options: `<div class="table-responsive"><table class="table table-bordered">
+                                <thead><tr><th>${__('Item')}</th><th class="text-right">${__('Undeclared')}</th><th>${__('Qty to Return')}</th></tr></thead>
+                                <tbody>${rowsHtml}</tbody></table></div>`,
+                        },
+                    ],
+                    primary_action_label: __('Confirm disposition'),
                     primary_action() {
-                        const se = d.get_value('se');
-                        d.hide();
-                        sig_open_kanban_return_dialog(se);
+                        const rows = [...d.$wrapper.find('tbody tr')];
+                        const closeAsConsumed = !!d.get_value('close_as_consumed');
+                        const returnedLines = rows.map((row) => {
+                            const $row = $(row);
+                            return { sed: $row.data('sed'), qty: parseFloat($row.find('.sig-return-qty').val() || '0') };
+                        }).filter((l) => l.qty > 0);
+                        const lines = closeAsConsumed
+                            ? rows.map((row) => ({ sed: $(row).data('sed'), qty: null }))
+                            : returnedLines;
+                        if (!lines.length) {
+                            frappe.msgprint(__('Enter a return quantity, or explicitly select close as consumed.'));
+                            return;
+                        }
+                        const toWh = d.get_value('to_wh');
+                        const action = closeAsConsumed ? 'CLOSE' : 'RETURN';
+                        frappe.confirm(
+                            closeAsConsumed
+                                ? __('Close {0} undeclared line(s) on {1} as consumed? No stock movement will be made. You may reopen the original Stock Entry later for a correction.', [lines.length, sourceSe])
+                                : __('Return {0} line(s) from {1} to {2}? This submits a Stock Entry immediately.', [lines.length, sourceSe, toWh]),
+                            () => {
+                                const args = {
+                                    operation_id: sig_gen_operation_id(action), action, source_se: sourceSe,
+                                    line_count: lines.length,
+                                };
+                                if (action === 'RETURN') args.to_wh = toWh;
+                                lines.forEach((l, i) => {
+                                    args[`sed_${i + 1}`] = l.sed;
+                                    if (l.qty !== null) args[`qty_${i + 1}`] = l.qty;
+                                });
+                                frappe.call({
+                                    method: 'sig_warehouse.sig_warehouse.disposition.sig_declare_disposition',
+                                    args, freeze: true, freeze_message: closeAsConsumed ? __('Closing...') : __('Returning...'),
+                                    callback: (res2) => {
+                                        const res = res2.message || {};
+                                        if (res.result === 'created' || res.result === 'duplicate') {
+                                            frappe.show_alert({ message: closeAsConsumed ? __('Closed as consumed.') : __('Returned.'), indicator: 'green' });
+                                            invalidate_availability(mrName);
+                                            d.hide();
+                                        } else if (res.result === 'exception' && res.reason === 'CAP_EXCEEDED') {
+                                            frappe.msgprint({ title: __('Cannot return'), indicator: 'red',
+                                                message: __('Line {0}: requested {1} exceeds remaining {2}.', [res.line, res.requested, res.remaining]) });
+                                        } else if (res.result === 'conflict') {
+                                            frappe.msgprint({ title: __('Conflict'), indicator: 'red', message: __('This attempt changed after the operation ID was generated. Retry.') });
+                                        } else {
+                                            frappe.msgprint({ title: __('Failed'), indicator: 'red', message: __('{0}', [JSON.stringify(res)]) });
+                                        }
+                                    },
+                                });
+                            }
+                        );
                     },
                 });
                 d.show();
-                return;
-            }
-            sig_open_kanban_return_dialog(ses[0]);
-        },
-    });
-}
-
-function sig_open_kanban_return_dialog(sourceSe) {
-    frappe.call({
-        method: 'frappe.client.get',
-        args: { doctype: 'Stock Entry', name: sourceSe },
-        freeze: true, freeze_message: __('Loading...'),
-        callback: (r) => {
-            const se = r.message;
-            if (!se) return;
-            const openLines = (se.items || []).filter((it) => {
-                const returned = it.custom_qty_returned || 0;
-                const custody = it.custom_qty_custody || 0;
-                const undeclared = it.qty - returned - custody;
-                return !it.custom_return_closed && undeclared > 0.000001;
-            });
-            if (!openLines.length) {
-                frappe.msgprint(__('No undeclared lines on {0}.', [sourceSe]));
-                return;
-            }
-            const rowsHtml = openLines.map((it) => {
-                const returned = it.custom_qty_returned || 0;
-                const custody = it.custom_qty_custody || 0;
-                const undeclared = it.qty - returned - custody;
-                return `
-                    <tr data-sed="${it.name}">
-                        <td>${frappe.utils.escape_html(it.item_code)}</td>
-                        <td class="text-right">${undeclared}</td>
-                        <td><input type="number" class="form-control input-sm sig-return-qty" step="any" min="0" max="${undeclared}" value="${undeclared}"></td>
-                    </tr>`;
-            }).join('');
-            const d = new frappe.ui.Dialog({
-                title: __('Return - {0}', [sourceSe]),
-                size: 'large',
-                fields: [
-                    { fieldtype: 'Data', fieldname: 'to_wh', label: __('To Warehouse'), default: openLines[0].s_warehouse, reqd: 1 },
-                    { fieldtype: 'Check', fieldname: 'close_as_consumed',
-                        label: __('No material returned — close all undeclared lines as consumed'), default: 0 },
-                    { fieldtype: 'Section Break' },
-                    {
-                        fieldtype: 'HTML', fieldname: 'lines_html',
-                        options: `<div class="table-responsive"><table class="table table-bordered">
-                            <thead><tr><th>${__('Item')}</th><th class="text-right">${__('Undeclared')}</th><th>${__('Qty to Return')}</th></tr></thead>
-                            <tbody>${rowsHtml}</tbody></table></div>`,
-                    },
-                ],
-                primary_action_label: __('Confirm disposition'),
-                primary_action() {
-                    const rows = [...d.$wrapper.find('tbody tr')];
-                    const closeAsConsumed = !!d.get_value('close_as_consumed');
-                    const returnedLines = rows.map((row) => {
-                        const $row = $(row);
-                        return { sed: $row.data('sed'), qty: parseFloat($row.find('.sig-return-qty').val() || '0') };
-                    }).filter((l) => l.qty > 0);
-                    const lines = closeAsConsumed
-                        ? rows.map((row) => ({ sed: $(row).data('sed'), qty: null }))
-                        : returnedLines;
-                    if (!lines.length) {
-                        frappe.msgprint(__('Enter a return quantity, or explicitly select close as consumed.'));
-                        return;
-                    }
-                    const toWh = d.get_value('to_wh');
-                    const action = closeAsConsumed ? 'CLOSE' : 'RETURN';
-                    frappe.confirm(
-                        closeAsConsumed
-                            ? __('Close {0} undeclared line(s) on {1} as consumed? No stock movement will be made. You may reopen the original Stock Entry later for a correction.', [lines.length, sourceSe])
-                            : __('Return {0} line(s) from {1} to {2}? This submits a Stock Entry immediately.', [lines.length, sourceSe, toWh]),
-                        () => {
-                            const args = {
-                                operation_id: sig_gen_operation_id(action), action, source_se: sourceSe,
-                                line_count: lines.length,
-                            };
-                            if (action === 'RETURN') args.to_wh = toWh;
-                            lines.forEach((l, i) => {
-                                args[`sed_${i + 1}`] = l.sed;
-                                if (l.qty !== null) args[`qty_${i + 1}`] = l.qty;
-                            });
-                            frappe.call({
-                                method: 'sig_warehouse.sig_warehouse.disposition.sig_declare_disposition',
-                                args, freeze: true, freeze_message: closeAsConsumed ? __('Closing...') : __('Returning...'),
-                                callback: (res2) => {
-                                    const res = res2.message || {};
-                                    if (res.result === 'created' || res.result === 'duplicate') {
-                                        frappe.show_alert({ message: closeAsConsumed ? __('Closed as consumed.') : __('Returned.'), indicator: 'green' });
-                                        d.hide();
-                                    } else if (res.result === 'exception' && res.reason === 'CAP_EXCEEDED') {
-                                        frappe.msgprint({ title: __('Cannot return'), indicator: 'red',
-                                            message: __('Line {0}: requested {1} exceeds remaining {2}.', [res.line, res.requested, res.remaining]) });
-                                    } else if (res.result === 'conflict') {
-                                        frappe.msgprint({ title: __('Conflict'), indicator: 'red', message: __('This attempt changed after the operation ID was generated. Retry.') });
-                                    } else {
-                                        frappe.msgprint({ title: __('Failed'), indicator: 'red', message: __('{0}', [JSON.stringify(res)]) });
-                                    }
-                                },
-                            });
-                        }
-                    );
-                },
-            });
-            d.show();
-        },
-    });
-}
-
-// Dispatch dialog builder - duplicated from material_request.js on purpose;
-// see the comment at the top of that file's copy for why.
-function sig_gen_operation_id(warehouse) {
-    const now = new Date();
-    const pad = (n) => String(n).padStart(2, '0');
-    const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-    const safeWh = (warehouse || 'WH').replace(/[^A-Za-z0-9]/g, '').slice(0, 12) || 'WH';
-    return `SIG-DISPOP-${safeWh}-${stamp}-${Math.floor(Math.random() * 900 + 100)}`;
-}
-
-// Warehouses that can be a dispatch source. The request's WH text picks the
-// line's default warehouse at intake with no stock check, so a Makkah-area
-// request can point at a warehouse that has none of the item while another
-// holds it - the dispatch dialog therefore lets the operator choose the
-// source and pre-selects one that actually covers the lines.
-const SIG_SOURCE_WAREHOUSES = [
-    'مستودع المزاحمية - SIG',
-    'مستودع مكة - SIG',
-    'مستودع القصيم - SIG',
-    'مستودع جازان - SIG',
-];
-
-function sig_check_availability(wh, openLines) {
-    return frappe.call({
-        method: 'check_dn_availability',
-        args: {
-            from_wh: wh,
-            line_count: openLines.length,
-            ...Object.fromEntries(openLines.flatMap((it, i) => [
-                [`code_${i + 1}`, it.item_code],
-                [`qty_${i + 1}`, it.custom_qty_remaining],
-                [`uom_${i + 1}`, it.uom],
-            ])),
-        },
-    }).then((r) => r.message);
-}
-
-async function sig_open_dispatch_dialog(frm, overrideWh) {
-    const openLines = (frm.doc.items || []).filter(it => (it.custom_qty_remaining || 0) > 0.000001);
-    if (!openLines.length) {
-        frappe.msgprint(__('No open lines to dispatch on this request.'));
-        return;
-    }
-    let fromWarehouse = overrideWh || openLines[0].warehouse;
-    let note = '';
-    frappe.dom.freeze(__('Checking availability...'));
-    try {
-        let availability = await sig_check_availability(fromWarehouse, openLines);
-        const short = (a) => a && a.result === 'ok' && a.lines.some((l) => !l.sufficient);
-        if (!overrideWh && short(availability)) {
-            for (const wh of SIG_SOURCE_WAREHOUSES.filter((w) => w !== fromWarehouse)) {
-                const alt = await sig_check_availability(wh, openLines);
-                if (alt && alt.result === 'ok' && alt.lines.every((l) => l.sufficient)) {
-                    note = __('Stock is not fully available in {0}; source switched to {1}, which covers every line. Change the warehouse below if that is wrong.',
-                        [fromWarehouse, wh]);
-                    fromWarehouse = wh;
-                    availability = alt;
-                    break;
-                }
-            }
-        }
-        frappe.dom.unfreeze();
-        sig_render_dispatch_dialog(frm, openLines, fromWarehouse, availability, note);
-    } catch (e) {
-        frappe.dom.unfreeze();
-        throw e;
-    }
-}
-
-function sig_render_dispatch_dialog(frm, openLines, fromWarehouse, availability, note) {
-    const avByLine = {};
-    if (availability && availability.result === 'ok') {
-        availability.lines.forEach((l) => { avByLine[l.line] = l; });
-    }
-
-    const rowsHtml = openLines.map((it, i) => {
-        const av = avByLine[i + 1];
-        const available = av ? av.available : '?';
-        const defaultQty = av ? Math.min(it.custom_qty_remaining, av.available) : it.custom_qty_remaining;
-        const shortFlag = av && !av.sufficient ? ' <span class="text-danger">(short)</span>' : '';
-        const description = it.description || it.item_name || '';
-        return `
-            <tr data-mri="${it.name}" data-item="${it.item_code}" data-uom="${it.uom}">
-                <td class="sig-line-no text-center text-muted">${i + 1}</td>
-                <td class="sig-item-code">${frappe.utils.escape_html(it.item_code)}</td>
-                <td class="sig-item-description" title="${frappe.utils.escape_html(description)}">${frappe.utils.escape_html(description) || '<span class="text-muted">—</span>'}</td>
-                <td class="text-right">${it.qty}</td>
-                <td class="text-right">${(it.custom_qty_issued || 0)}</td>
-                <td class="text-right">${it.custom_qty_remaining}</td>
-                <td class="text-right">${available}${shortFlag}</td>
-                <td><input type="number" class="form-control input-sm sig-qty" step="any" min="0"
-                    value="${defaultQty}" title="${__('A higher quantity requires an explicit MR amendment and reason.')}"></td>
-                <td>
-                    <select class="form-control input-sm sig-outcome">
-                        <option value="DISPATCH" selected>${__('Dispatch')}</option>
-                        <option value="PENDING">${__('Leave pending')}</option>
-                    </select>
-                </td>
-                <td></td>
-            </tr>`;
-    }).join('');
-
-    if (!$('#sig-dispatch-table-style').length) {
-        $('<style id="sig-dispatch-table-style">' +
-          '.sig-dispatch-dialog .modal-dialog{width:95vw;max-width:1500px;}' +
-          '.sig-dispatch-dialog .modal-body{padding-left:12px;padding-right:12px;}' +
-          '.sig-dispatch-lines{table-layout:fixed;min-width:1080px;}' +
-          '.sig-dispatch-lines th,.sig-dispatch-lines td{vertical-align:middle;}' +
-          '.sig-dispatch-lines th:nth-child(1),.sig-dispatch-lines td:nth-child(1){width:38px;}' +
-          '.sig-dispatch-lines th:nth-child(2),.sig-dispatch-lines td:nth-child(2){width:150px;}' +
-          '.sig-dispatch-lines th:nth-child(3),.sig-dispatch-lines td:nth-child(3){width:30%;}' +
-          '.sig-dispatch-lines th:nth-child(4),.sig-dispatch-lines td:nth-child(4){width:70px;}' +
-          '.sig-dispatch-lines th:nth-child(5),.sig-dispatch-lines td:nth-child(5){width:65px;}' +
-          '.sig-dispatch-lines th:nth-child(6),.sig-dispatch-lines td:nth-child(6){width:65px;}' +
-          '.sig-dispatch-lines th:nth-child(7),.sig-dispatch-lines td:nth-child(7){width:78px;}' +
-          '.sig-dispatch-lines th:nth-child(8),.sig-dispatch-lines td:nth-child(8){width:92px;}' +
-          '.sig-dispatch-lines th:nth-child(9),.sig-dispatch-lines td:nth-child(9){width:118px;}' +
-          '.sig-dispatch-lines th:nth-child(10),.sig-dispatch-lines td:nth-child(10){width:28px;}' +
-          '.sig-item-description{white-space:normal;overflow-wrap:anywhere;line-height:1.25;}' +
-          '.sig-item-code{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
-          '.sig-line-no{font-variant-numeric:tabular-nums;}' +
-          '</style>').appendTo('head');
-    }
-    const d = new frappe.ui.Dialog({
-        title: __('Dispatch {0}', [frm.doc.name]),
-        size: 'large',
-        fields: [
-            ...(note ? [{ fieldtype: 'HTML', fieldname: 'switch_note',
-                          options: `<div class="alert alert-warning" style="margin-bottom:8px;">${frappe.utils.escape_html(note)}</div>` }] : []),
-            { fieldtype: 'Select', fieldname: 'from_wh', label: __('From Warehouse'),
-              options: [...new Set([fromWarehouse, ...SIG_SOURCE_WAREHOUSES])].join('\n'), default: fromWarehouse,
-              change() {
-                  const v = d.get_value('from_wh');
-                  if (v && v !== fromWarehouse) { d.hide(); sig_open_dispatch_dialog(frm, v); }
-              } },
-            { fieldtype: 'Date', fieldname: 'posting_date', label: __('Posting Date'), default: frappe.datetime.get_today() },
-            { fieldtype: 'Column Break' },
-            { fieldtype: 'Select', fieldname: 'recipient_type', label: __('Dispatched To Type'),
-              options: 'Employee\nOther', default: 'Employee', reqd: 1 },
-            { fieldtype: 'Link', fieldname: 'dispatched_to', label: __('Employee recipient'), options: 'Employee',
-              get_query: () => ({ query: 'sig_warehouse.sig_warehouse.dispatch_operation.sig_dispatch_recipient_query' }),
-              depends_on: 'eval:doc.recipient_type=="Employee"', mandatory_depends_on: 'eval:doc.recipient_type=="Employee"' },
-            { fieldtype: 'Data', fieldname: 'dispatched_to_other', label: __('Other recipient'),
-              depends_on: 'eval:doc.recipient_type=="Other"', mandatory_depends_on: 'eval:doc.recipient_type=="Other"' },
-            { fieldtype: 'Small Text', fieldname: 'remarks', label: __('Remarks') },
-            { fieldtype: 'Check', fieldname: 'allow_mr_amendment',
-              label: __('Amend MR if dispatch quantity exceeds Left') },
-            { fieldtype: 'Small Text', fieldname: 'amendment_reason', label: __('Reason for MR amendment'),
-              depends_on: 'eval:doc.allow_mr_amendment==1', mandatory_depends_on: 'eval:doc.allow_mr_amendment==1',
-              description: __('This becomes a permanent MR audit comment and dispatch remark.') },
-            { fieldtype: 'Section Break' },
-            {
-                fieldtype: 'HTML', fieldname: 'lines_html',
-                options: `<div class="table-responsive"><table class="table table-bordered sig-dispatch-lines">
-                    <thead><tr>
-                        <th class="text-center">#</th><th>${__('Item')}</th><th>${__('Description')}</th>
-                        <th class="text-right">${__('MR Qty')}</th><th class="text-right">${__('Issued')}</th>
-                        <th class="text-right">${__('Left')}</th><th class="text-right">${__('Available')}</th>
-                        <th class="text-right">${__('Dispatch')}<br>${__('Qty')}</th>
-                        <th>${__('Outcome')}</th><th></th>
-                    </tr></thead>
-                    <tbody>${rowsHtml}</tbody>
-                </table></div>`,
             },
-            { fieldtype: 'Section Break', label: __('Add an item not on this request') },
-            { fieldtype: 'Link', fieldname: 'new_item_code', label: __('Item'), options: 'Item',
-              get_query: () => ({ filters: { disabled: 0 } }) },
-            { fieldtype: 'Column Break' },
-            { fieldtype: 'Float', fieldname: 'new_item_qty', label: __('Qty'), default: 1 },
-            { fieldtype: 'Column Break' },
-            { fieldtype: 'Button', fieldname: 'add_item_btn', label: __('+ Add to list'),
-              click: () => sig_add_line_to_dispatch_dialog(d) },
-        ],
-        primary_action_label: __('Confirm Dispatch'),
-        async primary_action() {
-            const rows = [...d.$wrapper.find('.sig-dispatch-lines tbody tr')];
-            const existingLines = rows.filter((row) => !$(row).data('new')).map((row) => {
-                const $row = $(row);
-                return {
-                    mri: $row.data('mri'),
-                    qty: parseFloat($row.find('.sig-qty').val() || '0'),
-                    outcome: $row.find('.sig-outcome').val(),
-                };
-            }).filter((l) => l.outcome === 'DISPATCH' && l.qty > 0);
-            const newRows = rows.filter((row) => $(row).data('new'));
-
-            const addedLines = [];
-            for (const row of newRows) {
-                const $row = $(row);
-                const qty = parseFloat($row.find('.sig-qty').val() || '0');
-                if (!(qty > 0)) continue;
-                let res;
-                try {
-                    res = (await frappe.call({
-                        method: 'sig_warehouse.sig_warehouse.dispatch_operation.sig_add_mr_line',
-                        args: { mr: frm.doc.name, item_code: $row.data('item'), qty, uom: $row.data('uom') },
-                        freeze: true, freeze_message: __('Adding {0}...', [$row.data('item')]),
-                    })).message || {};
-                } catch (e) {
-                    res = { result: 'exception', reason: String(e) };
-                }
-                if (res.result !== 'created') {
-                    frappe.msgprint({
-                        title: __('Could not add {0}', [$row.data('item')]),
-                        indicator: 'red',
-                        message: __('{0}', [JSON.stringify(res)]),
-                    });
-                    return;
-                }
-                addedLines.push({ mri: res.mri, qty, outcome: 'DISPATCH' });
-            }
-
-            const lines = existingLines.concat(addedLines);
-            if (!lines.length) {
-                frappe.msgprint(__('No lines selected to dispatch.'));
-                return;
-            }
-            const totalQty = lines.reduce((s, l) => s + l.qty, 0);
-            const values = d.get_values();
-            if (values.recipient_type === 'Employee' && !values.dispatched_to) {
-                frappe.msgprint(__('Select the employee receiving this dispatch.'));
-                return;
-            }
-            if (values.recipient_type === 'Other' && !String(values.dispatched_to_other || '').trim()) {
-                frappe.msgprint(__('Enter the manual recipient for Other.'));
-                return;
-            }
-            if (values.allow_mr_amendment && !String(values.amendment_reason || '').trim()) {
-                frappe.msgprint(__('Enter a reason before amending an MR quantity.'));
-                return;
-            }
-            const operationId = sig_gen_operation_id(fromWarehouse);
-
-            frappe.confirm(
-                __('Dispatch {0} line(s), total qty {1}, from {2}?<br><br>This creates and <b>submits</b> a Stock Entry immediately - it cannot be un-submitted from here.',
-                    [lines.length, totalQty, fromWarehouse]),
-                () => {
-                    const args = {
-                        operation_id: operationId, mr: frm.doc.name, from_wh: fromWarehouse,
-                        posting_date: values.posting_date, dispatched_to: values.dispatched_to,
-                        dispatched_to_other: values.recipient_type === 'Other' ? values.dispatched_to_other : '',
-                        remarks: values.remarks, line_count: lines.length,
-                        allow_mr_amendment: values.allow_mr_amendment ? 1 : 0,
-                        amendment_reason: values.amendment_reason || '',
-                    };
-                    lines.forEach((l, i) => {
-                        args[`mri_${i + 1}`] = l.mri;
-                        args[`qty_${i + 1}`] = l.qty;
-                        args[`outcome_${i + 1}`] = l.outcome;
-                    });
-                    frappe.call({
-                        method: 'sig_warehouse.sig_warehouse.dispatch_operation.sig_dispatch_mr',
-                        args,
-                        freeze: true,
-                        freeze_message: __('Dispatching...'),
-                        callback: (r) => {
-                            const res = r.message || {};
-                            if (res.result === 'created' || res.result === 'duplicate') {
-                                frappe.msgprint({
-                                    title: __('Dispatched'),
-                                    indicator: 'green',
-                                    message: __('Stock Entry {0} created and submitted.{1}', [
-                                        `<a href="/app/stock-entry/${res.stock_entry}">${res.stock_entry}</a>`,
-                                        res.amended_lines ? __(' MR quantity amended and logged.') : '']),
-                                });
-                                d.hide();
-                                if (frm.reload_doc) frm.reload_doc();
-                            } else if (res.result === 'exception' && res.reason === 'CAP_EXCEEDED') {
-                                frappe.msgprint({
-                                    title: __('Cannot dispatch'),
-                                    indicator: 'red',
-                                    message: res.can_amend
-                                        ? __('Line {0}: requested {1} exceeds remaining {2}. Tick “Amend MR if dispatch quantity exceeds Left”, enter the reason, then confirm again.',
-                                            [res.line, res.requested, res.remaining])
-                                        : __('Line {0}: requested {1} exceeds remaining {2}. Reload and try again.',
-                                            [res.line, res.requested, res.remaining]),
-                                });
-                            } else if (res.result === 'exception' && res.reason === 'AMENDMENT_REASON_REQUIRED') {
-                                frappe.msgprint({ title: __('Reason required'), indicator: 'orange',
-                                    message: __('Enter the reason for the MR amendment before dispatching.') });
-                            } else if (res.result === 'conflict') {
-                                frappe.msgprint({
-                                    title: __('Conflict'),
-                                    indicator: 'red',
-                                    message: __('This dispatch attempt changed after the operation ID was generated. Close this dialog and retry.'),
-                                });
-                            } else {
-                                frappe.msgprint({
-                                    title: __('Dispatch failed'),
-                                    indicator: 'red',
-                                    message: __('{0}', [JSON.stringify(res)]),
-                                });
-                            }
-                        },
-                    });
-                }
-            );
-        },
-    });
-    d.$wrapper.addClass('sig-dispatch-dialog');
-    d.show();
-}
-
-function sig_add_line_to_dispatch_dialog(d) {
-    const itemCode = d.get_value('new_item_code');
-    const qty = parseFloat(d.get_value('new_item_qty') || '0');
-    if (!itemCode) {
-        frappe.msgprint(__('Pick an item first.'));
-        return;
-    }
-    if (!(qty > 0)) {
-        frappe.msgprint(__('Qty must be greater than 0.'));
-        return;
-    }
-    frappe.db.get_value('Item', itemCode, ['stock_uom', 'description', 'item_name']).then((r) => {
-        const uom = (r.message && r.message.stock_uom) || '';
-        const description = (r.message && (r.message.description || r.message.item_name)) || '';
-        const lineNo = d.$wrapper.find('.sig-dispatch-lines tbody tr').length + 1;
-        const $row = $(`
-            <tr data-new="1" data-item="${itemCode}" data-uom="${uom}">
-                <td class="sig-line-no text-center text-muted">${lineNo}</td>
-                <td class="sig-item-code">${frappe.utils.escape_html(itemCode)} <span class="text-muted">(${__('new')})</span></td>
-                <td class="sig-item-description" title="${frappe.utils.escape_html(description)}">${frappe.utils.escape_html(description) || '<span class="text-muted">—</span>'}</td>
-                <td class="text-right">-</td>
-                <td class="text-right">-</td>
-                <td class="text-right">-</td>
-                <td class="text-right">-</td>
-                <td><input type="number" class="form-control input-sm sig-qty" step="any" min="0" value="${qty}"></td>
-                <td><select class="form-control input-sm sig-outcome">
-                        <option value="DISPATCH" selected>${__('Dispatch')}</option>
-                    </select></td>
-                <td><span class="sig-remove-new-row text-danger" style="cursor:pointer;" title="${__('Remove')}">&times;</span></td>
-            </tr>`);
-        $row.find('.sig-remove-new-row').on('click', () => {
-            $row.remove();
-            sig_renumber_dispatch_rows(d);
         });
-        d.$wrapper.find('.sig-dispatch-lines tbody').append($row);
-        sig_renumber_dispatch_rows(d);
-        d.set_value('new_item_code', '');
-        d.set_value('new_item_qty', 1);
-    });
-}
+    }
 
-function sig_renumber_dispatch_rows(d) {
-    d.$wrapper.find('.sig-dispatch-lines tbody tr').each((i, row) => {
-        $(row).find('.sig-line-no').text(i + 1);
-    });
-}
+    // ---------------------------------------------------------------------
+    // Bootstrap. One debounced MutationObserver on the stable
+    // `.page-container[data-page-route=...]` node - not on the `.kanban`
+    // node itself, which Frappe replaces wholesale on redraw, and not a
+    // 1-second poll. `decorate()` re-verifies the container is still in the
+    // document on every run and re-binds if not, so this self-heals without
+    // any interval. Route changes still trigger a re-bind because Frappe
+    // does not always keep the same page-container instance across a full
+    // navigation away and back.
+    // ---------------------------------------------------------------------
+    let sig_observed_container = null;
+    let sig_decorate_timer = null;
 
-// Bootstrap - must be the LAST thing in this file. See the comment near
-// sig_maybe_setup_kanban's definition above for why: this can run
-// synchronously all the way through to code that reads a `const` declared
-// earlier in this file, and that only works once every such declaration has
-// already executed.
-frappe.router.on('change', () => sig_maybe_setup_kanban());
-sig_maybe_setup_kanban();
+    function schedule_decorate() {
+        clearTimeout(sig_decorate_timer);
+        sig_decorate_timer = setTimeout(decorate, 150);
+    }
+
+    function ensure_observer() {
+        if (!on_our_route()) return;
+        const pc = document.querySelector(`.page-container[data-page-route="${ROUTE}"]`);
+        if (!pc) return;
+        if (pc === sig_observed_container) { schedule_decorate(); return; }
+        if (sig_observed_container && sig_observed_container.__sigKanbanObserver) {
+            sig_observed_container.__sigKanbanObserver.disconnect();
+        }
+        const observer = new MutationObserver(schedule_decorate);
+        observer.observe(pc, { childList: true, subtree: true });
+        pc.__sigKanbanObserver = observer;
+        sig_observed_container = pc;
+        schedule_decorate();
+    }
+
+    function decorate() {
+        if (!on_our_route()) return;
+        if (!sig_observed_container || !document.body.contains(sig_observed_container)) {
+            ensure_observer();
+            if (!sig_observed_container) return;
+        }
+        const $board = $(sig_observed_container).find('.kanban').first();
+        if (!$board.length) return;
+        ensure_style_once();
+        ensure_search_box($board);
+        ensure_dispatch_tool_button();
+        apply_search_filter($board);
+        paint_badges_and_borders($board);
+        refresh_availability($board);
+    }
+
+    window.sig_wh = Object.assign(window.sig_wh || {}, { invalidate_availability });
+
+    bind_card_actions_once();
+    frappe.router.on('change', () => setTimeout(ensure_observer, 0));
+    ensure_observer();
+})();

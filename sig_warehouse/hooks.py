@@ -5,9 +5,15 @@ app_description = "ERP-native warehouse workbench: dispatch, returns and custody
 app_email = "it@sigtele.com"
 app_license = "mit"
 
-doctype_js = {
-    "Stock Entry": "public/js/stock_entry.js",
-}
+# 2026-09-22: doctype_js used to ALSO register stock_entry.js here, while
+# app_include_js (below) already loads the exact same file on every desk
+# page. Frappe evaluates both hooks independently - a Stock Entry form was
+# loading this file twice, so its frappe.ui.form.on('Stock Entry', ...)
+# handler (and therefore every "Declare ..." button) was registered twice.
+# app_include_js alone is sufficient (it is what actually makes the file
+# reach the Kanban board too) and carries the cache-busting ?v= query, so
+# doctype_js is dropped rather than kept as a second copy.
+doctype_js = {}
 
 # Root cause of the 2026-09-18 freeze found and fixed (isolated offline
 # repro against 216 mock cards, no live server involved): sig_setup_kanban_
@@ -35,10 +41,20 @@ doctype_js = {
 # doing anything, so it is a safe no-op everywhere except this one board.
 # Version query forces Desk clients/CDNs to fetch the current bundle after a
 # deploy; the unversioned app-included URL can remain cached for a long time.
+#
+# 2026-09-22 performance/correctness pass (see docs/kanban_dispatch_queue_
+# fix_handoff.md and MASTER-ERP-INTEGRATION.md §0.2e for the measured
+# before/after): all three files are now wrapped in their own IIFE so
+# identically-named functions across them can never collide again (this is
+# what caused the toolbar "Dispatch / Return" button to silently call the
+# wrong dialog and throw); material_request_list.js no longer polls a
+# 1-second setInterval or text-scans ~4,300 elements per tick, and the
+# availability check is cached with a TTL instead of re-fetching every MR on
+# every board redraw.
 app_include_js = [
-    "/assets/sig_warehouse/js/material_request_list.js?v=20260921-8",
-    "/assets/sig_warehouse/js/material_request.js?v=20260921-4",
-    "/assets/sig_warehouse/js/stock_entry.js?v=20260921-1",
+    "/assets/sig_warehouse/js/material_request_list.js?v=20260923-1",
+    "/assets/sig_warehouse/js/material_request.js?v=20260923-1",
+    "/assets/sig_warehouse/js/stock_entry.js?v=20260923-1",
 ]
 
 # Field visit feed (gate F1: shadow; see docs/field_visit_feed_design.md). Runs every 15 minutes; mode is

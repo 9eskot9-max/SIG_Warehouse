@@ -17,6 +17,7 @@ Stock Entry cancelled from its own form must not leave stale derived fields.
 import frappe
 
 EPS = 1e-6
+WAIVER_REASONS = ("SMALL_VALUE_WAIVED", "DELTA_DISMISSED", "WH_CLOSED")
 
 
 def recompute_mr_dispatch_state(mr_name):
@@ -73,18 +74,25 @@ def recompute_mr_dispatch_state(mr_name):
             dispatched[item_name] = dispatched.get(item_name, 0) + qty
 
     cancelled_by_item = {}
+    reason_by_item = {}
     if item_names:
         cancelled_rows = frappe.get_all(
             "Material Request Item",
             filters={"name": ["in", item_names]},
-            fields=["name", "custom_qty_cancelled"],
+            fields=["name", "custom_qty_cancelled", "custom_cancel_reason"],
         )
         cancelled_by_item = {str(r.name): float(r.custom_qty_cancelled or 0) for r in cancelled_rows}
+        reason_by_item = {str(r.name): str(r.custom_cancel_reason or "") for r in cancelled_rows}
 
     total_requested = 0.0
     total_capped = 0.0
     line_states = []
     any_cancelled = False
+    # Owner rule 2026-09-21: cancelling the remainder of a partial dispatch never CLOSES the MR.
+    # A cancel counts as an *operator* cancel unless its reason is a retrospective waiver
+    # (SMALL_VALUE_WAIVED / DELTA_DISMISSED / WH_CLOSED), which resolve the line like a dispatch does.
+    any_operator_cancel = False
+    any_issued = False
     for mri in mr_items:
         qty = float(mri.qty or 0)
         issued = float(dispatched.get(str(mri.name), 0))
@@ -104,6 +112,10 @@ def recompute_mr_dispatch_state(mr_name):
             state = "PENDING"
         if cancelled > EPS:
             any_cancelled = True
+            if reason_by_item.get(str(mri.name), "") not in WAIVER_REASONS:
+                any_operator_cancel = True
+        if issued > EPS:
+            any_issued = True
         frappe.db.set_value(
             "Material Request Item",
             mri.name,
@@ -127,7 +139,12 @@ def recompute_mr_dispatch_state(mr_name):
         # Every line is done, one way or another. CLOSED (not DISPATCHED)
         # only when at least one line's resolution involved a cancellation -
         # a pure full dispatch keeps the exact prior DISPATCHED behaviour.
-        stage = "CLOSED" if any_cancelled else "DISPATCHED"
+        if any_operator_cancel and any_issued:
+            stage = "PARTIAL"      # a cancelled partial is never CLOSED
+        elif any_cancelled and not any_issued:
+            stage = "CLOSED"       # nothing was ever dispatched: fully cancelled
+        else:
+            stage = "DISPATCHED"   # incl. waived/dismissed remainders; the lifecycle closes it once returns are declared
     elif any(s in ("PARTIAL",) + resolved for s in line_states):
         stage = "PARTIAL"
     else:
