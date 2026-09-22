@@ -34,7 +34,9 @@ def _authorize(warehouse):
     roles = frappe.get_roles(user)
     if not any(r in ALLOWED_ROLES for r in roles):
         frappe.throw(_("Not authorized to dispatch"), frappe.PermissionError)
-    if not frappe.has_permission("Warehouse", "write", doc=warehouse, user=user):
+    # Dispatch authority is role-gated above.  Requiring Warehouse *write*
+    # here incorrectly asks an operator to edit the warehouse master.
+    if not frappe.has_permission("Warehouse", "read", doc=warehouse, user=user):
         frappe.throw(_("Not permitted to dispatch from {0}").format(warehouse), frappe.PermissionError)
 
 

@@ -48,7 +48,9 @@ def _authorize(source_doc, warehouse=None):
         frappe.throw("Source Stock Entry is itself a return - not eligible", frappe.ValidationError)
     if source_doc.purpose not in ("Material Issue", "Material Transfer"):
         frappe.throw("Source Stock Entry purpose not eligible for disposition", frappe.ValidationError)
-    if warehouse and not frappe.has_permission("Warehouse", "write", doc=warehouse, user=user):
+    # The Stock Manager role above authorizes the operational action; only
+    # Warehouse read is appropriate for the master record itself.
+    if warehouse and not frappe.has_permission("Warehouse", "read", doc=warehouse, user=user):
         frappe.throw(f"Not permitted to declare disposition for {warehouse}", frappe.PermissionError)
 
 

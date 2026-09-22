@@ -47,7 +47,11 @@ def _authorize(mr_doc, warehouse):
         frappe.throw("Material Request is not submitted", frappe.ValidationError)
     if mr_doc.material_request_type != "Material Issue":
         frappe.throw("Not a Material Issue request", frappe.ValidationError)
-    if not frappe.has_permission("Warehouse", "write", doc=warehouse, user=user):
+    # A dispatcher needs access to stock *in* the warehouse, not permission
+    # to edit the Warehouse master record. Stock Manager is the explicit
+    # operation-role gate above; Warehouse read keeps the action scoped to a
+    # warehouse the operator is allowed to see.
+    if not frappe.has_permission("Warehouse", "read", doc=warehouse, user=user):
         frappe.throw(f"Not permitted to dispatch from {warehouse}", frappe.PermissionError)
 
 
