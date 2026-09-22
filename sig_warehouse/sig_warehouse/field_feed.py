@@ -92,7 +92,8 @@ def _upsert_sessions(sessions, trusted_from, sites, emp_by_phone):
             "stream": s["stream"], "group": s["group"], "site_key": s["site"],
             "site": s["site"] if s["site"] in sites else None, "reporter": s["reporter"],
             "reporter_name": s["reporter_name"], "employee": emp, "start_at": started,
-            "end_at": fs.fmt(s["end_at"]) if s["end_at"] else None, "status": s["status"], "hours": s["hours"],
+            "end_at": fs.fmt(s["end_at"]) if s["end_at"] else None, "status": s["status"],
+            "hours": s["hours"] if s["hours"] is not None else 0,
             "activity_code": s["activity_code"], "photo_count": s["photos"], "diagnostics": ",".join(diags),
             "disposition": disposition, "start_msg": s["start_msg"], "end_msg": s["end_msg"],
         }
