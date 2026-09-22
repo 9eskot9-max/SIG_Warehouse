@@ -141,24 +141,33 @@ def _ensure_site(site):
     return True
 
 
-def post_session(name):
-    """Post one PENDING/COMPLETED SIG Field Session. Returns a small result dict."""
+def post_session(name, force=False):
+    """Post one PENDING/COMPLETED SIG Field Session. Returns a small result dict.
+
+    force=True skips the status/disposition eligibility gate - used only for a named,
+    owner-approved one-off batch of pre-feed historical sessions that have no evidence
+    anywhere in ERP (AUTO_CLOSED/OPEN, never PENDING/COMPLETED because they predate the
+    live feed). Owner decision 2026-09-23: the estimated end/duration on these does not
+    need to be exact, only that the visit happened - see sig_field_post_historical below,
+    the only caller that ever passes force=True. The live feed itself never does.
+    """
     s = frappe.get_doc("SIG Field Session", name)
     if s.posted:
         return {"result": "already_posted"}
-    if s.status != "COMPLETED" or s.disposition != "PENDING":
+    if not force and (s.status != "COMPLETED" or s.disposition != "PENDING"):
         return {"result": "not_eligible", "status": s.status, "disposition": s.disposition}
     created_site = _ensure_site(s.site_key)
     who = frappe.db.get_value("Employee", s.employee, "employee_name") if s.employee else None
     now = fs.fmt(_now())
     event_id = _batch_id(s.name) + "-000001"
+    end_at = s.end_at or s.start_at
     payload = {
         "event_code": "FIELD_VISIT_COMPLETED", "site_id": s.site_key, "site_key": s.site_key,
-        "occurred_at": str(s.end_at)[:19], "recorded_at": now, "project": STREAM_PROJECT.get(s.stream, s.stream),
+        "occurred_at": str(end_at)[:19], "recorded_at": now, "project": STREAM_PROJECT.get(s.stream, s.stream),
         "artifact_ref": s.name, "batch_id": _batch_id(s.name), "seq": 1, "source_sub": "WA-FEED",
         "source_workbook": "sig_warehouse.field_feed", "operator": "field_feed", "machine": "erpnext",
         "core_version": "F2", "session_key": s.name, "status": "COMPLETED", "start_at": str(s.start_at)[:19],
-        "end_at": str(s.end_at)[:19], "duration_hours": s.hours or 0, "reporter": s.reporter,
+        "end_at": str(end_at)[:19], "duration_hours": s.hours or 0, "reporter": s.reporter,
         "reporter_name": who or s.reporter_name, "activity_code": s.activity_code or "UNSPECIFIED",
         "photo_count": s.photo_count or 0, "visit_ordinal": 0, "diagnostic": s.diagnostics or "",
     }
@@ -316,6 +325,26 @@ def sig_field_feed_post_one(session_key):
     if "System Manager" not in frappe.get_roles():
         frappe.throw("Not permitted", frappe.PermissionError)
     return post_session(session_key)
+
+
+@frappe.whitelist()
+def sig_field_post_historical(session_keys):
+    """Post named pre-feed sessions that have no evidence anywhere in ERP, bypassing the
+    COMPLETED/PENDING gate (see post_session's force param). Only ever call this with an
+    explicit, owner-reviewed list - never a filter/query - since it is the one path that
+    posts AUTO_CLOSED/OPEN sessions as real evidence.
+    """
+    if "System Manager" not in frappe.get_roles():
+        frappe.throw("Not permitted", frappe.PermissionError)
+    keys = frappe.parse_json(session_keys) if isinstance(session_keys, str) else session_keys
+    results = {}
+    for k in keys:
+        try:
+            results[k] = post_session(k, force=True)
+        except Exception:
+            frappe.db.rollback()
+            results[k] = {"result": "error", "detail": frappe.get_traceback()[-300:]}
+    return results
 
 
 @frappe.whitelist()
