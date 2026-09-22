@@ -39,6 +39,12 @@ def _employee_by_phone():
         digits = "".join(c for c in str(e.cell_number or "") if c.isdigit())[-9:]
         if digits:
             out[digits] = e.name
+    # Manual overrides (site_visits.assign_person) take precedence over the automatic match -
+    # a PM's correction must stick even if the number never gets added to the Employee record.
+    for m in frappe.get_all("SIG Field Reporter Map", fields=["reporter_phone", "employee"]):
+        digits = "".join(c for c in str(m.reporter_phone or "") if c.isdigit())[-9:]
+        if digits:
+            out[digits] = m.employee
     return out
 
 
@@ -98,8 +104,10 @@ def _upsert_sessions(sessions, trusted_from, sites, emp_by_phone):
             "disposition": disposition, "start_msg": s["start_msg"], "end_msg": s["end_msg"],
         }
         if frappe.db.exists("SIG Field Session", s["session_key"]):
-            if frappe.db.get_value("SIG Field Session", s["session_key"], "posted"):
-                continue                                   # posted sessions are immutable (corrections are amendments)
+            existing = frappe.db.get_value("SIG Field Session", s["session_key"], ["posted", "corrected_by"], as_dict=True)
+            if existing.posted or existing.corrected_by:
+                continue  # posted or PM-corrected (site_visits.py) sessions are immutable here;
+                          # a re-run from raw messages must not silently undo a human fix
             frappe.db.set_value("SIG Field Session", s["session_key"], values, update_modified=False)
         else:
             frappe.get_doc(dict(doctype="SIG Field Session", session_key=s["session_key"], **values)).insert(

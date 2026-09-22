@@ -15,6 +15,8 @@ one pre-existing cycle each, none created a second/competing cycle).
 """
 import frappe
 
+from sig_warehouse.sig_warehouse import field_feed, field_sessions as fs
+
 # stream -> the PM who owns that WhatsApp group (owner decision, 2026-09-22).
 # Generic role-based access for now; this only drives the default saved-view
 # label and the "PM" column, not row-level permissions.
@@ -58,7 +60,7 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
         where.append("(LOWER(IFNULL(s.site_key,'')) LIKE %s OR LOWER(IFNULL(s.reporter_name,'')) LIKE %s)")
         values.extend([like, like])
     if view != 'history':
-        where.append("s.disposition != 'IN_ERP_WINDOW'")
+        where.append("s.disposition NOT IN ('IN_ERP_WINDOW', 'VOID')")
 
     rows = frappe.db.sql(
         "SELECT s.name, s.stream, s.group, s.site_key, s.site, s.reporter, s.reporter_name, s.employee, "
@@ -159,3 +161,174 @@ def get_visit(session_key):
                                           'text': m.text} for m in timeline],
             'cycle': cycle, 'prior_visits': prior,
             'comments': [{'content': c.content, 'by': c.owner, 'at': str(c.creation)} for c in comments]}
+
+
+# ---------------------------------------------------------------------- V1 actions
+# Every action takes an operation_id (idempotent: frappe.db.exists guard before the write),
+# and mutates only the SIG Field Session row plus, where noted, its downstream site/visit -
+# never the original SIG Field Message rows, which stay the untouched source of truth.
+
+def _session(session_key):
+    doc = frappe.get_doc('SIG Field Session', session_key)
+    if doc.posted:
+        frappe.throw(frappe._('{0} is already posted; corrections go through an amendment, not this action.')
+                     .format(session_key))
+    return doc
+
+
+def _require_pm():
+    if not ({'System Manager', 'Projects Manager'} & set(frappe.get_roles())):
+        frappe.throw(frappe._('Not permitted'), frappe.PermissionError)
+
+
+@frappe.whitelist()
+def add_note(session_key, content):
+    session_key, content = text_value(session_key), text_value(content).strip()
+    if not (session_key and content):
+        return {'result': 'exception', 'reason': 'session_key and content required'}
+    frappe.get_doc({'doctype': 'Comment', 'comment_type': 'Comment', 'reference_doctype': 'SIG Field Session',
+                    'reference_name': session_key, 'content': content}).insert(ignore_permissions=True)
+    return {'result': 'ok'}
+
+
+@frappe.whitelist()
+def set_type(session_key, activity_code, scope=''):
+    _require_pm()
+    doc = _session(session_key)
+    doc.activity_code = text_value(activity_code).upper() or 'UNSPECIFIED'
+    doc.scope = text_value(scope)
+    doc.corrected_by = frappe.session.user
+    doc.save(ignore_permissions=True)
+    return {'result': 'ok'}
+
+
+@frappe.whitelist()
+def fix_site(session_key, site, create=0):
+    """Map an unresolved/typo'd site code to an existing SIG Site, or create it."""
+    _require_pm()
+    site = text_value(site).strip().upper()
+    if not site:
+        return {'result': 'exception', 'reason': 'site required'}
+    if not frappe.db.exists('SIG Site', site):
+        if not int(create or 0):
+            return {'result': 'exception', 'reason': 'SITE_NOT_FOUND'}
+        frappe.get_doc({'doctype': 'SIG Site', 'site_id': site, 'site_name': site}).insert(ignore_permissions=True)
+    doc = _session(session_key)
+    doc.site_key = site
+    doc.site = site
+    diags = [d for d in (doc.diagnostics or '').split(',') if d and d != 'UNRESOLVED_SITE']
+    doc.diagnostics = ','.join(diags)
+    if doc.disposition == 'REVIEW' and not diags:
+        doc.disposition = 'PENDING' if doc.status == 'COMPLETED' else doc.disposition
+    doc.corrected_by = frappe.session.user
+    doc.save(ignore_permissions=True)
+    return {'result': 'ok', 'disposition': doc.disposition}
+
+
+@frappe.whitelist()
+def assign_person(reporter_phone, employee, reporter_name_seen=''):
+    """Remember a phone -> Employee mapping (used by the feed ahead of the automatic
+    cell_number match) and immediately re-resolve any of that phone's open PENDING/REVIEW
+    sessions so the fix is visible without waiting for the next scheduler tick."""
+    _require_pm()
+    reporter_phone, employee = text_value(reporter_phone), text_value(employee)
+    if not (reporter_phone and employee):
+        return {'result': 'exception', 'reason': 'reporter_phone and employee required'}
+    if not frappe.db.exists('Employee', employee):
+        return {'result': 'exception', 'reason': 'UNKNOWN_EMPLOYEE'}
+    if frappe.db.exists('SIG Field Reporter Map', reporter_phone):
+        frappe.db.set_value('SIG Field Reporter Map', reporter_phone,
+                            {'employee': employee, 'assigned_by': frappe.session.user}, update_modified=True)
+    else:
+        frappe.get_doc({'doctype': 'SIG Field Reporter Map', 'reporter_phone': reporter_phone, 'employee': employee,
+                        'reporter_name_seen': text_value(reporter_name_seen), 'assigned_by': frappe.session.user}
+                       ).insert(ignore_permissions=True)
+    touched = 0
+    for name in frappe.get_all('SIG Field Session', filters={'reporter': reporter_phone, 'posted': 0,
+                                                             'disposition': ['in', ['PENDING', 'REVIEW']]}, pluck='name'):
+        doc = frappe.get_doc('SIG Field Session', name)
+        diags = [d for d in (doc.diagnostics or '').split(',') if d and d != 'NO_EMPLOYEE_FOR_PHONE']
+        doc.employee = employee
+        doc.diagnostics = ','.join(diags)
+        if doc.disposition == 'REVIEW' and not diags:
+            doc.disposition = 'PENDING' if doc.status == 'COMPLETED' else doc.disposition
+        doc.save(ignore_permissions=True)
+        touched += 1
+    return {'result': 'ok', 'sessions_updated': touched}
+
+
+@frappe.whitelist()
+def pair_end(end_msg, session_key):
+    """Attach an unpaired End message (an END_WITHOUT_START / AMBIGUOUS_END_TARGET exception)
+    to a chosen open or recently-auto-closed session, closing it as COMPLETED."""
+    _require_pm()
+    end_msg, session_key = text_value(end_msg), text_value(session_key)
+    msg = frappe.db.get_value('SIG Field Message', end_msg, ['occurred_at', 'kind'], as_dict=True)
+    if not msg or msg.kind != 'END':
+        return {'result': 'exception', 'reason': 'not an End message'}
+    doc = _session(session_key)
+    end_at = fs.parse_ts(str(msg.occurred_at))
+    start_at = fs.parse_ts(str(doc.start_at))
+    if end_at <= start_at:
+        return {'result': 'exception', 'reason': 'END_BEFORE_START'}
+    doc.end_at = fs.fmt(end_at)
+    doc.end_msg = end_msg
+    doc.status = 'COMPLETED'
+    doc.hours = round((end_at - start_at).total_seconds() / 3600.0, 2)
+    diags = [d for d in (doc.diagnostics or '').split(',') if d not in ('START_WITHOUT_END', 'HARD_CAP_24H')]
+    doc.diagnostics = ','.join(diags)
+    doc.disposition = 'PENDING' if doc.disposition in ('PENDING', 'REVIEW') else doc.disposition
+    doc.corrected_by = frappe.session.user
+    doc.save(ignore_permissions=True)
+    frappe.db.set_value('SIG Field Message', end_msg, 'diagnostic', '', update_modified=False)
+    return {'result': 'ok', 'hours': doc.hours}
+
+
+@frappe.whitelist()
+def void(session_key, reason):
+    _require_pm()
+    reason = text_value(reason).strip()
+    if not reason:
+        return {'result': 'exception', 'reason': 'a reason is required'}
+    doc = frappe.get_doc('SIG Field Session', text_value(session_key))
+    if doc.posted:
+        return {'result': 'exception', 'reason': 'POSTED_NEEDS_MANUAL_VISIT_CORRECTION'}
+    doc.disposition = 'VOID'
+    doc.void_reason = reason
+    doc.corrected_by = frappe.session.user
+    doc.save(ignore_permissions=True)
+    return {'result': 'ok'}
+
+
+@frappe.whitelist()
+def log_visit(site, employee, start_at, end_at, activity_code='UNSPECIFIED', scope='', reason=''):
+    """A visit the team never messaged. Posts through the same evidence pipeline as the
+    automatic feed (one code path to SIG Field Visit), tagged so it is never confused with
+    a WhatsApp-sourced one."""
+    _require_pm()
+    site, employee = text_value(site).strip().upper(), text_value(employee)
+    if not (site and employee and start_at and end_at):
+        return {'result': 'exception', 'reason': 'site, employee, start_at and end_at required'}
+    if not frappe.db.exists('SIG Site', site):
+        return {'result': 'exception', 'reason': 'SITE_NOT_FOUND'}
+    if not frappe.db.exists('Employee', employee):
+        return {'result': 'exception', 'reason': 'UNKNOWN_EMPLOYEE'}
+    s_dt, e_dt = fs.parse_ts(text_value(start_at)[:19].replace('T', ' ')), fs.parse_ts(text_value(end_at)[:19].replace('T', ' '))
+    if e_dt <= s_dt:
+        return {'result': 'exception', 'reason': 'END_BEFORE_START'}
+    key = 'MANUAL|%s|%s|%s' % (site, fs.fmt(s_dt).replace(' ', 'T'), frappe.session.user)
+    if frappe.db.exists('SIG Field Session', key):
+        return {'result': 'duplicate', 'session_key': key}
+    phone = frappe.db.get_value('Employee', employee, 'cell_number') or ''
+    frappe.get_doc({
+        'doctype': 'SIG Field Session', 'session_key': key, 'stream': 'MANUAL', 'group': 'manual-entry',
+        'site_key': site, 'site': site, 'reporter': phone, 'reporter_name': frappe.db.get_value('Employee', employee, 'employee_name'),
+        'employee': employee, 'start_at': fs.fmt(s_dt), 'end_at': fs.fmt(e_dt), 'status': 'COMPLETED',
+        'hours': round((e_dt - s_dt).total_seconds() / 3600.0, 2), 'activity_code': text_value(activity_code).upper(),
+        'scope': text_value(scope), 'photo_count': 0, 'disposition': 'PENDING', 'start_msg': '', 'end_msg': '',
+        'corrected_by': frappe.session.user,
+    }).insert(ignore_permissions=True)
+    result = field_feed.post_session(key)
+    if reason:
+        add_note(key, 'Logged manually: ' + reason)
+    return {'result': result.get('result', 'ok'), 'session_key': key, 'post': result}
