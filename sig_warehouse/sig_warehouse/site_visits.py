@@ -120,6 +120,10 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
             continue
         if view == 'today' and str(r.start_at or '')[:10] != today:
             continue
+        if view == 'unclassified' and (r.activity_code or 'UNSPECIFIED') != 'UNSPECIFIED':
+            continue
+        if view == 'thisweek' and str(r.start_at or '')[:10] < week_ago:
+            continue
         result.append(record)
         if r.status == 'OPEN':
             now_open_count += 1

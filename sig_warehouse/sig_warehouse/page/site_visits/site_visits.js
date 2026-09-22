@@ -14,6 +14,7 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
             <label class="sig-sv-field">${__('View')}<select class="sig-sv-view form-control">
                 <option value="current">${__('Current')}</option><option value="today">${__('Today')}</option>
                 <option value="open">${__('Open now')}</option><option value="review">${__('Needs review')}</option>
+                <option value="unclassified">${__('Unclassified')}</option><option value="thisweek">${__('Sites this week')}</option>
                 <option value="history">${__('History')}</option>
             </select></label>
             <label class="sig-sv-field">${__('Stream / PM')}<select class="sig-sv-stream form-control"><option value="">${__('All')}</option></select></label>
@@ -26,6 +27,12 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
         root.find('.sig-sv-stream').on('change', function () { state.stream = this.value; load(); });
         root.find('.sig-sv-search').on('input', frappe.utils.debounce(function () { state.search = this.value; load(); }, 250));
         root.find('.sig-sv-log-missing').on('click', openLogMissingDialog);
+        // Delegated: the tiles are re-rendered on every load(), so bind once on the
+        // static parent rather than re-binding (and leaking listeners) after each render.
+        root.find('.sig-sv-summary').on('click', '.sig-sv-tile', function () {
+            state.view = $(this).data('view');
+            load();
+        });
     }
 
     const ACTIVITIES = ['UNSPECIFIED', 'SURVEY', 'INSTALL', 'HANDOVER', 'WARRANTY', 'DISMANTLE', 'SNAG'];
@@ -74,8 +81,8 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
     function summaryHtml(s) {
         const tile = (label, n, view) => `<div class="sig-sv-tile" data-view="${view}"><div class="sig-sv-tile-n">${n}</div><div class="sig-sv-tile-l">${__(label)}</div></div>`;
         return tile('Open now', s.open_now, 'open') + tile('Visits today', s.visits_today, 'today')
-            + tile('Needs review', s.needs_review, 'review') + tile('Unclassified', s.unclassified, 'current')
-            + tile('Sites this week', s.sites_this_week, 'current');
+            + tile('Needs review', s.needs_review, 'review') + tile('Unclassified', s.unclassified, 'unclassified')
+            + tile('Sites this week', s.sites_this_week, 'thisweek');
     }
 
     function statusBadge(row) {
