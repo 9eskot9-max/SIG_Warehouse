@@ -316,3 +316,27 @@ def sig_field_feed_post_one(session_key):
     if "System Manager" not in frappe.get_roles():
         frappe.throw("Not permitted", frappe.PermissionError)
     return post_session(session_key)
+
+
+@frappe.whitelist()
+def sig_field_backfill_historical(payload):
+    """One-off import of pre-feed (2026-07-28..09-10) sessions computed by the legacy Excel
+    pipeline (SIG Documentation - Task Checklist 2.02.xlsm, Field Sessions sheet); those visits
+    already exist in ERP only as a thin site+timestamp ledger (SIG Field Visit 'EV1|...' records,
+    source FieldOps_SyncAll), never as SIG Field Session rows, so the Site Visits PM page never
+    showed them. Each row here is inserted as-is (already resolved client-side against Employee/
+    SIG Site/SIG Field Reporter Map/the EV1 ledger) - no evidence event or new SIG Field Visit is
+    created, so Site Cycle rollups are untouched. Idempotent: existing session_keys are skipped.
+    """
+    if "System Manager" not in frappe.get_roles():
+        frappe.throw("Not permitted", frappe.PermissionError)
+    rows = frappe.parse_json(payload) if isinstance(payload, str) else payload
+    inserted = skipped = 0
+    for r in rows:
+        if frappe.db.exists("SIG Field Session", r["session_key"]):
+            skipped += 1
+            continue
+        frappe.get_doc(dict(doctype="SIG Field Session", **r)).insert(ignore_permissions=True)
+        inserted += 1
+    frappe.db.commit()
+    return {"inserted": inserted, "skipped": skipped}
