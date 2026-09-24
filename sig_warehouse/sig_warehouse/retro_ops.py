@@ -165,11 +165,13 @@ def _erp_sync(mr_name):
     doc = frappe.get_doc("Material Request", mr_name)
     doc.update_completed_qty(update_modified=False)
     doc.update_requested_qty()
-    try:
-        doc.set_status(update=True, update_modified=False)
-    except Exception:
-        pass
+    # set_status() evaluates the IN-MEMORY document, and update_completed_qty() wrote per_ordered with a raw
+    # set_value, so the object above still holds the old value (0 -> status stuck on "Pending").  Reload first.
     _clear("Material Request", mr_name)
+    fresh = frappe.get_doc("Material Request", mr_name)
+    fresh.set_status(update=True, update_modified=False)
+    _clear("Material Request", mr_name)
+    return fresh.status
 
 
 # --------------------------------------------------------------------------- actions
@@ -229,13 +231,13 @@ def _link(p, apply):
                 _clear("Stock Entry Detail", c["sed"])
         _clear("Stock Entry", se.name)
         indented_before = _bin_indented(mr_row.name)
-        _erp_sync(mr_row.name)
+        erp_status = _erp_sync(mr_row.name)
         state = rollup.recompute_mr_lifecycle_state(mr_row.name)
         frappe.db.commit()
         indented_after = _bin_indented(mr_row.name)
         _audit("Stock Entry", se.name, "LINK", before, changes)
         return {"result": "applied", "changes": changes, "before_image": before, "mr_state": state,
-                "bin_indented_before": indented_before, "bin_indented_after": indented_after}
+                "erp_status": erp_status, "bin_indented_before": indented_before, "bin_indented_after": indented_after}
     return {"result": "dry_run", "changes": changes}
 
 
@@ -349,10 +351,10 @@ def _recompute(p, apply):
         return err
     if apply:
         indented_before = _bin_indented(mr_row.name)
-        _erp_sync(mr_row.name)
+        erp_status = _erp_sync(mr_row.name)
         state = rollup.recompute_mr_lifecycle_state(mr_row.name)
         frappe.db.commit()
-        return {"result": "applied", "mr_state": state, "bin_indented_before": indented_before,
+        return {"result": "applied", "mr_state": state, "erp_status": erp_status, "bin_indented_before": indented_before,
                 "bin_indented_after": _bin_indented(mr_row.name)}
     return {"result": "dry_run", "changes": [{"mr": mr_row.name, "change": "recompute + ERPNext ordered/indented sync",
                                               "bin_indented_now": _bin_indented(mr_row.name)}]}
