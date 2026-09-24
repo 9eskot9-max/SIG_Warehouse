@@ -17,7 +17,8 @@ DECLARE    close the undeclared remainder of a Stock Entry's lines as consumed (
 DISMISS    set a line's cancelled quantity to an absolute target with a waiver reason
            (SMALL_VALUE_WAIVED / DELTA_DISMISSED / WH_CLOSED), which resolves the line like a dispatch.
 RENAME_DN  rename an ERP-era DN voucher to its X form, keeping the original in ``custom_legacy_dn``.
-RECOMPUTE  re-run the lifecycle rollup for one MR.
+RECOMPUTE  re-run ERPNext's ordered/indented bookkeeping and the lifecycle rollup for one MR (also repairs an MR that
+           was linked before that bookkeeping was added).
 """
 import json
 import re
@@ -143,6 +144,34 @@ def _clear(doctype, name):
     frappe.clear_document_cache(doctype, name)
 
 
+def _bin_indented(mr_name):
+    """{(item, warehouse): Bin.indented_qty} for the MR's own item/warehouse pairs (audit only)."""
+    out = {}
+    for r in frappe.get_all("Material Request Item", filters={"parent": mr_name}, fields=["item_code", "warehouse"]):
+        v = frappe.db.get_value("Bin", {"item_code": r.item_code, "warehouse": r.warehouse}, "indented_qty")
+        out["%s @ %s" % (r.item_code, r.warehouse)] = v
+    return out
+
+
+def _erp_sync(mr_name):
+    """Bring ERPNext's own bookkeeping in line after lines were linked.
+
+    ERPNext keeps `Material Request Item.ordered_qty` (= sum of linked, submitted Stock Entry Detail transfer_qty) and,
+    from it, `Bin.indented_qty` (= for open Material Issue MRs: sum of stock_qty - ordered_qty, subtracted).  Both are
+    normally refreshed when a linked Stock Entry is submitted.  Linking after the fact bypasses that, so without this
+    the issued quantity would stay counted as outstanding demand and Projected Qty would be understated.  Uses
+    ERPNext's own methods, so the maths is exactly what a normal submit would produce.
+    """
+    doc = frappe.get_doc("Material Request", mr_name)
+    doc.update_completed_qty(update_modified=False)
+    doc.update_requested_qty()
+    try:
+        doc.set_status(update=True, update_modified=False)
+    except Exception:
+        pass
+    _clear("Material Request", mr_name)
+
+
 # --------------------------------------------------------------------------- actions
 def _link(p, apply):
     mr_row, err = _load_mr(p.get("mr"), p.get("mir"))
@@ -199,10 +228,14 @@ def _link(p, apply):
                                     update_modified=False)
                 _clear("Stock Entry Detail", c["sed"])
         _clear("Stock Entry", se.name)
+        indented_before = _bin_indented(mr_row.name)
+        _erp_sync(mr_row.name)
         state = rollup.recompute_mr_lifecycle_state(mr_row.name)
         frappe.db.commit()
+        indented_after = _bin_indented(mr_row.name)
         _audit("Stock Entry", se.name, "LINK", before, changes)
-        return {"result": "applied", "changes": changes, "before_image": before, "mr_state": state}
+        return {"result": "applied", "changes": changes, "before_image": before, "mr_state": state,
+                "bin_indented_before": indented_before, "bin_indented_after": indented_after}
     return {"result": "dry_run", "changes": changes}
 
 
@@ -315,10 +348,14 @@ def _recompute(p, apply):
     if err:
         return err
     if apply:
+        indented_before = _bin_indented(mr_row.name)
+        _erp_sync(mr_row.name)
         state = rollup.recompute_mr_lifecycle_state(mr_row.name)
         frappe.db.commit()
-        return {"result": "applied", "mr_state": state}
-    return {"result": "dry_run", "changes": [{"mr": mr_row.name, "change": "recompute"}]}
+        return {"result": "applied", "mr_state": state, "bin_indented_before": indented_before,
+                "bin_indented_after": _bin_indented(mr_row.name)}
+    return {"result": "dry_run", "changes": [{"mr": mr_row.name, "change": "recompute + ERPNext ordered/indented sync",
+                                              "bin_indented_now": _bin_indented(mr_row.name)}]}
 
 
 _ACTIONS = {"LINK": _link, "DECLARE": _declare, "DISMISS": _dismiss, "RENAME_DN": _rename_dn, "RECOMPUTE": _recompute}
