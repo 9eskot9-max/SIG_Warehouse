@@ -69,6 +69,18 @@ class TestGuards(unittest.TestCase):
         self.assertNotIn("OPERATOR_CANCEL", r.REASONS)   # a real cancel is never written by this module
 
 
+class TestUomGroups(unittest.TestCase):
+    def test_same_and_grouped_names_are_compatible(self):
+        for a, b in (("Nos", "Pcs"), ("Pcs", "Nos"), ("Meter", "Mtr"), ("mtr", "METER"), ("Nos", "String"),
+                     ("Unit", "Pcs"), ("Pcs", "Pcs"), ("Box", "Box")):
+            self.assertTrue(r.uom_compatible(a, b), (a, b))
+
+    def test_different_dimensions_are_not(self):
+        for a, b in (("Box", "Pcs"), ("Set", "Nos"), ("Meter", "Pcs"), ("Roll", "Mtr"), ("Bucket", "Nos"),
+                     ("", "Pcs"), (None, "Nos"), ("Ems(Pica)", "Nos")):
+            self.assertFalse(r.uom_compatible(a, b), (a, b))
+
+
 class TestRefusalShape(unittest.TestCase):
     def test_fail_accepts_a_reason_extra_without_crashing(self):
         # regression (2026-09-24): _fail(..., reason=...) raised "multiple values for argument 'reason'"

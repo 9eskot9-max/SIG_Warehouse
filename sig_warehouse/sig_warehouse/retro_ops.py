@@ -58,6 +58,23 @@ def valid_rename(old, new):
     return True, ""
 
 
+# Unit names that mean the same counting/length unit.  The 2026-05..09 backfilled Stock Entry lines carry `Nos`
+# (3,294 lines) and `Meter` (1,072), always at conversion factor 1, while MRs created from WH use `Pcs`, `String`
+# and `Mtr`.  A link across these names is accepted only when the conversion factor is exactly 1.
+UOM_GROUPS = (
+    frozenset({"nos", "pcs", "unit", "each", "string", "strings"}),
+    frozenset({"meter", "mtr", "m"}),
+)
+
+
+def uom_compatible(a, b):
+    """Same unit name, or two names in the same equivalence group.  Anything else (Box vs Pcs, Set vs Nos, ...) is not."""
+    a, b = str(a or "").strip().lower(), str(b or "").strip().lower()
+    if not a or not b:
+        return False
+    return a == b or any(a in g and b in g for g in UOM_GROUPS)
+
+
 def is_retro_note(note):
     note = str(note or "")
     return any(note.startswith(m) for m in RETRO_MARKERS)
@@ -142,7 +159,8 @@ def _link(p, apply):
     for ln in lines:
         sed = frappe.db.get_value(
             "Stock Entry Detail", ln.get("sed"),
-            ["name", "parent", "item_code", "qty", "uom", "material_request", "material_request_item"], as_dict=True)
+            ["name", "parent", "item_code", "qty", "uom", "conversion_factor", "material_request",
+             "material_request_item"], as_dict=True)
         mri = frappe.db.get_value(
             "Material Request Item", ln.get("mri"), ["name", "parent", "item_code", "qty", "uom"], as_dict=True)
         if not sed or sed.parent != se.name:
@@ -151,8 +169,12 @@ def _link(p, apply):
             return _fail("MRI_NOT_ON_MR", mri=ln.get("mri"))
         if sed.item_code != mri.item_code:
             return _fail("ITEM_MISMATCH", sed=sed.name, mri=mri.name, sed_item=sed.item_code, mri_item=mri.item_code)
+        uom_note = ""
         if sed.uom != mri.uom:
-            return _fail("UOM_MISMATCH", sed=sed.name, sed_uom=sed.uom, mri_uom=mri.uom)
+            factor = float(sed.conversion_factor or 1)
+            if not uom_compatible(sed.uom, mri.uom) or abs(factor - 1) > EPS:
+                return _fail("UOM_MISMATCH", sed=sed.name, sed_uom=sed.uom, mri_uom=mri.uom, conversion_factor=factor)
+            uom_note = "%s treated as %s (same unit, conversion factor 1)" % (sed.uom, mri.uom)
         if sed.material_request_item and sed.material_request_item != mri.name:
             return _fail("SED_ALREADY_LINKED_ELSEWHERE", sed=sed.name, linked_to=sed.material_request_item)
         if sed.material_request_item == mri.name and sed.material_request == mr_row.name:
@@ -168,7 +190,7 @@ def _link(p, apply):
             return _fail("CAP_EXCEEDED", mri=mri.name, mr_qty=float(mri.qty), would_be_issued=linked_qty[mri.name])
         before.append({"sed": sed.name, "material_request": sed.material_request,
                        "material_request_item": sed.material_request_item})
-        changes.append({"sed": sed.name, "mri": mri.name, "change": "link"})
+        changes.append({"sed": sed.name, "mri": mri.name, "change": "link", "qty": float(sed.qty), "uom_note": uom_note})
     if apply:
         for c in changes:
             if c["change"] == "link":
