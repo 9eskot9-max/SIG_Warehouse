@@ -76,8 +76,10 @@ def _authorize():
         frappe.throw("Not authorized for retrospective metadata writes", frappe.PermissionError)
 
 
-def _fail(reason, **extra):
-    return {"result": "refused", "reason": reason, **extra}
+def _fail(why, **extra):
+    """Refusal payload.  The first argument is named `why` (not `reason`) so callers can pass a `reason=`
+    extra without colliding with it; use `given_reason` for a caller-supplied value to avoid the clash."""
+    return {"result": "refused", "reason": why, **extra}
 
 
 def _load_mr(mr, mir):
@@ -224,7 +226,7 @@ def _dismiss(p, apply):
     for ln in lines:
         reason = str(ln.get("reason") or "")
         if reason not in REASONS:
-            return _fail("REASON_NOT_ALLOWED", mri=ln.get("mri"), reason=reason, allowed=list(REASONS))
+            return _fail("REASON_NOT_ALLOWED", mri=ln.get("mri"), given_reason=reason, allowed=list(REASONS))
         try:
             target = float(ln.get("cancelled_qty"))
         except (TypeError, ValueError):

@@ -69,5 +69,15 @@ class TestGuards(unittest.TestCase):
         self.assertNotIn("OPERATOR_CANCEL", r.REASONS)   # a real cancel is never written by this module
 
 
+class TestRefusalShape(unittest.TestCase):
+    def test_fail_accepts_a_reason_extra_without_crashing(self):
+        # regression (2026-09-24): _fail(..., reason=...) raised "multiple values for argument 'reason'"
+        out = r._fail("REASON_NOT_ALLOWED", given_reason="OPERATOR_CANCEL", allowed=["WH_CLOSED"])
+        self.assertEqual(out["result"], "refused")
+        self.assertEqual(out["reason"], "REASON_NOT_ALLOWED")
+        self.assertEqual(out["given_reason"], "OPERATOR_CANCEL")
+        r._fail("X", reason="would previously collide")     # must not raise either
+
+
 if __name__ == "__main__":
     unittest.main()
