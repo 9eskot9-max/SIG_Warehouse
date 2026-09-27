@@ -21,6 +21,7 @@ RECOMPUTE  re-run ERPNext's ordered/indented bookkeeping and the lifecycle rollu
            was linked before that bookkeeping was added).
 """
 import json
+import os
 import re
 
 import frappe
@@ -31,6 +32,19 @@ ALLOWED_ROLES = ("Stock Manager", "System Manager")
 # An MR is only eligible if its source note carries one of these markers (set by the retrospective import
 # and by the throwaway test MRs).  Live, ordinary MRs are therefore never touched by this module.
 RETRO_MARKERS = ("Retrospective WH import", "9A.13")
+
+# Second eligibility path (added 2026-09-27, owner OK): an MR created through the *normal* WH-to-ERP
+# pipeline (so it carries a real staff name in custom_source_confirmed_by, not a retro marker) is still
+# eligible when its MIR number is on this explicit, git-reviewable allow-list - the 205 MIRs the owner's
+# 2026-09-21 staging run classified CLOSED (fully dispatched, return clarified). This is an allow-list,
+# not a loosened check: a MIR not on the list is refused exactly as before. The list is data (this file's
+# own diff shows exactly which MIRs were approved), never taken from a request argument.
+_APPROVED_CLOSURE_MIRS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "approved_closure_mirs_9a14.json")
+try:
+    with open(_APPROVED_CLOSURE_MIRS_PATH, encoding="utf-8") as _f:
+        APPROVED_CLOSURE_MIRS = frozenset(int(x) for x in json.load(_f))
+except Exception:
+    APPROVED_CLOSURE_MIRS = frozenset()
 REASONS = ("SMALL_VALUE_WAIVED", "DELTA_DISMISSED", "WH_CLOSED")
 EPS = 1e-6
 
@@ -101,8 +115,9 @@ def _fail(why, **extra):
 
 
 def _load_mr(mr, mir):
-    """Return (row, error).  The MR must be submitted, a Material Issue, carry this MIR number and a
-    retrospective/test marker."""
+    """Return (row, error).  The MR must be submitted, a Material Issue, carry this MIR number, and be
+    eligible: either its source note carries a retrospective/test marker, or its MIR number is on the
+    explicit APPROVED_CLOSURE_MIRS allow-list (see module docstring above)."""
     if not mr or not mir:
         return None, _fail("MR_AND_MIR_REQUIRED")
     row = frappe.db.get_value(
@@ -116,8 +131,12 @@ def _load_mr(mr, mir):
         return None, _fail("MR_NOT_SUBMITTED_MATERIAL_ISSUE", mr=mr)
     if str(row.custom_mir_number or "").strip() != str(mir).strip():
         return None, _fail("MIR_MISMATCH", mr=mr, expected=str(mir), found=row.custom_mir_number)
-    if not is_retro_note(row.custom_source_confirmed_by):
-        return None, _fail("MR_NOT_MARKED_RETROSPECTIVE", mr=mr)
+    try:
+        mir_int = int(str(mir).strip())
+    except ValueError:
+        mir_int = None
+    if not is_retro_note(row.custom_source_confirmed_by) and mir_int not in APPROVED_CLOSURE_MIRS:
+        return None, _fail("MR_NOT_MARKED_RETROSPECTIVE_AND_NOT_APPROVED", mr=mr, mir=mir)
     return row, None
 
 
@@ -345,6 +364,34 @@ def _rename_dn(p, apply):
     return {"result": "dry_run", "changes": [change]}
 
 
+def _backfill_site(p, apply):
+    """Fill a BLANK custom_site on one Stock Entry Detail row (added 2026-09-27, owner OK).  Never overwrites
+    a site that is already set - the request must name the exact row, and the row's current value must be
+    empty, or the call is refused.  Scoped to submitted Material Issue/Receipt Stock Entries only (the DN/RN
+    documents this project tracks), never an arbitrary doctype."""
+    se = _load_se(p.get("stock_entry"))
+    if not se or se.docstatus != 1 or se.purpose not in ("Material Issue", "Material Receipt"):
+        return _fail("STOCK_ENTRY_NOT_ELIGIBLE", stock_entry=p.get("stock_entry"))
+    row_name = p.get("row")
+    site = str(p.get("site") or "").strip()
+    if not row_name or not site:
+        return _fail("ROW_AND_SITE_REQUIRED")
+    row = frappe.db.get_value("Stock Entry Detail", row_name, ["name", "parent", "item_code", "custom_site"], as_dict=True)
+    if not row or row.parent != se.name:
+        return _fail("ROW_NOT_ON_STOCK_ENTRY", row=row_name, stock_entry=se.name)
+    if row.custom_site:
+        return _fail("SITE_ALREADY_SET", row=row_name, custom_site=row.custom_site)
+    change = {"stock_entry": se.name, "row": row.name, "item_code": row.item_code, "change": "set_site", "site": site}
+    before = {"custom_site": row.custom_site}
+    if apply:
+        frappe.db.set_value("Stock Entry Detail", row.name, {"custom_site": site}, update_modified=False)
+        _clear("Stock Entry Detail", row.name)
+        frappe.db.commit()
+        _audit("Stock Entry", se.name, "BACKFILL_SITE", before, change)
+        return {"result": "applied", "changes": [change], "before_image": before}
+    return {"result": "dry_run", "changes": [change]}
+
+
 def _recompute(p, apply):
     mr_row, err = _load_mr(p.get("mr"), p.get("mir"))
     if err:
@@ -360,7 +407,8 @@ def _recompute(p, apply):
                                               "bin_indented_now": _bin_indented(mr_row.name)}]}
 
 
-_ACTIONS = {"LINK": _link, "DECLARE": _declare, "DISMISS": _dismiss, "RENAME_DN": _rename_dn, "RECOMPUTE": _recompute}
+_ACTIONS = {"LINK": _link, "DECLARE": _declare, "DISMISS": _dismiss, "RENAME_DN": _rename_dn, "RECOMPUTE": _recompute,
+            "BACKFILL_SITE": _backfill_site}
 
 
 @frappe.whitelist(methods=["POST"])

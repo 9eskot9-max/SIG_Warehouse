@@ -81,6 +81,64 @@ class TestUomGroups(unittest.TestCase):
             self.assertFalse(r.uom_compatible(a, b), (a, b))
 
 
+class TestApprovedClosureAllowList(unittest.TestCase):
+    """2026-09-27: a second eligibility path for _load_mr - an explicit MIR allow-list, not a loosened
+    marker check. Exercised at the pure-logic level with frappe.db.get_value stubbed."""
+    def test_allow_list_loaded_and_nonempty(self):
+        self.assertGreater(len(r.APPROVED_CLOSURE_MIRS), 0)
+        self.assertIsInstance(next(iter(r.APPROVED_CLOSURE_MIRS)), int)
+
+    def _mr_row(self, mir, confirmed_by):
+        return {"name": "MR-TEST", "docstatus": 1, "material_request_type": "Material Issue",
+                "custom_mir_number": str(mir), "custom_source_confirmed_by": confirmed_by}
+
+    def test_native_mr_on_the_allow_list_is_accepted(self):
+        mir = next(iter(r.APPROVED_CLOSURE_MIRS))
+        r.frappe.db = types.SimpleNamespace(get_value=lambda *a, **k: types.SimpleNamespace(**self._mr_row(mir, "A Real Person")))
+        row, err = r._load_mr("MR-TEST", mir)
+        self.assertIsNone(err, err)
+        self.assertEqual(row.name, "MR-TEST")
+
+    def test_native_mr_not_on_the_allow_list_is_still_refused(self):
+        not_approved = max(r.APPROVED_CLOSURE_MIRS) + 1000
+        r.frappe.db = types.SimpleNamespace(get_value=lambda *a, **k: types.SimpleNamespace(**self._mr_row(not_approved, "A Real Person")))
+        row, err = r._load_mr("MR-TEST", not_approved)
+        self.assertIsNone(row)
+        self.assertEqual(err["reason"], "MR_NOT_MARKED_RETROSPECTIVE_AND_NOT_APPROVED")
+
+    def test_retro_marked_mr_still_accepted_regardless_of_list(self):
+        not_approved = max(r.APPROVED_CLOSURE_MIRS) + 1000
+        r.frappe.db = types.SimpleNamespace(get_value=lambda *a, **k: types.SimpleNamespace(**self._mr_row(not_approved, "Retrospective WH import")))
+        row, err = r._load_mr("MR-TEST", not_approved)
+        self.assertIsNone(err, err)
+
+
+class TestBackfillSiteGuard(unittest.TestCase):
+    """2026-09-27: BACKFILL_SITE only fills a BLANK custom_site; never overwrites one already set."""
+    def test_row_with_site_already_set_is_refused(self):
+        r.frappe.db = types.SimpleNamespace(
+            get_value=lambda dt, name, fields, as_dict=False: types.SimpleNamespace(
+                name="ROW1", docstatus=1, purpose="Material Issue", custom_source_id="DN26-0374",
+                custom_legacy_dn=None, parent="STE-1", item_code="X", custom_site="ALREADY-SET")
+            if dt == "Stock Entry Detail" else
+            types.SimpleNamespace(name="STE-1", docstatus=1, purpose="Material Issue", is_return=0,
+                                   custom_source_id="DN26-0374", custom_legacy_dn=None))
+        out = r._backfill_site({"stock_entry": "STE-1", "row": "ROW1", "site": "ZRH824"}, apply=False)
+        self.assertEqual(out["reason"], "SITE_ALREADY_SET")
+
+    def test_blank_row_dry_run_proposes_the_change(self):
+        r.frappe.db = types.SimpleNamespace(
+            get_value=lambda dt, name, fields, as_dict=False: types.SimpleNamespace(
+                name="ROW1", docstatus=1, purpose="Material Issue", custom_source_id="DN26-0374",
+                custom_legacy_dn=None, parent="STE-1", item_code="X", custom_site=None)
+            if dt == "Stock Entry Detail" else
+            types.SimpleNamespace(name="STE-1", docstatus=1, purpose="Material Issue", is_return=0,
+                                   custom_source_id="DN26-0374", custom_legacy_dn=None))
+        out = r._backfill_site({"stock_entry": "STE-1", "row": "ROW1", "site": "ZRH824"}, apply=False)
+        self.assertEqual(out["result"], "dry_run")
+        self.assertEqual(out["changes"][0]["site"], "ZRH824")
+
+
 class TestRefusalShape(unittest.TestCase):
     def test_fail_accepts_a_reason_extra_without_crashing(self):
         # regression (2026-09-24): _fail(..., reason=...) raised "multiple values for argument 'reason'"
