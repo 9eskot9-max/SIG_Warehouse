@@ -297,45 +297,75 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
 
 
 def _notify_dispatch_whatsapp(lines, stock_entry_name):
-    """Best-effort default: send the DN print to WhatsApp after a successful
-    dispatch, group resolved by the dispatch's project text (Maytapi Settings
-    > Dispatch Recipients, matched case-insensitive startswith) - mirrors
-    WH's own MaytapiSend.bas ResolveGroupIdForProject exactly (DNs go to a
-    WhatsApp GROUP resolved from the line's Project text, not the
-    warehouse). Uses the first dispatched line's Material Request Item
-    custom_source_project_name, matching VBA's single projectText parameter
-    for the whole DN. Never raises - a WhatsApp failure must not block, fail,
-    or reverse an already-submitted, already-committed Stock Entry; that
-    would make a side-channel notification a hard dependency of the actual
-    stock movement, which it isn't. Silently a no-op if SIG WhatsApp isn't
-    installed, disabled, or the project text matches no configured prefix
-    (WH's own VBA prompts the operator in that case; there is no interactive
-    operator here, so it is logged and skipped rather than sent blind).
+    """Best-effort DN notification resolved from the governed PO + alias stream.
+
+    The Project Stream is authoritative when it exists: a global Maytapi prefix
+    remains only as a compatibility fallback while legacy aliases are migrated.
+    A notification must never reverse a submitted stock movement.
     """
     try:
+        from sig_whatsapp.maytapi import _audit, send_document
+
+        def skipped(reason):
+            _audit("Stock Entry", stock_entry_name, "", "", "SKIPPED", error=reason)
+            return {"sent": False, "reason": reason}
+
         if not frappe.db.exists("DocType", "Maytapi Settings"):
-            return {"sent": False, "reason": "sig_whatsapp not installed"}
+            return skipped("sig_whatsapp not installed")
         settings = frappe.get_single("Maytapi Settings")
         if not settings.enabled or not settings.dispatch_notify_enabled:
-            return {"sent": False, "reason": "disabled"}
+            return skipped("disabled")
         if not lines:
-            return {"sent": False, "reason": "no dispatched lines"}
-        project_text = frappe.db.get_value(
-            "Material Request Item", lines[0]["mri"], "custom_source_project_name"
-        ) or ""
-        project_text = project_text.strip().lower()
-        if not project_text:
-            return {"sent": False, "reason": "dispatched line has no project text"}
-        recipient = next(
-            (row.recipient for row in (settings.dispatch_recipients or [])
-             if row.project_prefix and project_text.startswith(row.project_prefix.strip().lower())),
-            None,
-        )
+            return skipped("no dispatched lines")
+
+        first_item = frappe.db.get_value(
+            "Material Request Item", lines[0]["mri"],
+            ["parent", "custom_source_project_name"], as_dict=True,
+        ) or {}
+        mr_name = first_item.get("parent")
+        project_alias = str(first_item.get("custom_source_project_name") or "").strip()
+        if not project_alias:
+            return skipped("dispatched line has no project alias")
+
+        recipient = None
+        route = ""
+        po_number = frappe.db.get_value("Material Request", mr_name, "custom_po_number") if mr_name else ""
+        if po_number and frappe.db.exists("DocType", "SIG Project Stream"):
+            projects = frappe.get_all(
+                "Project",
+                filters={"custom_agreement_no": po_number, "custom_is_canonical_agreement": 1},
+                pluck="name", limit_page_length=2,
+            )
+            if len(projects) == 1:
+                streams = frappe.get_all(
+                    "SIG Project Stream",
+                    filters={"project": projects[0], "alias": project_alias, "status": "Active"},
+                    fields=["name", "custom_whatsapp_recipient"], limit_page_length=2,
+                )
+                if len(streams) == 1:
+                    recipient = str(streams[0].get("custom_whatsapp_recipient") or "").strip()
+                    if not recipient:
+                        return skipped("active stream %s has no WhatsApp recipient" % streams[0]["name"])
+                    route = "project_stream"
+                elif len(streams) > 1:
+                    return skipped("multiple active streams for PO %s alias %s" % (po_number, project_alias))
+
+        # Temporary compatibility only: existing prefix rows support aliases
+        # not yet migrated into a confirmed Project Stream.
+        project_text = project_alias.lower()
         if not recipient:
-            return {"sent": False, "reason": f"project text '{project_text}' matched no configured group"}
-        from sig_whatsapp.maytapi import send_document
+            recipient = next(
+                (row.recipient for row in (settings.dispatch_recipients or [])
+                 if row.project_prefix and project_text.startswith(row.project_prefix.strip().lower())),
+                None,
+            )
+            route = "legacy_prefix" if recipient else ""
+        if not recipient:
+            return skipped("PO %s alias '%s' has no active routed Project Stream or legacy recipient" %
+                           (po_number or "unknown", project_alias))
         result = send_document("Stock Entry", stock_entry_name, to=recipient)
-        return {"sent": True, "status": result.get("status"), "message_id": result.get("message_id")}
+        return {"sent": True, "status": result.get("status"), "message_id": result.get("message_id"),
+                "route": route, "po": po_number or "", "alias": project_alias}
     except Exception as e:
         frappe.log_error(title="SIG Warehouse: dispatch WhatsApp notify failed", message=frappe.get_traceback())
         return {"sent": False, "reason": str(e)[:200]}
