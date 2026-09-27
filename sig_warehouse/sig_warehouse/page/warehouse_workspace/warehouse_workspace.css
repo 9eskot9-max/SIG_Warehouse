@@ -1,0 +1,145 @@
+.sig-wh-home {
+    --sig-wh-accent: var(--primary);
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 16px 22px 36px;
+}
+
+.sig-wh-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 24px;
+    padding: 26px 30px;
+    margin-bottom: 30px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: var(--card-bg);
+}
+
+.sig-wh-eyebrow {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+}
+
+.sig-wh-header h1 {
+    margin: 6px 0 5px;
+    color: var(--text-color);
+    font-size: 26px;
+    font-weight: 650;
+}
+
+.sig-wh-header p, .sig-wh-section-heading p {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+.sig-wh-header-mark {
+    display: grid;
+    flex: 0 0 62px;
+    width: 62px;
+    height: 62px;
+    place-items: center;
+    border-radius: 12px;
+    background: var(--bg-light-gray);
+    color: var(--sig-wh-accent);
+    font-size: 25px;
+}
+
+.sig-wh-section { margin-bottom: 30px; }
+
+.sig-wh-section-heading { margin-bottom: 13px; }
+
+.sig-wh-section-heading h2 {
+    margin: 0 0 4px;
+    color: var(--text-color);
+    font-size: 17px;
+    font-weight: 600;
+}
+
+.sig-wh-primary-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.sig-wh-card {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    align-items: stretch;
+    padding: 18px 19px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--card-bg);
+    color: var(--text-color);
+    text-align: left;
+    transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+
+.sig-wh-card:hover, .sig-wh-card:focus-visible {
+    border-color: var(--sig-wh-accent);
+    box-shadow: 0 3px 12px rgba(0, 0, 0, .06);
+    color: var(--text-color);
+    outline: none;
+    transform: translateY(-1px);
+}
+
+.sig-wh-card:focus-visible { box-shadow: 0 0 0 3px var(--blue-100); }
+
+.sig-wh-card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 34px;
+    margin-bottom: 12px;
+}
+
+.sig-wh-icon {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    border-radius: 8px;
+    background: var(--bg-light-gray);
+    color: var(--sig-wh-accent);
+    font-size: 15px;
+}
+
+.sig-wh-open-icon { color: var(--text-light); font-size: 12px; }
+.sig-wh-card-title { font-size: 15px; font-weight: 600; }
+.sig-wh-description { margin-top: 5px; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+
+.sig-wh-reference-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.sig-wh-card-compact { min-height: 64px; padding: 15px 17px; }
+.sig-wh-card-compact .sig-wh-card-top { min-height: 0; margin-bottom: 7px; }
+.sig-wh-card-compact .sig-wh-card-title { font-size: 13px; }
+
+.sig-wh-footnote {
+    padding-top: 14px;
+    border-top: 1px solid var(--border-color);
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+@media (max-width: 700px) {
+    .sig-wh-home { padding: 10px 12px 25px; }
+    .sig-wh-header { padding: 20px; margin-bottom: 23px; }
+    .sig-wh-header h1 { font-size: 22px; }
+}
+
+@media (max-width: 520px) {
+    .sig-wh-header-mark { display: none; }
+    .sig-wh-primary-grid, .sig-wh-reference-grid { grid-template-columns: 1fr; }
+    .sig-wh-card { min-height: 126px; }
+    .sig-wh-card-compact { min-height: 60px; }
+}
