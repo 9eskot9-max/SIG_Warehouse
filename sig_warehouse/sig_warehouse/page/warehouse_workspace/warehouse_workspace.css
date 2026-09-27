@@ -116,13 +116,14 @@
 
 .sig-wh-reference-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 10px;
 }
 
-.sig-wh-card-compact { min-height: 64px; padding: 15px 17px; }
+.sig-wh-card-compact { min-height: 94px; padding: 14px 15px; }
 .sig-wh-card-compact .sig-wh-card-top { min-height: 0; margin-bottom: 7px; }
 .sig-wh-card-compact .sig-wh-card-title { font-size: 13px; }
+.sig-wh-card-compact .sig-wh-description { font-size: 11px; }
 
 .sig-wh-footnote {
     padding-top: 14px;
@@ -135,11 +136,12 @@
     .sig-wh-home { padding: 10px 12px 25px; }
     .sig-wh-header { padding: 20px; margin-bottom: 23px; }
     .sig-wh-header h1 { font-size: 22px; }
+    .sig-wh-reference-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 520px) {
     .sig-wh-header-mark { display: none; }
     .sig-wh-primary-grid, .sig-wh-reference-grid { grid-template-columns: 1fr; }
     .sig-wh-card { min-height: 126px; }
-    .sig-wh-card-compact { min-height: 60px; }
+    .sig-wh-card-compact { min-height: 85px; }
 }
