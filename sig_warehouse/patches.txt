@@ -1,1 +1,4 @@
 # No schema patches required for the initial (Stage 1 hooks-only) release.
+
+[post_model_sync]
+sig_warehouse.patches.v1_0.set_finance_workbench_module
