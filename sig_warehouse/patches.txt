@@ -4,4 +4,4 @@
 # No pre-model-sync patches are required yet.
 
 [post_model_sync]
-sig_warehouse.patches.v1_0.add_sig_accounting_module_and_reclassify_page
+sig_warehouse.sig_warehouse.patches.v1_0.add_sig_accounting_module_and_reclassify_page
