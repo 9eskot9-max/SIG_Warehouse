@@ -27,6 +27,16 @@ COUNTER = "GLOBAL"  # Frappe reserves the literal doctype-name string as a
 # every lookup goes through COUNTER, never a literal string.
 ALLOWED_ROLES = ("Stock Manager", "System Manager")
 
+# WH219.xlsm records these MIRs under multiple -1/-2 (or -1/-2/-3) DNs, but
+# ERP has only one base-voucher Stock Entry for each. Their MRs remain open,
+# so an ERP dispatch must continue after the highest historical WH suffix.
+# Other MIRs are sequenced from their ERP operation/Stock Entry history above.
+LEGACY_WH_DN_SUFFIX_MAX = {
+    545: 2, 566: 2, 568: 2, 571: 2, 572: 2, 612: 3, 614: 2, 615: 2,
+    646: 2, 686: 3, 704: 2, 710: 2, 780: 2, 808: 2, 830: 2, 922: 2,
+    923: 3, 969: 2,
+}
+
 
 def _require_manager():
     if frappe.session.user == "Guest" or not any(
@@ -403,7 +413,7 @@ def allocate_mr_dn_voucher(warehouse, mr_doc, requested_by_mri, remaining_by_mri
         "SELECT name, custom_source_id FROM `tabStock Entry` WHERE custom_source_id LIKE %s",
         (f"%{base}%",), as_dict=True,
     )
-    suffix_max = 0
+    suffix_max = LEGACY_WH_DN_SUFFIX_MAX.get(int(mir_number), 0)
     for row in candidates:
         source = str(row.custom_source_id or "").strip()
         match = pattern.fullmatch(source)
