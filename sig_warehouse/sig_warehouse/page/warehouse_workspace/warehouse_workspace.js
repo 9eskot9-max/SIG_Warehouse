@@ -6,6 +6,10 @@ frappe.pages['warehouse-workspace'].on_page_load = function (wrapper) {
         title: __('Warehouse'),
         single_column: true
     });
+    page.add_inner_button(__('Original Warehouse Workspace'), () => {
+        window.sessionStorage.setItem('sig_warehouse_allow_native_workspace_once', '1');
+        frappe.set_route('Workspaces', 'SIG Warehouse');
+    });
     const root = $('<main class="sig-wh-home"></main>').appendTo(page.main);
 
     const primary = [
