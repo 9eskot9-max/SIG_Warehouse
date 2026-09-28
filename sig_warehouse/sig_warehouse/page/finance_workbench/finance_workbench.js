@@ -2,12 +2,8 @@
 frappe.pages['finance-workbench'].on_page_load = function (wrapper) {
     const page = frappe.ui.make_app_page({
         parent: wrapper,
-        title: __('Finance'),
+        title: __('SIG Accounting'),
         single_column: true
-    });
-    page.add_inner_button(__('Original Accounting Workspace'), () => {
-        window.sessionStorage.setItem('sig_finance_allow_native_workspace_once', '1');
-        frappe.set_route('Workspaces', 'SIG Accounting');
     });
 
     const language = String(frappe.boot?.lang || 'en').toLowerCase();
@@ -41,6 +37,112 @@ frappe.pages['finance-workbench'].on_page_load = function (wrapper) {
         {title: __('Purchase Register'), doctype: 'Purchase Invoice', report: 'Purchase Register', route: ['query-report', 'Purchase Register']},
         {title: __('Purchase Invoice Trends'), doctype: 'Purchase Invoice', report: 'Purchase Invoice Trends', route: ['query-report', 'Purchase Invoice Trends']},
         {title: __('Accounts Payable'), doctype: 'Purchase Invoice', report: 'Accounts Payable', route: ['query-report', 'Accounts Payable']}
+    ];
+
+    const tawalAndOperations = [
+        {
+            title: __('Tawal customer invoices'),
+            description: __('Review ERP invoices against Tawal portal, receipt, and retention evidence; the ERP outstanding total is not a confirmed collectible balance.'),
+            doctype: 'Sales Invoice',
+            route: ['List', 'Sales Invoice', 'List'],
+            routeOptions: {customer: 'Telecommunications Towers Company / Tawal'}
+        },
+        {
+            title: __('Tawal receipts posted this month'),
+            description: __('Count of submitted Tawal receipts; open the filtered list to review invoice allocations.'),
+            doctype: 'Payment Entry',
+            route: ['List', 'Payment Entry', 'List'],
+            routeOptions: {
+                party_type: 'Customer',
+                party: 'Telecommunications Towers Company / Tawal',
+                payment_type: 'Receive',
+                docstatus: 1,
+                posting_date: ['Timespan', 'this month']
+            },
+            metric: {
+                key: 'tawal-posted-receipts', function: 'Count',
+                filters: [
+                    ['Payment Entry', 'party_type', '=', 'Customer'],
+                    ['Payment Entry', 'party', '=', 'Telecommunications Towers Company / Tawal'],
+                    ['Payment Entry', 'payment_type', '=', 'Receive'],
+                    ['Payment Entry', 'docstatus', '=', 1],
+                    ['Payment Entry', 'posting_date', 'Timespan', 'this month']
+                ]
+            }
+        },
+        {
+            title: __('Tawal draft payments'),
+            description: __('Draft receipts awaiting finance review.'),
+            doctype: 'Payment Entry',
+            route: ['List', 'Payment Entry', 'List'],
+            routeOptions: {party_type: 'Customer', party: 'Telecommunications Towers Company / Tawal', docstatus: 0},
+            metric: {
+                key: 'tawal-draft-payments', function: 'Count',
+                filters: [
+                    ['Payment Entry', 'party_type', '=', 'Customer'],
+                    ['Payment Entry', 'party', '=', 'Telecommunications Towers Company / Tawal'],
+                    ['Payment Entry', 'docstatus', '=', 0]
+                ]
+            }
+        },
+        {
+            title: __('SNB draft payments'),
+            description: __('Draft payment entries carrying an SNB source key.'),
+            doctype: 'Payment Entry',
+            route: ['List', 'Payment Entry', 'List'],
+            routeOptions: {custom_snb_idempotency_key: ['is', 'set'], docstatus: 0},
+            metric: {
+                key: 'snb-draft-payments', function: 'Count',
+                filters: [
+                    ['Payment Entry', 'custom_snb_idempotency_key', 'is', 'set'],
+                    ['Payment Entry', 'docstatus', '=', 0]
+                ]
+            }
+        },
+        {
+            title: __('SNB payments submitted this month'),
+            description: __('Submitted SNB-linked payments; this is not a bank-reconciliation count.'),
+            doctype: 'Payment Entry',
+            route: ['List', 'Payment Entry', 'List'],
+            routeOptions: {
+                custom_snb_idempotency_key: ['is', 'set'],
+                docstatus: 1,
+                posting_date: ['Timespan', 'this month']
+            },
+            metric: {
+                key: 'snb-submitted-month', function: 'Count',
+                filters: [
+                    ['Payment Entry', 'custom_snb_idempotency_key', 'is', 'set'],
+                    ['Payment Entry', 'docstatus', '=', 1],
+                    ['Payment Entry', 'posting_date', 'Timespan', 'this month']
+                ]
+            }
+        },
+        {
+            title: __('Open supplier invoices'),
+            description: __('Count of submitted supplier invoices with an outstanding balance; not a monetary total.'),
+            doctype: 'Purchase Invoice',
+            route: ['List', 'Purchase Invoice', 'List'],
+            routeOptions: {docstatus: 1, outstanding_amount: ['>', 0]},
+            metric: {
+                key: 'accounts-payable-outstanding', function: 'Count',
+                filters: [
+                    ['Purchase Invoice', 'docstatus', '=', 1],
+                    ['Purchase Invoice', 'outstanding_amount', '>', 0]
+                ], currency: true
+            }
+        },
+        {
+            title: __('Unsubmitted journal entries'),
+            description: __('Review draft journals before an authorized accountant submits them.'),
+            doctype: 'Journal Entry',
+            route: ['List', 'Journal Entry', 'List'],
+            routeOptions: {docstatus: 0},
+            metric: {
+                key: 'unsubmitted-journals', function: 'Count',
+                filters: [['Journal Entry', 'docstatus', '=', 0]]
+            }
+        }
     ];
 
     const review = [
@@ -81,9 +183,11 @@ frappe.pages['finance-workbench'].on_page_load = function (wrapper) {
             ? `<span class="sig-finance-detail">${frappe.utils.escape_html(item.description)}</span>`
             : '';
         return `<button type="button" class="sig-finance-card ${compact ? 'sig-finance-card-compact' : ''}"
-                    data-route="${frappe.utils.escape_html(JSON.stringify(item.route))}">
+                    data-route="${frappe.utils.escape_html(JSON.stringify(item.route))}"
+                    data-route-options="${frappe.utils.escape_html(JSON.stringify(item.routeOptions || null))}">
             <span class="sig-finance-card-top">${icon}<i class="fa fa-external-link sig-finance-open" aria-hidden="true"></i></span>
-            <span class="sig-finance-card-title">${frappe.utils.escape_html(item.title)}</span>${detail}
+            <span class="sig-finance-card-title">${frappe.utils.escape_html(item.title)}</span>
+            ${item.metric ? `<span class="sig-finance-metric" data-metric-key="${frappe.utils.escape_html(item.metric.key)}">—</span>` : ''}${detail}
         </button>`;
     }
 
@@ -98,7 +202,7 @@ frappe.pages['finance-workbench'].on_page_load = function (wrapper) {
     }
 
     root.html(`<header class="sig-finance-header">
-            <div><div class="sig-finance-eyebrow">${__('SIG Finance')}</div>
+            <div><div class="sig-finance-eyebrow">${__('Accounts')}</div>
                 <h1>${__('Finance workbench')}</h1>
                 <p>${__('Daily finance work, backed by ERPNext records and accounting controls.')}</p>
             </div><span class="sig-finance-header-mark" aria-hidden="true"><i class="fa fa-line-chart"></i></span>
@@ -107,6 +211,7 @@ frappe.pages['finance-workbench'].on_page_load = function (wrapper) {
         ${section(__('Financial control'), __('Core statements and ledger traceability. Each report keeps its own filters.'), control)}
         ${section(__('Sales and collections'), __('Customer billing and receivable review, including the Tawal customer lane.'), collections)}
         ${section(__('Purchasing and payables'), __('Supplier invoice review after the Purchase Order and receipt handoff.'), payables)}
+        ${section(__('Operational follow-up and positions'), __('Tawal customer review, payment processing, SNB-linked entries, supplier exposure, and draft journals from SIG Accounting.'), tawalAndOperations)}
         ${section(__('Reconciliation and evidence'), __('Review source evidence before matching, approval, or posting.'), review)}
         ${section(__('Specialist finance lanes'), __('Separate controlled workspaces for petty cash and tax-compliance evidence.'), specialist)}
         ${section(__('Reference and setup'), __('Use less-frequent finance masters and reporting references.'), references)}
@@ -114,8 +219,35 @@ frappe.pages['finance-workbench'].on_page_load = function (wrapper) {
 
     root.find('.sig-finance-card').on('click', function () {
         let route;
+        let routeOptions;
         try { route = JSON.parse($(this).attr('data-route')); }
         catch (e) { return; }
+        try { routeOptions = JSON.parse($(this).attr('data-route-options') || 'null'); }
+        catch (e) { routeOptions = null; }
+        if (routeOptions) frappe.route_options = routeOptions;
         if (Array.isArray(route) && route.length) frappe.set_route(...route);
+    });
+
+    tawalAndOperations.forEach((item) => {
+        if (!item.metric || !canOpen(item)) return;
+        frappe.call({
+            method: 'frappe.desk.doctype.number_card.number_card.get_result',
+            args: {
+                doc: JSON.stringify({
+                    function: item.metric.function,
+                    document_type: item.doctype,
+                    aggregate_function_based_on: item.metric.field
+                }),
+                filters: JSON.stringify(item.metric.filters)
+            }
+        }).then((response) => {
+            const value = response.message;
+            const formatted = item.metric.currency
+                ? frappe.format(value, {fieldtype: 'Currency', options: 'SAR'})
+                : frappe.format(value, {fieldtype: 'Int'});
+            root.find(`[data-metric-key="${item.metric.key}"]`).text(formatted);
+        }).catch(() => {
+            root.find(`[data-metric-key="${item.metric.key}"]`).text('—');
+        });
     });
 };

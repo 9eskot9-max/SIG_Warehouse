@@ -54,3 +54,22 @@ Reference the account hierarchy; setup remains a controlled finance task.,راج
 Cost centers,مراكز التكلفة
 Reference financial responsibility and reporting dimensions.,راجع أبعاد المسؤولية المالية والتقارير.
 "This page is navigation only. It does not create or post accounting entries; document, workflow, and report permissions remain enforced by ERPNext.",هذه الصفحة للتنقل فقط ولا تنشئ أو ترحّل قيوداً محاسبية؛ وتظل صلاحيات المستندات وسير العمل والتقارير مطبّقة بواسطة ERPNext.
+SIG Accounting,محاسبة SIG
+Accounts,الحسابات
+Tawal and operational follow-up,متابعة توال والعمليات المالية
+Operational follow-up and positions,المتابعة التشغيلية والأرصدة
+"Tawal customer review, payment processing, SNB-linked entries, supplier exposure, and draft journals from SIG Accounting.","مراجعة عميل توال ومعالجة المدفوعات والقيود المرتبطة بالبنك الأهلي والالتزامات للموردين ومسودات القيود من محاسبة SIG."
+Tawal customer invoices,فواتير عميل توال
+"Review ERP invoices against Tawal portal, receipt, and retention evidence; the ERP outstanding total is not a confirmed collectible balance.","راجع فواتير النظام مقابل بوابة توال وإثباتات المقبوضات والاستقطاعات؛ إجمالي الذمم في النظام ليس رصيداً مؤكداً للتحصيل."
+Tawal receipts posted this month,مقبوضات توال المرحلة هذا الشهر
+"Count of submitted Tawal receipts; open the filtered list to review invoice allocations.","عدد مقبوضات توال المرحلة؛ افتح القائمة المصفاة لمراجعة تخصيصها على الفواتير."
+Tawal draft payments,مسودات مدفوعات توال
+Draft receipts awaiting finance review.,مقبوضات مسودة بانتظار المراجعة المالية.
+SNB draft payments,مسودات مدفوعات البنك الأهلي
+Draft payment entries carrying an SNB source key.,مسودات سندات دفع تحمل مفتاح مصدر البنك الأهلي.
+SNB payments submitted this month,مدفوعات البنك الأهلي المرحلة هذا الشهر
+"Submitted SNB-linked payments; this is not a bank-reconciliation count.","مدفوعات مرتبطة بالبنك الأهلي ومرحلة؛ هذا ليس عدد عمليات التسوية البنكية."
+Open supplier invoices,فواتير الموردين غير المسددة
+"Count of submitted supplier invoices with an outstanding balance; not a monetary total.","عدد فواتير الموردين المرحلة ذات الرصيد المستحق؛ وليس إجمالي مبلغ مالي."
+Unsubmitted journal entries,قيود يومية غير مرحلة
+Review draft journals before an authorized accountant submits them.,راجع مسودات القيود قبل ترحيلها من محاسب مخول.
