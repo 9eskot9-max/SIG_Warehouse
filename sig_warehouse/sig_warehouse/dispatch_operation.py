@@ -4,8 +4,8 @@ live WH VBA mirror) per 9A.9's writer-placement decision - different
 authorization model (a real operator's own session, not a service key),
 different identity family (operation_id, not a WH voucher).
 
-DN26 voucher allocation (9A.9 decision 2): a Stock Entry created here gets a
-real DN26-#### voucher (sig_warehouse.cutover.allocate_dn_voucher) only once
+DN26 voucher allocation (9A.14): a Stock Entry created here gets its MR-numbered
+DN voucher (sig_warehouse.cutover.allocate_mr_dn_voucher) only once
 its warehouse has an ACTIVE, accepted Stage 4 cutover - allocating real DN26
 numbers before WH's own VBA has stopped issuing them for a given warehouse
 would risk a live numbering collision. Before that warehouse's cutover, the
@@ -127,6 +127,11 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
     if not lines:
         return {"result": "exception", "reason": "no DISPATCH lines"}
 
+    # Serialize dispatches for the same MR before reading its current remaining
+    # quantities. The Stock Entry on-submit hook may commit this transaction,
+    # so the allocator also counts already-created Stock Entries as its source
+    # of truth for the next dispatch number.
+    frappe.db.sql("SELECT name FROM `tabMaterial Request` WHERE name=%s FOR UPDATE", (mr,))
     mr_doc = frappe.get_doc("Material Request", mr)
     warehouse = WH_MAP.get(from_wh, from_wh)
     _authorize(mr_doc, warehouse)
@@ -149,6 +154,20 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
         if existing.signature != sig:
             return {"result": "conflict", "operation_id": operation_id}
         return {"result": "duplicate", "operation_id": operation_id, "stock_entry": existing.stock_entry}
+
+    state = rollup.recompute_mr_dispatch_state(mr)
+    if state and state.get("stage") in ("DISPATCHED", "CLOSED"):
+        return {"result": "exception", "reason": "MR_ALREADY_DISPATCHED", "stage": state["stage"]}
+    mr_doc = frappe.get_doc("Material Request", mr)
+    remaining_rows = frappe.get_all(
+        "Material Request Item", filters={"parent": mr, "parenttype": "Material Request"},
+        fields=["name", "custom_qty_remaining"],
+    )
+    remaining_by_mri = {
+        str(row.name): float(row.custom_qty_remaining or 0) for row in remaining_rows
+    }
+    if not any(remaining > EPS for remaining in remaining_by_mri.values()):
+        return {"result": "exception", "reason": "MR_NO_DISPATCHABLE_QTY"}
 
     mri_names = [line["mri"] for line in lines]
     mri_rows = {
@@ -224,7 +243,9 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
 
     dn_voucher = None
     try:
-        dn_voucher = cutover.allocate_dn_voucher(warehouse)
+        dn_voucher = cutover.allocate_mr_dn_voucher(
+            warehouse, mr_doc, requested_by_mri, remaining_by_mri,
+        )
     except frappe.ValidationError as e:
         if "is not active" not in str(e):
             raise  # a real problem (e.g. counter never seeded) - do not swallow it

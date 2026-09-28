@@ -367,6 +367,82 @@ def allocate_dn_voucher(warehouse):
     return voucher
 
 
+def allocate_mr_dn_voucher(warehouse, mr_doc, requested_by_mri, remaining_by_mri):
+    """Allocate an MR-numbered DN, adding a sequence suffix after a partial.
+
+    Existing dispatches are counted from both operation records and voucher
+    values so imported dispatches and cancelled entries reserve their numbers.
+    The caller holds a row lock on the Material Request for the whole dispatch.
+    """
+    _active_cutover(warehouse)
+    raw_mir = str(mr_doc.get("custom_mir_number") or "").strip()
+    if not re.fullmatch(r"\d+", raw_mir):
+        # No usable MIR number: reserve from the legacy bench counter but mark
+        # the number as outside the shared MIR/DN sequence.
+        allocated = allocate_dn_voucher(warehouse)
+        match = re.fullmatch(r"DN26-(\d+)", allocated or "", re.IGNORECASE)
+        if not match:
+            frappe.throw(_("Unexpected DN voucher from the global allocator."), frappe.ValidationError)
+        return _unique_source_voucher("DN26-X" + match.group(1))
+
+    mir_number = str(int(raw_mir))
+    base = f"DN26-{int(mir_number):04d}"
+    pattern = re.compile(rf"(?:SIG-DN-)?{re.escape(base)}(?:-(\d+))?", re.IGNORECASE)
+    seen_entries = set()
+    dispatch_ids = set()
+    for row in frappe.get_all(
+        "SIG Dispatch Operation", filters={"mr": mr_doc.name, "op_type": "DISPATCH"},
+        fields=["name", "stock_entry"],
+    ):
+        if row.stock_entry:
+            seen_entries.add(str(row.stock_entry))
+        else:
+            dispatch_ids.add("operation:" + str(row.name))
+
+    candidates = frappe.db.sql(
+        "SELECT name, custom_source_id FROM `tabStock Entry` WHERE custom_source_id LIKE %s",
+        (f"%{base}%",), as_dict=True,
+    )
+    suffix_max = 0
+    for row in candidates:
+        source = str(row.custom_source_id or "").strip()
+        match = pattern.fullmatch(source)
+        if match:
+            seen_entries.add(str(row.name))
+            suffix_max = max(suffix_max, int(match.group(1) or 0))
+    dispatch_count = len(seen_entries) + len(dispatch_ids)
+    # A bare first dispatch has sequence 1; an explicitly used -N value also
+    # reserves through N, even if an older unlinked entry is missing.
+    is_first = dispatch_count == 0 and suffix_max == 0
+    clears_request = all(
+        float(remaining or 0) - float(requested_by_mri.get(mri, 0) or 0) <= 1e-6
+        for mri, remaining in remaining_by_mri.items()
+    )
+    candidate = base if is_first and clears_request else f"{base}-{max(1, dispatch_count, suffix_max + 1)}"
+    return _unique_source_voucher(candidate)
+
+
+def _unique_source_voucher(candidate):
+    """Never reuse a source voucher, including one left by a cancelled entry."""
+    if not frappe.db.exists("Stock Entry", {"custom_source_id": candidate}):
+        return candidate
+    base_match = re.fullmatch(r"(DN26-\d+)(?:-(\d+))?", candidate, re.IGNORECASE)
+    if not base_match:
+        # X vouchers are also immutable; increment their numeric tail.
+        x_match = re.fullmatch(r"DN26-X(\d+)", candidate, re.IGNORECASE)
+        if not x_match:
+            frappe.throw(_("DN voucher is already in use: {0}").format(candidate), frappe.ValidationError)
+        prefix, number = "DN26-X", int(x_match.group(1))
+        while frappe.db.exists("Stock Entry", {"custom_source_id": f"{prefix}{number}"}):
+            number += 1
+        return f"{prefix}{number}"
+    base = base_match.group(1)
+    sequence = int(base_match.group(2) or 0) + 1
+    while frappe.db.exists("Stock Entry", {"custom_source_id": f"{base}-{sequence}"}):
+        sequence += 1
+    return f"{base}-{sequence}"
+
+
 def delivery_is_authorized(warehouse):
     """Used by the later WhatsApp integration; delivery is never enabled by a draft cutover."""
     return bool(_active_cutover(warehouse).delivery_route_confirmed)
