@@ -1,0 +1,56 @@
+Source,Translation
+Finance,المالية
+Finance Workbench,مساحة عمل المالية
+Original Accounting Workspace,مساحة المحاسبة الأصلية
+SIG Finance,مالية SIG
+Finance workbench,مساحة عمل المالية
+Daily finance work,العمل المالي اليومي
+"Daily finance work, backed by ERPNext records and accounting controls.",أعمال مالية يومية تستند إلى سجلات ERPNext والضوابط المحاسبية.
+"Open the source documents used for customer, supplier, payment, and journal work.",افتح المستندات المصدر المستخدمة في أعمال العملاء والموردين والمدفوعات والقيود اليومية.
+Payment entries,سندات الدفع
+"Review receipts, supplier payments, and their invoice allocations.",راجع المقبوضات ومدفوعات الموردين وتخصيصها على الفواتير.
+Sales invoices,فواتير المبيعات
+Review customer invoices and collection status.,راجع فواتير العملاء وحالة التحصيل.
+Purchase invoices,فواتير المشتريات
+Review supplier invoices after the purchasing and receipt handoff.,راجع فواتير الموردين بعد إتمام إجراءات الشراء والاستلام.
+Journal entries,القيود اليومية
+Review controlled accounting entries; draft first and submit with authority.,راجع القيود المحاسبية المنضبطة؛ أنشئ مسودة أولاً ولا ترحّل إلا بصلاحية معتمدة.
+Financial control,الرقابة المالية
+Core statements and ledger traceability. Each report keeps its own filters.,القوائم الأساسية وتتبع الأستاذ العام. يحتفظ كل تقرير بعوامل التصفية الخاصة به.
+General Ledger,دفتر الأستاذ العام
+Trace posted balances to their source vouchers.,تتبّع الأرصدة المرحلة إلى مستنداتها المصدرية.
+Trial Balance,ميزان المراجعة
+Check debit and credit balances for the selected period.,تحقق من أرصدة المدين والدائن للفترة المحددة.
+Profit and Loss,الأرباح والخسائر
+Review income and expense performance.,راجع أداء الإيرادات والمصروفات.
+Balance Sheet,قائمة المركز المالي
+"Review assets, liabilities, and equity.",راجع الأصول والالتزامات وحقوق الملكية.
+Sales Register,سجل المبيعات
+Sales Invoice Trends,اتجاهات فواتير المبيعات
+Accounts Receivable,الحسابات المدينة
+Sales and collections,المبيعات والتحصيل
+"Customer billing and receivable review, including the Tawal customer lane.",راجع فواتير العملاء والذمم المدينة، بما في ذلك مسار عميل توال.
+Purchasing and payables,المشتريات والذمم الدائنة
+Purchase Register,سجل المشتريات
+Purchase Invoice Trends,اتجاهات فواتير المشتريات
+Accounts Payable,الحسابات الدائنة
+Supplier invoice review after the Purchase Order and receipt handoff.,راجع فواتير الموردين بعد إجراءات أمر الشراء والاستلام.
+Reconciliation and evidence,التسوية والمستندات المؤيدة
+"Review source evidence before matching, approval, or posting.",راجع مستندات المصدر قبل المطابقة أو الاعتماد أو الترحيل.
+Specialist finance lanes,مسارات مالية متخصصة
+Separate controlled workspaces for petty cash and tax-compliance evidence.,مساحات عمل مستقلة ومنضبطة للعهد النقدية ومستندات الامتثال الضريبي.
+Reference and setup,المراجع والإعداد
+Use less-frequent finance masters and reporting references.,استخدم البيانات المالية المرجعية والإعدادات الأقل استخداماً.
+SIG Petty Cash,العهد النقدية SIG
+"Open the separate evidence, clearance, and finance handoff workspace.",افتح مساحة العمل المستقلة للمستندات والتصفية والتسليم إلى المالية.
+ZATCA Integrations,تكاملات هيئة الزكاة والضريبة والجمارك
+Review tax-compliance evidence linked to the source invoice.,راجع مستندات الامتثال الضريبي المرتبطة بفاتورة المصدر.
+Draft payments queue,قائمة مراجعة مسودات الدفع
+Review draft payment entries before approval or posting.,راجع مسودات سندات الدفع قبل اعتمادها أو ترحيلها.
+Bank transactions,المعاملات البنكية
+Review statement evidence before matching or reconciliation.,راجع بيانات كشف الحساب قبل المطابقة أو التسوية.
+Chart of accounts,دليل الحسابات
+Reference the account hierarchy; setup remains a controlled finance task.,راجع هيكل الحسابات؛ يظل الإعداد مهمة مالية خاضعة للضوابط.
+Cost centers,مراكز التكلفة
+Reference financial responsibility and reporting dimensions.,راجع أبعاد المسؤولية المالية والتقارير.
+"This page is navigation only. It does not create or post accounting entries; document, workflow, and report permissions remain enforced by ERPNext.",هذه الصفحة للتنقل فقط ولا تنشئ أو ترحّل قيوداً محاسبية؛ وتظل صلاحيات المستندات وسير العمل والتقارير مطبّقة بواسطة ERPNext.
