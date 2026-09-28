@@ -120,16 +120,16 @@ frappe.pages['finance-workbench'].on_page_load = function (wrapper) {
         },
         {
             title: __('Open supplier invoices'),
-            description: __('Count of submitted supplier invoices with an outstanding balance; not a monetary total.'),
+            description: __('Submitted supplier invoices with an outstanding balance.'),
             doctype: 'Purchase Invoice',
             route: ['List', 'Purchase Invoice', 'List'],
             routeOptions: {docstatus: 1, outstanding_amount: ['>', 0]},
             metric: {
-                key: 'accounts-payable-outstanding', function: 'Count',
+                key: 'open-supplier-invoices', function: 'Count',
                 filters: [
                     ['Purchase Invoice', 'docstatus', '=', 1],
                     ['Purchase Invoice', 'outstanding_amount', '>', 0]
-                ], currency: true
+                ]
             }
         },
         {
@@ -241,10 +241,10 @@ frappe.pages['finance-workbench'].on_page_load = function (wrapper) {
                 filters: JSON.stringify(item.metric.filters)
             }
         }).then((response) => {
-            const value = response.message;
-            const formatted = item.metric.currency
-                ? frappe.format(value, {fieldtype: 'Currency', options: 'SAR'})
-                : frappe.format(value, {fieldtype: 'Int'});
+            const value = Number(response.message);
+            const formatted = Number.isFinite(value)
+                ? new Intl.NumberFormat(language.replace('_', '-'), {maximumFractionDigits: 0}).format(value)
+                : '—';
             root.find(`[data-metric-key="${item.metric.key}"]`).text(formatted);
         }).catch(() => {
             root.find(`[data-metric-key="${item.metric.key}"]`).text('—');
