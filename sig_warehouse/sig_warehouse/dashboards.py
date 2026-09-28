@@ -47,7 +47,10 @@ def sales_order(data):
 
 
 def sales_invoice(data):
-    return _add_site(data, "custom_site")
+    # Historical Tawal invoices can reference several sites. The invoice's
+    # read-only child table is the authoritative multi-site relationship, so
+    # expose its Link field in the standard Connections panel.
+    return _add_site(data, ["custom_tawal_site_cycle_links", "site"])
 
 
 def purchase_order(data):
