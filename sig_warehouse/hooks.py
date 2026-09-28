@@ -62,10 +62,7 @@ app_include_js = [
 # SIG Field Ops Settings.feed_mode (Off / Shadow / Live) and defaults to Shadow.
 scheduler_events = {
     "cron": {
-        "*/15 * * * *": [
-            "sig_warehouse.sig_warehouse.field_feed.run_feed",
-            "sig_warehouse.sig_warehouse.tag_feed.run_tag_feed",
-        ],
+        "*/15 * * * *": ["sig_warehouse.sig_warehouse.field_feed.run_feed"],
     },
 }
 
