@@ -17,6 +17,7 @@ DECLARE    close the undeclared remainder of a Stock Entry's lines as consumed (
 DISMISS    set a line's cancelled quantity to an absolute target with a waiver reason
            (SMALL_VALUE_WAIVED / DELTA_DISMISSED / WH_CLOSED), which resolves the line like a dispatch.
 RENAME_DN  rename an ERP-era DN voucher to its X form, keeping the original in ``custom_legacy_dn``.
+LINK_RETURN give an existing return Stock Entry the MR + site of the dispatch it reverses (blanks only).
 RECOMPUTE  re-run ERPNext's ordered/indented bookkeeping and the lifecycle rollup for one MR (also repairs an MR that
            was linked before that bookkeeping was added).
 """
@@ -392,6 +393,29 @@ def _backfill_site(p, apply):
     return {"result": "dry_run", "changes": [change]}
 
 
+def _link_return(p, apply):
+    """Give one existing return Stock Entry the MR + site of the dispatch it reverses (added 2026-09-29,
+    owner OK).  Returns declared before ``disposition.stamp_return_links`` existed carry neither, so they
+    are invisible from the MR's Connections and from the Site.  Fills blanks only, never overwrites, never
+    sets ``material_request_item`` (see ``stamp_return_links``).  The entry must be a submitted return
+    created by the declaration flow (``custom_return_against_se`` set)."""
+    from sig_warehouse.sig_warehouse import disposition
+
+    se = frappe.db.get_value(
+        "Stock Entry", p.get("stock_entry"),
+        ["name", "docstatus", "is_return", "custom_return_against_se"], as_dict=True)
+    if not se or se.docstatus != 1 or not se.is_return or not se.custom_return_against_se:
+        return _fail("STOCK_ENTRY_NOT_ELIGIBLE", stock_entry=p.get("stock_entry"))
+    changes = disposition.stamp_return_links(se.name, apply=False)
+    if apply and changes:
+        before = [{"doctype": c["doctype"], "name": c["name"], "before": "blank"} for c in changes]
+        disposition.stamp_return_links(se.name, apply=True)
+        frappe.db.commit()
+        _audit("Stock Entry", se.name, "LINK_RETURN", before, changes)
+        return {"result": "applied", "changes": changes, "before_image": before}
+    return {"result": "applied" if apply else "dry_run", "changes": changes}
+
+
 def _recompute(p, apply):
     mr_row, err = _load_mr(p.get("mr"), p.get("mir"))
     if err:
@@ -408,7 +432,7 @@ def _recompute(p, apply):
 
 
 _ACTIONS = {"LINK": _link, "DECLARE": _declare, "DISMISS": _dismiss, "RENAME_DN": _rename_dn, "RECOMPUTE": _recompute,
-            "BACKFILL_SITE": _backfill_site}
+            "BACKFILL_SITE": _backfill_site, "LINK_RETURN": _link_return}
 
 
 @frappe.whitelist(methods=["POST"])

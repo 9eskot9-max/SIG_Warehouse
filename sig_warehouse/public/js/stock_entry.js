@@ -28,6 +28,15 @@
     }
 
     function sig_open_disposition_dialog(frm, action) {
+        if (action === 'RETURN') {
+            // Single return dialog shared with the Kanban card (material_request.js).
+            if (window.sig_wh && window.sig_wh.open_return_dialog) {
+                window.sig_wh.open_return_dialog({ sourceSe: frm.doc.name, onDone: () => frm.reload_doc() });
+            } else {
+                frappe.msgprint(__('Return module still loading - try again in a moment.'));
+            }
+            return;
+        }
         const openLines = (frm.doc.items || []).filter((it) => {
             if (action === 'REOPEN') return !!it.custom_return_closed;
             const returned = it.custom_qty_returned || 0;
@@ -40,7 +49,7 @@
             return;
         }
 
-        const needsQty = action === 'RETURN' || action === 'CUSTODY';
+        const needsQty = action === 'CUSTODY';
         const rowsHtml = openLines.map((it) => {
             const returned = it.custom_qty_returned || 0;
             const custody = it.custom_qty_custody || 0;
@@ -57,16 +66,11 @@
         }).join('');
 
         const titleByAction = {
-            RETURN: __('Declare Return'), CUSTODY: __('Declare Custody'), CLOSE: __('Close as Consumed'),
+            CUSTODY: __('Declare Custody'), CLOSE: __('Close as Consumed'),
             REOPEN: __('Reopen for Correction'),
         };
         const extraFields = [];
-        if (action === 'RETURN') {
-            extraFields.push({ fieldtype: 'Data', fieldname: 'to_wh', label: __('To Warehouse'),
-                default: openLines[0].s_warehouse, reqd: 1 });
-            extraFields.push({ fieldtype: 'Date', fieldname: 'posting_date', label: __('Posting Date'),
-                default: frappe.datetime.get_today() });
-        } else if (action === 'CUSTODY') {
+        if (action === 'CUSTODY') {
             extraFields.push({ fieldtype: 'Link', fieldname: 'custodian', label: __('Custodian'),
                 options: 'Employee', reqd: 1 });
         }
@@ -117,15 +121,14 @@
                     ? __('Close {0} line(s) as consumed? No stock movement, cannot be undone from here.', [lines.length])
                     : action === 'REOPEN'
                         ? __('Reopen {0} line(s) for correction? This changes no stock; it only permits a later declared return or custody action.', [lines.length])
-                    : __('Declare {0} on {1} line(s)? This {2} immediately and cannot be undone from here.',
-                        [titleByAction[action], lines.length, action === 'RETURN' ? __('submits a Stock Entry') : __('records custody')]);
+                    : __('Declare {0} on {1} line(s)? This records custody immediately and cannot be undone from here.',
+                        [titleByAction[action], lines.length]);
 
                 frappe.confirm(confirmMsg, () => {
                     const args = {
                         operation_id: operationId, action, source_se: frm.doc.name, line_count: lines.length,
                         reason: values.reason,
                     };
-                    if (action === 'RETURN') { args.to_wh = values.to_wh; args.posting_date = values.posting_date; }
                     if (action === 'CUSTODY') { args.custodian = values.custodian; }
                     lines.forEach((l, i) => {
                         args[`sed_${i + 1}`] = l.sed;

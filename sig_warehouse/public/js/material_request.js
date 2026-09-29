@@ -425,11 +425,202 @@
         });
     }
 
+    // ---------------------------------------------------------------------
+    // Return declaration dialog - the single implementation, used by the
+    // Kanban card's "Return" action (material_request_list.js) and the
+    // Stock Entry form's "Declare Return" button (stock_entry.js). Laid out
+    // like the dispatch dialog above (numbered rows, item description, one
+    // quantity column). Every Return Qty starts at 0 on purpose: a return
+    // submits a Stock Entry immediately, so nothing goes back to stock
+    // unless the operator types a quantity or presses "Return all left".
+    // ---------------------------------------------------------------------
+    const sig_round = (v) => Math.round((Number(v) || 0) * 1e6) / 1e6;
+
+    function sig_open_return_dialog(opts) {
+        const { sourceSe, mrName, onDone } = opts || {};
+        if (!sourceSe) return;
+        frappe.call({
+            method: 'frappe.client.get',
+            args: { doctype: 'Stock Entry', name: sourceSe },
+            freeze: true, freeze_message: __('Loading...'),
+            callback: (r) => {
+                const se = r.message;
+                if (!se) return;
+                const openLines = (se.items || []).filter((it) => {
+                    const left = sig_round(it.qty - (it.custom_qty_returned || 0) - (it.custom_qty_custody || 0));
+                    return !it.custom_return_closed && left > 0.000001;
+                });
+                if (!openLines.length) {
+                    frappe.msgprint(__('No undeclared lines on {0}.', [sourceSe]));
+                    return;
+                }
+                sig_render_return_dialog(se, openLines, mrName, onDone);
+            },
+        });
+    }
+
+    function sig_render_return_dialog(se, openLines, mrName, onDone) {
+        const leftOf = (it) => sig_round(it.qty - (it.custom_qty_returned || 0) - (it.custom_qty_custody || 0));
+        const rowsHtml = openLines.map((it, i) => {
+            const left = leftOf(it);
+            const description = it.description || it.item_name || '';
+            return `
+                <tr data-sed="${it.name}" data-left="${left}">
+                    <td class="sig-line-no text-center text-muted">${i + 1}</td>
+                    <td class="sig-item-code">${frappe.utils.escape_html(it.item_code)}</td>
+                    <td class="sig-item-description" title="${frappe.utils.escape_html(description)}">${frappe.utils.escape_html(description) || '<span class="text-muted">—</span>'}</td>
+                    <td class="text-right">${sig_round(it.qty)}</td>
+                    <td class="text-right">${sig_round(it.custom_qty_returned || 0)}</td>
+                    <td class="text-right">${sig_round(it.custom_qty_custody || 0)}</td>
+                    <td class="text-right">${left}</td>
+                    <td><input type="number" class="form-control input-sm sig-return-qty" step="any" min="0"
+                        max="${left}" value="0"></td>
+                </tr>`;
+        }).join('');
+
+        if (!$('#sig-return-table-style').length) {
+            $('<style id="sig-return-table-style">' +
+              '.sig-return-dialog .modal-dialog{width:95vw;max-width:1300px;}' +
+              '.sig-return-dialog .modal-body{padding-left:12px;padding-right:12px;}' +
+              '.sig-return-lines{table-layout:fixed;min-width:900px;}' +
+              '.sig-return-lines th,.sig-return-lines td{vertical-align:middle;}' +
+              '.sig-return-lines th:nth-child(1),.sig-return-lines td:nth-child(1){width:38px;}' +
+              '.sig-return-lines th:nth-child(2),.sig-return-lines td:nth-child(2){width:150px;}' +
+              '.sig-return-lines th:nth-child(3),.sig-return-lines td:nth-child(3){width:34%;}' +
+              '.sig-return-lines th:nth-child(4),.sig-return-lines td:nth-child(4){width:70px;}' +
+              '.sig-return-lines th:nth-child(5),.sig-return-lines td:nth-child(5){width:75px;}' +
+              '.sig-return-lines th:nth-child(6),.sig-return-lines td:nth-child(6){width:75px;}' +
+              '.sig-return-lines th:nth-child(7),.sig-return-lines td:nth-child(7){width:65px;}' +
+              '.sig-return-lines th:nth-child(8),.sig-return-lines td:nth-child(8){width:100px;}' +
+              '.sig-return-lines .sig-item-description{white-space:normal;overflow-wrap:anywhere;line-height:1.25;}' +
+              '.sig-return-lines .sig-item-code{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
+              '</style>').appendTo('head');
+        }
+
+        const defaultWh = openLines[0].s_warehouse || SIG_SOURCE_WAREHOUSES[0];
+        const title = mrName
+            ? __('Return {0} ({1})', [se.name, mrName])
+            : __('Return {0}', [se.name]);
+        const d = new frappe.ui.Dialog({
+            title,
+            size: 'large',
+            fields: [
+                { fieldtype: 'Select', fieldname: 'to_wh', label: __('To Warehouse'),
+                  options: [...new Set([defaultWh, ...SIG_SOURCE_WAREHOUSES])].join('\n'), default: defaultWh, reqd: 1 },
+                { fieldtype: 'Date', fieldname: 'posting_date', label: __('Posting Date'), default: frappe.datetime.get_today() },
+                { fieldtype: 'Column Break' },
+                { fieldtype: 'Small Text', fieldname: 'remarks', label: __('Remarks') },
+                { fieldtype: 'Check', fieldname: 'close_as_consumed',
+                  label: __('No material returned — close all undeclared lines as consumed'), default: 0,
+                  change() {
+                      const on = !!d.get_value('close_as_consumed');
+                      d.$wrapper.find('.sig-return-qty').prop('disabled', on);
+                  } },
+                { fieldtype: 'Section Break' },
+                { fieldtype: 'Button', fieldname: 'return_all_btn', label: __('Return all left'),
+                  click: () => {
+                      d.$wrapper.find('.sig-return-lines tbody tr').each(function () {
+                          $(this).find('.sig-return-qty').val($(this).data('left'));
+                      });
+                  } },
+                {
+                    fieldtype: 'HTML', fieldname: 'lines_html',
+                    options: `<div class="table-responsive"><table class="table table-bordered sig-return-lines">
+                        <thead><tr>
+                            <th class="text-center">#</th><th>${__('Item')}</th><th>${__('Description')}</th>
+                            <th class="text-right">${__('Issued')}</th><th class="text-right">${__('Returned')}</th>
+                            <th class="text-right">${__('In Custody')}</th><th class="text-right">${__('Left')}</th>
+                            <th class="text-right">${__('Return')}<br>${__('Qty')}</th>
+                        </tr></thead>
+                        <tbody>${rowsHtml}</tbody>
+                    </table></div>`,
+                },
+            ],
+            primary_action_label: __('Confirm Return'),
+            primary_action() {
+                const rows = [...d.$wrapper.find('.sig-return-lines tbody tr')];
+                const closeAsConsumed = !!d.get_value('close_as_consumed');
+                const values = d.get_values();
+                let overLine = null;
+                const returnedLines = rows.map((row) => {
+                    const $row = $(row);
+                    const qty = parseFloat($row.find('.sig-return-qty').val() || '0');
+                    if (!closeAsConsumed && qty - Number($row.data('left')) > 0.000001) {
+                        overLine = overLine || $row.find('.sig-item-code').text();
+                    }
+                    return { sed: $row.data('sed'), qty };
+                }).filter((l) => l.qty > 0);
+                if (overLine) {
+                    frappe.msgprint(__('{0}: return quantity is more than what is left to declare.', [overLine]));
+                    return;
+                }
+                const lines = closeAsConsumed
+                    ? rows.map((row) => ({ sed: $(row).data('sed'), qty: null }))
+                    : returnedLines;
+                if (!lines.length) {
+                    frappe.msgprint(__('Enter a return quantity on at least one line, or tick “close as consumed”.'));
+                    return;
+                }
+                const action = closeAsConsumed ? 'CLOSE' : 'RETURN';
+                const totalQty = lines.reduce((s, l) => s + (l.qty || 0), 0);
+                frappe.confirm(
+                    closeAsConsumed
+                        ? __('Close {0} undeclared line(s) on {1} as consumed? No stock movement will be made. You may reopen the original Stock Entry later for a correction.', [lines.length, se.name])
+                        : __('Return {0} line(s), total qty {1}, from {2} to {3}?<br><br>This creates and <b>submits</b> a Stock Entry immediately - it cannot be un-submitted from here.',
+                            [lines.length, sig_round(totalQty), se.name, values.to_wh]),
+                    () => {
+                        const args = {
+                            operation_id: sig_gen_operation_id(action), action, source_se: se.name,
+                            line_count: lines.length, reason: values.remarks || '',
+                        };
+                        if (action === 'RETURN') { args.to_wh = values.to_wh; args.posting_date = values.posting_date; }
+                        lines.forEach((l, i) => {
+                            args[`sed_${i + 1}`] = l.sed;
+                            if (l.qty !== null) args[`qty_${i + 1}`] = l.qty;
+                        });
+                        frappe.call({
+                            method: 'sig_warehouse.sig_warehouse.disposition.sig_declare_disposition',
+                            args, freeze: true, freeze_message: closeAsConsumed ? __('Closing...') : __('Returning...'),
+                            callback: (res2) => {
+                                const res = res2.message || {};
+                                if (res.result === 'created' || res.result === 'duplicate') {
+                                    frappe.msgprint({
+                                        title: closeAsConsumed ? __('Closed') : __('Returned'), indicator: 'green',
+                                        message: res.stock_entry
+                                            ? __('Stock Entry {0} created and submitted.', [`<a href="/app/stock-entry/${res.stock_entry}">${res.stock_entry}</a>`])
+                                            : __('Closed as consumed.'),
+                                    });
+                                    d.hide();
+                                    if (window.sig_wh && window.sig_wh.invalidate_availability && mrName) {
+                                        window.sig_wh.invalidate_availability(mrName);
+                                    }
+                                    if (onDone) onDone(res);
+                                } else if (res.result === 'exception' && res.reason === 'CAP_EXCEEDED') {
+                                    frappe.msgprint({ title: __('Cannot return'), indicator: 'red',
+                                        message: __('Line {0}: requested {1} exceeds remaining {2}. Reload and try again.',
+                                            [res.line, res.requested, res.remaining]) });
+                                } else if (res.result === 'conflict') {
+                                    frappe.msgprint({ title: __('Conflict'), indicator: 'red',
+                                        message: __('This attempt changed after the operation ID was generated. Close this dialog and retry.') });
+                                } else {
+                                    frappe.msgprint({ title: __('Failed'), indicator: 'red', message: __('{0}', [JSON.stringify(res)]) });
+                                }
+                            },
+                        });
+                    }
+                );
+            },
+        });
+        d.$wrapper.addClass('sig-return-dialog');
+        d.show();
+    }
+
     // Exported for material_request_list.js's Kanban card "Issue" action -
     // the single dispatch-dialog implementation, callable from either
     // context. Defensive merge: whichever of these SIG files evaluates
     // first must not clobber an export another one already made.
     window.sig_wh = Object.assign(window.sig_wh || {}, {
         open_mr_dispatch: sig_open_dispatch_dialog,
+        open_return_dialog: sig_open_return_dialog,
     });
 })();

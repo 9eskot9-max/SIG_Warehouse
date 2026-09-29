@@ -563,106 +563,14 @@
     }
 
     function sig_open_kanban_return_dialog(sourceSe, mrName) {
-        frappe.call({
-            method: 'frappe.client.get',
-            args: { doctype: 'Stock Entry', name: sourceSe },
-            freeze: true, freeze_message: __('Loading...'),
-            callback: (r) => {
-                const se = r.message;
-                if (!se) return;
-                const openLines = (se.items || []).filter((it) => {
-                    const returned = it.custom_qty_returned || 0;
-                    const custody = it.custom_qty_custody || 0;
-                    const undeclared = it.qty - returned - custody;
-                    return !it.custom_return_closed && undeclared > 0.000001;
-                });
-                if (!openLines.length) {
-                    frappe.msgprint(__('No undeclared lines on {0}.', [sourceSe]));
-                    return;
-                }
-                const rowsHtml = openLines.map((it) => {
-                    const returned = it.custom_qty_returned || 0;
-                    const custody = it.custom_qty_custody || 0;
-                    const undeclared = it.qty - returned - custody;
-                    return `
-                        <tr data-sed="${it.name}">
-                            <td>${frappe.utils.escape_html(it.item_code)}</td>
-                            <td class="text-right">${undeclared}</td>
-                            <td><input type="number" class="form-control input-sm sig-return-qty" step="any" min="0" max="${undeclared}" value="${undeclared}"></td>
-                        </tr>`;
-                }).join('');
-                const d = new frappe.ui.Dialog({
-                    title: __('Return - {0}', [sourceSe]),
-                    size: 'large',
-                    fields: [
-                        { fieldtype: 'Data', fieldname: 'to_wh', label: __('To Warehouse'), default: openLines[0].s_warehouse, reqd: 1 },
-                        { fieldtype: 'Check', fieldname: 'close_as_consumed',
-                            label: __('No material returned — close all undeclared lines as consumed'), default: 0 },
-                        { fieldtype: 'Section Break' },
-                        {
-                            fieldtype: 'HTML', fieldname: 'lines_html',
-                            options: `<div class="table-responsive"><table class="table table-bordered">
-                                <thead><tr><th>${__('Item')}</th><th class="text-right">${__('Undeclared')}</th><th>${__('Qty to Return')}</th></tr></thead>
-                                <tbody>${rowsHtml}</tbody></table></div>`,
-                        },
-                    ],
-                    primary_action_label: __('Confirm disposition'),
-                    primary_action() {
-                        const rows = [...d.$wrapper.find('tbody tr')];
-                        const closeAsConsumed = !!d.get_value('close_as_consumed');
-                        const returnedLines = rows.map((row) => {
-                            const $row = $(row);
-                            return { sed: $row.data('sed'), qty: parseFloat($row.find('.sig-return-qty').val() || '0') };
-                        }).filter((l) => l.qty > 0);
-                        const lines = closeAsConsumed
-                            ? rows.map((row) => ({ sed: $(row).data('sed'), qty: null }))
-                            : returnedLines;
-                        if (!lines.length) {
-                            frappe.msgprint(__('Enter a return quantity, or explicitly select close as consumed.'));
-                            return;
-                        }
-                        const toWh = d.get_value('to_wh');
-                        const action = closeAsConsumed ? 'CLOSE' : 'RETURN';
-                        frappe.confirm(
-                            closeAsConsumed
-                                ? __('Close {0} undeclared line(s) on {1} as consumed? No stock movement will be made. You may reopen the original Stock Entry later for a correction.', [lines.length, sourceSe])
-                                : __('Return {0} line(s) from {1} to {2}? This submits a Stock Entry immediately.', [lines.length, sourceSe, toWh]),
-                            () => {
-                                const args = {
-                                    operation_id: sig_gen_operation_id(action), action, source_se: sourceSe,
-                                    line_count: lines.length,
-                                };
-                                if (action === 'RETURN') args.to_wh = toWh;
-                                lines.forEach((l, i) => {
-                                    args[`sed_${i + 1}`] = l.sed;
-                                    if (l.qty !== null) args[`qty_${i + 1}`] = l.qty;
-                                });
-                                frappe.call({
-                                    method: 'sig_warehouse.sig_warehouse.disposition.sig_declare_disposition',
-                                    args, freeze: true, freeze_message: closeAsConsumed ? __('Closing...') : __('Returning...'),
-                                    callback: (res2) => {
-                                        const res = res2.message || {};
-                                        if (res.result === 'created' || res.result === 'duplicate') {
-                                            frappe.show_alert({ message: closeAsConsumed ? __('Closed as consumed.') : __('Returned.'), indicator: 'green' });
-                                            invalidate_availability(mrName);
-                                            d.hide();
-                                        } else if (res.result === 'exception' && res.reason === 'CAP_EXCEEDED') {
-                                            frappe.msgprint({ title: __('Cannot return'), indicator: 'red',
-                                                message: __('Line {0}: requested {1} exceeds remaining {2}.', [res.line, res.requested, res.remaining]) });
-                                        } else if (res.result === 'conflict') {
-                                            frappe.msgprint({ title: __('Conflict'), indicator: 'red', message: __('This attempt changed after the operation ID was generated. Retry.') });
-                                        } else {
-                                            frappe.msgprint({ title: __('Failed'), indicator: 'red', message: __('{0}', [JSON.stringify(res)]) });
-                                        }
-                                    },
-                                });
-                            }
-                        );
-                    },
-                });
-                d.show();
-            },
-        });
+        // The return dialog is the single implementation in material_request.js
+        // (same file that owns the dispatch dialog); fails safe if it has not
+        // evaluated yet.
+        if (window.sig_wh && window.sig_wh.open_return_dialog) {
+            window.sig_wh.open_return_dialog({ sourceSe, mrName, onDone: () => invalidate_availability(mrName) });
+        } else {
+            frappe.msgprint(__('Return module still loading - try again in a moment.'));
+        }
     }
 
     // ---------------------------------------------------------------------

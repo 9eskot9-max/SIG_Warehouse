@@ -71,6 +71,55 @@ def _parse_lines(line_count, form):
     return lines
 
 
+def stamp_return_links(return_se, apply=True):
+    """Give a return Stock Entry the MR and site of the dispatch it reverses.
+
+    The return is built from the ORIGINAL DN's rows, so it inherits nothing by itself: without this it
+    has no ``material_request`` on its rows (so it never shows in the MR's Connections) and no
+    ``custom_site`` (so it is invisible from the Site).  Only BLANK values are filled, from the original
+    rows named by ``custom_original_se_detail``.  Deliberately sets ``material_request`` WITHOUT
+    ``material_request_item``: the item link is what ERPNext's ordered/indented bookkeeping and the SIG
+    rollup count as issued, and a return must never look like a second dispatch.  Written with raw
+    ``set_value`` (metadata only, the entry is already submitted).  Returns the list of changes.
+    """
+    ret = frappe.db.get_value(
+        "Stock Entry", return_se,
+        ["name", "docstatus", "is_return", "custom_return_against_se", "custom_site"], as_dict=True)
+    if not ret or ret.docstatus != 1 or not ret.is_return or not ret.custom_return_against_se:
+        return []
+    src_site = frappe.db.get_value("Stock Entry", ret.custom_return_against_se, "custom_site")
+    rows = frappe.get_all(
+        "Stock Entry Detail", filters={"parent": return_se, "parenttype": "Stock Entry"},
+        fields=["name", "material_request", "custom_site", "custom_original_se_detail"])
+    originals = {
+        r.name: r for r in frappe.get_all(
+            "Stock Entry Detail",
+            filters={"name": ["in", [r.custom_original_se_detail for r in rows if r.custom_original_se_detail]]},
+            fields=["name", "material_request", "custom_site"])
+    }
+    changes = []
+    if not ret.custom_site and src_site:
+        changes.append(("Stock Entry", ret.name, {"custom_site": src_site}))
+    for row in rows:
+        orig = originals.get(row.custom_original_se_detail)
+        if not orig:
+            continue
+        update = {}
+        if not row.material_request and orig.material_request:
+            update["material_request"] = orig.material_request
+        row_site = orig.custom_site or src_site
+        if not row.custom_site and row_site:
+            update["custom_site"] = row_site
+        if update:
+            changes.append(("Stock Entry Detail", row.name, update))
+    if apply:
+        for doctype, name, values in changes:
+            frappe.db.set_value(doctype, name, values, update_modified=False)
+            frappe.clear_document_cache(doctype, name)
+        frappe.clear_document_cache("Stock Entry", return_se)
+    return [{"doctype": d, "name": n, **v} for d, n, v in changes]
+
+
 def _load_source_details(source_se, sed_names):
     rows = frappe.get_all(
         "Stock Entry Detail",
@@ -164,6 +213,7 @@ def sig_declare_disposition(operation_id, action, source_se, line_count=0, to_wh
         })
         return_se.insert(ignore_permissions=False)
         return_se.submit()
+        stamp_return_links(return_se.name)
         frappe.db.commit()
         stock_entry_name = return_se.name
 
