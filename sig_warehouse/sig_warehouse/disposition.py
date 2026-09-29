@@ -71,7 +71,7 @@ def _parse_lines(line_count, form):
     return lines
 
 
-def stamp_return_links(return_se, apply=True):
+def stamp_return_links(return_se, source_se=None, apply=True):
     """Give a return Stock Entry the MR and site of the dispatch it reverses.
 
     The return is built from the ORIGINAL DN's rows, so it inherits nothing by itself: without this it
@@ -80,17 +80,28 @@ def stamp_return_links(return_se, apply=True):
     rows named by ``custom_original_se_detail``.  Deliberately sets ``material_request`` WITHOUT
     ``material_request_item``: the item link is what ERPNext's ordered/indented bookkeeping and the SIG
     rollup count as issued, and a return must never look like a second dispatch.  Written with raw
-    ``set_value`` (metadata only, the entry is already submitted).  Returns the list of changes.
+    ``set_value`` (metadata only, the entry is already submitted).
+
+    ``custom_return_against_se`` is permlevel 1, so Frappe silently resets it when the return is inserted
+    by a user without permlevel-1 write (every warehouse operator; only Administrator keeps it).  It is
+    therefore restored here from ``source_se``, or - for returns already saved without it - from the rows'
+    ``custom_original_stock_entry`` when they all agree.  Returns the list of changes.
     """
     ret = frappe.db.get_value(
         "Stock Entry", return_se,
         ["name", "docstatus", "is_return", "custom_return_against_se", "custom_site"], as_dict=True)
-    if not ret or ret.docstatus != 1 or not ret.is_return or not ret.custom_return_against_se:
+    if not ret or ret.docstatus != 1 or not ret.is_return:
         return []
-    src_site = frappe.db.get_value("Stock Entry", ret.custom_return_against_se, "custom_site")
     rows = frappe.get_all(
         "Stock Entry Detail", filters={"parent": return_se, "parenttype": "Stock Entry"},
-        fields=["name", "material_request", "custom_site", "custom_original_se_detail"])
+        fields=["name", "material_request", "custom_site", "custom_original_se_detail", "custom_original_stock_entry"])
+    source = source_se or ret.custom_return_against_se
+    if not source:
+        row_sources = {r.custom_original_stock_entry for r in rows if r.custom_original_stock_entry}
+        source = row_sources.pop() if len(row_sources) == 1 else None
+    if not source:
+        return []
+    src_site = frappe.db.get_value("Stock Entry", source, "custom_site")
     originals = {
         r.name: r for r in frappe.get_all(
             "Stock Entry Detail",
@@ -98,8 +109,13 @@ def stamp_return_links(return_se, apply=True):
             fields=["name", "material_request", "custom_site"])
     }
     changes = []
+    header = {}
+    if not ret.custom_return_against_se:
+        header["custom_return_against_se"] = source
     if not ret.custom_site and src_site:
-        changes.append(("Stock Entry", ret.name, {"custom_site": src_site}))
+        header["custom_site"] = src_site
+    if header:
+        changes.append(("Stock Entry", ret.name, header))
     for row in rows:
         orig = originals.get(row.custom_original_se_detail)
         if not orig:
@@ -213,7 +229,7 @@ def sig_declare_disposition(operation_id, action, source_se, line_count=0, to_wh
         })
         return_se.insert(ignore_permissions=False)
         return_se.submit()
-        stamp_return_links(return_se.name)
+        stamp_return_links(return_se.name, source_se=source_se)
         frappe.db.commit()
         stock_entry_name = return_se.name
 

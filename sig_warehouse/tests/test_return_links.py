@@ -59,8 +59,10 @@ def _reset():
     DB.sed["S1"] = {"parent": "SRC", "material_request": "MR-1", "custom_site": "ZBR085"}
     DB.sed["S2"] = {"parent": "SRC", "material_request": "MR-1", "custom_site": None}
     DB.se["RET"] = {"docstatus": 1, "is_return": 1, "custom_return_against_se": "SRC", "custom_site": None}
-    DB.sed["R1"] = {"parent": "RET", "material_request": None, "custom_site": None, "custom_original_se_detail": "S1"}
-    DB.sed["R2"] = {"parent": "RET", "material_request": None, "custom_site": None, "custom_original_se_detail": "S2"}
+    DB.sed["R1"] = {"parent": "RET", "material_request": None, "custom_site": None, "custom_original_se_detail": "S1",
+                     "custom_original_stock_entry": "SRC"}
+    DB.sed["R2"] = {"parent": "RET", "material_request": None, "custom_site": None, "custom_original_se_detail": "S2",
+                     "custom_original_stock_entry": "SRC"}
 
 
 class StampReturnLinks(unittest.TestCase):
@@ -69,7 +71,7 @@ class StampReturnLinks(unittest.TestCase):
 
     def test_dry_run_reports_without_writing(self):
         changes = d.stamp_return_links("RET", apply=False)
-        self.assertEqual(len(changes), 3)  # header site + two rows
+        self.assertEqual(len(changes), 3)  # header (site) + two rows
         self.assertEqual(DB.writes, [])
 
     def test_apply_fills_mr_and_site_but_never_the_item_link(self):
@@ -91,11 +93,31 @@ class StampReturnLinks(unittest.TestCase):
         self.assertEqual(DB.writes, [])
 
     def test_ignores_entries_that_are_not_submitted_declared_returns(self):
-        for patch in ({"docstatus": 0}, {"is_return": 0}, {"custom_return_against_se": None}):
+        for patch in ({"docstatus": 0}, {"is_return": 0}):
             _reset()
             DB.se["RET"].update(patch)
             self.assertEqual(d.stamp_return_links("RET"), [])
             self.assertEqual(DB.writes, [])
+
+    def test_restores_permlevel_stripped_header_link_from_rows(self):
+        # warehouse operators lack permlevel-1 write, so Frappe blanks custom_return_against_se at insert
+        DB.se["RET"]["custom_return_against_se"] = None
+        d.stamp_return_links("RET")
+        self.assertEqual(DB.se["RET"]["custom_return_against_se"], "SRC")
+        self.assertEqual(DB.se["RET"]["custom_site"], "ZBR085")
+        self.assertEqual(DB.sed["R1"]["material_request"], "MR-1")
+
+    def test_explicit_source_wins_when_header_link_is_blank(self):
+        DB.se["RET"]["custom_return_against_se"] = None
+        DB.se["OTHER"] = {"custom_site": "ZZZ"}
+        d.stamp_return_links("RET", source_se="OTHER")
+        self.assertEqual(DB.se["RET"]["custom_return_against_se"], "OTHER")
+
+    def test_gives_up_when_source_is_ambiguous(self):
+        DB.se["RET"]["custom_return_against_se"] = None
+        DB.sed["R2"]["custom_original_stock_entry"] = "SRC2"
+        self.assertEqual(d.stamp_return_links("RET"), [])
+        self.assertEqual(DB.writes, [])
 
 
 if __name__ == "__main__":

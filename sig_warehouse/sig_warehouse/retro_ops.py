@@ -398,13 +398,14 @@ def _link_return(p, apply):
     owner OK).  Returns declared before ``disposition.stamp_return_links`` existed carry neither, so they
     are invisible from the MR's Connections and from the Site.  Fills blanks only, never overwrites, never
     sets ``material_request_item`` (see ``stamp_return_links``).  The entry must be a submitted return
-    created by the declaration flow (``custom_return_against_se`` set)."""
+    created by the declaration flow; its original Stock Entry is taken from ``custom_return_against_se`` or,
+    when that permlevel-1 header link was stripped at insert, from the rows' ``custom_original_stock_entry``."""
     from sig_warehouse.sig_warehouse import disposition
 
     se = frappe.db.get_value(
         "Stock Entry", p.get("stock_entry"),
-        ["name", "docstatus", "is_return", "custom_return_against_se"], as_dict=True)
-    if not se or se.docstatus != 1 or not se.is_return or not se.custom_return_against_se:
+        ["name", "docstatus", "is_return"], as_dict=True)
+    if not se or se.docstatus != 1 or not se.is_return:
         return _fail("STOCK_ENTRY_NOT_ELIGIBLE", stock_entry=p.get("stock_entry"))
     changes = disposition.stamp_return_links(se.name, apply=False)
     if apply and changes:
