@@ -428,8 +428,9 @@
                 } else if (stage === 'DISPATCHED') {
                     actions.push([__('Return'), () => sig_kanban_return(doc)]);
                 } else {
-                    frappe.msgprint(__('No actions available for stage {0}.', [stage]));
-                    return;
+                    // CLOSED (or any other stage): nothing to issue or cancel, but a return
+                    // that was never declared can still be entered.
+                    actions.push([__('Return'), () => sig_kanban_return(doc)]);
                 }
                 const $menu = $('<div class="sig-kanban-action-menu"></div>').css({
                     position: 'absolute', zIndex: 1000, background: 'var(--card-bg, #fff)',
@@ -464,7 +465,7 @@
         }
     }
 
-    function sig_kanban_cancel(doc) {
+    function sig_kanban_cancel(doc, onDone) {
         const openLines = (doc.items || []).filter((it) => (it.custom_qty_remaining || 0) > 0.000001);
         if (!openLines.length) {
             frappe.msgprint(__('No open lines to cancel on this request.'));
@@ -510,6 +511,7 @@
                                     frappe.show_alert({ message: __('Cancelled.'), indicator: 'green' });
                                     invalidate_availability(doc.name);
                                     d.hide();
+                                    if (onDone) onDone(res);
                                 } else if (res.result === 'exception' && res.reason === 'CAP_EXCEEDED') {
                                     frappe.msgprint({ title: __('Cannot cancel'), indicator: 'red',
                                         message: __('Line {0}: requested {1} exceeds remaining {2}.', [res.line, res.requested, res.remaining]) });
@@ -528,46 +530,12 @@
     }
 
     function sig_kanban_return(doc) {
-        frappe.call({
-            method: 'frappe.client.get_list',
-            args: {
-                doctype: 'SIG Dispatch Operation',
-                filters: { mr: doc.name, op_type: 'DISPATCH', state: 'SUBMITTED' },
-                fields: ['stock_entry'],
-                limit_page_length: 0,
-            },
-            freeze: true, freeze_message: __('Finding dispatch...'),
-            callback: (r) => {
-                const ses = [...new Set((r.message || []).map((x) => x.stock_entry).filter(Boolean))];
-                if (!ses.length) {
-                    frappe.msgprint(__('No dispatch Stock Entry found for {0}.', [doc.name]));
-                    return;
-                }
-                if (ses.length > 1) {
-                    const d = new frappe.ui.Dialog({
-                        title: __('Select dispatch to return against'),
-                        fields: [{ fieldtype: 'Select', fieldname: 'se', label: __('Stock Entry'), options: ses.join('\n'), reqd: 1 }],
-                        primary_action_label: __('Continue'),
-                        primary_action() {
-                            const se = d.get_value('se');
-                            d.hide();
-                            sig_open_kanban_return_dialog(se, doc.name);
-                        },
-                    });
-                    d.show();
-                    return;
-                }
-                sig_open_kanban_return_dialog(ses[0], doc.name);
-            },
-        });
-    }
-
-    function sig_open_kanban_return_dialog(sourceSe, mrName) {
-        // The return dialog is the single implementation in material_request.js
-        // (same file that owns the dispatch dialog); fails safe if it has not
-        // evaluated yet.
-        if (window.sig_wh && window.sig_wh.open_return_dialog) {
-            window.sig_wh.open_return_dialog({ sourceSe, mrName, onDone: () => invalidate_availability(mrName) });
+        // Same MR-level return entry point as the form's Manage > Return
+        // (material_request.js): finds the dispatch Stock Entry(ies) through
+        // the rows' own MR link, so it also works for MRs dispatched outside
+        // the Kanban flow.
+        if (window.sig_wh && window.sig_wh.open_mr_return) {
+            window.sig_wh.open_mr_return(doc.name, () => invalidate_availability(doc.name));
         } else {
             frappe.msgprint(__('Return module still loading - try again in a moment.'));
         }
@@ -622,7 +590,7 @@
         refresh_availability($board);
     }
 
-    window.sig_wh = Object.assign(window.sig_wh || {}, { invalidate_availability });
+    window.sig_wh = Object.assign(window.sig_wh || {}, { invalidate_availability, open_mr_cancel: sig_kanban_cancel });
 
     bind_card_actions_once();
     frappe.router.on('change', () => setTimeout(ensure_observer, 0));

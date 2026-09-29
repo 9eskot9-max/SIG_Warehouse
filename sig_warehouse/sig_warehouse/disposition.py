@@ -313,6 +313,37 @@ def sig_declare_disposition(operation_id, action, source_se, line_count=0, to_wh
 
 
 @frappe.whitelist()
+def sig_mr_return_sources(mr):
+    """The outbound Stock Entries a Material Request was dispatched by, with how much of each still
+    lacks a return/custody/consumed declaration.  Found through the rows' own ``material_request``
+    link (not through SIG Dispatch Operation), so requests dispatched before the Kanban flow, or
+    closed long ago, are covered too.  Returns are excluded (``is_return = 0``)."""
+    if not frappe.has_permission("Material Request", "read", doc=mr):
+        frappe.throw("Not permitted to read this Material Request", frappe.PermissionError)
+    rows = frappe.db.sql(
+        """select se.name, se.posting_date, se.purpose, se.custom_return_state,
+                  sum(d.qty) as qty,
+                  sum(case when d.custom_return_closed = 1 then 0
+                           else greatest(d.qty - ifnull(d.custom_qty_returned, 0) - ifnull(d.custom_qty_custody, 0), 0) end)
+                      as open_qty,
+                  sum(case when d.custom_return_closed = 1 then 1 else 0 end) as closed_rows
+           from `tabStock Entry Detail` d
+           join `tabStock Entry` se on se.name = d.parent
+           where d.material_request = %s and d.parenttype = 'Stock Entry'
+             and se.docstatus = 1 and se.is_return = 0
+             and se.purpose in ('Material Issue', 'Material Transfer')
+           group by se.name, se.posting_date, se.purpose, se.custom_return_state
+           order by se.posting_date, se.name""",
+        (mr,), as_dict=True)
+    return [
+        {"name": r.name, "posting_date": str(r.posting_date), "purpose": r.purpose,
+         "return_state": r.custom_return_state, "qty": float(r.qty or 0),
+         "open_qty": round(float(r.open_qty or 0), 6), "closed_rows": int(r.closed_rows or 0)}
+        for r in rows
+    ]
+
+
+@frappe.whitelist()
 def sig_check_disposition_status(operation_id):
     row = frappe.db.get_value(
         "SIG Dispatch Operation", {"operation_id": operation_id},

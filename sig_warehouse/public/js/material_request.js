@@ -5,7 +5,6 @@
         refresh(frm) {
             if (frm.doc.material_request_type !== 'Material Issue') return;
             if (frm.doc.docstatus !== 1) return;
-            if (!['PENDING', 'PARTIAL'].includes(frm.doc.custom_dispatch_stage)) return;
             // ERPNext installs its native Create > Issue Material action during
             // its own refresh work. Run after that work as well as on subsequent
             // refreshes: a one-time synchronous cleanup can race core and leave
@@ -13,18 +12,23 @@
             [0, 100, 500].forEach((delay) => {
                 setTimeout(() => sig_hide_native_issue_action(frm), delay);
             });
-            if (frm.__sig_dispatch_button_added) return;
-            frm.__sig_dispatch_button_added = true;
-            // Standalone primary button (not nested under "Actions") so it is
-            // immediately visible on the page - a separate Client Script
-            // ("SIG MR Issue Button") tried to add this as a shortcut by
-            // simulating a click on the old dropdown item via a data-label
-            // selector that Frappe's dropdown markup doesn't actually expose,
-            // so it silently did nothing. Consolidated into this one real
-            // button instead of maintaining two.
-            const $btn = frm.add_custom_button(__('Issue'), () => sig_open_dispatch_dialog(frm));
-            $btn.removeClass('btn-default').addClass('btn-primary');
-
+            if (frm.__sig_manage_added) return;
+            frm.__sig_manage_added = true;
+            // One "Manage" group on every submitted Material Issue request, at
+            // every stage - including CLOSED ones, so a return that was never
+            // declared can still be entered afterwards. Each action checks for
+            // itself whether there is anything left to do.
+            const group = __('Manage');
+            frm.add_custom_button(__('Issue'), () => sig_open_dispatch_dialog(frm), group);
+            frm.add_custom_button(__('Return'), () => sig_open_mr_return(frm.doc.name, () => frm.reload_doc()), group);
+            frm.add_custom_button(__('Cancel remaining'), () => {
+                if (window.sig_wh && window.sig_wh.open_mr_cancel) {
+                    window.sig_wh.open_mr_cancel(frm.doc, () => frm.reload_doc());
+                } else {
+                    frappe.msgprint(__('Cancel module still loading - try again in a moment.'));
+                }
+            }, group);
+            frm.page.set_inner_btn_group_as_primary(group);
         }
     });
 
@@ -434,6 +438,49 @@
     // submits a Stock Entry immediately, so nothing goes back to stock
     // unless the operator types a quantity or presses "Return all left".
     // ---------------------------------------------------------------------
+    // Entry point for "Return" on a whole Material Request: finds the outbound
+    // Stock Entry(ies) it was dispatched by and opens the return dialog on the
+    // one that still has undeclared quantity. Works at any stage, and for
+    // requests dispatched before the Kanban flow existed.
+    function sig_open_mr_return(mrName, onDone) {
+        frappe.call({
+            method: 'sig_warehouse.sig_warehouse.disposition.sig_mr_return_sources',
+            args: { mr: mrName },
+            freeze: true, freeze_message: __('Finding dispatch...'),
+            callback: (r) => {
+                const all = r.message || [];
+                if (!all.length) {
+                    frappe.msgprint(__('No dispatch Stock Entry found for {0}.', [mrName]));
+                    return;
+                }
+                const open = all.filter((x) => x.open_qty > 0.000001);
+                if (!open.length) {
+                    const consumed = all.filter((x) => x.closed_rows > 0).map((x) => x.name);
+                    frappe.msgprint(consumed.length
+                        ? __('Every line of {0} is already declared. Lines closed as consumed can be corrected from the dispatch Stock Entry ({1}): Declare > Reopen for correction, then return again.',
+                            [mrName, consumed.join(', ')])
+                        : __('Every line of {0} is already declared.', [mrName]));
+                    return;
+                }
+                const go = (se) => sig_open_return_dialog({ sourceSe: se, mrName, onDone });
+                if (open.length === 1) { go(open[0].name); return; }
+                const labelOf = (x) => `${x.name} (${x.posting_date}, ${__('left')} ${sig_round(x.open_qty)})`;
+                const d = new frappe.ui.Dialog({
+                    title: __('Select dispatch to return against'),
+                    fields: [{ fieldtype: 'Select', fieldname: 'se', label: __('Stock Entry'),
+                        options: open.map(labelOf).join('\n'), default: labelOf(open[0]), reqd: 1 }],
+                    primary_action_label: __('Continue'),
+                    primary_action() {
+                        const se = String(d.get_value('se') || '').split(' ')[0];
+                        d.hide();
+                        go(se);
+                    },
+                });
+                d.show();
+            },
+        });
+    }
+
     const sig_round = (v) => Math.round((Number(v) || 0) * 1e6) / 1e6;
 
     function sig_open_return_dialog(opts) {
@@ -622,5 +669,6 @@
     window.sig_wh = Object.assign(window.sig_wh || {}, {
         open_mr_dispatch: sig_open_dispatch_dialog,
         open_return_dialog: sig_open_return_dialog,
+        open_mr_return: sig_open_mr_return,
     });
 })();

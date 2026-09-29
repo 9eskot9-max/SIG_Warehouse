@@ -52,9 +52,9 @@ doctype_js = {}
 # availability check is cached with a TTL instead of re-fetching every MR on
 # every board redraw.
 app_include_js = [
-    "/assets/sig_warehouse/js/material_request_list.js?v=20260929-1",
-    "/assets/sig_warehouse/js/material_request.js?v=20260929-1",
-    "/assets/sig_warehouse/js/stock_entry.js?v=20260929-1",
+    "/assets/sig_warehouse/js/material_request_list.js?v=20260929-2",
+    "/assets/sig_warehouse/js/material_request.js?v=20260929-2",
+    "/assets/sig_warehouse/js/stock_entry.js?v=20260929-2",
     "/assets/sig_warehouse/js/warehouse_workspace_redirect.js?v=20260928-2",
 ]
 
