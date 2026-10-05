@@ -39,7 +39,7 @@
             const a = document.createElement('a');
             const href = URL.createObjectURL(blob);
             a.href = href;
-            a.download = String(view.frm.doc.name).replace(/[\\/:*?"<>|]+/g, '-') + '.pdf';
+            a.download = file_name(view.frm.doc);
             document.body.appendChild(a);
             a.click();
             a.remove();
@@ -50,14 +50,37 @@
         }
     }
 
+    // "<document name> . <party name>.pdf", e.g. "SIG-SINV-26-118 . Client Name.pdf".
+    // Falls back to the bare document name when the document has no party field.
+    const PARTY_FIELDS = ['customer_name', 'supplier_name', 'party_name', 'employee_name',
+        'customer', 'supplier', 'party'];
+    function clean(s) {
+        return String(s || '').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '-').replace(/\s+/g, ' ')
+            .trim().replace(/[. ]+$/, '');
+    }
+    function file_name(doc) {
+        const party = PARTY_FIELDS.map(f => doc[f]).find(v => v && typeof v === 'string');
+        const base = clean(doc.name) + (party ? ' . ' + clean(party) : '');
+        return base.slice(0, 150) + '.pdf';
+    }
+
+    // Download becomes the single blue (primary) button at the far right; Print stays but turns
+    // neutral and sits to its left.
     function relabel() {
-        $('#page-print .page-actions button').each(function () {
-            const $b = $(this);
-            if ($b.text().trim() === 'PDF' || $b.text().trim() === __('PDF')) {
-                $b.find('span').first().text(__('Download'));
-                if (!$b.find('span').length) $b.text(__('Download'));
-            }
-        });
+        const $actions = $('#page-print .page-actions');
+        const label = (b) => $(b).text().trim();
+        const $print = $actions.find('button').filter((i, b) => label(b) === 'Print' || label(b) === __('Print')).first();
+        let $dl = $actions.find('button').filter((i, b) => ['PDF', 'Download', __('PDF'), __('Download')].includes(label(b))).first();
+        if (!$dl.length) return;
+        if (label($dl) !== __('Download')) {
+            const $s = $dl.find('span').first();
+            if ($s.length) $s.text(__('Download')); else $dl.text(__('Download'));
+        }
+        $dl.removeClass('btn-default btn-secondary').addClass('btn-primary');
+        if ($print.length && !$print.is($dl)) {
+            $print.removeClass('btn-primary primary-action').addClass('btn-default');
+            if ($dl.prev()[0] !== $print[0] || $dl.parent()[0] !== $print.parent()[0]) $print.after($dl);
+        }
     }
 
     function patch() {
