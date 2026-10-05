@@ -71,3 +71,28 @@ def journal_entry(data):
 
 def asset(data):
     return _add_site(data, "custom_sig_site")
+
+
+def site_cycle(data):
+    return _add_site(data, "site")
+
+
+def field_visit(data):
+    return _add_site(data, "site")
+
+
+def tawal_invoice_link(data):
+    return _add_site(data, "site")
+
+
+def evidence_event(data):
+    return _add_site(data, "site")
+
+
+def field_session(data):
+    return _add_site(data, "site")
+
+
+def asset_movement(data):
+    # Two site fields exist (from/to); internal_links takes one, so show the destination.
+    return _add_site(data, "custom_sig_site_to")

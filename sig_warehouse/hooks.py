@@ -78,6 +78,12 @@ override_doctype_dashboards = {
     "Payment Entry": "sig_warehouse.sig_warehouse.dashboards.payment_entry",
     "Journal Entry": "sig_warehouse.sig_warehouse.dashboards.journal_entry",
     "Asset": "sig_warehouse.sig_warehouse.dashboards.asset",
+    "SIG Site Cycle": "sig_warehouse.sig_warehouse.dashboards.site_cycle",
+    "SIG Field Visit": "sig_warehouse.sig_warehouse.dashboards.field_visit",
+    "SIG Tawal Invoice Link": "sig_warehouse.sig_warehouse.dashboards.tawal_invoice_link",
+    "SIG Evidence Event": "sig_warehouse.sig_warehouse.dashboards.evidence_event",
+    "SIG Field Session": "sig_warehouse.sig_warehouse.dashboards.field_session",
+    "Asset Movement": "sig_warehouse.sig_warehouse.dashboards.asset_movement",
 }
 
 doc_events = {
