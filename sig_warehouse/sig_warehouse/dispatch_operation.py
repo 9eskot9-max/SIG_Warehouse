@@ -17,6 +17,7 @@ import hashlib
 import frappe
 
 from sig_warehouse.sig_warehouse import cutover, rollup
+from sig_warehouse.sig_warehouse.ledger_accounts import MATERIALS_EXPENSE_ACCOUNT
 
 WH_MAP = {
     "Riyadh": "مستودع المزاحمية - SIG", "Ry": "مستودع المزاحمية - SIG",
@@ -223,6 +224,8 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
             "item_code": row.item_code, "qty": line["qty"], "uom": row.uom,
             "s_warehouse": warehouse, "material_request": mr, "material_request_item": line["mri"],
             "cost_center": "Main - SIG",
+            # consumption is materials expense, not a stock adjustment (accountant, 2026-10-04)
+            "expense_account": MATERIALS_EXPENSE_ACCOUNT,
         }
         # Site is recorded at the Stock Entry detail grain.  The before_insert
         # hook mirrors it to the Stock Entry header only when all lines agree,

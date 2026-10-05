@@ -23,6 +23,8 @@ import hashlib
 import frappe
 from frappe import _
 
+from sig_warehouse.sig_warehouse.ledger_accounts import MATERIALS_EXPENSE_ACCOUNT
+
 ALLOWED_ROLES = ("Stock Manager", "System Manager")
 COMPANY = "Salah Ibrahim Algain Contracting Company Ltd"
 
@@ -97,6 +99,7 @@ def sig_dispatch_tool(operation_id, item_code, qty, from_wh, custodian_type,
     detail = {
         "item_code": item_code, "qty": qty, "uom": item_uom,
         "s_warehouse": from_wh, "cost_center": "Main - SIG",
+        "expense_account": MATERIALS_EXPENSE_ACCOUNT,
     }
     rate = frappe.db.get_value(
         "Stock Ledger Entry", {"item_code": item_code, "warehouse": from_wh, "is_cancelled": 0},

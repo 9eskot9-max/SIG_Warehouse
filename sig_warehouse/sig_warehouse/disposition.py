@@ -21,6 +21,7 @@ import hashlib
 import frappe
 
 from sig_warehouse.sig_warehouse import rollup
+from sig_warehouse.sig_warehouse.ledger_accounts import MATERIALS_EXPENSE_ACCOUNT
 
 ALLOWED_ACTIONS = ("RETURN", "CUSTODY", "CLOSE", "REOPEN")
 ALLOWED_ROLES = ("Stock Manager", "System Manager")
@@ -214,6 +215,8 @@ def sig_declare_disposition(operation_id, action, source_se, line_count=0, to_wh
                 item["custom_row_key"] = row.custom_row_key
             if new_purpose == "Material Receipt":
                 item["t_warehouse"] = row.s_warehouse
+                # a return reverses the issue, so it credits the account the issue debited
+                item["expense_account"] = MATERIALS_EXPENSE_ACCOUNT
             else:
                 item["s_warehouse"] = row.t_warehouse
                 item["t_warehouse"] = row.s_warehouse
