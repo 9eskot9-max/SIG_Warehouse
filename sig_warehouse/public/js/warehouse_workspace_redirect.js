@@ -12,6 +12,14 @@
         'sig-hr': {
             route: 'hr-workbench',
             allowNativeOnceKey: 'sig_hr_allow_native_workspace_once'
+        },
+        // "SIG - My Work" is open to every user, but its replacement Page is limited to the Employee roles.
+        // roleAny keeps users without those roles (finance, warehouse, ops staff) on the native workspace
+        // instead of sending them to a Page they cannot open.
+        'sig-my-work': {
+            route: 'employee-workbench',
+            allowNativeOnceKey: 'sig_my_work_allow_native_workspace_once',
+            roleAny: ['Employee', 'Employee Self Service', 'HR User', 'HR Manager', 'System Manager']
         }
     };
 
@@ -48,6 +56,7 @@
     function routeToWorkbench() {
         const target = getWorkspaceTarget();
         if (!target) return;
+        if (target.roleAny && !target.roleAny.some((role) => frappe.user.has_role(role))) return;
 
         if (window.sessionStorage.getItem(target.allowNativeOnceKey) === '1') {
             window.sessionStorage.removeItem(target.allowNativeOnceKey);

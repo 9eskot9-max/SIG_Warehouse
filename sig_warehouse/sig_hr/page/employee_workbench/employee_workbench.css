@@ -1,0 +1,57 @@
+/* Same visual system as hr_workbench.css / finance_workbench.css (class prefix sig-emp). */
+
+.sig-emp-home {
+    --sig-emp-accent: var(--primary);
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 16px 22px 36px;
+    text-align: start;
+}
+
+.sig-emp-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 26px 30px;
+    margin-bottom: 28px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: var(--card-bg);
+}
+
+.sig-emp-eyebrow { color: var(--text-muted); font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.sig-emp-header h1 { margin: 6px 0 5px; color: var(--text-color); font-size: 26px; font-weight: 650; }
+.sig-emp-header p, .sig-emp-section-heading p { margin: 0; color: var(--text-muted); font-size: 13px; }
+.sig-emp-header-mark { display: grid; flex: 0 0 62px; width: 62px; height: 62px; place-items: center; border-radius: 12px; background: var(--bg-light-gray); color: var(--sig-emp-accent); font-size: 25px; }
+.sig-emp-section { margin-bottom: 27px; }
+.sig-emp-section-heading { margin-bottom: 12px; }
+.sig-emp-section-heading h2 { margin: 0 0 4px; color: var(--text-color); font-size: 17px; font-weight: 600; }
+.sig-emp-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.sig-emp-grid-compact { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.sig-emp-card { display: flex; min-width: 0; min-height: 132px; flex-direction: column; align-items: stretch; padding: 17px 18px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--card-bg); color: var(--text-color); text-align: start; transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease; }
+.sig-emp-card:hover, .sig-emp-card:focus-visible { border-color: var(--sig-emp-accent); box-shadow: 0 3px 12px rgba(0, 0, 0, .06); color: var(--text-color); outline: none; transform: translateY(-1px); }
+.sig-emp-card:focus-visible { box-shadow: 0 0 0 3px var(--blue-100); }
+.sig-emp-card-top { display: flex; min-height: 30px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.sig-emp-icon { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 8px; background: var(--bg-light-gray); color: var(--sig-emp-accent); }
+.sig-emp-open { color: var(--text-light); font-size: 11px; }
+.sig-emp-card-title { font-size: 14px; font-weight: 600; }
+.sig-emp-metric { margin-top: 8px; color: var(--sig-emp-accent); font-size: 19px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.sig-emp-detail { margin-top: 5px; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.sig-emp-card-compact { min-height: 92px; padding: 14px 15px; }
+.sig-emp-card-compact .sig-emp-card-top { min-height: 0; margin-bottom: 8px; }
+.sig-emp-card-compact .sig-emp-card-title { font-size: 13px; }
+.sig-emp-footnote { padding-top: 14px; border-top: 1px solid var(--border-color); color: var(--text-muted); font-size: 11px; }
+
+@media (max-width: 900px) { .sig-emp-grid-compact { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .sig-emp-home { padding: 10px 12px 25px; } .sig-emp-header { padding: 20px; margin-bottom: 22px; } .sig-emp-header h1 { font-size: 22px; } .sig-emp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .sig-emp-header-mark { display: none; } .sig-emp-grid, .sig-emp-grid-compact { grid-template-columns: 1fr; } .sig-emp-card, .sig-emp-card-compact { min-height: 90px; } }
+
+.sig-emp-list { max-height: 240px; overflow: auto; padding-inline-start: 18px; font-size: 12px; }
+.sig-emp-pre { white-space: pre-wrap; font-size: 12px; background: var(--bg-light-gray); padding: 10px; border-radius: 8px; }
+
+.sig-emp-notice { margin: 0 0 22px; padding: 14px 16px; border: 1px solid var(--yellow-300, #f2d98d); border-radius: 10px; background: var(--yellow-50, #fffbea); color: var(--text-color); font-size: 13px; }
+.sig-emp-metric-bad { color: var(--red-600, #c0392b); }
+.sig-emp-metric-warn { color: var(--orange-600, #c26a00); }
+.sig-emp-metric-muted { color: var(--text-muted); font-weight: 500; }
+.sig-emp-metric { font-size: 15px; }

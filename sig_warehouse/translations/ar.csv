@@ -143,3 +143,29 @@ Sent: {0}. Failed: {1}. Skipped (asked recently): {2}.,أُرسلت: {0}. فشل
 Send test to test phone,إرسال تجربة إلى رقم الاختبار
 Test message sent: {0}.,أُرسلت رسالة الاختبار: {0}.
 Original HR Workspace,مساحة الموارد البشرية الأصلية
+Employee Page,صفحة الموظف
+Original Employee Workspace,مساحة عمل الموظف الأصلية
+Not recorded,غير مسجل
+Expired {0} days ago,انتهت منذ {0} يومًا
+{0} days left,متبقي {0} يومًا
+Raise an HR ticket,رفع تذكرة للموارد البشرية
+"Ask HR for help, a correction, or a document.",اطلب من الموارد البشرية مساعدة أو تصحيحًا أو مستندًا.
+My HR tickets,تذاكري
+Track the tickets you raised.,تابع التذاكر التي رفعتها.
+My check-ins,تسجيلات حضوري
+Your attendance punches from WhatsApp and the office.,تسجيلات حضورك من واتساب والمكتب.
+My employee record,سجلي الوظيفي
+View your details. Ask HR to correct anything that is wrong.,اطلع على بياناتك واطلب من الموارد البشرية تصحيح أي خطأ.
+Iqama expiry,انتهاء الإقامة
+From your employee record. Contact HR to update it.,من سجلك الوظيفي. تواصل مع الموارد البشرية لتحديثه.
+Passport expiry,انتهاء الجواز
+Work permit expiry,انتهاء رخصة العمل
+"Welcome, {0}",مرحبًا، {0}
+Welcome,مرحبًا
+No employee record is linked to this login. Ask HR to link your user to your employee record.,لا يوجد سجل موظف مرتبط بحسابك. اطلب من الموارد البشرية ربط مستخدمك بسجلك الوظيفي.
+My work,عملي
+Employee page,صفحة الموظف
+My tasks,مهامي
+"Open your requests, tickets, and attendance.",افتح طلباتك وتذاكرك وحضورك.
+My documents,مستنداتي
+Expiry dates from your employee record.,تواريخ الانتهاء من سجلك الوظيفي.
