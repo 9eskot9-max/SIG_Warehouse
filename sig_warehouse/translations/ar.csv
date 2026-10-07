@@ -73,3 +73,72 @@ Open supplier invoices,فواتير الموردين غير المسددة
 "Count of submitted supplier invoices with an outstanding balance; not a monetary total.","عدد فواتير الموردين المرحلة ذات الرصيد المستحق؛ وليس إجمالي مبلغ مالي."
 Unsubmitted journal entries,قيود يومية غير مرحلة
 Review draft journals before an authorized accountant submits them.,راجع مسودات القيود قبل ترحيلها من محاسب مخول.
+SIG HR,الموارد البشرية SIG
+HR Workbench,مساحة عمل الموارد البشرية
+HR workbench,مساحة عمل الموارد البشرية
+Human Resources,الموارد البشرية
+Employees,الموظفون
+"Active employee records, contacts, and assignments.",سجلات الموظفين النشطين وبيانات التواصل والتكليفات.
+Onboarding board,لوحة التهيئة
+"Each employee's access, custody ledger, bank, WhatsApp, and compliance checks.",فحوصات كل موظف: الدخول، حساب العهدة، البنك، واتساب، والامتثال.
+People readiness,جاهزية الموظفين
+"One row per employee: login, mobile, custody ledger, and balance.",صف لكل موظف: الدخول والجوال وحساب العهدة والرصيد.
+Custody ledger balances,أرصدة حسابات العهد
+"Every 1322 custody ledger with its employee, balance, and last posting.",كل حسابات العهد 1322 مع الموظف والرصيد وآخر قيد.
+Iqama expired,إقامات منتهية
+Active employees past their Iqama expiry (from the monthly Muqeem upload).,موظفون نشطون انتهت إقاماتهم (من تحميل مقيم الشهري).
+Iqama due within 30 days,إقامات تنتهي خلال 30 يومًا
+Start renewals now.,ابدأ التجديد الآن.
+Onboarding exceptions,استثناءات التهيئة
+"Employees with a missing login, ledger, mobile, or identity data.",موظفون ينقصهم الدخول أو حساب العهدة أو الجوال أو بيانات الهوية.
+Email replies to review,ردود البريد للمراجعة
+"Official emails received on WhatsApp, waiting for HR to apply.",بريد رسمي وصل عبر واتساب بانتظار اعتماد الموارد البشرية.
+Iqama renewals (90 days),تجديد الإقامات (90 يومًا)
+Iqama expiring within 90 days or already expired.,إقامات تنتهي خلال 90 يومًا أو منتهية.
+Passport renewals (90 days),تجديد الجوازات (90 يومًا)
+Passport expiring within 90 days or already expired.,جوازات تنتهي خلال 90 يومًا أو منتهية.
+Work permit renewals (90 days),تجديد رخص العمل (90 يومًا)
+Work permit expiring within 90 days or already expired.,رخص عمل تنتهي خلال 90 يومًا أو منتهية.
+My open tasks,مهامي المفتوحة
+Open to-dos assigned to you.,المهام المفتوحة المسندة إليك.
+No mobile number,بدون رقم جوال
+Cannot receive WhatsApp or appear in attendance.,لا يمكنه استقبال واتساب أو الظهور في الحضور.
+Login email not deliverable,بريد الدخول غير صالح للإرسال
+Login is an internal .local address that cannot receive email.,الدخول بعنوان .local داخلي لا يستقبل البريد.
+Placeholder birth date,تاريخ ميلاد مؤقت
+Date of birth is the 1900-01-01 placeholder.,تاريخ الميلاد هو القيمة المؤقتة 1900-01-01.
+No user linked,بدون مستخدم مرتبط
+Active employees without a system user.,موظفون نشطون بدون مستخدم في النظام.
+No custody ledger,بدون حساب عهدة
+Active employees without a 1322 custody ledger.,موظفون نشطون بدون حساب عهدة 1322.
+Approvals queue,قائمة الموافقات
+"Leave, expense, and advance requests waiting for a decision.",طلبات الإجازات والمصروفات والسلف بانتظار القرار.
+Leave applications,طلبات الإجازة
+Not in use yet: leave policies are configured in a later HR stage.,غير مستخدم بعد: تُعد سياسات الإجازات في مرحلة لاحقة.
+Expense claims,مطالبات المصروفات
+Not in use yet.,غير مستخدم بعد.
+Employee advances,سلف الموظفين
+Request official emails,طلب البريد الرسمي
+"Ask employees on .local logins, by WhatsApp, to reply with their official email. Replies are collected for HR review; nothing is changed automatically.",اطلب عبر واتساب من الموظفين ذوي حسابات .local الرد ببريدهم الرسمي. تُجمع الردود لمراجعة الموارد البشرية ولا يتغير شيء تلقائيًا.
+"Daily people work, compliance, and the link between employees and finance.",العمل اليومي للموظفين والامتثال والربط بين الموظفين والمالية.
+Daily people work,العمل اليومي للموظفين
+Open the employee records and the onboarding checks.,افتح سجلات الموظفين وفحوصات التهيئة.
+Needs attention,يحتاج متابعة
+Counts that need action today.,أعداد تحتاج إجراءً اليوم.
+Compliance,الامتثال
+"Renewal queues filtered by expiry date, and your open tasks.",قوائم التجديد حسب تاريخ الانتهاء ومهامك المفتوحة.
+Data quality,جودة البيانات
+"Gaps that block WhatsApp, logins, or custody postings.",نواقص تمنع واتساب أو الدخول أو قيود العهدة.
+HR actions,إجراءات الموارد البشرية
+Controlled actions for HR managers.,إجراءات مضبوطة لمديري الموارد البشرية.
+Requests and approvals,الطلبات والموافقات
+"Employee requests. Leave, expense, and advance processes start in a later HR stage.",طلبات الموظفين. تبدأ إجراءات الإجازات والمصروفات والسلف في مرحلة لاحقة.
+"This page is navigation only. Document, workflow, and report permissions remain enforced by ERPNext.",هذه الصفحة للتنقل فقط. تبقى صلاحيات المستندات وسير العمل والتقارير مطبقة في ERPNext.
+already asked,سبق سؤاله
+Recipients,المستلمون
+Message,الرسالة
+Send to recipients,إرسال إلى المستلمين
+Send the WhatsApp message to {0} employees?,إرسال رسالة واتساب إلى {0} موظفين؟
+Sent: {0}. Failed: {1}. Skipped (asked recently): {2}.,أُرسلت: {0}. فشلت: {1}. تم التخطي (سُئلوا مؤخرًا): {2}.
+Send test to test phone,إرسال تجربة إلى رقم الاختبار
+Test message sent: {0}.,أُرسلت رسالة الاختبار: {0}.

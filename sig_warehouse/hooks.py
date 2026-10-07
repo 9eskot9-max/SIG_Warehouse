@@ -65,6 +65,8 @@ scheduler_events = {
     "cron": {
         "*/15 * * * *": ["sig_warehouse.sig_warehouse.field_feed.run_feed"],
     },
+    # HR email request replies (WhatsApp Inbox -> SIG Employee Onboarding.proposed_email, for HR review only).
+    "hourly": ["sig_warehouse.sig_hr.email_request.collect_email_replies"],
 }
 
 override_doctype_dashboards = {
