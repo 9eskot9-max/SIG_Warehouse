@@ -3,6 +3,12 @@
 // HR email request (HR Manager / System Manager), which never changes a User or Employee.
 frappe.pages['hr-workbench'].on_page_load = function (wrapper) {
     const page = frappe.ui.make_app_page({parent: wrapper, title: __('SIG HR'), single_column: true});
+    // Same escape hatch as the Warehouse workbench: the sidebar's SIG HR entry is redirected here by
+    // warehouse_workspace_redirect.js; this opens the native workspace once without redirecting back.
+    page.add_inner_button(__('Original HR Workspace'), () => {
+        window.sessionStorage.setItem('sig_hr_allow_native_workspace_once', '1');
+        frappe.set_route('Workspaces', 'SIG HR');
+    });
     const language = String(frappe.boot?.lang || 'en').toLowerCase();
     const root = $('<main class="sig-hr-home"></main>')
         .attr('dir', language.startsWith('ar') ? 'rtl' : 'ltr')

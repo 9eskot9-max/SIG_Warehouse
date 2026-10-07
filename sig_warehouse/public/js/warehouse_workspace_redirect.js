@@ -8,6 +8,10 @@
         'sig-accounting': {
             route: 'finance-workbench',
             allowNativeOnceKey: 'sig_finance_allow_native_workspace_once'
+        },
+        'sig-hr': {
+            route: 'hr-workbench',
+            allowNativeOnceKey: 'sig_hr_allow_native_workspace_once'
         }
     };
 

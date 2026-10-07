@@ -142,3 +142,4 @@ Send the WhatsApp message to {0} employees?,إرسال رسالة واتساب �
 Sent: {0}. Failed: {1}. Skipped (asked recently): {2}.,أُرسلت: {0}. فشلت: {1}. تم التخطي (سُئلوا مؤخرًا): {2}.
 Send test to test phone,إرسال تجربة إلى رقم الاختبار
 Test message sent: {0}.,أُرسلت رسالة الاختبار: {0}.
+Original HR Workspace,مساحة الموارد البشرية الأصلية
