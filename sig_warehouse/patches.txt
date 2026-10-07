@@ -5,3 +5,4 @@
 
 [post_model_sync]
 sig_warehouse.sig_warehouse.patches.v1_0.add_sig_accounting_module_and_reclassify_page
+sig_warehouse.sig_warehouse.patches.v1_0.add_invoice_reversal_role_and_credit_note_guard
