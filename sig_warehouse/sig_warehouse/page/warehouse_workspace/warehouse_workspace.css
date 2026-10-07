@@ -1,147 +1,137 @@
+/* SIG brand system for the Employee page, over the shared workbench skeleton
+   (same layout as hr_workbench.css / finance_workbench.css, class prefix sig-wh).
+
+   Palette authority:
+   - Structure: outputs/SIG_Company_Profile_Handover/05_Handover_Docs/DESIGN_SYSTEM.md
+     navy #081C44 / deep #061634, blue #1E7FFC, cyan #22C7EE, slate #53657D,
+     pale blue #EEF7FC; sea gradient #167CF4 -> #1DACEB -> #22C7EE (the ERP
+     header divider asset, used here as the header and section underline).
+   - Status tints: ERPNext/print_formats/sig_tax_invoice.html
+     green #1a7a3d on #eafaf0, amber #8a6d00 on #fff8e1, red #a4211f on #fdecec.
+   Contrast rules from the design system: white text on the navy header, cyan for
+   labels and lines only, navy titles with slate body on light cards. */
+
 .sig-wh-home {
-    --sig-wh-accent: var(--primary);
+    --sig-deep: #061634;
+    --sig-navy: #081C44;
+    --sig-blue: #1E7FFC;
+    --sig-cyan: #22C7EE;
+    --sig-slate: #53657D;
+    --sig-pale: #EEF7FC;
+    --sig-sea: linear-gradient(90deg, #167CF4, #1DACEB 52%, #22C7EE);
+    --sig-ok: #1a7a3d;   --sig-ok-bg: #eafaf0;
+    --sig-warn: #8a6d00; --sig-warn-bg: #fff8e1;
+    --sig-bad: #a4211f;  --sig-bad-bg: #fdecec;
     max-width: 1320px;
     margin: 0 auto;
     padding: 16px 22px 36px;
+    text-align: start;
 }
 
+/* Header: the SIG dark field with the rising-signal divider underneath. */
 .sig-wh-header {
+    position: relative;
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    justify-content: space-between;
     gap: 24px;
-    padding: 26px 30px;
-    margin-bottom: 30px;
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    background: var(--card-bg);
+    padding: 28px 30px 32px;
+    margin-bottom: 28px;
+    overflow: hidden;
+    border: none;
+    border-radius: 14px;
+    background: linear-gradient(135deg, var(--sig-deep) 0%, var(--sig-navy) 100%);
+    color: #FFFFFF;
 }
 
-.sig-wh-eyebrow {
-    color: var(--text-muted);
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: .06em;
-    text-transform: uppercase;
+.sig-wh-header::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0;
+    height: 4px;
+    background: var(--sig-sea);
 }
 
-.sig-wh-header h1 {
-    margin: 6px 0 5px;
-    color: var(--text-color);
-    font-size: 26px;
-    font-weight: 650;
+[dir="rtl"] .sig-wh-header::after { background: linear-gradient(270deg, #167CF4, #1DACEB 52%, #22C7EE); }
+
+.sig-wh-eyebrow { color: var(--sig-cyan); font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.sig-wh-header h1 { margin: 6px 0 5px; color: #FFFFFF; font-size: 26px; font-weight: 650; }
+.sig-wh-header p, .sig-wh-section-heading p { margin: 0; font-size: 13px; }
+.sig-wh-header p { color: #C9DCEC; }
+.sig-wh-section-heading p { color: var(--text-muted); }
+.sig-wh-header-mark { display: grid; flex: 0 0 62px; width: 62px; height: 62px; place-items: center; border-radius: 12px; background: rgba(255, 255, 255, .09); color: #7FD4F2; font-size: 26px; }
+
+/* Section headings: navy title with a short sea-gradient signal bar. */
+.sig-wh-section { margin-bottom: 27px; }
+.sig-wh-section-heading { margin-bottom: 12px; }
+.sig-wh-section-heading h2 { position: relative; margin: 0; padding-bottom: 9px; color: var(--sig-navy); font-size: 17px; font-weight: 650; }
+.sig-wh-section-heading h2::after {
+    content: "";
+    position: absolute;
+    inset-inline-start: 0;
+    bottom: 0;
+    width: 46px;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--sig-sea);
 }
+[dir="rtl"] .sig-wh-section-heading h2::after { background: linear-gradient(270deg, #167CF4, #1DACEB 52%, #22C7EE); }
 
-.sig-wh-header p, .sig-wh-section-heading p {
-    margin: 0;
-    color: var(--text-muted);
-    font-size: 13px;
-}
+.sig-wh-primary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.sig-wh-reference-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 
-.sig-wh-header-mark {
-    display: grid;
-    flex: 0 0 62px;
-    width: 62px;
-    height: 62px;
-    place-items: center;
-    border-radius: 12px;
-    background: var(--bg-light-gray);
-    color: var(--sig-wh-accent);
-    font-size: 25px;
-}
-
-.sig-wh-section { margin-bottom: 30px; }
-
-.sig-wh-section-heading { margin-bottom: 13px; }
-
-.sig-wh-section-heading h2 {
-    margin: 0 0 4px;
-    color: var(--text-color);
-    font-size: 17px;
-    font-weight: 600;
-}
-
-.sig-wh-primary-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px;
-}
-
+/* Cards: 4px status accent on the inline start, tinted icon chip, navy title.
+   Variants carry meaning: blue = work entry, amber = queue waiting for action,
+   cyan = live stock position, navy = record/controlled operation,
+   slate = reference/report, ok/warn/bad = status (invoice status tints). */
 .sig-wh-card {
+    --card-accent: var(--sig-slate);
+    --card-chip: var(--sig-pale);
     display: flex;
     min-width: 0;
+    min-height: 132px;
     flex-direction: column;
     align-items: stretch;
-    padding: 18px 19px;
+    padding: 17px 18px;
     border: 1px solid var(--border-color);
+    border-inline-start: 4px solid var(--card-accent);
     border-radius: 10px;
     background: var(--card-bg);
     color: var(--text-color);
-    text-align: left;
+    text-align: start;
     transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
 }
-
-.sig-wh-card:hover, .sig-wh-card:focus-visible {
-    border-color: var(--sig-wh-accent);
-    box-shadow: 0 3px 12px rgba(0, 0, 0, .06);
-    color: var(--text-color);
-    outline: none;
-    transform: translateY(-1px);
-}
-
-.sig-wh-card:focus-visible { box-shadow: 0 0 0 3px var(--blue-100); }
-
-.sig-wh-card-top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    min-height: 34px;
-    margin-bottom: 12px;
-}
-
-.sig-wh-icon {
-    display: grid;
-    width: 34px;
-    height: 34px;
-    place-items: center;
-    border-radius: 8px;
-    background: var(--bg-light-gray);
-    color: var(--sig-wh-accent);
-    font-size: 15px;
-}
-
-.sig-wh-open-icon { color: var(--text-light); font-size: 12px; }
-.sig-wh-card-title { font-size: 15px; font-weight: 600; }
+.sig-wh-card--blue  { --card-accent: var(--sig-blue); --card-chip: #E9F2FE; }
+.sig-wh-card--cyan  { --card-accent: var(--sig-cyan); --card-chip: #E6F9FE; }
+.sig-wh-card--navy  { --card-accent: var(--sig-navy); }
+.sig-wh-card--slate { --card-accent: var(--sig-slate); }
+.sig-wh-card--ok    { --card-accent: var(--sig-ok);   --card-chip: var(--sig-ok-bg); }
+.sig-wh-card--warn  { --card-accent: var(--sig-warn); --card-chip: var(--sig-warn-bg); }
+.sig-wh-card--bad   { --card-accent: var(--sig-bad);  --card-chip: var(--sig-bad-bg); }
+.sig-wh-card:hover, .sig-wh-card:focus-visible { border-color: var(--card-accent); border-inline-start-width: 4px; box-shadow: 0 3px 12px rgba(6, 22, 52, .08); color: var(--text-color); outline: none; transform: translateY(-1px); }
+.sig-wh-card:focus-visible { box-shadow: 0 0 0 3px rgba(30, 127, 252, .25); }
+.sig-wh-card-top { display: flex; min-height: 30px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.sig-wh-icon { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 8px; background: var(--card-chip); color: var(--card-accent); font-size: 14px; }
+.sig-wh-open { color: var(--text-light); font-size: 11px; }
+.sig-wh-card-title { color: var(--sig-navy); font-size: 14px; font-weight: 600; }
+.sig-wh-metric { margin-top: 8px; color: var(--card-accent); font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.sig-wh-metric-muted { color: var(--text-muted); font-weight: 500; }
 .sig-wh-description { margin-top: 5px; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
-
-.sig-wh-reference-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 10px;
-}
-
-.sig-wh-card-compact { min-height: 94px; padding: 14px 15px; }
-.sig-wh-card-compact .sig-wh-card-top { min-height: 0; margin-bottom: 7px; }
+.sig-wh-card-compact { min-height: 92px; padding: 14px 15px; }
+.sig-wh-card-compact .sig-wh-card-top { min-height: 0; margin-bottom: 8px; }
 .sig-wh-card-compact .sig-wh-card-title { font-size: 13px; }
 .sig-wh-card-compact .sig-wh-description { font-size: 11px; }
+.sig-wh-footnote { padding-top: 14px; border-top: 1px solid var(--border-color); color: var(--text-muted); font-size: 11px; }
 
-.sig-wh-footnote {
-    padding-top: 14px;
-    border-top: 1px solid var(--border-color);
-    color: var(--text-muted);
-    font-size: 11px;
-}
+@media (max-width: 900px) { .sig-wh-reference-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .sig-wh-home { padding: 10px 12px 25px; } .sig-wh-header { padding: 20px; margin-bottom: 22px; } .sig-wh-header h1 { font-size: 22px; } .sig-wh-primary-grid, .sig-wh-reference-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .sig-wh-header-mark { display: none; } .sig-wh-primary-grid, .sig-wh-reference-grid { grid-template-columns: 1fr; } .sig-wh-card, .sig-wh-card-compact { min-height: 90px; } }
 
-@media (max-width: 700px) {
-    .sig-wh-home { padding: 10px 12px 25px; }
-    .sig-wh-header { padding: 20px; margin-bottom: 23px; }
-    .sig-wh-header h1 { font-size: 22px; }
-    .sig-wh-reference-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
+.sig-wh-list { max-height: 240px; overflow: auto; padding-inline-start: 18px; font-size: 12px; }
+.sig-wh-pre { white-space: pre-wrap; font-size: 12px; background: var(--bg-light-gray); padding: 10px; border-radius: 8px; }
 
-@media (max-width: 520px) {
-    .sig-wh-header-mark { display: none; }
-    .sig-wh-primary-grid, .sig-wh-reference-grid { grid-template-columns: 1fr; }
-    .sig-wh-card { min-height: 126px; }
-    .sig-wh-card-compact { min-height: 85px; }
-}
+.sig-wh-notice { margin: 0 0 22px; padding: 14px 16px; border: 1px solid var(--yellow-300, #f2d98d); border-radius: 10px; background: var(--yellow-50, #fffbea); color: var(--text-color); font-size: 13px; }
+
+/* Dark theme is intentionally not styled: the ERP is used in light mode only
+   (decision 2026-10-07). The palette above is tuned for the light canvas. */

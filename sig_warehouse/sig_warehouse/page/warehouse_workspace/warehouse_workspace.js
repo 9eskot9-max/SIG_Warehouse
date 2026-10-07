@@ -14,7 +14,7 @@ frappe.pages['warehouse-workspace'].on_page_load = function (wrapper) {
 
     const primary = [
         {
-            title: __('Dispatch materials'),
+            title: __('Dispatch materials'), variant: 'blue',
             description: __('Review material requests and issue approved items from the dispatch board.'),
             icon: 'truck',
             doctype: 'Material Request',
@@ -22,7 +22,7 @@ frappe.pages['warehouse-workspace'].on_page_load = function (wrapper) {
             route: ['List', 'Material Request', 'Kanban']
         },
         {
-            title: __('Receive materials'),
+            title: __('Receive materials'), variant: 'blue',
             description: __('Review and record goods received against purchase orders.'),
             icon: 'inbox',
             doctype: 'Purchase Receipt',
@@ -30,7 +30,7 @@ frappe.pages['warehouse-workspace'].on_page_load = function (wrapper) {
             route: ['List', 'Purchase Receipt']
         },
         {
-            title: __('Stock entries and transfers'),
+            title: __('Stock entries and transfers'), variant: 'blue',
             description: __('Review stock movements or start a transfer through the existing Stock Entry controls.'),
             icon: 'exchange',
             doctype: 'Stock Entry',
@@ -38,7 +38,7 @@ frappe.pages['warehouse-workspace'].on_page_load = function (wrapper) {
             route: ['List', 'Stock Entry']
         },
         {
-            title: __('Returns and custody'),
+            title: __('Returns and custody'), variant: 'blue',
             description: __('Open the returns queue; declare return, custody, or consumption from the source stock entry.'),
             icon: 'undo',
             doctype: 'Stock Entry',
@@ -49,20 +49,20 @@ frappe.pages['warehouse-workspace'].on_page_load = function (wrapper) {
 
     const queues = [
         {
-            title: __('Dispatch queue report'),
+            title: __('Dispatch queue report'), variant: 'warn',
             description: __('Review pending and partial material requests.'),
             doctype: 'Material Request',
             report: 'SIG Dispatch Queue',
             route: ['query-report', 'SIG Dispatch Queue']
         },
         {
-            title: __('Dispatch operations'),
+            title: __('Dispatch operations'), variant: 'navy',
             description: __('Trace recorded dispatch operations.'),
             doctype: 'SIG Dispatch Operation',
             route: ['List', 'SIG Dispatch Operation']
         },
         {
-            title: __('As-Built'),
+            title: __('As-Built'), variant: 'slate',
             description: __('Review issued, returned, and custody quantities by project/site.'),
             doctype: 'Stock Entry',
             report: 'SIG As-Built',
@@ -72,33 +72,33 @@ frappe.pages['warehouse-workspace'].on_page_load = function (wrapper) {
 
     const stock = [
         {
-            title: __('Item catalog'),
+            title: __('Item catalog'), variant: 'slate',
             description: __('Find the approved ERP item code, name, and stock unit.'),
             doctype: 'Item',
             route: ['List', 'Item']
         },
         {
-            title: __('Warehouses'),
+            title: __('Warehouses'), variant: 'slate',
             description: __('Look up warehouse locations and their hierarchy.'),
             doctype: 'Warehouse',
             route: ['List', 'Warehouse']
         },
         {
-            title: __('SIG stock balance'),
+            title: __('SIG stock balance'), variant: 'cyan',
             description: __('Inspect current item and warehouse balances.'),
             doctype: 'Bin',
             report: 'SIG Stock Balance',
             route: ['query-report', 'SIG Stock Balance']
         },
         {
-            title: __('Stock value by warehouse'),
+            title: __('Stock value by warehouse'), variant: 'cyan',
             description: __('Review the valuation view by warehouse.'),
             doctype: 'Bin',
             report: 'SIG Stock Value By Warehouse',
             route: ['query-report', 'SIG Stock Value By Warehouse']
         },
         {
-            title: __('Custody by custodian'),
+            title: __('Custody by custodian'), variant: 'cyan',
             description: __('Review stock currently recorded in hand.'),
             doctype: 'SIG IH Position',
             report: 'SIG In-Hand Custody By Custodian',
@@ -108,34 +108,34 @@ frappe.pages['warehouse-workspace'].on_page_load = function (wrapper) {
 
     const movement = [
         {
-            title: __('Stock ledger'),
+            title: __('Stock ledger'), variant: 'navy',
             description: __('Trace posted stock movements and their accounting impact.'),
             doctype: 'Stock Ledger Entry',
             report: 'Stock Ledger',
             route: ['query-report', 'Stock Ledger']
         },
         {
-            title: __('MIR fulfilment'),
+            title: __('MIR fulfilment'), variant: 'amber',
             description: __('Compare requested, issued, and remaining quantities per request line.'),
             doctype: 'Material Request',
             report: 'SIG MIR Fulfilment',
             route: ['query-report', 'SIG MIR Fulfilment']
         },
         {
-            title: __('Material ledger by project'),
+            title: __('Material ledger by project'), variant: 'slate',
             description: __('Review issued-minus-returned quantities by project and item.'),
             doctype: 'Stock Entry',
             report: 'SIG Material Ledger By Project',
             route: ['query-report', 'SIG Material Ledger By Project']
         },
         {
-            title: __('Stock entries'),
+            title: __('Stock entries'), variant: 'navy',
             description: __('Search posted transfers and issues; goods receipts remain in Purchase Receipts.'),
             doctype: 'Stock Entry',
             route: ['List', 'Stock Entry']
         },
         {
-            title: __('Purchase receipts'),
+            title: __('Purchase receipts'), variant: 'navy',
             description: __('Review posted goods receipts and their purchase-order links.'),
             doctype: 'Purchase Receipt',
             route: ['List', 'Purchase Receipt']
@@ -144,26 +144,26 @@ frappe.pages['warehouse-workspace'].on_page_load = function (wrapper) {
 
     const controls = [
         {
-            title: __('Stock reconciliation — controlled'),
+            title: __('Stock reconciliation — controlled'), variant: 'navy',
             description: __('Use for an approved physical-count correction; this is not a routine adjustment shortcut.'),
             doctype: 'Stock Reconciliation',
             permission: 'create',
             route: ['List', 'Stock Reconciliation']
         },
         {
-            title: __('Item groups'),
+            title: __('Item groups'), variant: 'slate',
             description: __('Reference the approved catalog grouping.'),
             doctype: 'Item Group',
             route: ['List', 'Item Group']
         },
         {
-            title: __('Units of measure'),
+            title: __('Units of measure'), variant: 'slate',
             description: __('Reference ERPNext stock and purchase units.'),
             doctype: 'UOM',
             route: ['List', 'UOM']
         },
         {
-            title: __('Purchase orders — handoff'),
+            title: __('Purchase orders — handoff'), variant: 'slate',
             description: __('Purchasing owns the order; use it as receipt context, not a warehouse approval.'),
             doctype: 'Purchase Order',
             route: ['List', 'Purchase Order']
@@ -177,9 +177,9 @@ frappe.pages['warehouse-workspace'].on_page_load = function (wrapper) {
         const description = item.description
             ? `<span class="sig-wh-description">${frappe.utils.escape_html(item.description)}</span>`
             : '';
-        return `<button type="button" class="sig-wh-card ${compact ? 'sig-wh-card-compact' : ''}"
+        return `<button type="button" class="sig-wh-card sig-wh-card--${item.variant || 'slate'} ${compact ? 'sig-wh-card-compact' : ''}"
                     data-route="${frappe.utils.escape_html(JSON.stringify(item.route))}">
-            <span class="sig-wh-card-top">${icon}<i class="fa fa-external-link sig-wh-open-icon" aria-hidden="true"></i></span>
+            <span class="sig-wh-card-top">${icon}<i class="fa fa-external-link sig-wh-open" aria-hidden="true"></i></span>
             <span class="sig-wh-card-title">${frappe.utils.escape_html(item.title)}</span>
             ${description}
         </button>`;
