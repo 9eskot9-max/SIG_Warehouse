@@ -14,33 +14,34 @@ frappe.pages['finance-workbench'].on_page_load = function (wrapper) {
         .appendTo(page.main);
 
     const daily = [
-        {title: __('Payment entries'), description: __('Review receipts, supplier payments, and their invoice allocations.'), icon: 'exchange', doctype: 'Payment Entry', route: ['List', 'Payment Entry', 'List']},
-        {title: __('Sales invoices'), description: __('Review customer invoices and collection status.'), icon: 'file-text', doctype: 'Sales Invoice', route: ['List', 'Sales Invoice', 'List']},
-        {title: __('Purchase invoices'), description: __('Review supplier invoices after the purchasing and receipt handoff.'), icon: 'file-text-o', doctype: 'Purchase Invoice', route: ['List', 'Purchase Invoice', 'List']},
-        {title: __('Journal entries'), description: __('Review controlled accounting entries; draft first and submit with authority.'), icon: 'book', doctype: 'Journal Entry', route: ['List', 'Journal Entry', 'List']}
+        {variant: 'blue', title: __('Payment entries'), description: __('Review receipts, supplier payments, and their invoice allocations.'), icon: 'exchange', doctype: 'Payment Entry', route: ['List', 'Payment Entry', 'List']},
+        {variant: 'blue', title: __('Sales invoices'), description: __('Review customer invoices and collection status.'), icon: 'file-text', doctype: 'Sales Invoice', route: ['List', 'Sales Invoice', 'List']},
+        {variant: 'blue', title: __('Purchase invoices'), description: __('Review supplier invoices after the purchasing and receipt handoff.'), icon: 'file-text-o', doctype: 'Purchase Invoice', route: ['List', 'Purchase Invoice', 'List']},
+        {variant: 'blue', title: __('Journal entries'), description: __('Review controlled accounting entries; draft first and submit with authority.'), icon: 'book', doctype: 'Journal Entry', route: ['List', 'Journal Entry', 'List']}
     ];
 
     const control = [
-        {title: __('General Ledger'), description: __('Trace posted balances to their source vouchers.'), doctype: 'GL Entry', report: 'General Ledger', route: ['query-report', 'General Ledger']},
-        {title: __('Trial Balance'), description: __('Check debit and credit balances for the selected period.'), doctype: 'GL Entry', report: 'Trial Balance', route: ['query-report', 'Trial Balance']},
-        {title: __('Profit and Loss'), description: __('Review income and expense performance.'), doctype: 'GL Entry', report: 'Profit and Loss Statement', route: ['query-report', 'Profit and Loss Statement']},
-        {title: __('Balance Sheet'), description: __('Review assets, liabilities, and equity.'), doctype: 'GL Entry', report: 'Balance Sheet', route: ['query-report', 'Balance Sheet']}
+        {variant: 'navy', title: __('General Ledger'), description: __('Trace posted balances to their source vouchers.'), doctype: 'GL Entry', report: 'General Ledger', route: ['query-report', 'General Ledger']},
+        {variant: 'navy', title: __('Trial Balance'), description: __('Check debit and credit balances for the selected period.'), doctype: 'GL Entry', report: 'Trial Balance', route: ['query-report', 'Trial Balance']},
+        {variant: 'navy', title: __('Profit and Loss'), description: __('Review income and expense performance.'), doctype: 'GL Entry', report: 'Profit and Loss Statement', route: ['query-report', 'Profit and Loss Statement']},
+        {variant: 'navy', title: __('Balance Sheet'), description: __('Review assets, liabilities, and equity.'), doctype: 'GL Entry', report: 'Balance Sheet', route: ['query-report', 'Balance Sheet']}
     ];
 
     const collections = [
-        {title: __('Sales Register'), doctype: 'Sales Invoice', report: 'Sales Register', route: ['query-report', 'Sales Register']},
-        {title: __('Sales Invoice Trends'), doctype: 'Sales Invoice', report: 'Sales Invoice Trends', route: ['query-report', 'Sales Invoice Trends']},
-        {title: __('Accounts Receivable'), doctype: 'Sales Invoice', report: 'Accounts Receivable', route: ['query-report', 'Accounts Receivable']}
+        {variant: 'slate', title: __('Sales Register'), doctype: 'Sales Invoice', report: 'Sales Register', route: ['query-report', 'Sales Register']},
+        {variant: 'slate', title: __('Sales Invoice Trends'), doctype: 'Sales Invoice', report: 'Sales Invoice Trends', route: ['query-report', 'Sales Invoice Trends']},
+        {variant: 'slate', title: __('Accounts Receivable'), doctype: 'Sales Invoice', report: 'Accounts Receivable', route: ['query-report', 'Accounts Receivable']}
     ];
 
     const payables = [
-        {title: __('Purchase Register'), doctype: 'Purchase Invoice', report: 'Purchase Register', route: ['query-report', 'Purchase Register']},
-        {title: __('Purchase Invoice Trends'), doctype: 'Purchase Invoice', report: 'Purchase Invoice Trends', route: ['query-report', 'Purchase Invoice Trends']},
-        {title: __('Accounts Payable'), doctype: 'Purchase Invoice', report: 'Accounts Payable', route: ['query-report', 'Accounts Payable']}
+        {variant: 'slate', title: __('Purchase Register'), doctype: 'Purchase Invoice', report: 'Purchase Register', route: ['query-report', 'Purchase Register']},
+        {variant: 'slate', title: __('Purchase Invoice Trends'), doctype: 'Purchase Invoice', report: 'Purchase Invoice Trends', route: ['query-report', 'Purchase Invoice Trends']},
+        {variant: 'slate', title: __('Accounts Payable'), doctype: 'Purchase Invoice', report: 'Accounts Payable', route: ['query-report', 'Accounts Payable']}
     ];
 
     const tawalAndOperations = [
         {
+            variant: 'navy',
             title: __('Tawal customer invoices'),
             description: __('Review ERP invoices against Tawal portal, receipt, and retention evidence; the ERP outstanding total is not a confirmed collectible balance.'),
             doctype: 'Sales Invoice',
@@ -48,6 +49,7 @@ frappe.pages['finance-workbench'].on_page_load = function (wrapper) {
             routeOptions: {customer: 'Telecommunications Towers Company / Tawal'}
         },
         {
+            variant: 'cyan',
             title: __('Tawal receipts posted this month'),
             description: __('Count of submitted Tawal receipts; open the filtered list to review invoice allocations.'),
             doctype: 'Payment Entry',
@@ -71,6 +73,7 @@ frappe.pages['finance-workbench'].on_page_load = function (wrapper) {
             }
         },
         {
+            variant: 'warn',
             title: __('Tawal draft payments'),
             description: __('Draft receipts awaiting finance review.'),
             doctype: 'Payment Entry',
@@ -86,6 +89,7 @@ frappe.pages['finance-workbench'].on_page_load = function (wrapper) {
             }
         },
         {
+            variant: 'warn',
             title: __('SNB draft payments'),
             description: __('Draft payment entries carrying an SNB source key.'),
             doctype: 'Payment Entry',
@@ -100,6 +104,7 @@ frappe.pages['finance-workbench'].on_page_load = function (wrapper) {
             }
         },
         {
+            variant: 'cyan',
             title: __('SNB payments submitted this month'),
             description: __('Submitted SNB-linked payments; this is not a bank-reconciliation count.'),
             doctype: 'Payment Entry',
@@ -119,6 +124,7 @@ frappe.pages['finance-workbench'].on_page_load = function (wrapper) {
             }
         },
         {
+            variant: 'navy',
             title: __('Open supplier invoices'),
             description: __('Submitted supplier invoices with an outstanding balance.'),
             doctype: 'Purchase Invoice',
@@ -133,6 +139,7 @@ frappe.pages['finance-workbench'].on_page_load = function (wrapper) {
             }
         },
         {
+            variant: 'warn',
             title: __('Unsubmitted journal entries'),
             description: __('Review draft journals before an authorized accountant submits them.'),
             doctype: 'Journal Entry',
@@ -146,18 +153,18 @@ frappe.pages['finance-workbench'].on_page_load = function (wrapper) {
     ];
 
     const review = [
-        {title: __('Draft payments queue'), description: __('Review draft payment entries before approval or posting.'), doctype: 'Payment Entry', report: 'SIG Finance Draft Payments Queue', route: ['query-report', 'SIG Finance Draft Payments Queue']},
-        {title: __('Bank transactions'), description: __('Review statement evidence before matching or reconciliation.'), doctype: 'Bank Transaction', route: ['List', 'Bank Transaction', 'List']}
+        {variant: 'slate', title: __('Draft payments queue'), description: __('Review draft payment entries before approval or posting.'), doctype: 'Payment Entry', report: 'SIG Finance Draft Payments Queue', route: ['query-report', 'SIG Finance Draft Payments Queue']},
+        {variant: 'slate', title: __('Bank transactions'), description: __('Review statement evidence before matching or reconciliation.'), doctype: 'Bank Transaction', route: ['List', 'Bank Transaction', 'List']}
     ];
 
     const specialist = [
-        {title: __('SIG Petty Cash'), description: __('Open the separate evidence, clearance, and finance handoff workspace.'), roleAny: ['System Manager', 'Accounts User', 'Accounts Manager', 'SIG Finance Viewer', 'SIG PC Clearance'], route: ['Workspaces', 'SIG Petty Cash']},
-        {title: __('ZATCA Integrations'), description: __('Review tax-compliance evidence linked to the source invoice.'), roleAny: ['System Manager', 'Accounts User', 'Accounts Manager'], route: ['Workspaces', 'ZATCA Integrations']}
+        {variant: 'navy', title: __('SIG Petty Cash'), description: __('Open the separate evidence, clearance, and finance handoff workspace.'), roleAny: ['System Manager', 'Accounts User', 'Accounts Manager', 'SIG Finance Viewer', 'SIG PC Clearance'], route: ['Workspaces', 'SIG Petty Cash']},
+        {variant: 'navy', title: __('ZATCA Integrations'), description: __('Review tax-compliance evidence linked to the source invoice.'), roleAny: ['System Manager', 'Accounts User', 'Accounts Manager'], route: ['Workspaces', 'ZATCA Integrations']}
     ];
 
     const references = [
-        {title: __('Chart of accounts'), description: __('Reference the account hierarchy; setup remains a controlled finance task.'), doctype: 'Account', route: ['List', 'Account', 'List']},
-        {title: __('Cost centers'), description: __('Reference financial responsibility and reporting dimensions.'), doctype: 'Cost Center', route: ['List', 'Cost Center', 'List']}
+        {variant: 'slate', title: __('Chart of accounts'), description: __('Reference the account hierarchy; setup remains a controlled finance task.'), doctype: 'Account', route: ['List', 'Account', 'List']},
+        {variant: 'slate', title: __('Cost centers'), description: __('Reference financial responsibility and reporting dimensions.'), doctype: 'Cost Center', route: ['List', 'Cost Center', 'List']}
     ];
 
     function canOpen(item) {
@@ -182,7 +189,7 @@ frappe.pages['finance-workbench'].on_page_load = function (wrapper) {
         const detail = item.description
             ? `<span class="sig-finance-detail">${frappe.utils.escape_html(item.description)}</span>`
             : '';
-        return `<button type="button" class="sig-finance-card ${compact ? 'sig-finance-card-compact' : ''}"
+        return `<button type="button" class="sig-finance-card sig-finance-card--${item.variant || 'slate'} ${compact ? 'sig-finance-card-compact' : ''}"
                     data-route="${frappe.utils.escape_html(JSON.stringify(item.route))}"
                     data-route-options="${frappe.utils.escape_html(JSON.stringify(item.routeOptions || null))}">
             <span class="sig-finance-card-top">${icon}<i class="fa fa-external-link sig-finance-open" aria-hidden="true"></i></span>

@@ -21,48 +21,48 @@ frappe.pages['hr-workbench'].on_page_load = function (wrapper) {
     const ONB = 'SIG Employee Onboarding';
 
     const daily = [
-        {title: __('Employees'), description: __('Active employee records, contacts, and assignments.'), icon: 'users', doctype: 'Employee', route: ['List', 'Employee', 'List'], routeOptions: {status: 'Active'}},
-        {title: __('Onboarding board'), description: __('Each employee\'s access, custody ledger, bank, WhatsApp, and compliance checks.'), icon: 'columns', doctype: ONB, route: ['List', ONB, 'Kanban', 'SIG Onboarding Board']},
-        {title: __('People readiness'), description: __('One row per employee: login, mobile, custody ledger, and balance.'), icon: 'id-card', doctype: ONB, report: 'SIG People Readiness', route: ['query-report', 'SIG People Readiness']},
-        {title: __('Custody ledger balances'), description: __('Every 1322 custody ledger with its employee, balance, and last posting.'), icon: 'book', doctype: ONB, report: 'SIG Custody Ledger Balances', route: ['query-report', 'SIG Custody Ledger Balances']}
+        {variant: 'blue', title: __('Employees'), description: __('Active employee records, contacts, and assignments.'), icon: 'users', doctype: 'Employee', route: ['List', 'Employee', 'List'], routeOptions: {status: 'Active'}},
+        {variant: 'blue', title: __('Onboarding board'), description: __('Each employee\'s access, custody ledger, bank, WhatsApp, and compliance checks.'), icon: 'columns', doctype: ONB, route: ['List', ONB, 'Kanban', 'SIG Onboarding Board']},
+        {variant: 'blue', title: __('People readiness'), description: __('One row per employee: login, mobile, custody ledger, and balance.'), icon: 'id-card', doctype: ONB, report: 'SIG People Readiness', route: ['query-report', 'SIG People Readiness']},
+        {variant: 'blue', title: __('Custody ledger balances'), description: __('Every 1322 custody ledger with its employee, balance, and last posting.'), icon: 'book', doctype: ONB, report: 'SIG Custody Ledger Balances', route: ['query-report', 'SIG Custody Ledger Balances']}
     ];
 
     const attention = [
-        {title: __('Iqama expired'), description: __('Active employees past their Iqama expiry (from the monthly Muqeem upload).'), doctype: 'Employee', route: ['List', 'Employee', 'List'], routeOptions: {status: 'Active', custom_iqama_expiry_date: ['<', today]},
+        {variant: 'bad', title: __('Iqama expired'), description: __('Active employees past their Iqama expiry (from the monthly Muqeem upload).'), doctype: 'Employee', route: ['List', 'Employee', 'List'], routeOptions: {status: 'Active', custom_iqama_expiry_date: ['<', today]},
             metric: {key: 'iqama-expired', filters: [ACTIVE, ['Employee', 'custom_iqama_expiry_date', '<', today]]}},
-        {title: __('Iqama due within 30 days'), description: __('Start renewals now.'), doctype: 'Employee', route: ['List', 'Employee', 'List'], routeOptions: {status: 'Active', custom_iqama_expiry_date: ['between', [today, inDays(30)]]},
+        {variant: 'warn', title: __('Iqama due within 30 days'), description: __('Start renewals now.'), doctype: 'Employee', route: ['List', 'Employee', 'List'], routeOptions: {status: 'Active', custom_iqama_expiry_date: ['between', [today, inDays(30)]]},
             metric: {key: 'iqama-30', filters: [ACTIVE, ['Employee', 'custom_iqama_expiry_date', 'between', [today, inDays(30)]]]}},
-        {title: __('Onboarding exceptions'), description: __('Employees with a missing login, ledger, mobile, or identity data.'), doctype: ONB, route: ['List', ONB, 'List'], routeOptions: {status: 'Exception'},
+        {variant: 'warn', title: __('Onboarding exceptions'), description: __('Employees with a missing login, ledger, mobile, or identity data.'), doctype: ONB, route: ['List', ONB, 'List'], routeOptions: {status: 'Exception'},
             metric: {key: 'onb-exceptions', filters: [[ONB, 'status', '=', 'Exception']]}},
-        {title: __('Email replies to review'), description: __('Official emails received on WhatsApp, waiting for HR to apply.'), doctype: ONB, route: ['List', ONB, 'List'], routeOptions: {proposed_email: ['is', 'set']},
+        {variant: 'cyan', title: __('Email replies to review'), description: __('Official emails received on WhatsApp, waiting for HR to apply.'), doctype: ONB, route: ['List', ONB, 'List'], routeOptions: {proposed_email: ['is', 'set']},
             metric: {key: 'email-replies', filters: [[ONB, 'proposed_email', 'is', 'set']]}}
     ];
 
     const compliance = [
-        {title: __('Iqama renewals (90 days)'), description: __('Iqama expiring within 90 days or already expired.'), doctype: 'Employee', route: ['List', 'Employee', 'List'], routeOptions: {status: 'Active', custom_iqama_expiry_date: ['<=', inDays(90)]}},
-        {title: __('Passport renewals (90 days)'), description: __('Passport expiring within 90 days or already expired.'), doctype: 'Employee', route: ['List', 'Employee', 'List'], routeOptions: {status: 'Active', custom_passport_expiry_date: ['<=', inDays(90)]}},
-        {title: __('Work permit renewals (90 days)'), description: __('Work permit expiring within 90 days or already expired.'), doctype: 'Employee', route: ['List', 'Employee', 'List'], routeOptions: {status: 'Active', custom_work_permit_expiry: ['<=', inDays(90)]}},
-        {title: __('My open tasks'), description: __('Open to-dos assigned to you.'), doctype: 'ToDo', route: ['List', 'ToDo', 'List'], routeOptions: {status: 'Open', allocated_to: frappe.session.user}}
+        {variant: 'warn', title: __('Iqama renewals (90 days)'), description: __('Iqama expiring within 90 days or already expired.'), doctype: 'Employee', route: ['List', 'Employee', 'List'], routeOptions: {status: 'Active', custom_iqama_expiry_date: ['<=', inDays(90)]}},
+        {variant: 'warn', title: __('Passport renewals (90 days)'), description: __('Passport expiring within 90 days or already expired.'), doctype: 'Employee', route: ['List', 'Employee', 'List'], routeOptions: {status: 'Active', custom_passport_expiry_date: ['<=', inDays(90)]}},
+        {variant: 'warn', title: __('Work permit renewals (90 days)'), description: __('Work permit expiring within 90 days or already expired.'), doctype: 'Employee', route: ['List', 'Employee', 'List'], routeOptions: {status: 'Active', custom_work_permit_expiry: ['<=', inDays(90)]}},
+        {variant: 'blue', title: __('My open tasks'), description: __('Open to-dos assigned to you.'), doctype: 'ToDo', route: ['List', 'ToDo', 'List'], routeOptions: {status: 'Open', allocated_to: frappe.session.user}}
     ];
 
     const quality = [
-        {title: __('No mobile number'), description: __('Cannot receive WhatsApp or appear in attendance.'), doctype: 'Employee', route: ['List', 'Employee', 'List'], routeOptions: {status: 'Active', cell_number: ['is', 'not set']},
+        {variant: 'slate', title: __('No mobile number'), description: __('Cannot receive WhatsApp or appear in attendance.'), doctype: 'Employee', route: ['List', 'Employee', 'List'], routeOptions: {status: 'Active', cell_number: ['is', 'not set']},
             metric: {key: 'q-mobile', filters: [ACTIVE, ['Employee', 'cell_number', 'is', 'not set']]}},
-        {title: __('Login email not deliverable'), description: __('Login is an internal .local address that cannot receive email.'), doctype: 'Employee', route: ['List', 'Employee', 'List'], routeOptions: {status: 'Active', user_id: ['like', '%.local']},
+        {variant: 'slate', title: __('Login email not deliverable'), description: __('Login is an internal .local address that cannot receive email.'), doctype: 'Employee', route: ['List', 'Employee', 'List'], routeOptions: {status: 'Active', user_id: ['like', '%.local']},
             metric: {key: 'q-local', filters: [ACTIVE, ['Employee', 'user_id', 'like', '%.local']]}},
-        {title: __('Placeholder birth date'), description: __('Date of birth is the 1900-01-01 placeholder.'), doctype: 'Employee', route: ['List', 'Employee', 'List'], routeOptions: {status: 'Active', date_of_birth: '1900-01-01'},
+        {variant: 'slate', title: __('Placeholder birth date'), description: __('Date of birth is the 1900-01-01 placeholder.'), doctype: 'Employee', route: ['List', 'Employee', 'List'], routeOptions: {status: 'Active', date_of_birth: '1900-01-01'},
             metric: {key: 'q-dob', filters: [ACTIVE, ['Employee', 'date_of_birth', '=', '1900-01-01']]}},
-        {title: __('No user linked'), description: __('Active employees without a system user.'), doctype: 'Employee', route: ['List', 'Employee', 'List'], routeOptions: {status: 'Active', user_id: ['is', 'not set']},
+        {variant: 'slate', title: __('No user linked'), description: __('Active employees without a system user.'), doctype: 'Employee', route: ['List', 'Employee', 'List'], routeOptions: {status: 'Active', user_id: ['is', 'not set']},
             metric: {key: 'q-user', filters: [ACTIVE, ['Employee', 'user_id', 'is', 'not set']]}},
-        {title: __('No custody ledger'), description: __('Active employees without a 1322 custody ledger.'), doctype: 'Employee', route: ['List', 'Employee', 'List'], routeOptions: {status: 'Active', custom_custody_account: ['is', 'not set']},
+        {variant: 'slate', title: __('No custody ledger'), description: __('Active employees without a 1322 custody ledger.'), doctype: 'Employee', route: ['List', 'Employee', 'List'], routeOptions: {status: 'Active', custom_custody_account: ['is', 'not set']},
             metric: {key: 'q-ledger', filters: [ACTIVE, ['Employee', 'custom_custody_account', 'is', 'not set']]}}
     ];
 
     const requests = [
-        {title: __('Approvals queue'), description: __('Leave, expense, and advance requests waiting for a decision.'), doctype: 'Leave Application', report: 'SIG HR Approvals Queue', route: ['query-report', 'SIG HR Approvals Queue']},
-        {title: __('Leave applications'), description: __('Not in use yet: leave policies are configured in a later HR stage.'), doctype: 'Leave Application', route: ['List', 'Leave Application', 'List']},
-        {title: __('Expense claims'), description: __('Not in use yet.'), doctype: 'Expense Claim', route: ['List', 'Expense Claim', 'List']},
-        {title: __('Employee advances'), description: __('Not in use yet.'), doctype: 'Employee Advance', route: ['List', 'Employee Advance', 'List']}
+        {variant: 'slate', title: __('Approvals queue'), description: __('Leave, expense, and advance requests waiting for a decision.'), doctype: 'Leave Application', report: 'SIG HR Approvals Queue', route: ['query-report', 'SIG HR Approvals Queue']},
+        {variant: 'slate', title: __('Leave applications'), description: __('Not in use yet: leave policies are configured in a later HR stage.'), doctype: 'Leave Application', route: ['List', 'Leave Application', 'List']},
+        {variant: 'slate', title: __('Expense claims'), description: __('Not in use yet.'), doctype: 'Expense Claim', route: ['List', 'Expense Claim', 'List']},
+        {variant: 'slate', title: __('Employee advances'), description: __('Not in use yet.'), doctype: 'Employee Advance', route: ['List', 'Employee Advance', 'List']}
     ];
 
     function canOpen(item) {
@@ -80,7 +80,7 @@ frappe.pages['hr-workbench'].on_page_load = function (wrapper) {
         const icon = item.icon ? `<span class="sig-hr-icon" aria-hidden="true"><i class="fa fa-${item.icon}"></i></span>` : '';
         const detail = item.description ? `<span class="sig-hr-detail">${frappe.utils.escape_html(item.description)}</span>` : '';
         const metric = item.metric ? `<span class="sig-hr-metric" data-metric-key="${frappe.utils.escape_html(item.metric.key)}">—</span>` : '';
-        return `<button type="button" class="sig-hr-card ${compact ? 'sig-hr-card-compact' : ''}"
+        return `<button type="button" class="sig-hr-card sig-hr-card--${item.variant || 'slate'} ${compact ? 'sig-hr-card-compact' : ''}"
                     data-route="${frappe.utils.escape_html(JSON.stringify(item.route || null))}"
                     data-route-options="${frappe.utils.escape_html(JSON.stringify(item.routeOptions || null))}"
                     data-action="${frappe.utils.escape_html(item.action || '')}">
@@ -99,7 +99,7 @@ frappe.pages['hr-workbench'].on_page_load = function (wrapper) {
     }
 
     const actions = [
-        {title: __('Request official emails'), description: __('Ask employees on .local logins, by WhatsApp, to reply with their official email. Replies are collected for HR review; nothing is changed automatically.'), icon: 'envelope', roleAny: ['HR Manager', 'System Manager'], action: 'email-request'}
+        {variant: 'blue', title: __('Request official emails'), description: __('Ask employees on .local logins, by WhatsApp, to reply with their official email. Replies are collected for HR review; nothing is changed automatically.'), icon: 'envelope', roleAny: ['HR Manager', 'System Manager'], action: 'email-request'}
     ];
 
     root.html(`<header class="sig-hr-header">
