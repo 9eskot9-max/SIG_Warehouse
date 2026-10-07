@@ -23,21 +23,23 @@ frappe.pages['employee-workbench'].on_page_load = function (wrapper) {
         return frappe.model.can_read(item.doctype);
     }
 
-    // Days left until a date, colour class and text (expired / due soon / ok). Dates come from the employee's own record.
+    // Days left until a date: text plus the card variant (bad/warn/ok/slate) that
+    // colours the accent border, icon chip and metric. SIG status tints from the
+    // tax-invoice palette; dates come from the employee's own record.
     function expiryInfo(value) {
-        if (!value) return {text: __('Not recorded'), cls: 'sig-emp-metric-muted'};
+        if (!value) return {text: __('Not recorded'), cls: 'sig-emp-metric-muted', variant: 'slate'};
         const days = frappe.datetime.get_day_diff(value, frappe.datetime.get_today());
         const date = frappe.datetime.str_to_user(value);
-        if (days < 0) return {text: `${date} · ${__('Expired {0} days ago', [Math.abs(days)])}`, cls: 'sig-emp-metric-bad'};
-        if (days <= 30) return {text: `${date} · ${__('{0} days left', [days])}`, cls: 'sig-emp-metric-warn'};
-        return {text: date, cls: ''};
+        if (days < 0) return {text: `${date} · ${__('Expired {0} days ago', [Math.abs(days)])}`, cls: '', variant: 'bad'};
+        if (days <= 30) return {text: `${date} · ${__('{0} days left', [days])}`, cls: '', variant: 'warn'};
+        return {text: date, cls: '', variant: 'ok'};
     }
 
     function card(item) {
         const icon = item.icon ? `<span class="sig-emp-icon" aria-hidden="true"><i class="fa fa-${item.icon}"></i></span>` : '';
         const detail = item.description ? `<span class="sig-emp-detail">${frappe.utils.escape_html(item.description)}</span>` : '';
         const metric = item.metricText ? `<span class="sig-emp-metric ${item.metricClass || ''}">${frappe.utils.escape_html(item.metricText)}</span>` : '';
-        return `<button type="button" class="sig-emp-card"
+        return `<button type="button" class="sig-emp-card sig-emp-card--${item.variant || 'slate'}"
                     data-route="${frappe.utils.escape_html(JSON.stringify(item.route || null))}"
                     data-route-options="${frappe.utils.escape_html(JSON.stringify(item.routeOptions || null))}">
             <span class="sig-emp-card-top">${icon}<i class="fa fa-external-link sig-emp-open" aria-hidden="true"></i></span>
@@ -58,15 +60,15 @@ frappe.pages['employee-workbench'].on_page_load = function (wrapper) {
         const me = emp && emp.name ? emp : null;
         const mine = me ? {employee: me.name} : null;
         const tasks = me ? [
-            {title: __('Raise an HR ticket'), description: __('Ask HR for help, a correction, or a document.'), icon: 'life-ring', doctype: 'SIG HR Ticket', needsCreate: true, route: ['Form', 'SIG HR Ticket', 'new'], routeOptions: mine},
-            {title: __('My HR tickets'), description: __('Track the tickets you raised.'), icon: 'ticket', doctype: 'SIG HR Ticket', route: ['List', 'SIG HR Ticket', 'List'], routeOptions: mine},
-            {title: __('My check-ins'), description: __('Your attendance punches from WhatsApp and the office.'), icon: 'clock-o', doctype: 'Employee Checkin', route: ['List', 'Employee Checkin', 'List'], routeOptions: mine},
-            {title: __('My employee record'), description: __('View your details. Ask HR to correct anything that is wrong.'), icon: 'id-card', doctype: 'Employee', route: ['Form', 'Employee', me.name]}
+            {variant: 'blue', title: __('Raise an HR ticket'), description: __('Ask HR for help, a correction, or a document.'), icon: 'life-ring', doctype: 'SIG HR Ticket', needsCreate: true, route: ['Form', 'SIG HR Ticket', 'new'], routeOptions: mine},
+            {variant: 'slate', title: __('My HR tickets'), description: __('Track the tickets you raised.'), icon: 'ticket', doctype: 'SIG HR Ticket', route: ['List', 'SIG HR Ticket', 'List'], routeOptions: mine},
+            {variant: 'cyan', title: __('My check-ins'), description: __('Your attendance punches from WhatsApp and the office.'), icon: 'clock-o', doctype: 'Employee Checkin', route: ['List', 'Employee Checkin', 'List'], routeOptions: mine},
+            {variant: 'navy', title: __('My employee record'), description: __('View your details. Ask HR to correct anything that is wrong.'), icon: 'id-card', doctype: 'Employee', route: ['Form', 'Employee', me.name]}
         ] : [];
         const docs = me ? [
-            {title: __('Iqama expiry'), description: __('From your employee record. Contact HR to update it.'), icon: 'calendar', doctype: 'Employee', route: ['Form', 'Employee', me.name], metricText: expiryInfo(me.custom_iqama_expiry_date).text, metricClass: expiryInfo(me.custom_iqama_expiry_date).cls},
-            {title: __('Passport expiry'), description: __('From your employee record. Contact HR to update it.'), icon: 'calendar', doctype: 'Employee', route: ['Form', 'Employee', me.name], metricText: expiryInfo(me.custom_passport_expiry_date).text, metricClass: expiryInfo(me.custom_passport_expiry_date).cls},
-            {title: __('Work permit expiry'), description: __('From your employee record. Contact HR to update it.'), icon: 'calendar', doctype: 'Employee', route: ['Form', 'Employee', me.name], metricText: expiryInfo(me.custom_work_permit_expiry).text, metricClass: expiryInfo(me.custom_work_permit_expiry).cls}
+            {title: __('Iqama expiry'), description: __('From your employee record. Contact HR to update it.'), icon: 'calendar', doctype: 'Employee', route: ['Form', 'Employee', me.name], metricText: expiryInfo(me.custom_iqama_expiry_date).text, metricClass: expiryInfo(me.custom_iqama_expiry_date).cls, variant: expiryInfo(me.custom_iqama_expiry_date).variant},
+            {title: __('Passport expiry'), description: __('From your employee record. Contact HR to update it.'), icon: 'calendar', doctype: 'Employee', route: ['Form', 'Employee', me.name], metricText: expiryInfo(me.custom_passport_expiry_date).text, metricClass: expiryInfo(me.custom_passport_expiry_date).cls, variant: expiryInfo(me.custom_passport_expiry_date).variant},
+            {title: __('Work permit expiry'), description: __('From your employee record. Contact HR to update it.'), icon: 'calendar', doctype: 'Employee', route: ['Form', 'Employee', me.name], metricText: expiryInfo(me.custom_work_permit_expiry).text, metricClass: expiryInfo(me.custom_work_permit_expiry).cls, variant: expiryInfo(me.custom_work_permit_expiry).variant}
         ] : [];
         // Leave, expense claim, advance and payslip cards are added here when HR-2 / HR-3 / HR-4 go live
         // (they have no records yet, so a card would only lead to an empty list).
