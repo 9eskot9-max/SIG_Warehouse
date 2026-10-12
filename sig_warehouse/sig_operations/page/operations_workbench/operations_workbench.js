@@ -7,6 +7,8 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
     let query = '';
     let family = '';
     let selected = new Set();
+    let pageNumber = 1;
+    const pageSize = 50;
     const esc = (v) => frappe.utils.escape_html(v == null ? '' : String(v));
     const date = (v) => v ? frappe.datetime.str_to_user(String(v).slice(0, 10)) : '—';
     const link = (doctype, name) => name ? `<a href="#" data-doctype="${esc(doctype)}" data-name="${esc(name)}">${esc(name)}</a>` : '—';
@@ -15,7 +17,7 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
     function render() {
         const summary = data.summary || {};
         const all = cycles();
-        let rows = all.filter((r) => {
+        const filteredRows = all.filter((r) => {
             if (filter === 'open' && r.terminal) return false;
             if (filter === 'review' && !r.needs_review) return false;
             if (filter === 'closed' && !r.terminal) return false;
@@ -23,7 +25,9 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
             const haystack = [r.site, r.name, r.project, r.project_id, r.stage, r.family].join(' ').toLowerCase();
             return !query || haystack.includes(query.toLowerCase());
         });
-        rows = rows.slice(0, 500);
+        const pageCount = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+        pageNumber = Math.min(pageNumber, pageCount);
+        const rows = filteredRows.slice((pageNumber - 1) * pageSize, pageNumber * pageSize);
         const rosterRows = Object.entries(data.roster || {}).filter(([key]) => !family || key === family);
         root.attr('dir', frappe.boot.lang === 'ar' ? 'rtl' : 'ltr');
         root.html(`
@@ -50,7 +54,7 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
                     <div class="sig-ops-toolbar"><select class="sig-ops-family"><option value="">${__('All project scopes')}</option>${['Capex','Incident','Colocation'].map((x) => `<option ${family === x ? 'selected' : ''}>${x}</option>`).join('')}</select>
                         <input class="form-control sig-ops-search" placeholder="${__('Search site, project, or cycle')}" value="${esc(query)}">
                         <nav>${[['open',__('Open')],['review',__('Review')],['closed',__('Closed')]].map(([key,label]) => `<button data-filter="${key}" class="${filter === key ? 'active' : ''}">${label}</button>`).join('')}</nav></div>
-                    <div class="sig-ops-selection"><label><input type="checkbox" class="sig-ops-select-visible"> ${__('Select visible')}</label><span>${esc(selected.size)} ${__('selected')}</span><small>${rows.length}${rows.length >= 500 ? '+' : ''} ${__('rows shown')}${data.complete && !data.complete.cycles ? ` · ${__('partial read')}` : ''}</small></div>
+                    <div class="sig-ops-selection"><label><input type="checkbox" class="sig-ops-select-visible"> ${__('Select this page (up to 50)')}</label><span>${esc(selected.size)} ${__('selected')}</span><small>${filteredRows.length ? (pageNumber - 1) * pageSize + 1 : 0}–${Math.min(pageNumber * pageSize, filteredRows.length)} ${__('of')} ${filteredRows.length}${data.complete && !data.complete.cycles ? ` · ${__('partial read')}` : ''}</small></div>
                     ${rows.length ? `<div class="sig-ops-table-wrap"><table class="sig-ops-table"><thead><tr><th></th><th>${__('Site / cycle')}</th><th>${__('Project')}</th><th>${__('Stage / pending evidence')}</th><th>${__('Owners')}</th><th>${__('Signal')}</th><th>${__('Due')}</th></tr></thead><tbody>${rows.map((r) => {
                         const work = (r.work || []).map((w) => {
                             const role = w.owner_role === 'pm' ? __('PM') : __('Coordinator');
@@ -62,7 +66,7 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
                         return `<tr data-cycle="${esc(r.name)}" class="${selected.has(r.name) ? 'selected' : ''}"><td><input type="checkbox" class="sig-ops-cycle-check" value="${esc(r.name)}" ${selected.has(r.name) ? 'checked' : ''} ${r.terminal ? 'disabled' : ''}></td>
                             <td><b>${link('SIG Site Cycle', r.name)}</b><small>${esc(r.site)}</small></td><td>${r.project ? `<b>${esc(r.project)}</b>` : '—'}<small>${esc(r.family)}</small></td>
                             <td><b>${esc(r.stage)}</b><small>${work}</small></td><td>${people}</td><td><span class="${r.needs_review ? 'sig-ops-badge warning' : r.terminal ? 'sig-ops-badge closed' : 'sig-ops-badge'}">${esc(signal)}</span>${r.delay_reason ? `<small>${esc(r.delay_reason)}${r.delay_note ? ` · ${esc(r.delay_note)}` : ''}</small>` : ''}</td><td>${date(r.stage_due_on)}</td></tr>`;
-                    }).join('')}</tbody></table></div>` : `<div class="sig-ops-empty">${__('No matching cycles are visible to your ERP role.')}</div>`}
+                    }).join('')}</tbody></table></div>${pageCount > 1 ? `<div class="sig-ops-pagination"><button class="btn btn-default sig-ops-prev" ${pageNumber <= 1 ? 'disabled' : ''}>${__('Previous')}</button><span>${__('Page {0} of {1}', [pageNumber, pageCount])}</span><button class="btn btn-default sig-ops-next" ${pageNumber >= pageCount ? 'disabled' : ''}>${__('Next')}</button></div>` : ''}` : `<div class="sig-ops-empty">${__('No matching cycles are visible to your ERP role.')}</div>`}
                     ${data.can_close_cycles ? `<div class="sig-ops-footnote">${__('Cycle closure is explicit and recorded with a reason. Evidence milestones remain in the cycle history.')}</div>` : ''}
                 </section>
                 <aside class="sig-ops-side">
@@ -75,13 +79,30 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
                     </section>
                 </aside>
             </div>`);
-        root.find('button[data-filter]').on('click', function () { filter = $(this).data('filter'); selected.clear(); render(); });
-        root.find('[data-stage]').on('click', function () { filter = 'stage:' + $(this).data('stage'); render(); });
-        root.find('.sig-ops-family').on('change', function () { family = this.value; selected.clear(); render(); });
-        root.find('.sig-ops-search').on('change', function () { query = this.value.trim(); render(); });
+        root.find('button[data-filter]').on('click', function () { filter = $(this).data('filter'); pageNumber = 1; selected.clear(); render(); });
+        root.find('[data-stage]').on('click', function () { filter = 'stage:' + $(this).data('stage'); pageNumber = 1; selected.clear(); render(); });
+        root.find('.sig-ops-family').on('change', function () { family = this.value; pageNumber = 1; selected.clear(); render(); });
+        root.find('.sig-ops-search').on('change', function () { query = this.value.trim(); pageNumber = 1; selected.clear(); render(); });
         root.find('.sig-ops-refresh').on('click', load);
-        root.find('.sig-ops-cycle-check').on('change', function () { this.checked ? selected.add(this.value) : selected.delete(this.value); render(); });
-        root.find('.sig-ops-select-visible').on('change', function () { rows.filter((r) => !r.terminal).forEach((r) => this.checked ? selected.add(r.name) : selected.delete(r.name)); render(); });
+        root.find('.sig-ops-cycle-check').on('change', function () {
+            if (this.checked && !selected.has(this.value) && selected.size >= 50) {
+                this.checked = false;
+                return frappe.msgprint(__('Select up to 50 cycles per bulk closure.'));
+            }
+            this.checked ? selected.add(this.value) : selected.delete(this.value); render();
+        });
+        root.find('.sig-ops-select-visible').on('change', function () {
+            const visible = rows.filter((r) => !r.terminal);
+            if (this.checked) {
+                const available = Math.max(0, 50 - selected.size);
+                const unselected = visible.filter((r) => !selected.has(r.name));
+                unselected.slice(0, available).forEach((r) => selected.add(r.name));
+                if (unselected.length > available) frappe.show_alert({message:__('Selected up to 50 cycles. Clear some to select more.'), indicator:'orange'});
+            } else visible.forEach((r) => selected.delete(r.name));
+            render();
+        });
+        root.find('.sig-ops-prev').on('click', () => { pageNumber = Math.max(1, pageNumber - 1); render(); });
+        root.find('.sig-ops-next').on('click', () => { pageNumber += 1; render(); });
         root.find('a[data-doctype]').on('click', function (e) { e.preventDefault(); frappe.set_route('Form', $(this).data('doctype'), $(this).data('name')); });
         root.find('.sig-ops-close').on('click', closeSelected);
         root.find('.sig-ops-complete-todos').on('click', completeTodos);
