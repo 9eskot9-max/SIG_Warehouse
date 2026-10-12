@@ -5,7 +5,7 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
         frappe.set_route('Workspaces', 'SIG Projects');
     });
     const root = $('<main class="sig-ops-home"></main>').appendTo(page.main);
-    const esc = (value) => frappe.utils.escape_html(String(value || ''));
+    const esc = (value) => frappe.utils.escape_html(value == null ? '' : String(value));
     const date = (value) => value ? frappe.datetime.str_to_user(String(value).slice(0, 10)) : '—';
     const dateTime = (value) => value ? frappe.datetime.str_to_user(String(value).slice(0, 16)) : __('No recorded update');
 
@@ -22,6 +22,7 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
             <section class="sig-ops-stats" aria-label="${__('Overview')}">
                 <div><strong>${esc(c.todos || 0)}</strong><span>${__('Open tasks allocated to you')}${complete.todos ? '' : ` · ${__('partial list')}`}</span></div>
                 <div class="is-warning"><strong>${esc(c.overdue_todos || 0)}</strong><span>${__('Overdue allocated tasks')}${complete.todos ? '' : ` · ${__('partial list')}`}</span></div>
+                <div><strong>${esc(c.cycles || 0)}</strong><span>${__('Open site cycles')}${complete.cycles ? '' : ` · ${__('partial list')}`}</span></div>
                 <div class="is-danger"><strong>${esc(c.delayed || 0)}</strong><span>${__('Delayed open cycles')}${complete.cycles ? '' : ` · ${__('partial list')}`}</span></div>
                 <div class="is-warning"><strong>${esc(c.aged || 0)}</strong><span>${__('Aged open cycles')}${complete.cycles ? '' : ` · ${__('partial list')}`}</span></div>
                 <div><strong>${esc(c.past_due || 0)}</strong><span>${__('Past-due stage dates')}${complete.cycles ? '' : ` · ${__('partial list')}`}</span></div>
