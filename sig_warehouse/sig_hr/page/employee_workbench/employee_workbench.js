@@ -65,6 +65,10 @@ frappe.pages['employee-workbench'].on_page_load = function (wrapper) {
             {variant: 'cyan', title: __('My check-ins'), description: __('Your attendance punches from WhatsApp and the office.'), icon: 'clock-o', doctype: 'Employee Checkin', route: ['List', 'Employee Checkin', 'List'], routeOptions: mine},
             {variant: 'navy', title: __('My employee record'), description: __('View your details. Ask HR to correct anything that is wrong.'), icon: 'id-card', doctype: 'Employee', route: ['Form', 'Employee', me.name]}
         ] : [];
+        const visitRoles = ['SIG PM', 'SIG Coordinator', 'Projects Manager', 'System Manager'];
+        if (me && visitRoles.some((role) => frappe.user.has_role(role))) {
+            tasks.push({variant: 'cyan', title: __('My visit schedule'), description: __('Review the site visits recorded for you.'), icon: 'calendar', route: ['my-visit-schedule']});
+        }
         const docs = me ? [
             {title: __('Iqama expiry'), description: __('From your employee record. Contact HR to update it.'), icon: 'calendar', doctype: 'Employee', route: ['Form', 'Employee', me.name], metricText: expiryInfo(me.custom_iqama_expiry_date).text, metricClass: expiryInfo(me.custom_iqama_expiry_date).cls, variant: expiryInfo(me.custom_iqama_expiry_date).variant},
             {title: __('Passport expiry'), description: __('From your employee record. Contact HR to update it.'), icon: 'calendar', doctype: 'Employee', route: ['Form', 'Employee', me.name], metricText: expiryInfo(me.custom_passport_expiry_date).text, metricClass: expiryInfo(me.custom_passport_expiry_date).cls, variant: expiryInfo(me.custom_passport_expiry_date).variant},

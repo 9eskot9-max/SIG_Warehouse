@@ -151,6 +151,29 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
 
 
 @frappe.whitelist()
+def get_my_visit_schedule():
+    """Return only the signed-in user's own visit sessions for the employee schedule page."""
+    allowed_roles = {'Employee', 'Employee Self Service', 'SIG PM', 'SIG Coordinator',
+                     'Projects Manager', 'System Manager'}
+    if not allowed_roles.intersection(frappe.get_roles()):
+        frappe.throw(frappe._('Not permitted'), frappe.PermissionError)
+    employee = frappe.db.get_value('Employee', {'user_id': frappe.session.user, 'status': 'Active'}, 'name')
+    if not employee:
+        return {'result': 'ok', 'employee': None, 'rows': []}
+    rows = frappe.db.sql(
+        "SELECT name, site_key, start_at, end_at, status, hours, activity_code, photo_count "
+        "FROM `tabSIG Field Session` WHERE employee = %s AND disposition NOT IN ('IN_ERP_WINDOW', 'VOID') "
+        "ORDER BY start_at DESC LIMIT 500", (employee,), as_dict=True)
+    return {
+        'result': 'ok', 'employee': employee,
+        'rows': [{'name': r.name, 'site': r.site_key, 'start_at': str(r.start_at or ''),
+                  'end_at': str(r.end_at or ''), 'status': r.status, 'hours': r.hours,
+                  'activity_code': r.activity_code or 'UNSPECIFIED', 'photo_count': r.photo_count or 0}
+                 for r in rows],
+    }
+
+
+@frappe.whitelist()
 def get_visit(session_key):
     session_key = text_value(session_key)
     s = frappe.db.get_value('SIG Field Session', session_key,

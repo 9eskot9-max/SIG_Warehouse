@@ -6,7 +6,12 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
     const root = $('<div class="sig-sv-page"></div>').appendTo(page.main);
     const state = {stream: '', site: '', person: '', status: '', view: 'current', search: '', selected: null};
     const esc = (v) => frappe.utils.escape_html(String(v || ''));
-    const dt = (v) => v ? frappe.datetime.str_to_user(String(v).slice(0, 19)) : '—';
+    const dt = (v) => {
+        if (!v) return '—';
+        const parts = String(v).slice(0, 19).split(/[- :]/);
+        if (parts.length < 5) return String(v).slice(0, 16);
+        return `${parts[2]}-${parts[1]}-${parts[0].slice(-2)} ${parts[3]}:${parts[4]}`;
+    };
     const timeOnly = (v) => v ? String(v).slice(11, 16) : '';
 
     function shell() {
@@ -17,7 +22,7 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
                 <option value="unclassified">${__('Unclassified')}</option><option value="thisweek">${__('Sites this week')}</option>
                 <option value="history">${__('History')}</option>
             </select></label>
-            <label class="sig-sv-field">${__('Stream / PM')}<select class="sig-sv-stream form-control"><option value="">${__('All')}</option></select></label>
+            <label class="sig-sv-field">${__('Stream')}<select class="sig-sv-stream form-control"><option value="">${__('All')}</option></select></label>
             <label class="sig-sv-field" style="min-width:200px">${__('Site or person')}<input class="sig-sv-search form-control" placeholder="${__('Search site or reporter')}"></label>
             <button type="button" class="btn btn-default btn-sm sig-sv-log-missing" style="align-self:flex-end">${__('Log missing visit')}</button>
         </div>
@@ -95,13 +100,13 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
 
     function rowHtml(row) {
         const cyc = row.cycle;
-        const projectLine = cyc ? `${esc(cyc.project)}${cyc.wo ? ' · ' + esc(cyc.wo) : ''}${cyc.is_temporary ? ' <span class="text-muted">(' + __('temp scope') + ')</span>' : ''}` : `<span class="text-muted">${__('no cycle yet')}</span>`;
+        const projectLine = cyc ? (cyc.is_temporary ? '—' : `${esc(cyc.project)}${cyc.wo ? ' · ' + esc(cyc.wo) : ''}`) : `<span class="text-muted">${__('no cycle yet')}</span>`;
         const when = `${dt(row.start_at)}${row.end_at ? '–' + timeOnly(row.end_at) : ''}`;
         return `<tr class="sig-sv-row" data-name="${esc(row.name)}">
             <td><b>${esc(row.site)}</b><br><span class="text-muted small">${projectLine}</span></td>
             <td>${esc(row.reporter_name)}<br><span class="text-muted small">${when}</span></td>
             <td>${row.hours != null ? row.hours + 'h' : '—'}<br><span class="text-muted small">${row.photo_count} ${__('photos')}</span></td>
-            <td>${esc(row.activity_code || 'UNSPECIFIED')}<br><span class="text-muted small">${esc(row.stream_label)} · ${esc(row.pm)}</span></td>
+            <td>${esc(row.activity_code || 'UNSPECIFIED')}<br><span class="text-muted small">${esc(row.stream_label)}</span></td>
             <td>${statusBadge(row)}${row.diagnostics.length ? '<br><span class="text-muted small">' + esc(row.diagnostics.join(', ')) + '</span>' : ''}</td>
         </tr>`;
     }
@@ -109,7 +114,7 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
     function renderTable(payload) {
         lastPayload = payload;
         const sel = root.find('.sig-sv-stream').empty().append(`<option value="">${__('All')}</option>`);
-        (payload.streams || []).forEach((s) => sel.append($('<option></option>').val(s.value).text(s.label + ' (' + s.pm + ')')));
+        (payload.streams || []).forEach((s) => sel.append($('<option></option>').val(s.value).text(s.label)));
         sel.val(state.stream);
         root.find('.sig-sv-view').val(state.view);
         root.find('.sig-sv-search').val(state.search);
