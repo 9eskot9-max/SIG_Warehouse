@@ -13,6 +13,13 @@
             route: 'hr-workbench',
             allowNativeOnceKey: 'sig_hr_allow_native_workspace_once'
         },
+        // SIG Projects is open to both project roles and Field Ops. Keep users
+        // without the Page audience on the native workspace.
+        'sig-projects': {
+            route: 'operations-workbench',
+            allowNativeOnceKey: 'sig_projects_allow_native_workspace_once',
+            roleAny: ['Projects Manager', 'Projects User', 'SIG Field Ops', 'System Manager']
+        },
         // "SIG - My Work" is open to every user, but its replacement Page is limited to the Employee roles.
         // roleAny keeps users without those roles (finance, warehouse, ops staff) on the native workspace
         // instead of sending them to a Page they cannot open.
