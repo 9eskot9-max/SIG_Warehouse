@@ -1,3 +1,4 @@
 SIG Warehouse
 SIG Accounting
 SIG HR
+SIG Operations

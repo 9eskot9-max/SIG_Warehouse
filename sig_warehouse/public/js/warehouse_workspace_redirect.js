@@ -13,6 +13,13 @@
             route: 'hr-workbench',
             allowNativeOnceKey: 'sig_hr_allow_native_workspace_once'
         },
+        // For field staff, Operations is the daily workbench. Purchasing and
+        // stock audiences keep the native material-request workspace.
+        'sig-operations': {
+            route: 'operations-workbench',
+            allowNativeOnceKey: 'sig_operations_allow_native_workspace_once',
+            roleAny: ['SIG Field Ops', 'System Manager']
+        },
         // SIG Projects is open to both project roles and Field Ops. Keep users
         // without the Page audience on the native workspace.
         'sig-projects': {

@@ -1,7 +1,7 @@
 {
  "content": null,
  "doctype": "Page",
- "module": "SIG Warehouse",
+ "module": "SIG Operations",
  "name": "operations-workbench",
  "page_name": "operations-workbench",
  "roles": [
@@ -11,5 +11,5 @@
   {"role": "SIG Field Ops"}
  ],
  "standard": "Yes",
- "title": "Field Delivery"
+ "title": "Operations Workbench"
 }

@@ -1,5 +1,9 @@
 frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
-    const page = frappe.ui.make_app_page({parent: wrapper, title: __('Field Delivery'), single_column: true});
+    const page = frappe.ui.make_app_page({parent: wrapper, title: __('Operations Workbench'), single_column: true});
+    page.add_inner_button(__('Material Request Pipeline'), () => {
+        window.sessionStorage.setItem('sig_operations_allow_native_workspace_once', '1');
+        frappe.set_route('Workspaces', 'SIG Operations');
+    });
     page.add_inner_button(__('Original Projects Workspace'), () => {
         window.sessionStorage.setItem('sig_projects_allow_native_workspace_once', '1');
         frappe.set_route('Workspaces', 'SIG Projects');
@@ -16,8 +20,8 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
         const exceptions = data.exceptions || [];
         const complete = data.complete || {};
         root.attr('dir', frappe.boot.lang === 'ar' ? 'rtl' : 'ltr');
-        root.html(`<header class="sig-ops-header"><div><div class="sig-ops-eyebrow">${__('SIG Projects')}</div>
-            <h1>${__('Field Delivery')}</h1><p>${__('Your allocated follow-ups and current project and site-cycle records.')}</p></div>
+        root.html(`<header class="sig-ops-header"><div><div class="sig-ops-eyebrow">${__('SIG Operations')}</div>
+            <h1>${__('Operations Workbench')}</h1><p>${__('Field delivery: your allocated follow-ups and current project and site-cycle records.')}</p></div>
             <span class="sig-ops-mark" aria-hidden="true"><i class="fa fa-map-marker"></i></span></header>
             <section class="sig-ops-stats" aria-label="${__('Overview')}">
                 <div><strong>${esc(c.todos || 0)}</strong><span>${__('Open tasks allocated to you')}${complete.todos ? '' : ` · ${__('partial list')}`}</span></div>
