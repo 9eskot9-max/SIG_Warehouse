@@ -266,8 +266,9 @@ def _cycle_view(row, project, today, operational=None):
     if closed:
         stage = "Closed"
     elif row.get("invoice_at") or row.get("ho_at"):
-        # Applicable handover evidence starts the native As-Built stage.
-        stage = "4 - As-Built"
+        # Applicable handover evidence starts the final active Invoicing stage.
+        # The PM-owned As-Built BOQ file remains a task within this stage.
+        stage = "4 - Invoicing"
     elif prepared:
         stage = "3 - Handover"
     elif has_prep:
@@ -302,7 +303,7 @@ def _cycle_view(row, project, today, operational=None):
                          "source_dns": operational.get("source_dns") or []})
     if not closed and (prepared or row.get("ho_at") or row.get("invoice_at")) and not row.get("asbuilt_at"):
         work.append({"key": "asbuilt", "label": "As-Built BOQ file", "owner_role": "pm",
-                     "stage": "4 - As-Built" if row.get("ho_at") or row.get("invoice_at") else "3 - Handover",
+                     "stage": "4 - Invoicing" if row.get("ho_at") or row.get("invoice_at") else "3 - Handover",
                      "closes_on": "ASBUILT_BOQ_GENERATED"})
     for item in work:
         item["shared"] = True

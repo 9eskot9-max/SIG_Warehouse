@@ -37,7 +37,7 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
             ['1 - Initial', __('Mapping · BOQ')],
             ['2 - Plan', __('TCN · MIR · Visit')],
             ['3 - Handover', __('Tags · Photos · As-Built Operational')],
-            ['4 - As-Built', __('As-Built BOQ · invoice-sheet workflow in ERPNext')],
+            ['4 - Invoicing', __('As-Built BOQ · invoice-sheet workflow in ERPNext')],
         ];
         const stages = stageDefs.map(([stage, description]) => {
             const count = tasks().filter((task) => task.stage === stage && task.kind === 'stage').length;
