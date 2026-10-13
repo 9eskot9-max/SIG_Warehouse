@@ -40,10 +40,10 @@ WAREHOUSE_USERS = {
 }
 
 TASK_STAGE = {
-    "mapping": "Scope & readiness", "boq": "Scope & readiness",
-    "tcn": "Preparation", "mir": "Preparation", "visit": "Preparation",
-    "tags": "Handover", "photos": "Handover", "asbuilt": "Handover",
-    "asbuilt_operational": "Handover",
+    "mapping": "1 - Initial", "boq": "1 - Initial",
+    "tcn": "2 - Plan", "mir": "2 - Plan", "visit": "2 - Plan",
+    "tags": "3 - Handover", "photos": "3 - Handover", "asbuilt": "3 - Handover",
+    "asbuilt_operational": "3 - Handover",
 }
 
 
@@ -93,7 +93,6 @@ def _asbuilt_operational_status(cycle, lines):
         str(cycle.get(field) or "").strip().casefold()
         for field in ("site_key", "site") if str(cycle.get(field) or "").strip()
     }
-    site_refs.update(str(value).strip().casefold() for value in cycle.get("_operational_site_refs", []) if str(value).strip())
     matched = []
     for line in lines:
         site = str(line.get("custom_site") or "").strip().casefold()
@@ -128,29 +127,11 @@ def _warehouse_operational_lines(cycles):
             )
             if not field_read:
                 return [], None
-        site_names = {str(c.get("site_key") or "").strip() for c in cycles if c.get("site_key")}
-        site_links = {}
-        if site_names and frappe.has_permission("SIG Site", "read"):
-            sites, site_complete = _all_visible(
-                "SIG Site", ["name", "site_id"], filters={"site_id": ["in", sorted(site_names)]},
-                max_rows=MAX_ROWS)
-            if not site_complete:
-                return [], False
-            site_links = {str(site.get("site_id") or "").strip().casefold(): str(site.name)
-                          for site in sites if site.get("site_id") and site.get("name")}
-        site_refs = set()
-        for cycle in cycles:
-            refs = {
-                str(cycle.get(field) or "").strip()
-                for field in ("site_key", "site") if str(cycle.get(field) or "").strip()
-            }
-            if cycle.get("site_key"):
-                canonical = site_links.get(str(cycle.get("site_key")).strip().casefold())
-                if canonical:
-                    refs.add(canonical)
-            cycle["_operational_site_refs"] = sorted(refs)
-            site_refs.update(refs)
-        site_refs = sorted(site_refs)
+        site_refs = sorted({
+            str(cycle.get(field) or "").strip()
+            for cycle in cycles for field in ("site_key", "site")
+            if str(cycle.get(field) or "").strip()
+        })
         if not site_refs:
             return [], True
         sources, complete = _all_visible(
@@ -196,11 +177,10 @@ def _stage_tasks_for_user(cycles, memberships):
                 "needs_review": bool(cycle.get("needs_review")),
                 "review_reason": str(cycle.get("delay_reason") or cycle.get("delay_note") or ""),
                 "expected_evidence": str(work.get("closes_on") or ""),
-                "source_dns": list(work.get("source_dns") or []),
             })
 
         # Deliberate cycle close is separate from evidence task completion and
-        # remains a PM/co action, never part of the Warehouse queue.
+        # is available to PM/coordinator, not Warehouse.
         if _task_audience(cycle.get("family"), "either", memberships):
             tasks.append({
                 "id": cycle["name"] + "::cycle-close", "kind": "closure",
@@ -274,6 +254,7 @@ def _family(value):
         return "Incident"
     return ""
 
+
 def _cycle_view(row, project, today, operational=None):
     """Derive the highest evidenced stage without inventing missing predecessors."""
     operational_visible = operational is not None
@@ -282,23 +263,17 @@ def _cycle_view(row, project, today, operational=None):
     has_prep = bool(row.get("mapping_at") or row.get("boq_at") or row.get("pimp_at")
                     or row.get("tcn_at") or row.get("mir_at") or row.get("first_visit_at"))
     prepared = bool(row.get("tcn_at") and row.get("mir_at") and row.get("first_visit_at"))
-    operational_done = (operational_visible and (not operational.get("applicable")
-                                                  or operational.get("closed")))
-    handover_done = bool(row.get("tags_at") and row.get("photos_at") and row.get("asbuilt_at") and operational_done)
     if closed:
         stage = "Closed"
     elif row.get("invoice_at") or row.get("ho_at"):
-        # Any applicable GCL/FIS/MGCL evidence starts the Invoicing summary;
-        # a pending As-Built BOQ file follows the cycle into that stage.
-        stage = "Invoicing"
-    elif prepared and not handover_done:
-        stage = "Handover"
-    elif prepared and handover_done:
-        stage = "Completion documents"
+        # Applicable handover evidence starts the native As-Built stage.
+        stage = "4 - As-Built"
+    elif prepared:
+        stage = "3 - Handover"
     elif has_prep:
-        stage = "Preparation"
+        stage = "2 - Plan"
     else:
-        stage = "Scope & readiness"
+        stage = "1 - Initial"
     work = []
     family = _family((project or {}).get("custom_family") or row.get("project"))
     if (not closed and not row.get("ho_at") and not row.get("asbuilt_at")
@@ -322,12 +297,12 @@ def _cycle_view(row, project, today, operational=None):
                              "closes_on": label + " evidence"})
         if operational.get("applicable") and not operational.get("closed"):
             work.append({"key": "asbuilt_operational", "label": "As-Built Operational",
-                         "owner_role": "warehouse", "stage": "Handover",
+                         "owner_role": "warehouse", "stage": "3 - Handover",
                          "closes_on": "Any linked site DN line custom_return_closed = 1",
                          "source_dns": operational.get("source_dns") or []})
     if not closed and (prepared or row.get("ho_at") or row.get("invoice_at")) and not row.get("asbuilt_at"):
         work.append({"key": "asbuilt", "label": "As-Built BOQ file", "owner_role": "pm",
-                     "stage": "Invoicing" if row.get("ho_at") or row.get("invoice_at") else "Handover",
+                     "stage": "4 - As-Built" if row.get("ho_at") or row.get("invoice_at") else "3 - Handover",
                      "closes_on": "ASBUILT_BOQ_GENERATED"})
     for item in work:
         item["shared"] = True
@@ -401,13 +376,17 @@ def get_overview():
         aliases_by_stream = {str(stream.name): str(stream.get("alias") or "") for stream in streams}
     counts = result["summary"]
     warehouse_lines, warehouse_complete = _warehouse_operational_lines(rows)
-    result["complete"]["asbuilt_operational"] = warehouse_complete is True or warehouse_complete is None
-    result["operational_access"] = "available" if warehouse_complete is True else "restricted" if warehouse_complete is None else "unavailable"
+    result["complete"]["asbuilt_operational"] = warehouse_complete
+    result["operational_access"] = (
+        "available" if warehouse_complete is True
+        else "restricted" if warehouse_complete is None
+        else "unavailable"
+    )
     for row in rows:
         project_key = str(row.get("erp_project") or "")
         project = projects_by_name.get(project_key)
         row["project_alias"] = aliases_by_stream.get(str(row.get("project_stream") or ""), "")
-        operational = _asbuilt_operational_status(row, warehouse_lines) if warehouse_complete is True else None
+        operational = _asbuilt_operational_status(row, warehouse_lines) if warehouse_complete else None
         cycle = _cycle_view(row, project, today, operational)
         result["cycles"].append(cycle)
         if cycle["terminal"]:
@@ -465,13 +444,13 @@ def export_workbook(filter="open"):
                "Stage", "Status", "Pending work", "Review due", "Delayed", "Aged",
                "Due date", "Delay reason", "Delay note", "Closed on", "Closed by",
                "Mapping at", "BOQ at", "TCN at", "MIR at", "Visit at",
-               "Tags at", "Photos at", "As-Built BOQ at", "As-Built Operational status",
+               "Tags at", "Photos at", "As-Built BOQ at", "As-Built Operational closed",
                "As-Built DN source(s)", "Warranty at", "Handover at", "Invoice at"]
     ws.append(headers)
     stage_ws = wb.create_sheet("Stage tasks")
     stage_ws.append(["Task ID", "Cycle ID", "Site", "WO", "BA", "Project alias",
                      "Task stage", "Cycle stage", "Task", "Role", "Status",
-                     "Expected evidence", "Review reason", "DN source(s)"])
+                     "Expected evidence", "Review reason"])
     cycle_by_name = {c.get("name"): c for c in all_cycles}
     for cycle in cycles:
         events = cycle.get("events") or {}
@@ -486,17 +465,11 @@ def export_workbook(filter="open"):
                   [events.get(field) for field in ("mapping_at", "boq_at", "tcn_at", "mir_at",
                    "first_visit_at", "tags_at", "photos_at", "asbuilt_at")])
         operational = cycle.get("asbuilt_operational") or {}
-        operational_status = (
-            "Not visible to this role" if not operational.get("visible")
-            else "Closed" if operational.get("closed")
-            else "Pending" if operational.get("applicable")
-            else "Not applicable"
-        )
-        ws.cell(ws.max_row, 27, operational_status)
-        ws.cell(ws.max_row, 28, "; ".join(operational.get("source_dns") or []))
-        ws.cell(ws.max_row, 29, events.get("warranty_at"))
-        ws.cell(ws.max_row, 30, events.get("ho_at"))
-        ws.cell(ws.max_row, 31, events.get("invoice_at"))
+        ws.cell(ws.max_row, 25, bool(operational.get("closed")))
+        ws.cell(ws.max_row, 26, "; ".join(operational.get("source_dns") or []))
+        ws.cell(ws.max_row, 27, events.get("warranty_at"))
+        ws.cell(ws.max_row, 28, events.get("ho_at"))
+        ws.cell(ws.max_row, 29, events.get("invoice_at"))
     for task in tasks:
         cycle = cycle_by_name.get(task.get("cycle"))
         if not cycle:
@@ -506,8 +479,7 @@ def export_workbook(filter="open"):
         stage_ws.append([task.get("id"), cycle.get("name"), cycle.get("site"), cycle.get("wo"),
                          cycle.get("ba"), cycle.get("alias"), task.get("stage"), cycle.get("stage"),
                          task.get("label"), audience, task.get("status"),
-                         task.get("expected_evidence"), task.get("review_reason"),
-                         "; ".join(task.get("source_dns") or [])])
+                         task.get("expected_evidence"), task.get("review_reason")])
     for sheet in wb.worksheets:
         sheet.freeze_panes = "A2"
         sheet.auto_filter.ref = sheet.dimensions

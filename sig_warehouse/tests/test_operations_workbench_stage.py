@@ -29,30 +29,46 @@ def _cycle(**overrides):
     return row
 
 
-def test_ho_evidence_moves_open_asbuilt_boq_task_to_invoicing():
+def test_ho_evidence_moves_open_asbuilt_boq_task_to_erp_asbuilt_stage():
     workbench = _workbench()
     cycle = workbench._cycle_view(
         _cycle(), {"name": "10001134", "custom_family": "Incident"}, "2026-10-13")
-    assert cycle["stage"] == "Invoicing"
+    assert cycle["stage"] == "4 - As-Built"
     assert [(item["key"], item["owner_role"]) for item in cycle["work"]] == [("asbuilt", "pm")]
     pm_tasks = workbench._stage_tasks_for_user([cycle], [{"scope": "Incident", "role": "pm"}])
     assert [(task["kind"], task["stage"], task["status"]) for task in pm_tasks] == [
-        ("stage", "Invoicing", "Review due"),
+        ("stage", "4 - As-Built", "Review due"),
         ("closure", "Cycle closure", "Explicit action"),
     ]
     co_tasks = workbench._stage_tasks_for_user([cycle], [{"scope": "Incident", "role": "co"}])
     assert [task["kind"] for task in co_tasks] == ["closure"]
 
 
-def test_asbuilt_file_closes_on_its_own_evidence_and_invoice_stage_keeps_it_visible():
+def test_cycle_summary_uses_four_erp_stages_and_closed_is_terminal():
+    workbench = _workbench()
+    project = {"name": "10001134", "custom_family": "Incident"}
+    initial = workbench._cycle_view(_cycle(ho_at=None), project, "2026-10-13")
+    plan = workbench._cycle_view(_cycle(ho_at=None, mapping_at="2026-08-19"), project, "2026-10-13")
+    handover = workbench._cycle_view(
+        _cycle(ho_at=None, tcn_at="2026-08-20", mir_at="2026-08-20", first_visit_at="2026-08-21"),
+        project, "2026-10-13")
+    asbuilt = workbench._cycle_view(_cycle(), project, "2026-10-13")
+    closed = workbench._cycle_view(_cycle(terminal=1, ho_at=None), project, "2026-10-13")
+    assert [initial["stage"], plan["stage"], handover["stage"], asbuilt["stage"]] == [
+        "1 - Initial", "2 - Plan", "3 - Handover", "4 - As-Built"]
+    assert closed["stage"] == "Closed"
+    assert closed["terminal"] is True
+
+
+def test_asbuilt_file_closes_on_its_own_evidence_and_asbuilt_stage_keeps_it_visible():
     workbench = _workbench()
     project = {"name": "10001134", "custom_family": "Incident"}
     complete = workbench._cycle_view(_cycle(asbuilt_at="2026-08-24 10:00:00", ho_at=None), project, "2026-10-13")
     assert complete["work"] == []
     assert complete["needs_review"] is False
     pending = workbench._cycle_view(_cycle(invoice_at="2026-08-25 10:00:00", ho_at=None), project, "2026-10-13")
-    assert pending["stage"] == "Invoicing"
-    assert [(item["key"], item["stage"]) for item in pending["work"]] == [("asbuilt", "Invoicing")]
+    assert pending["stage"] == "4 - As-Built"
+    assert [(item["key"], item["stage"]) for item in pending["work"]] == [("asbuilt", "4 - As-Built")]
 
 
 def test_gcl_keeps_parallel_handover_work_when_preparation_is_evidenced():
@@ -64,22 +80,22 @@ def test_gcl_keeps_parallel_handover_work_when_preparation_is_evidenced():
     assert {(item["key"], item["owner_role"]) for item in cycle["work"]} == {
         ("tags", "co"), ("photos", "co"), ("asbuilt_operational", "warehouse"), ("asbuilt", "pm")}
     operational = next(item for item in cycle["work"] if item["key"] == "asbuilt_operational")
-    assert operational["stage"] == "Handover"
+    assert operational["stage"] == "3 - Handover"
     assert operational["source_dns"] == ["DN-1"]
 
 
-def test_ho_moves_only_the_cycle_summary_and_boq_file_to_invoicing():
+def test_ho_moves_only_the_cycle_summary_and_boq_file_to_asbuilt():
     workbench = _workbench()
     cycle = workbench._cycle_view(
         _cycle(tcn_at="2026-08-20", mir_at="2026-08-20", first_visit_at="2026-08-21"),
         {"name": "10001134", "custom_family": "Incident"}, "2026-10-13",
         {"applicable": True, "closed": False, "source_dns": ["DN-1"]})
-    assert cycle["stage"] == "Invoicing"
+    assert cycle["stage"] == "4 - As-Built"
     stages = {item["key"]: item.get("stage", workbench.TASK_STAGE.get(item["key"]))
               for item in cycle["work"]}
     assert stages == {
-        "tags": "Handover", "photos": "Handover",
-        "asbuilt_operational": "Handover", "asbuilt": "Invoicing",
+        "tags": "3 - Handover", "photos": "3 - Handover",
+        "asbuilt_operational": "3 - Handover", "asbuilt": "4 - As-Built",
     }
 
 
@@ -89,7 +105,7 @@ def test_missing_permission_to_read_operational_flag_does_not_claim_handover_com
         _cycle(ho_at=None, tcn_at="2026-08-20", mir_at="2026-08-20", first_visit_at="2026-08-21",
               tags_at="2026-08-22", photos_at="2026-08-22", asbuilt_at="2026-08-23"),
         {"name": "10001134", "custom_family": "Incident"}, "2026-10-13", operational=None)
-    assert cycle["stage"] == "Handover"
+    assert cycle["stage"] == "3 - Handover"
     assert cycle["asbuilt_operational"]["visible"] is False
     assert cycle["asbuilt_operational"]["closed"] is None
 
