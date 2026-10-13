@@ -45,6 +45,17 @@ def _stage_patch():
     return module
 
 
+def _repair_patch():
+    frappe = ModuleType("frappe")
+    sys.modules["frappe"] = frappe
+    source = (Path(__file__).resolve().parents[1] / "sig_warehouse" / "patches" / "v1_0"
+              / "repair_invoicing_delay_state.py")
+    spec = importlib.util.spec_from_file_location("repair_invoicing_delay_state_under_test", source)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_ho_evidence_moves_open_asbuilt_boq_task_to_erp_invoicing_stage():
     workbench = _workbench()
     cycle = workbench._cycle_view(
@@ -75,8 +86,32 @@ def test_invoicing_writer_rewrites_sla_and_delay_keys_idempotently():
     assert "'initial\\nplan\\nhandover\\ninvoicing'" in new_script
     assert "4 - As-Built" not in new_script
     assert patch._rewrite_evidence_writer(new_script) == (new_script, False)
-    assert patch._normalize_delay_checkpoints("initial\nplan\nhandover\nasbuilt") == (
-        "initial\nplan\nhandover\ninvoicing", True)
+
+    class FakeDb:
+        saved = None
+
+        def set_single_value(self, doctype, fieldname, value):
+            self.saved = (doctype, fieldname, value)
+
+    db = FakeDb()
+    normalized, changed = patch._persist_delay_checkpoints(
+        db, "initial\nplan\nhandover\nasbuilt")
+    assert changed is True
+    assert normalized == "initial\nplan\nhandover\ninvoicing"
+    assert db.saved == ("SIG Field Ops Settings", "delay_checkpoints", normalized)
+
+
+def test_invoicing_delay_repair_restores_corrupt_checkpoint_value_without_flattening():
+    patch = _repair_patch()
+    corrupted = "\n".join(list("initial\nplan\nhandover\ninvoicing"))
+    normalized, changed = patch._checkpoint_value(corrupted)
+    assert changed is True
+    assert normalized == "initial\nplan\nhandover\ninvoicing"
+    assert patch._checkpoint_value(normalized) == (normalized, False)
+    assert patch._checkpoint_value("initial\nplan\nhandover\nasbuilt") == (
+        normalized, True)
+    assert len(patch.PREVIOUSLY_DELAYED_CYCLES) == 31
+    assert "ZNJ104|WO-SIG-IMP-ZNJ104-11340-Incident-23580|20260726" in patch.PREVIOUSLY_DELAYED_CYCLES
 
 
 def test_cycle_summary_uses_four_erp_stages_and_closed_is_terminal():

@@ -52,6 +52,13 @@ def _normalize_delay_checkpoints(checkpoints):
     return "\n".join(normalized), changed
 
 
+def _persist_delay_checkpoints(db, checkpoints):
+    normalized, changed = _normalize_delay_checkpoints(checkpoints)
+    if changed:
+        db.set_single_value(SETTINGS, "delay_checkpoints", normalized)
+    return normalized, changed
+
+
 def _update_evidence_writer():
     if not frappe.db.exists("Server Script", SERVER_SCRIPT):
         frappe.throw("Cannot normalize Operations Invoicing logic: evidence writer is missing.")
@@ -68,9 +75,7 @@ def _update_settings():
 
     checkpoints = frappe.db.get_single_value(SETTINGS, "delay_checkpoints") or ""
     if checkpoints:
-        normalized, changed = _normalize_delay_checkpoints(checkpoints)
-        if changed:
-            frappe.db.set_single_value(SETTINGS, "delay_checkpoints", "\n".join(normalized))
+        _persist_delay_checkpoints(frappe.db, checkpoints)
 
     custom_field = frappe.db.get_value(
         "Custom Field", {"dt": SETTINGS, "fieldname": SLA_FIELD}, "name"
