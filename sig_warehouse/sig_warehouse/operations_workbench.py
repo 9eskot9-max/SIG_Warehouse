@@ -11,6 +11,122 @@ import frappe
 
 PAGE_SIZE = 500
 MAX_ROWS = 20000
+
+# Owner-confirmed Operations routing. Employee.user_id resolves the opener to
+# this allowlisted roster; these names do not grant access to a Site Cycle.
+OPS_ROSTER = {
+    "Capex": {
+        "pm": ("Mohammed Sohail Mohammed Ilyas",),
+        "co": ("Farooq Ansary", "Ghlzar Ahmad Fazal Malik"),
+    },
+    "Incident": {
+        "pm": ("Abdulraheem Mohammed", "Mohammed Sohail Mohammed Ilyas"),
+        "co": ("Arshad ahmed abdulhameed",),
+    },
+    "Colocation": {
+        "pm": ("Mohammed Imran Ansary",),
+        "co": ("Mohamed Walid Khalil Nmer Rahma", "Obed Sharrif"),
+    },
+}
+
+TASK_STAGE = {
+    "mapping": "Scope & readiness", "boq": "Scope & readiness",
+    "tcn": "Preparation", "mir": "Preparation", "visit": "Preparation",
+    "tags": "Handover", "photos": "Handover", "asbuilt": "Handover",
+}
+
+
+def _normalize_person(value):
+    return " ".join(str(value or "").split()).casefold()
+
+
+def _current_ops_membership(user):
+    """Resolve only this opener's Employee link and confirmed Operations scope."""
+    if user in ("", "Guest") or not frappe.db.exists("DocType", "Employee"):
+        return {"ready": False, "issue": "Employee identity is unavailable.", "memberships": []}
+    if not frappe.has_permission("Employee", "read"):
+        return {"ready": False, "issue": "Your Employee link cannot be read for task routing.", "memberships": []}
+    try:
+        employees = frappe.get_list(
+            "Employee", filters={"user_id": user, "status": "Active"},
+            fields=["name", "employee_name", "user_id"], page_length=2)
+    except Exception:
+        return {"ready": False, "issue": "Employee identity lookup needs review.", "memberships": []}
+    if len(employees) != 1:
+        return {"ready": False, "issue": "A unique active Employee link is required for task routing.", "memberships": []}
+    employee_name = _normalize_person(employees[0].get("employee_name"))
+    memberships = []
+    for scope, roles in OPS_ROSTER.items():
+        for role, names in roles.items():
+            if any(_normalize_person(name) == employee_name for name in names):
+                memberships.append({"scope": scope, "role": role})
+    if not memberships:
+        return {"ready": False, "issue": "This Employee is not in the confirmed Operations roster.", "memberships": []}
+    return {"ready": True, "issue": "", "memberships": memberships}
+
+
+def _task_audience(family, owner_role, memberships):
+    """A shared task is visible to a roster member of its scope and role."""
+    if owner_role == "either":
+        return any(m["scope"] == family for m in memberships)
+    return any(m["scope"] == family and m["role"] == owner_role for m in memberships)
+
+
+def _stage_tasks_for_user(cycles, memberships):
+    """Project one queue row per logical task; never create one per employee."""
+    tasks = []
+    for cycle in cycles:
+        if cycle.get("terminal") or not _task_audience(cycle.get("family"), "either", memberships):
+            continue
+        for work in cycle.get("work") or []:
+            role = work.get("owner_role") or "either"
+            if not _task_audience(cycle.get("family"), role, memberships):
+                continue
+            tasks.append({
+                "id": cycle["name"] + "::" + str(work.get("key") or "work"),
+                "kind": "stage", "cycle": cycle["name"], "site": cycle["site"],
+                "project_id": cycle["project_id"], "ba": cycle["ba"],
+                "alias": cycle["alias"], "wo": cycle["wo"],
+                "family": cycle["family"], "cycle_stage": cycle["stage"],
+                "stage": TASK_STAGE.get(str(work.get("key") or ""), cycle["stage"]),
+                "key": str(work.get("key") or ""), "label": str(work.get("label") or "Work"),
+                "owner_role": role, "shared": True,
+                "status": "Review due" if cycle.get("needs_review") else "Pending evidence",
+                "needs_review": bool(cycle.get("needs_review")),
+                "review_reason": str(cycle.get("delay_reason") or cycle.get("delay_note") or ""),
+                "expected_evidence": str(work.get("closes_on") or ""),
+            })
+
+        # A coverage gap is a real human review item, not a guessed evidence task.
+        if not cycle.get("work"):
+            tasks.append({
+                "id": cycle["name"] + "::coverage-review", "kind": "review",
+                "cycle": cycle["name"], "site": cycle["site"],
+                "project_id": cycle["project_id"], "ba": cycle["ba"],
+                "alias": cycle["alias"], "wo": cycle["wo"],
+                "family": cycle["family"], "cycle_stage": cycle["stage"],
+                "stage": "Review", "key": "coverage-review",
+                "label": "Review cycle work", "owner_role": "either", "shared": True,
+                "status": "Review required", "needs_review": True,
+                "review_reason": "No stage task is currently projected; confirm applicable work or legacy closure.",
+                "expected_evidence": "Classify source work; do not infer completion from missing evidence.",
+            })
+
+        # Deliberate cycle close is separate from evidence task completion.
+        tasks.append({
+            "id": cycle["name"] + "::cycle-close", "kind": "closure",
+            "cycle": cycle["name"], "site": cycle["site"],
+            "project_id": cycle["project_id"], "ba": cycle["ba"],
+            "alias": cycle["alias"], "wo": cycle["wo"],
+            "family": cycle["family"], "cycle_stage": cycle["stage"],
+            "stage": "Cycle closure", "key": "cycle-close",
+            "label": "Close cycle", "owner_role": "either", "shared": True,
+            "status": "Explicit action", "needs_review": False,
+            "review_reason": "", "expected_evidence": "A reason and recorded actor/time are required.",
+        })
+    return tasks
+
+
 class _PlainText(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
@@ -122,12 +238,13 @@ def _cycle_view(row, project, today):
 @frappe.whitelist()
 def get_overview():
     """Read current ToDos, evidence-derived pipeline work and authorized cycles."""
-    result = {"todos": [], "cycles": [], "projects": [],
+    result = {"todos": [], "cycles": [], "projects": [], "stage_tasks": [],
                     "summary": {"todos": 0, "overdue_todos": 0, "cycles": 0, "delayed": 0,
                           "aged": 0, "past_due": 0, "closed": 0, "exceptions": 0,
-                          "stages": {}},
+                          "stages": {}, "stage_tasks": 0, "review_tasks": 0},
               "complete": {"todos": True, "cycles": True}, "todo_access": False,
-              "can_close_cycles": False, "todo_create": False, "person": frappe.session.user}
+              "can_close_cycles": False, "todo_create": False, "person": frappe.session.user,
+              "task_route": {"ready": False, "issue": "", "memberships": []}}
     user, today = frappe.session.user, frappe.utils.nowdate()
     roles = set(frappe.get_roles(user))
     result["can_close_cycles"] = bool(roles.intersection(
@@ -180,25 +297,38 @@ def get_overview():
             counts["exceptions"] += int(cycle["needs_review"])
         counts["stages"][cycle["stage"]] = counts["stages"].get(cycle["stage"], 0) + 1
     result["cycles"].sort(key=lambda r: (r["terminal"], not r["needs_review"], r["stage_due_on"] or "9999-12-31", r["site"].lower()))
+    result["task_route"] = _current_ops_membership(user)
+    if result["task_route"]["ready"]:
+        result["stage_tasks"] = _stage_tasks_for_user(result["cycles"], result["task_route"]["memberships"])
+        result["summary"]["stage_tasks"] = sum(1 for task in result["stage_tasks"] if task["kind"] == "stage")
+        result["summary"]["review_tasks"] = sum(1 for task in result["stage_tasks"] if task["kind"] == "review")
     result["todos_has_more"] = len(todos) > len(result["todos"]) if result["todo_access"] else False
     return result
 
 @frappe.whitelist()
 def export_workbook(filter="open"):
-    """Download all permission-visible cycles and their evidence-derived stage milestones."""
+    """Export the opener's routed task queue and permission-visible cycles."""
     if not frappe.has_permission("SIG Site Cycle", "read") or not frappe.has_permission("SIG Site Cycle", "export"):
         frappe.throw("You need SIG Site Cycle read and export permission to download this workbook.",
                      frappe.PermissionError)
     data = get_overview()
     if not data.get("complete", {}).get("cycles"):
         frappe.throw("The visible cycle read reached its safety limit. Refine the source data before exporting.")
-    cycles = list(data.get("cycles") or [])
-    if filter == "review":
-        cycles = [c for c in cycles if c.get("needs_review")]
-    elif filter.startswith("stage:"):
-        cycles = [c for c in cycles if c.get("stage") == filter[6:]]
+    all_cycles = list(data.get("cycles") or [])
+    if filter == "cycles" or filter == "open":
+        cycles = [c for c in all_cycles if not c.get("terminal")]
+        tasks = [t for t in data.get("stage_tasks") or [] if t.get("cycle") in {c.get("name") for c in cycles}]
     else:
-        cycles = [c for c in cycles if not c.get("terminal")]
+        tasks = list(data.get("stage_tasks") or [])
+        if filter == "review":
+            tasks = [t for t in tasks if t.get("needs_review") or t.get("kind") == "review"]
+        elif filter.startswith("stage:"):
+            stage = filter[6:]
+            tasks = [t for t in tasks if (t.get("kind") == "closure" if stage == "Cycle closure" else t.get("stage") == stage and t.get("kind") != "closure")]
+        else:
+            tasks = [t for t in tasks if t.get("kind") != "review"]
+        cycle_names = {t.get("cycle") for t in tasks}
+        cycles = [c for c in all_cycles if c.get("name") in cycle_names and not c.get("terminal")]
 
     wb = Workbook()
     ws = wb.active
@@ -210,20 +340,10 @@ def export_workbook(filter="open"):
                "Tags at", "Photos at", "As-Built BOQ at", "Warranty at", "Handover at"]
     ws.append(headers)
     stage_ws = wb.create_sheet("Stage tasks")
-    stage_ws.append(["Cycle ID", "Site", "WO", "BA", "Project alias", "Stage",
-                     "Task", "Role", "Status", "Evidence recorded at"])
-    specs = [
-        ("mapping", "Mapping / BOQ", "Scope", "either", ("mapping_at", "boq_at")),
-        ("tcn", "TCN / MDT", "Preparation", "co", ("tcn_at",)),
-        ("mir", "MIR", "Preparation", "co", ("mir_at",)),
-        ("visit", "Visit", "Preparation", "pm", ("first_visit_at",)),
-        ("tags", "Tags", "Handover", "co", ("tags_at",)),
-        ("photos", "Photos", "Handover", "co", ("photos_at",)),
-        ("asbuilt", "As-Built BOQ file", "Handover", "pm", ("asbuilt_at",)),
-        ("warranty", "Warranty", "Completion documents", "co", ("warranty_at",)),
-        ("handover", "Handover documents", "Completion documents", "either", ("ho_at",)),
-        ("rfi", "RFI", "Completion documents", "pm", ()),
-    ]
+    stage_ws.append(["Task ID", "Cycle ID", "Site", "WO", "BA", "Project alias",
+                     "Task stage", "Cycle stage", "Task", "Role", "Status",
+                     "Expected evidence", "Review reason"])
+    cycle_by_name = {c.get("name"): c for c in all_cycles}
     for cycle in cycles:
         events = cycle.get("events") or {}
         pending = {w.get("key") for w in cycle.get("work") or []}
@@ -236,18 +356,16 @@ def export_workbook(filter="open"):
                    cycle.get("closed_on"), cycle.get("closed_by")] +
                   [events.get(field) for field in ("mapping_at", "boq_at", "tcn_at", "mir_at",
                    "first_visit_at", "tags_at", "photos_at", "asbuilt_at", "warranty_at", "ho_at")])
-        for key, label, stage, role, fields in specs:
-            recorded = next((events.get(field) for field in fields if events.get(field)), "")
-            if recorded:
-                status = "Complete · evidence"
-            elif not fields:
-                status = "Not projected · evidence source not wired"
-            elif key in pending:
-                status = "Pending evidence"
-            else:
-                status = "Not yet open / not applicable"
-            stage_ws.append([cycle.get("name"), cycle.get("site"), cycle.get("wo"), cycle.get("ba"),
-                             cycle.get("alias"), stage, label, role, status, recorded])
+    for task in tasks:
+        cycle = cycle_by_name.get(task.get("cycle"))
+        if not cycle:
+            continue
+        role = task.get("owner_role") or "either"
+        audience = "PM" if role == "pm" else "Coordinator" if role == "co" else "PM or Coordinator"
+        stage_ws.append([task.get("id"), cycle.get("name"), cycle.get("site"), cycle.get("wo"),
+                         cycle.get("ba"), cycle.get("alias"), task.get("stage"), cycle.get("stage"),
+                         task.get("label"), audience, task.get("status"),
+                         task.get("expected_evidence"), task.get("review_reason")])
     for sheet in wb.worksheets:
         sheet.freeze_panes = "A2"
         sheet.auto_filter.ref = sheet.dimensions
