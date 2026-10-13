@@ -1,18 +1,16 @@
 """Permission-respecting operations dashboard read model and cycle close action."""
 import json
+from io import BytesIO
 from html import unescape
 from html.parser import HTMLParser
+
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill
 
 import frappe
 
 PAGE_SIZE = 500
 MAX_ROWS = 20000
-ROSTER = {
-    "Capex": {"pm": ["Mohammed Sohail Mohammed Ilyas"], "co": ["Farooq Ansary", "Ghlzar Ahmad Fazal Malik"]},
-    "Incident": {"pm": ["Abdulraheem Mohammed", "Mohammed Sohail Mohammed Ilyas"], "co": ["Arshad ahmed abdulhameed"]},
-    "Colocation": {"pm": ["Mohammed Imran Ansary"], "co": ["Mohamed Walid Khalil Nmer Rahma", "Obed Sharrif"]},
-}
-
 class _PlainText(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
@@ -79,7 +77,6 @@ def _cycle_view(row, project, today):
         stage = "Scope & readiness"
     work = []
     family = _family(project.get("custom_family") if project else "")
-    people = ROSTER.get(family, {"pm": [], "co": []})
     if not closed and (row.get("mapping_at") or row.get("boq_at") or row.get("pimp_at")):
         for key, label, field, role in (
             ("tcn", "TCN / MDT", "tcn_at", "co"),
@@ -88,7 +85,7 @@ def _cycle_view(row, project, today):
         ):
             if not row.get(field):
                 work.append({"key": key, "label": label, "owner_role": role,
-                             "owners": people[role], "closes_on": label + " evidence"})
+                             "closes_on": label + " evidence"})
     if not closed and prepared:
         for key, label, field, role in (
             ("tags", "Tags", "tags_at", "co"),
@@ -97,7 +94,7 @@ def _cycle_view(row, project, today):
         ):
             if not row.get(field):
                 work.append({"key": key, "label": label, "owner_role": role,
-                             "owners": people[role], "closes_on": label + " evidence"})
+                             "closes_on": label + " evidence"})
     for item in work:
         item["shared"] = True
     delay = _flag(row, "is_delayed") or _flag(row, "is_aged") or bool(row.get("stage_due_on") and str(row.stage_due_on)[:10] < today)
@@ -105,6 +102,8 @@ def _cycle_view(row, project, today):
         "name": row.name, "site": str(row.get("site_key") or row.get("site") or row.name),
         "project": str((project or {}).get("project_name") or row.get("project") or ""),
         "project_id": str((project or {}).get("name") or row.get("erp_project") or ""),
+        "ba": str((project or {}).get("custom_agreement_no") or row.get("po") or ""),
+        "alias": str(row.get("project_alias") or ""), "wo": str(row.get("wo") or ""),
         "family": family, "stage": stage, "legacy_stage": str(row.get("stage") or ""),
         "terminal": closed, "closed_on": str(row.get("closed_on") or ""),
         "closed_by": str(row.get("closed_by") or ""),
@@ -115,7 +114,6 @@ def _cycle_view(row, project, today):
         "is_delayed": _flag(row, "is_delayed"), "is_aged": _flag(row, "is_aged"),
         "past_due": bool(row.get("stage_due_on") and str(row.stage_due_on)[:10] < today),
         "needs_review": bool(delay and not closed), "work": work,
-        "people": {"pm": people["pm"], "co": people["co"]},
         "events": {key: str(row.get(key) or "") for key in (
             "mapping_at", "boq_at", "tcn_at", "mir_at", "first_visit_at",
             "tags_at", "photos_at", "asbuilt_at", "warranty_at", "ho_at")},
@@ -125,17 +123,19 @@ def _cycle_view(row, project, today):
 def get_overview():
     """Read current ToDos, evidence-derived pipeline work and authorized cycles."""
     result = {"todos": [], "cycles": [], "projects": [],
-              "roster": ROSTER,
-              "summary": {"todos": 0, "overdue_todos": 0, "cycles": 0, "delayed": 0,
+                    "summary": {"todos": 0, "overdue_todos": 0, "cycles": 0, "delayed": 0,
                           "aged": 0, "past_due": 0, "closed": 0, "exceptions": 0,
                           "stages": {}},
-              "complete": {"todos": True, "cycles": True},
-              "can_close_cycles": False, "person": frappe.session.user}
+              "complete": {"todos": True, "cycles": True}, "todo_access": False,
+              "can_close_cycles": False, "todo_create": False, "person": frappe.session.user}
     user, today = frappe.session.user, frappe.utils.nowdate()
     roles = set(frappe.get_roles(user))
     result["can_close_cycles"] = bool(roles.intersection(
         {"SIG Field Ops", "System Manager", "Projects Manager", "Projects User"}))
+    todos = []
+    result["todo_create"] = bool(frappe.has_permission("ToDo", "create"))
     if frappe.has_permission("ToDo", "read"):
+        result["todo_access"] = True
         todos, result["complete"]["todos"] = _all_visible(
             "ToDo", ["name", "description", "date", "status", "reference_type", "reference_name", "allocated_to"],
             filters={"allocated_to": user, "status": ["not in", ["Closed", "Cancelled"]]},
@@ -145,7 +145,7 @@ def get_overview():
         result["todos"] = [{**row, "description": _plain_text(row.get("description"))} for row in todos[:50]]
     if not frappe.has_permission("SIG Site Cycle", "read"):
         return result
-    fields = ["name", "site", "site_key", "project", "erp_project", "stage", "stage_due_on", "terminal",
+    fields = ["name", "site", "site_key", "project", "erp_project", "project_stream", "po", "wo", "stage", "stage_due_on", "terminal",
               "closed_on", "closed_by", "is_delayed", "is_aged", "delay_reason", "delay_note", "last_event_at",
               "mapping_at", "boq_at", "pimp_at", "tcn_at", "mir_at", "first_visit_at", "tags_at", "photos_at",
               "asbuilt_at", "warranty_at", "ho_at"]
@@ -154,12 +154,20 @@ def get_overview():
     projects_by_name = {}
     project_names = sorted({str(r.get("erp_project")) for r in rows if r.get("erp_project")})
     if project_names and frappe.has_permission("Project", "read"):
-        projects, _ = _all_visible("Project", ["name", "project_name", "status", "custom_family"],
+        projects, _ = _all_visible("Project", ["name", "project_name", "status", "custom_family", "custom_agreement_no"],
                                    filters={"name": ["in", project_names]}, order_by="project_name asc")
         projects_by_name = {p.name: p for p in projects}
+    aliases_by_stream = {}
+    stream_names = sorted({str(r.get("project_stream")) for r in rows if r.get("project_stream")})
+    if stream_names and frappe.db.exists("DocType", "SIG Project Stream") and frappe.has_permission("SIG Project Stream", "read"):
+        streams, _ = _all_visible("SIG Project Stream", ["name", "alias"],
+                                  filters={"name": ["in", stream_names]}, max_rows=5000)
+        aliases_by_stream = {str(stream.name): str(stream.get("alias") or "") for stream in streams}
     counts = result["summary"]
     for row in rows:
-        project = projects_by_name.get(str(row.get("erp_project") or ""))
+        project_key = str(row.get("erp_project") or "")
+        project = projects_by_name.get(project_key)
+        row["project_alias"] = aliases_by_stream.get(str(row.get("project_stream") or ""), "")
         cycle = _cycle_view(row, project, today)
         result["cycles"].append(cycle)
         if cycle["terminal"]:
@@ -172,7 +180,93 @@ def get_overview():
             counts["exceptions"] += int(cycle["needs_review"])
         counts["stages"][cycle["stage"]] = counts["stages"].get(cycle["stage"], 0) + 1
     result["cycles"].sort(key=lambda r: (r["terminal"], not r["needs_review"], r["stage_due_on"] or "9999-12-31", r["site"].lower()))
+    result["todos_has_more"] = len(todos) > len(result["todos"]) if result["todo_access"] else False
     return result
+
+@frappe.whitelist()
+def export_workbook(filter="open"):
+    """Download all permission-visible cycles and their evidence-derived stage milestones."""
+    if not frappe.has_permission("SIG Site Cycle", "read") or not frappe.has_permission("SIG Site Cycle", "export"):
+        frappe.throw("You need SIG Site Cycle read and export permission to download this workbook.",
+                     frappe.PermissionError)
+    data = get_overview()
+    if not data.get("complete", {}).get("cycles"):
+        frappe.throw("The visible cycle read reached its safety limit. Refine the source data before exporting.")
+    cycles = list(data.get("cycles") or [])
+    if filter == "review":
+        cycles = [c for c in cycles if c.get("needs_review")]
+    elif filter.startswith("stage:"):
+        cycles = [c for c in cycles if c.get("stage") == filter[6:]]
+    else:
+        cycles = [c for c in cycles if not c.get("terminal")]
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Cycles"
+    headers = ["Cycle ID", "Site", "WO", "BA", "Project alias", "ERP Project", "Scope",
+               "Stage", "Status", "Pending work", "Review due", "Delayed", "Aged",
+               "Due date", "Delay reason", "Delay note", "Closed on", "Closed by",
+               "Mapping at", "BOQ at", "TCN at", "MIR at", "Visit at",
+               "Tags at", "Photos at", "As-Built BOQ at", "Warranty at", "Handover at"]
+    ws.append(headers)
+    stage_ws = wb.create_sheet("Stage tasks")
+    stage_ws.append(["Cycle ID", "Site", "WO", "BA", "Project alias", "Stage",
+                     "Task", "Role", "Status", "Evidence recorded at"])
+    specs = [
+        ("mapping", "Mapping / BOQ", "Scope", "either", ("mapping_at", "boq_at")),
+        ("tcn", "TCN / MDT", "Preparation", "co", ("tcn_at",)),
+        ("mir", "MIR", "Preparation", "co", ("mir_at",)),
+        ("visit", "Visit", "Preparation", "pm", ("first_visit_at",)),
+        ("tags", "Tags", "Handover", "co", ("tags_at",)),
+        ("photos", "Photos", "Handover", "co", ("photos_at",)),
+        ("asbuilt", "As-Built BOQ file", "Handover", "pm", ("asbuilt_at",)),
+        ("warranty", "Warranty", "Completion documents", "co", ("warranty_at",)),
+        ("handover", "Handover documents", "Completion documents", "either", ("ho_at",)),
+        ("rfi", "RFI", "Completion documents", "pm", ()),
+    ]
+    for cycle in cycles:
+        events = cycle.get("events") or {}
+        pending = {w.get("key") for w in cycle.get("work") or []}
+        ws.append([cycle.get("name"), cycle.get("site"), cycle.get("wo"), cycle.get("ba"),
+                   cycle.get("alias"), cycle.get("project_id"), cycle.get("family"),
+                   cycle.get("stage"), "Closed" if cycle.get("terminal") else "Open",
+                   "; ".join(w.get("label", "") for w in cycle.get("work") or []),
+                   bool(cycle.get("needs_review")), bool(cycle.get("is_delayed")), bool(cycle.get("is_aged")),
+                   cycle.get("stage_due_on"), cycle.get("delay_reason"), cycle.get("delay_note"),
+                   cycle.get("closed_on"), cycle.get("closed_by")] +
+                  [events.get(field) for field in ("mapping_at", "boq_at", "tcn_at", "mir_at",
+                   "first_visit_at", "tags_at", "photos_at", "asbuilt_at", "warranty_at", "ho_at")])
+        for key, label, stage, role, fields in specs:
+            recorded = next((events.get(field) for field in fields if events.get(field)), "")
+            if recorded:
+                status = "Complete · evidence"
+            elif not fields:
+                status = "Not projected · evidence source not wired"
+            elif key in pending:
+                status = "Pending evidence"
+            else:
+                status = "Not yet open / not applicable"
+            stage_ws.append([cycle.get("name"), cycle.get("site"), cycle.get("wo"), cycle.get("ba"),
+                             cycle.get("alias"), stage, label, role, status, recorded])
+    for sheet in wb.worksheets:
+        sheet.freeze_panes = "A2"
+        sheet.auto_filter.ref = sheet.dimensions
+        for cell in sheet[1]:
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill("solid", fgColor="173F62")
+        for column in sheet.columns:
+            letter = column[0].column_letter
+            sheet.column_dimensions[letter].width = min(42, max(12, max(len(str(cell.value or "")) for cell in column) + 2))
+    for sheet in wb.worksheets:
+        for row in sheet.iter_rows(min_row=2):
+            for cell in row:
+                if isinstance(cell.value, str):
+                    cell.data_type = "s"
+    output = BytesIO()
+    wb.save(output)
+    frappe.local.response.filename = "operations-cycle-stage.xlsx"
+    frappe.local.response.filecontent = output.getvalue()
+    frappe.local.response.type = "download"
 
 @frappe.whitelist()
 def close_cycles(cycles, reason):
