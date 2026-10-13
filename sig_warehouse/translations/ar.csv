@@ -212,3 +212,9 @@ projects,مشاريع
 "Past due",متجاوز للموعد
 "No open cycles linked to projects you can read.","لا توجد دورات مفتوحة مرتبطة بمشاريع يمكنك قراءتها."
 "Open site cycles",دورات المواقع المفتوحة
+"Invoicing",الفوترة
+"As-Built Operational",إقفال التشغيل للمخططات المنفذة
+"Warehouse work",عمل المستودع
+"Tags · Photos · As-Built Operational · As-Built BOQ",الوسوم · الصور · إقفال التشغيل للمخططات المنفذة · ملف مخططات ما بعد التنفيذ
+"As-Built Operational is Warehouse work; its DN closure status is not visible to your current role.",حالة إقفال إشعار التسليم للتشغيل من مهام المستودع ولا تظهر لدورك الحالي.
+"Warehouse DN status could not be loaded; no completion is assumed.",تعذر تحميل حالة إشعار التسليم من المستودع؛ لم يُفترض اكتمالها.

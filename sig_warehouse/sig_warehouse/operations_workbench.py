@@ -29,10 +29,21 @@ OPS_ROSTER = {
     },
 }
 
+# Warehouse owns the operational DN closure check. These accounts are the
+# confirmed operational contacts; this list does not grant Page or DocType
+# access. Ramzan currently lacks SIG Site Cycle/Workbench access, so the
+# permission checks below intentionally leave his queue unavailable until the
+# site role setup is changed through its own reviewed release.
+WAREHOUSE_USERS = {
+    "m.ramzan@sigtele.com",
+    "tahir.shahzad@sigtele.com",
+}
+
 TASK_STAGE = {
     "mapping": "Scope & readiness", "boq": "Scope & readiness",
     "tcn": "Preparation", "mir": "Preparation", "visit": "Preparation",
     "tags": "Handover", "photos": "Handover", "asbuilt": "Handover",
+    "asbuilt_operational": "Handover",
 }
 
 
@@ -42,6 +53,10 @@ def _normalize_person(value):
 
 def _current_ops_membership(user):
     """Resolve only this opener's Employee link and confirmed Operations scope."""
+    if user in WAREHOUSE_USERS:
+        return {"ready": True, "issue": "", "memberships": [
+            {"scope": scope, "role": "warehouse"} for scope in OPS_ROSTER
+        ]}
     if user in ("", "Guest") or not frappe.db.exists("DocType", "Employee"):
         return {"ready": False, "issue": "Employee identity is unavailable.", "memberships": []}
     if not frappe.has_permission("Employee", "read"):
@@ -68,15 +83,101 @@ def _current_ops_membership(user):
 def _task_audience(family, owner_role, memberships):
     """A shared task is visible to a roster member of its scope and role."""
     if owner_role == "either":
-        return any(m["scope"] == family for m in memberships)
+        return any(m["scope"] == family and m["role"] in ("pm", "co") for m in memberships)
     return any(m["scope"] == family and m["role"] == owner_role for m in memberships)
+
+
+def _asbuilt_operational_status(cycle, lines):
+    """Use an explicit site DN line decision; quantities never imply closure."""
+    site_refs = {
+        str(cycle.get(field) or "").strip().casefold()
+        for field in ("site_key", "site") if str(cycle.get(field) or "").strip()
+    }
+    site_refs.update(str(value).strip().casefold() for value in cycle.get("_operational_site_refs", []) if str(value).strip())
+    matched = []
+    for line in lines:
+        site = str(line.get("custom_site") or "").strip().casefold()
+        if not site or site not in site_refs:
+            continue
+        matched.append(line)
+    return {
+        "applicable": bool(matched),
+        "closed": any(_flag(line, "custom_return_closed") for line in matched),
+        "source_dns": sorted({str(line.get("parent") or "") for line in matched if line.get("parent")}),
+    }
+
+
+def _warehouse_operational_lines(cycles):
+    """Read closure flags only from Stock Entries visible to the current user."""
+    if not frappe.has_permission("Stock Entry", "read"):
+        return [], None
+    try:
+        detail_meta = frappe.get_meta("Stock Entry Detail")
+        if not all(detail_meta.has_field(field) for field in ("custom_site", "custom_return_closed")):
+            return [], False
+        closed_field = detail_meta.get_field("custom_return_closed")
+        permlevel = int(getattr(closed_field, "permlevel", 0) or 0)
+        if permlevel:
+            roles = set(frappe.get_roles(frappe.session.user)) | {"All"}
+            stock_meta = frappe.get_meta("Stock Entry")
+            field_read = any(
+                str(getattr(permission, "role", "")) in roles
+                and int(getattr(permission, "permlevel", 0) or 0) == permlevel
+                and getattr(permission, "read", 0) in (1, True, "1", "Yes", "yes")
+                for permission in stock_meta.permissions
+            )
+            if not field_read:
+                return [], None
+        site_names = {str(c.get("site_key") or "").strip() for c in cycles if c.get("site_key")}
+        site_links = {}
+        if site_names and frappe.has_permission("SIG Site", "read"):
+            sites, site_complete = _all_visible(
+                "SIG Site", ["name", "site_id"], filters={"site_id": ["in", sorted(site_names)]},
+                max_rows=MAX_ROWS)
+            if not site_complete:
+                return [], False
+            site_links = {str(site.get("site_id") or "").strip().casefold(): str(site.name)
+                          for site in sites if site.get("site_id") and site.get("name")}
+        site_refs = set()
+        for cycle in cycles:
+            refs = {
+                str(cycle.get(field) or "").strip()
+                for field in ("site_key", "site") if str(cycle.get(field) or "").strip()
+            }
+            if cycle.get("site_key"):
+                canonical = site_links.get(str(cycle.get("site_key")).strip().casefold())
+                if canonical:
+                    refs.add(canonical)
+            cycle["_operational_site_refs"] = sorted(refs)
+            site_refs.update(refs)
+        site_refs = sorted(site_refs)
+        if not site_refs:
+            return [], True
+        sources, complete = _all_visible(
+            "Stock Entry", ["name"],
+            filters={"docstatus": 1, "is_return": 0, "purpose": ["in", ["Material Issue", "Material Transfer"]]},
+            order_by="posting_date asc, name asc", max_rows=MAX_ROWS)
+        if not complete:
+            return [], False
+        source_names = [str(row.name) for row in sources if row.get("name")]
+        lines = []
+        for start in range(0, len(source_names), 400):
+            batch = source_names[start:start + 400]
+            lines.extend(frappe.get_all(
+                "Stock Entry Detail",
+                filters={"parent": ["in", batch], "parenttype": "Stock Entry", "custom_site": ["in", site_refs]},
+                fields=["parent", "custom_site", "project", "custom_return_closed"],
+                limit_page_length=0))
+        return lines, True
+    except Exception:
+        return [], False
 
 
 def _stage_tasks_for_user(cycles, memberships):
     """Project one queue row per logical task; never create one per employee."""
     tasks = []
     for cycle in cycles:
-        if cycle.get("terminal") or not _task_audience(cycle.get("family"), "either", memberships):
+        if cycle.get("terminal") or not any(m.get("scope") == cycle.get("family") for m in memberships):
             continue
         for work in cycle.get("work") or []:
             role = work.get("owner_role") or "either"
@@ -95,20 +196,23 @@ def _stage_tasks_for_user(cycles, memberships):
                 "needs_review": bool(cycle.get("needs_review")),
                 "review_reason": str(cycle.get("delay_reason") or cycle.get("delay_note") or ""),
                 "expected_evidence": str(work.get("closes_on") or ""),
+                "source_dns": list(work.get("source_dns") or []),
             })
 
-        # Deliberate cycle close is separate from evidence task completion.
-        tasks.append({
-            "id": cycle["name"] + "::cycle-close", "kind": "closure",
-            "cycle": cycle["name"], "site": cycle["site"],
-            "project_id": cycle["project_id"], "ba": cycle["ba"],
-            "alias": cycle["alias"], "wo": cycle["wo"],
-            "family": cycle["family"], "cycle_stage": cycle["stage"],
-            "stage": "Cycle closure", "key": "cycle-close",
-            "label": "Close cycle", "owner_role": "either", "shared": True,
-            "status": "Explicit action", "needs_review": False,
-            "review_reason": "", "expected_evidence": "A reason and recorded actor/time are required.",
-        })
+        # Deliberate cycle close is separate from evidence task completion and
+        # remains a PM/co action, never part of the Warehouse queue.
+        if _task_audience(cycle.get("family"), "either", memberships):
+            tasks.append({
+                "id": cycle["name"] + "::cycle-close", "kind": "closure",
+                "cycle": cycle["name"], "site": cycle["site"],
+                "project_id": cycle["project_id"], "ba": cycle["ba"],
+                "alias": cycle["alias"], "wo": cycle["wo"],
+                "family": cycle["family"], "cycle_stage": cycle["stage"],
+                "stage": "Cycle closure", "key": "cycle-close",
+                "label": "Close cycle", "owner_role": "either", "shared": True,
+                "status": "Explicit action", "needs_review": False,
+                "review_reason": "", "expected_evidence": "A reason and recorded actor/time are required.",
+            })
     return tasks
 
 
@@ -149,6 +253,17 @@ def _all_visible(doctype, fields, filters=None, order_by=None, max_rows=MAX_ROWS
 def _flag(row, field):
     return row.get(field) in (1, True, "1", "Yes", "yes")
 
+
+def _can_close_cycles(user, memberships=None):
+    memberships = memberships if memberships is not None else _current_ops_membership(user).get("memberships", [])
+    roles = set(frappe.get_roles(user))
+    admin = user != "Guest" and "System Manager" in roles
+    ops_closer = any(m.get("role") in ("pm", "co") for m in memberships)
+    field_ops = user != "Guest" and "SIG Field Ops" in roles and ops_closer
+    return bool((admin or field_ops)
+                and frappe.has_permission("SIG Site Cycle", "write")
+                and frappe.has_permission("SIG Evidence Event", "create"))
+
 def _family(value):
     normalized = str(value or "").strip().lower()
     if normalized in ("5g", "colocation", "colo"):
@@ -159,21 +274,23 @@ def _family(value):
         return "Incident"
     return ""
 
-def _cycle_view(row, project, today):
+def _cycle_view(row, project, today, operational=None):
     """Derive the highest evidenced stage without inventing missing predecessors."""
+    operational_visible = operational is not None
+    operational = operational or {"applicable": False, "closed": False, "source_dns": []}
     closed = _flag(row, "terminal")
     has_prep = bool(row.get("mapping_at") or row.get("boq_at") or row.get("pimp_at")
                     or row.get("tcn_at") or row.get("mir_at") or row.get("first_visit_at"))
     prepared = bool(row.get("tcn_at") and row.get("mir_at") and row.get("first_visit_at"))
-    handover_done = bool(row.get("tags_at") and row.get("photos_at") and row.get("asbuilt_at"))
+    operational_done = (operational_visible and (not operational.get("applicable")
+                                                  or operational.get("closed")))
+    handover_done = bool(row.get("tags_at") and row.get("photos_at") and row.get("asbuilt_at") and operational_done)
     if closed:
         stage = "Closed"
-    elif row.get("invoice_at"):
-        stage = "Invoiced"
-    elif row.get("ho_at") or row.get("asbuilt_at"):
-        # A GCL/FIS/MGCL export advances the ERP cycle to its As-Built slot,
-        # including legacy cycles with no earlier timestamps imported.
-        stage = "As-Built BOQ"
+    elif row.get("invoice_at") or row.get("ho_at"):
+        # Any applicable GCL/FIS/MGCL evidence starts the Invoicing summary;
+        # a pending As-Built BOQ file follows the cycle into that stage.
+        stage = "Invoicing"
     elif prepared and not handover_done:
         stage = "Handover"
     elif prepared and handover_done:
@@ -183,7 +300,7 @@ def _cycle_view(row, project, today):
     else:
         stage = "Scope & readiness"
     work = []
-    family = _family(project.get("custom_family") if project else "")
+    family = _family((project or {}).get("custom_family") or row.get("project"))
     if (not closed and not row.get("ho_at") and not row.get("asbuilt_at")
             and not row.get("invoice_at")
             and (row.get("mapping_at") or row.get("boq_at") or row.get("pimp_at"))):
@@ -195,7 +312,7 @@ def _cycle_view(row, project, today):
             if not row.get(field):
                 work.append({"key": key, "label": label, "owner_role": role,
                              "closes_on": label + " evidence"})
-    if not closed and not row.get("invoice_at") and prepared:
+    if not closed and prepared:
         for key, label, field, role in (
             ("tags", "Tags", "tags_at", "co"),
             ("photos", "Photos", "photos_at", "co"),
@@ -203,9 +320,14 @@ def _cycle_view(row, project, today):
             if not row.get(field):
                 work.append({"key": key, "label": label, "owner_role": role,
                              "closes_on": label + " evidence"})
-    if not closed and not row.get("invoice_at") and (prepared or row.get("ho_at")) and not row.get("asbuilt_at"):
+        if operational.get("applicable") and not operational.get("closed"):
+            work.append({"key": "asbuilt_operational", "label": "As-Built Operational",
+                         "owner_role": "warehouse", "stage": "Handover",
+                         "closes_on": "Any linked site DN line custom_return_closed = 1",
+                         "source_dns": operational.get("source_dns") or []})
+    if not closed and (prepared or row.get("ho_at") or row.get("invoice_at")) and not row.get("asbuilt_at"):
         work.append({"key": "asbuilt", "label": "As-Built BOQ file", "owner_role": "pm",
-                     "stage": "As-Built BOQ" if row.get("ho_at") else "Handover",
+                     "stage": "Invoicing" if row.get("ho_at") or row.get("invoice_at") else "Handover",
                      "closes_on": "ASBUILT_BOQ_GENERATED"})
     for item in work:
         item["shared"] = True
@@ -229,6 +351,10 @@ def _cycle_view(row, project, today):
         "events": {key: str(row.get(key) or "") for key in (
             "mapping_at", "boq_at", "tcn_at", "mir_at", "first_visit_at",
             "tags_at", "photos_at", "asbuilt_at", "warranty_at", "ho_at", "invoice_at")},
+        "asbuilt_operational": {"visible": operational_visible,
+                                 "applicable": bool(operational.get("applicable")) if operational_visible else None,
+                                 "closed": bool(operational.get("closed")) if operational_visible else None,
+                                 "source_dns": operational.get("source_dns") or []},
     }
 
 @frappe.whitelist()
@@ -242,9 +368,6 @@ def get_overview():
               "can_close_cycles": False, "todo_create": False, "person": frappe.session.user,
               "task_route": {"ready": False, "issue": "", "memberships": []}}
     user, today = frappe.session.user, frappe.utils.nowdate()
-    roles = set(frappe.get_roles(user))
-    result["can_close_cycles"] = bool(roles.intersection(
-        {"SIG Field Ops", "System Manager", "Projects Manager", "Projects User"}))
     todos = []
     result["todo_create"] = bool(frappe.has_permission("ToDo", "create"))
     if frappe.has_permission("ToDo", "read"):
@@ -277,11 +400,15 @@ def get_overview():
                                   filters={"name": ["in", stream_names]}, max_rows=5000)
         aliases_by_stream = {str(stream.name): str(stream.get("alias") or "") for stream in streams}
     counts = result["summary"]
+    warehouse_lines, warehouse_complete = _warehouse_operational_lines(rows)
+    result["complete"]["asbuilt_operational"] = warehouse_complete is True or warehouse_complete is None
+    result["operational_access"] = "available" if warehouse_complete is True else "restricted" if warehouse_complete is None else "unavailable"
     for row in rows:
         project_key = str(row.get("erp_project") or "")
         project = projects_by_name.get(project_key)
         row["project_alias"] = aliases_by_stream.get(str(row.get("project_stream") or ""), "")
-        cycle = _cycle_view(row, project, today)
+        operational = _asbuilt_operational_status(row, warehouse_lines) if warehouse_complete is True else None
+        cycle = _cycle_view(row, project, today, operational)
         result["cycles"].append(cycle)
         if cycle["terminal"]:
             counts["closed"] += 1
@@ -294,6 +421,8 @@ def get_overview():
         counts["stages"][cycle["stage"]] = counts["stages"].get(cycle["stage"], 0) + 1
     result["cycles"].sort(key=lambda r: (r["terminal"], not r["needs_review"], r["stage_due_on"] or "9999-12-31", r["site"].lower()))
     result["task_route"] = _current_ops_membership(user)
+    route_memberships = result["task_route"].get("memberships") or []
+    result["can_close_cycles"] = _can_close_cycles(user, route_memberships)
     if result["task_route"]["ready"]:
         result["stage_tasks"] = _stage_tasks_for_user(result["cycles"], result["task_route"]["memberships"])
         result["summary"]["stage_tasks"] = sum(1 for task in result["stage_tasks"] if task["kind"] == "stage")
@@ -311,6 +440,8 @@ def export_workbook(filter="open"):
     data = get_overview()
     if not data.get("complete", {}).get("cycles"):
         frappe.throw("The visible cycle read reached its safety limit. Refine the source data before exporting.")
+    if not data.get("complete", {}).get("asbuilt_operational"):
+        frappe.throw("As-Built Operational coverage could not be verified for this account. Check Stock Entry read access and retry.")
     all_cycles = list(data.get("cycles") or [])
     if filter == "cycles" or filter == "open":
         cycles = [c for c in all_cycles if not c.get("terminal")]
@@ -334,12 +465,13 @@ def export_workbook(filter="open"):
                "Stage", "Status", "Pending work", "Review due", "Delayed", "Aged",
                "Due date", "Delay reason", "Delay note", "Closed on", "Closed by",
                "Mapping at", "BOQ at", "TCN at", "MIR at", "Visit at",
-               "Tags at", "Photos at", "As-Built BOQ at", "Warranty at", "Handover at", "Invoice at"]
+               "Tags at", "Photos at", "As-Built BOQ at", "As-Built Operational status",
+               "As-Built DN source(s)", "Warranty at", "Handover at", "Invoice at"]
     ws.append(headers)
     stage_ws = wb.create_sheet("Stage tasks")
     stage_ws.append(["Task ID", "Cycle ID", "Site", "WO", "BA", "Project alias",
                      "Task stage", "Cycle stage", "Task", "Role", "Status",
-                     "Expected evidence", "Review reason"])
+                     "Expected evidence", "Review reason", "DN source(s)"])
     cycle_by_name = {c.get("name"): c for c in all_cycles}
     for cycle in cycles:
         events = cycle.get("events") or {}
@@ -352,18 +484,30 @@ def export_workbook(filter="open"):
                    cycle.get("stage_due_on"), cycle.get("delay_reason"), cycle.get("delay_note"),
                    cycle.get("closed_on"), cycle.get("closed_by")] +
                   [events.get(field) for field in ("mapping_at", "boq_at", "tcn_at", "mir_at",
-                   "first_visit_at", "tags_at", "photos_at", "asbuilt_at", "warranty_at", "ho_at",
-                   "invoice_at")])
+                   "first_visit_at", "tags_at", "photos_at", "asbuilt_at")])
+        operational = cycle.get("asbuilt_operational") or {}
+        operational_status = (
+            "Not visible to this role" if not operational.get("visible")
+            else "Closed" if operational.get("closed")
+            else "Pending" if operational.get("applicable")
+            else "Not applicable"
+        )
+        ws.cell(ws.max_row, 27, operational_status)
+        ws.cell(ws.max_row, 28, "; ".join(operational.get("source_dns") or []))
+        ws.cell(ws.max_row, 29, events.get("warranty_at"))
+        ws.cell(ws.max_row, 30, events.get("ho_at"))
+        ws.cell(ws.max_row, 31, events.get("invoice_at"))
     for task in tasks:
         cycle = cycle_by_name.get(task.get("cycle"))
         if not cycle:
             continue
         role = task.get("owner_role") or "either"
-        audience = "PM" if role == "pm" else "Coordinator" if role == "co" else "PM or Coordinator"
+        audience = "PM" if role == "pm" else "Coordinator" if role == "co" else "Warehouse" if role == "warehouse" else "PM or Coordinator"
         stage_ws.append([task.get("id"), cycle.get("name"), cycle.get("site"), cycle.get("wo"),
                          cycle.get("ba"), cycle.get("alias"), task.get("stage"), cycle.get("stage"),
                          task.get("label"), audience, task.get("status"),
-                         task.get("expected_evidence"), task.get("review_reason")])
+                         task.get("expected_evidence"), task.get("review_reason"),
+                         "; ".join(task.get("source_dns") or [])])
     for sheet in wb.worksheets:
         sheet.freeze_panes = "A2"
         sheet.auto_filter.ref = sheet.dimensions
@@ -388,9 +532,7 @@ def export_workbook(filter="open"):
 def close_cycles(cycles, reason):
     """Write explicit SITE_CLOSED evidence for selected cycles after role and permission checks."""
     user = frappe.session.user
-    roles = set(frappe.get_roles(user))
-    if user == "Guest" or not roles.intersection(
-            {"SIG Field Ops", "System Manager", "Projects Manager", "Projects User"}):
+    if not _can_close_cycles(user):
         frappe.throw("Only Field Ops users may close site cycles.", frappe.PermissionError)
     try:
         names = cycles if isinstance(cycles, list) else json.loads(cycles or "[]")
@@ -400,8 +542,6 @@ def close_cycles(cycles, reason):
     reason = str(reason or "").strip().replace("|", "/")
     if not names or len(names) > 50 or not reason or len(reason) > 500:
         frappe.throw("Select 1–50 cycles and enter a closure reason up to 500 characters.")
-    if not frappe.has_permission("SIG Site Cycle", "write") or not frappe.has_permission("SIG Evidence Event", "create"):
-        frappe.throw("Your role cannot close cycles or record closure evidence.", frappe.PermissionError)
     docs = []
     for name in names:
         if not frappe.db.exists("SIG Site Cycle", name):
