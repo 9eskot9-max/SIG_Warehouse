@@ -21,3 +21,10 @@ sandboxed Server Scripts.
 Deploy pattern: same as `sig_whatsapp` (`ERPNext/scripts/deploy_sig_whatsapp_bench.ps1`,
 retargeted). Requires this app connected to the Frappe Cloud bench via its own GitHub
 repo first - a one-time manual step, same as `sig_whatsapp`'s original setup.
+
+## Operations Workbench
+
+The app-owned Operations Workbench provides role-routed stage work, personal ToDos,
+open site cycles, and explicit cycle closure. Stage rules, the Step 6c As-Built
+Operational distinction, and current access boundaries are recorded in
+[`OPERATIONS_WORKBENCH.md`](OPERATIONS_WORKBENCH.md).
