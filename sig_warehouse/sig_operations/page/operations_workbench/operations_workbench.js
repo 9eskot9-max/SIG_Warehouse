@@ -64,7 +64,7 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
         const pager = pageCount > 1 ? '<div class="sig-ops-pagination"><button class="btn btn-default sig-ops-prev" ' + (pageNumber <= 1 ? 'disabled' : '') + '>' + __('Previous') + '</button><span>' + __('Page {0} of {1}', [pageNumber, pageCount]) + '</span><button class="btn btn-default sig-ops-next" ' + (pageNumber >= pageCount ? 'disabled' : '') + '>' + __('Next') + '</button></div>' : '';
         const routeMessage = route.ready ? '' : '<div class="sig-ops-empty">' + __('Stage task routing needs review: ') + esc(route.issue || __('Your Employee link could not be verified.')) + '</div>';
         const title = filter === 'cycles' ? __('Open site cycles') : filter === 'review' ? __('Review due') : filter.startsWith('stage:') ? esc(filter.slice(6)) : __('My stage tasks');
-        root.html('<header class="sig-ops-header"><div><div class="sig-ops-eyebrow">' + __('SIG Operations') + '</div><h1>' + __('Operations Workbench') + '</h1></div><button class="btn btn-default sig-ops-refresh">' + __('Refresh') + '</button></header>' +
+        root.html('<header class="sig-ops-header"><div><div class="sig-ops-eyebrow">' + __('SIG Operations') + '</div><h1>' + __('Operations Workbench') + '</h1></div><nav class="sig-ops-header-actions" aria-label="' + __('Operations links') + '"><button class="btn btn-default sig-ops-projects">' + __('Projects') + '</button><button class="btn btn-default sig-ops-visits">' + __('Site Visits') + '</button><button class="btn btn-default sig-ops-refresh">' + __('Refresh') + '</button></nav></header>' +
             '<section class="sig-ops-panel sig-ops-my-todos"><div class="sig-ops-panel-head"><div><h2>' + __('My ToDos') + ' <span class="sig-ops-count">' + esc(data.todo_access ? (summary.todos || 0) : '—') + ((data.todos_has_more || (data.complete && !data.complete.todos)) ? '+' : '') + '</span></h2><p>' + __('Personal follow-ups allocated to your signed-in ERP account.') + '</p></div>' + (data.todo_create ? '<button class="btn btn-default sig-ops-new-todo">' + __('Create a follow-up') + '</button>' : '') + (data.todo_access ? '<button class="btn btn-primary sig-ops-all-todos">' + __('Open My ToDos') + '</button>' : '') + '</div>' + todoRows + ((data.todos_has_more || (data.complete && !data.complete.todos)) ? '<div class="sig-ops-footnote">' + __('Showing the first 50. Open My ToDos to view the complete list.') + '</div>' : '') + '</section>' +
             stats + '<section class="sig-ops-stage"><div class="sig-ops-stage-title"><h2>' + __('Delivery stages') + '</h2><span>' + __('Each task is listed below, including parallel branches.') + '</span></div><div class="sig-ops-stage-flow">' + stages + '</div></section>' +
             '<section class="sig-ops-panel sig-ops-main"><div class="sig-ops-panel-head"><div><h2>' + title + '</h2><p>' + __('Shared stage work, delay review and team cycles use one operational list.') + '</p></div><div class="sig-ops-actions"><button class="btn btn-default sig-ops-export">' + __('Export Excel') + '</button><button class="btn btn-primary sig-ops-close" ' + (data.can_close_cycles && selected.size ? '' : 'disabled') + '>' + __('Close selected cycles') + '</button></div></div>' +
@@ -75,6 +75,8 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
         root.find('button[data-filter]').on('click', function () { filter = $(this).data('filter'); pageNumber = 1; selected.clear(); render(); });
         root.find('[data-stage]').on('click', function () { filter = 'stage:' + $(this).data('stage'); pageNumber = 1; selected.clear(); render(); });
         root.find('.sig-ops-refresh').on('click', load);
+        root.find('.sig-ops-projects').on('click', () => frappe.set_route('List', 'Project'));
+        root.find('.sig-ops-visits').on('click', () => frappe.set_route('site-visits'));
         root.find('.sig-ops-cycle-check').on('change', function () {
             if (this.checked && !selected.has(this.value) && selected.size >= 50) { this.checked = false; return frappe.msgprint(__('Select up to 50 cycles per bulk closure.')); }
             this.checked ? selected.add(this.value) : selected.delete(this.value);
@@ -137,3 +139,4 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
     }
     load();
 };
+
