@@ -65,10 +65,9 @@ def test_ho_evidence_moves_open_asbuilt_boq_task_to_erp_invoicing_stage():
     pm_tasks = workbench._stage_tasks_for_user([cycle], [{"scope": "Incident", "role": "pm"}])
     assert [(task["kind"], task["stage"], task["status"]) for task in pm_tasks] == [
         ("stage", "4 - Invoicing", "Review due"),
-        ("closure", "Cycle closure", "Explicit action"),
     ]
     co_tasks = workbench._stage_tasks_for_user([cycle], [{"scope": "Incident", "role": "co"}])
-    assert [task["kind"] for task in co_tasks] == ["closure"]
+    assert co_tasks == []
 
 
 def test_invoicing_writer_rewrites_sla_and_delay_keys_idempotently():
@@ -188,7 +187,17 @@ def test_age_alone_does_not_create_a_review_task():
     assert cycle["work"] == []
     assert cycle["needs_review"] is False
     tasks = workbench._stage_tasks_for_user([cycle], [{"scope": "Incident", "role": "pm"}])
-    assert [task["kind"] for task in tasks] == ["closure"]
+    assert tasks == []
+
+
+def test_cycle_closure_is_not_projected_as_a_duplicate_queue_row():
+    workbench = _workbench()
+    cycle = workbench._cycle_view(
+        _cycle(), {"name": "10001134", "custom_family": "Incident"}, "2026-10-13")
+    tasks = workbench._stage_tasks_for_user(
+        [cycle], [{"scope": "Incident", "role": "pm"}])
+    assert [task["key"] for task in tasks] == ["asbuilt"]
+    assert all(task["kind"] == "stage" for task in tasks)
 
 
 def test_asbuilt_operational_closes_only_on_explicit_site_dn_flag():
@@ -227,7 +236,7 @@ def test_asbuilt_operational_is_not_assigned_to_pm_or_co_and_does_not_close_cycl
     assert "asbuilt_operational" not in [task.get("key") for task in pm]
     assert "asbuilt_operational" not in [task.get("key") for task in coordinator]
     assert "asbuilt_operational" in [task.get("key") for task in warehouse]
-    assert all(task["kind"] != "closure" for task in warehouse)
+    assert all(task["kind"] == "stage" for task in warehouse)
 
 
 def test_cycle_closure_is_limited_to_field_ops_pm_or_co():
