@@ -2,8 +2,10 @@
 
 The Workbench projects stage work from existing evidence. It does not create a
 second task ledger or mass-create native ToDos. Matching evidence closes the
-matching stage task; a delay marks that same task for review. Site-cycle closure
-is a separate PM/Coordinator action with a reason and recorded actor/time.
+matching stage task; a delay marks that same task for review. PMs and Coordinators
+can close a cycle with a reason and recorded actor/time. Put that action on the
+first normal task row for the cycle, or its Open cycles row when no task is
+projected; do not create a separate closure-only row.
 
 ## Stage model
 
@@ -14,7 +16,7 @@ is a separate PM/Coordinator action with a reason and recorded actor/time.
 | 3 - Handover | After TCN + MIR + completed Visit, Tags and Photos are parallel Coordinator work. **As-Built Operational (Step 6c)** is separate parallel Warehouse work when a submitted site DN exists. Handover documents are independent evidence branches. |
 | 4 - Invoicing | Applicable GCL/FIS/MGCL handover evidence advances the cycle here. The **As-Built BOQ file** remains a separate PM task in this stage. ERP invoice-sheet processing stays in ERPNext. |
 
-`5 - Closed` is the terminal cycle state, not an active stage and not a stage-strip card. Explicit cycle closure remains a separate PM/Coordinator action with a reason and recorded actor/time; As-Built evidence never closes a site cycle. `Review due` is the status of the existing overdue task, not a stage.
+`5 - Closed` is the terminal cycle state, not an active stage and not a stage-strip card. As-Built evidence never closes a site cycle. `Review due` is the status of the existing overdue task, not a stage.
 
 The As-Built Operational task is read-only. One matching submitted site DN line
 with `Stock Entry Detail.custom_return_closed = 1` closes it, even if another DN

@@ -179,20 +179,6 @@ def _stage_tasks_for_user(cycles, memberships):
                 "expected_evidence": str(work.get("closes_on") or ""),
             })
 
-        # Deliberate cycle close is separate from evidence task completion and
-        # is available to PM/coordinator, not Warehouse.
-        if _task_audience(cycle.get("family"), "either", memberships):
-            tasks.append({
-                "id": cycle["name"] + "::cycle-close", "kind": "closure",
-                "cycle": cycle["name"], "site": cycle["site"],
-                "project_id": cycle["project_id"], "ba": cycle["ba"],
-                "alias": cycle["alias"], "wo": cycle["wo"],
-                "family": cycle["family"], "cycle_stage": cycle["stage"],
-                "stage": "Cycle closure", "key": "cycle-close",
-                "label": "Close cycle", "owner_role": "either", "shared": True,
-                "status": "Explicit action", "needs_review": False,
-                "review_reason": "", "expected_evidence": "A reason and recorded actor/time are required.",
-            })
     return tasks
 
 

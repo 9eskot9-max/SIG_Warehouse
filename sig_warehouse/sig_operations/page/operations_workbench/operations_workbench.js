@@ -15,9 +15,7 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
         if (filter === 'review') rows = rows.filter((task) => task.kind === 'stage' && task.needs_review);
         if (filter.startsWith('stage:')) {
             const stage = filter.slice(6);
-            rows = rows.filter((task) => filter === 'stage:Cycle closure'
-                ? task.kind === 'closure'
-                : task.stage === stage && task.kind !== 'closure');
+            rows = rows.filter((task) => task.stage === stage);
         }
         return rows.map((task) => ({kind:task.kind, task, cycle:cycles().find((cycle) => cycle.name === task.cycle)}))
             .filter((row) => row.cycle);
@@ -43,10 +41,13 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
             const count = tasks().filter((task) => task.stage === stage && task.kind === 'stage').length;
             return '<button data-stage="' + esc(stage) + '" class="' + (filter === 'stage:' + stage ? 'active' : '') + '"><b>' + count + '</b><span>' + esc(stage) + '</span><small>' + esc(description) + '</small></button>';
         }).join('');
+        const visibleCycleRows = new Set();
         const tableRows = rows.map((row) => {
             const cycle = row.cycle, task = row.task || {};
-            const selectable = row.kind === 'cycle' || row.kind === 'closure' || row.kind === 'review';
-            const checked = selectable && selected.has(cycle.name);
+            const firstCycleRow = !visibleCycleRows.has(cycle.name);
+            visibleCycleRows.add(cycle.name);
+            const selectable = firstCycleRow && (row.kind === 'cycle' || row.kind === 'stage');
+            const checked = selected.has(cycle.name);
             const label = row.kind === 'cycle' ? ((cycle.work || []).map((item) => item.label).join(' · ') || __('Open site cycle'))
                 : task.label || __('Open cycle');
             const stage = row.kind === 'cycle' ? cycle.stage : task.stage;
@@ -56,7 +57,7 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
             const reason = row.kind === 'cycle'
                 ? (cycle.delay_reason || cycle.delay_note || '')
                 : (task.review_reason || '');
-            const closeButton = row.kind === 'closure' && data.can_close_cycles
+            const closeButton = firstCycleRow && data.can_close_cycles
                 ? '<button class="btn btn-default sig-ops-close-one" data-cycle-name="' + esc(cycle.name) + '">' + __('Close cycle') + '</button>' : '';
             const projectLabel = cycle.alias || cycle.family || '—';
             return '<tr data-cycle="' + esc(cycle.name) + '" class="' + (checked ? 'selected' : '') + '"><td>' + (selectable ? '<input type="checkbox" class="sig-ops-cycle-check" value="' + esc(cycle.name) + '" ' + (checked ? 'checked' : '') + '>' : '') + '</td><td><b>' + link('SIG Site Cycle', cycle.name, cycle.site) + '</b><small>' + __('WO') + ': ' + esc(cycle.wo || '—') + '</small></td><td><b>' + esc(cycle.ba || '—') + '</b><small>' + esc(projectLabel) + '</small></td><td><span class="sig-ops-stage-label">' + esc(stage || cycle.stage) + '</span></td><td>' + esc(label) + (task.shared ? '<small>' + __('Shared ') + esc(task.owner_role === 'pm' ? __('PM work') : task.owner_role === 'co' ? __('Coordinator work') : task.owner_role === 'warehouse' ? __('Warehouse work') : __('PM / Coordinator work')) + '</small>' : '') + '</td><td><span class="' + ((row.kind === 'cycle' ? cycle.needs_review : task.needs_review) ? 'sig-ops-badge warning' : 'sig-ops-badge') + '">' + esc(status || __('Open')) + '</span>' + (reason ? '<small>' + esc(reason) + '</small>' : '') + closeButton + '</td></tr>';
@@ -73,7 +74,7 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
             stats + '<section class="sig-ops-stage"><div class="sig-ops-stage-title"><h2>' + __('Delivery stages') + '</h2><span>' + __('Four active ERP stages; Closed is a separate terminal state.') + '</span></div><div class="sig-ops-stage-flow">' + stages + '</div></section>' +
             '<section class="sig-ops-panel sig-ops-main"><div class="sig-ops-panel-head"><div><h2>' + title + '</h2><p>' + __('Shared stage work, delay review and team cycles use one operational list.') + '</p></div><div class="sig-ops-actions"><button class="btn btn-default sig-ops-export">' + __('Export Excel') + '</button><button class="btn btn-primary sig-ops-close" ' + (data.can_close_cycles && selected.size ? '' : 'disabled') + '>' + __('Close selected cycles') + '</button></div></div>' +
             '<div class="sig-ops-toolbar"><nav>' + [['tasks', __('My stage tasks')], ['review', __('Review due')], ['cycles', __('Open cycles')]].map(([key, label]) => '<button data-filter="' + key + '" class="' + (filter === key ? 'active' : '') + '">' + label + '</button>').join('') + '</nav><span class="sig-ops-filter-count">' + allRows.length + ' ' + __('items') + '</span></div>' + routeMessage + warehouseMessage +
-            '<div class="sig-ops-selection"><label><input type="checkbox" class="sig-ops-select-visible"> ' + __('Select closure/review rows on this page') + '</label><span class="sig-ops-selected-count">' + selected.size + ' ' + __('cycles selected') + '</span><small>' + (allRows.length ? (pageNumber - 1) * pageSize + 1 : 0) + '–' + Math.min(pageNumber * pageSize, allRows.length) + ' ' + __('of') + ' ' + allRows.length + '</small></div>' +
+            '<div class="sig-ops-selection"><label><input type="checkbox" class="sig-ops-select-visible"> ' + __('Select cycles on this page') + '</label><span class="sig-ops-selected-count">' + selected.size + ' ' + __('cycles selected') + '</span><small>' + (allRows.length ? (pageNumber - 1) * pageSize + 1 : 0) + '–' + Math.min(pageNumber * pageSize, allRows.length) + ' ' + __('of') + ' ' + allRows.length + '</small></div>' +
             (rows.length ? '<div class="sig-ops-table-wrap"><table class="sig-ops-table"><thead><tr><th></th><th>' + __('Site / WO') + '</th><th>' + __('Project') + '</th><th>' + __('Stage') + '</th><th>' + __('Task / pending work') + '</th><th>' + __('Status / action') + '</th></tr></thead><tbody>' + tableRows + '</tbody></table></div>' + pager : '<div class="sig-ops-empty">' + __('No work in this view.') + '</div>') +
             '<div class="sig-ops-footnote">' + __('Matching evidence closes stage tasks. Delay flags the same task. Cycle closure records a reason and actor/time; unrelated personal ToDos remain open.') + '</div></section>');
         root.find('button[data-filter]').on('click', function () { filter = $(this).data('filter'); pageNumber = 1; selected.clear(); render(); });
@@ -84,18 +85,19 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
         root.find('.sig-ops-cycle-check').on('change', function () {
             if (this.checked && !selected.has(this.value) && selected.size >= 50) { this.checked = false; return frappe.msgprint(__('Select up to 50 cycles per bulk closure.')); }
             this.checked ? selected.add(this.value) : selected.delete(this.value);
-            this.closest('tr').classList.toggle('selected', this.checked);
-            updateSelection(allRows);
+            updateSelection(rows);
         });
         root.find('.sig-ops-select-visible').on('change', function () {
-            const visible = rows.filter((row) => row.kind === 'cycle' || row.kind === 'closure' || row.kind === 'review');
+            const visible = Array.from(new Set(rows
+                .filter((row) => row.kind === 'cycle' || row.kind === 'stage')
+                .map((row) => row.cycle.name)));
             if (this.checked) {
-                const unselected = visible.map((row) => row.cycle.name).filter((name) => !selected.has(name));
+                const unselected = visible.filter((name) => !selected.has(name));
                 const available = Math.max(0, 50 - selected.size);
                 unselected.slice(0, available).forEach((name) => selected.add(name));
                 if (unselected.length > available) frappe.show_alert({message: __('Selected up to 50 cycles. Clear some to select more.'), indicator:'orange'});
-            } else visible.forEach((row) => selected.delete(row.cycle.name));
-            updateSelection(allRows);
+            } else visible.forEach((name) => selected.delete(name));
+            updateSelection(rows);
         });
         root.find('.sig-ops-prev').on('click', () => { pageNumber = Math.max(1, pageNumber - 1); render(); });
         root.find('.sig-ops-next').on('click', () => { pageNumber += 1; render(); });
@@ -105,13 +107,20 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
         root.find('.sig-ops-export').on('click', exportExcel);
         root.find('.sig-ops-all-todos').on('click', () => { frappe.route_options = {allocated_to: frappe.session.user, status: ['not in', ['Closed', 'Cancelled']]}; frappe.set_route('List', 'ToDo'); });
         root.find('.sig-ops-new-todo').on('click', () => frappe.new_doc('ToDo', {allocated_to: frappe.session.user, status: 'Open'}));
+        updateSelection(rows);
     }
 
     function updateSelection(rows) {
         root.find('.sig-ops-selected-count').text(selected.size + ' ' + __('cycles selected'));
         root.find('.sig-ops-close').prop('disabled', !data.can_close_cycles || !selected.size);
-        const available = rows.filter((row) => row.kind === 'cycle' || row.kind === 'closure' || row.kind === 'review')
-            .map((row) => row.cycle.name);
+        root.find('tr[data-cycle]').each(function () {
+            const isSelected = selected.has($(this).data('cycle'));
+            $(this).toggleClass('selected', isSelected);
+            $(this).find('.sig-ops-cycle-check').prop('checked', isSelected);
+        });
+        const available = Array.from(new Set(rows
+            .filter((row) => row.kind === 'cycle' || row.kind === 'stage')
+            .map((row) => row.cycle.name)));
         const checked = available.filter((name) => selected.has(name)).length;
         root.find('.sig-ops-select-visible').prop('checked', available.length > 0 && checked === available.length)
             .prop('indeterminate', checked > 0 && checked < available.length);
