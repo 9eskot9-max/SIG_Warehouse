@@ -29,6 +29,22 @@ def _cycle(**overrides):
     return row
 
 
+def _stage_patch():
+    frappe = ModuleType("frappe")
+
+    def throw(message):
+        raise RuntimeError(message)
+
+    frappe.throw = throw
+    sys.modules["frappe"] = frappe
+    source = (Path(__file__).resolve().parents[1] / "sig_warehouse" / "patches" / "v1_0"
+              / "normalize_invoicing_stage_logic.py")
+    spec = importlib.util.spec_from_file_location("normalize_invoicing_stage_logic_under_test", source)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_ho_evidence_moves_open_asbuilt_boq_task_to_erp_invoicing_stage():
     workbench = _workbench()
     cycle = workbench._cycle_view(
@@ -42,6 +58,25 @@ def test_ho_evidence_moves_open_asbuilt_boq_task_to_erp_invoicing_stage():
     ]
     co_tasks = workbench._stage_tasks_for_user([cycle], [{"scope": "Incident", "role": "co"}])
     assert [task["kind"] for task in co_tasks] == ["closure"]
+
+
+def test_invoicing_writer_rewrites_sla_and_delay_keys_idempotently():
+    patch = _stage_patch()
+    old_script = (
+        "if stage == '4 - As-Built':\n"
+        "    sla = sla_asbuilt_days\n"
+        "current_checkpoint = {'4 - As-Built': 'asbuilt'}\n"
+        "checkpoints = 'initial\\nplan\\nhandover\\nasbuilt'\n"
+    )
+    new_script, changed = patch._rewrite_evidence_writer(old_script)
+    assert changed is True
+    assert "if stage == '4 - Invoicing':" in new_script
+    assert "'4 - Invoicing': 'invoicing'" in new_script
+    assert "'initial\\nplan\\nhandover\\ninvoicing'" in new_script
+    assert "4 - As-Built" not in new_script
+    assert patch._rewrite_evidence_writer(new_script) == (new_script, False)
+    assert patch._normalize_delay_checkpoints("initial\nplan\nhandover\nasbuilt") == (
+        "initial\nplan\nhandover\ninvoicing", True)
 
 
 def test_cycle_summary_uses_four_erp_stages_and_closed_is_terminal():

@@ -12,9 +12,9 @@ is a separate PM/Coordinator action with a reason and recorded actor/time.
 | 1 - Initial | Scope and Mapping/BOQ. Manual Design, Survey, Access, and work-order request stay procedure-only. |
 | 2 - Plan | TCN, MIR, and Visit evidence. TCN/MIR belong to the Coordinator queue; Visit belongs to the PM queue. |
 | 3 - Handover | After TCN + MIR + completed Visit, Tags and Photos are parallel Coordinator work. **As-Built Operational (Step 6c)** is separate parallel Warehouse work when a submitted site DN exists. Handover documents are independent evidence branches. |
-| 4 - As-Built | Applicable GCL/FIS/MGCL handover evidence advances the cycle here. The **As-Built BOQ file** is a separate PM task in this stage. ERP invoice-sheet processing is a downstream continuation, not a fifth operating stage. |
+| 4 - Invoicing | Applicable GCL/FIS/MGCL handover evidence advances the cycle here. The **As-Built BOQ file** remains a separate PM task in this stage. ERP invoice-sheet processing stays in ERPNext. |
 
-`5 - Closed` is the terminal cycle state, not an active stage and not a stage-strip card. Explicit cycle closure remains a separate PM/Coordinator action with a reason and recorded actor/time; As-Built evidence never closes a site cycle.
+`5 - Closed` is the terminal cycle state, not an active stage and not a stage-strip card. Explicit cycle closure remains a separate PM/Coordinator action with a reason and recorded actor/time; As-Built evidence never closes a site cycle. `Review due` is the status of the existing overdue task, not a stage.
 
 The As-Built Operational task is read-only. One matching submitted site DN line
 with `Stock Entry Detail.custom_return_closed = 1` closes it, even if another DN
@@ -41,8 +41,8 @@ recorded separately; a permission/configuration read is not user acceptance.
 ## Current coverage boundary
 
 The current projection aligns the Workbench with the four ERP stages: Initial,
-Plan, Handover, and As-Built. HO evidence advances the cycle to `4 - As-Built`;
-it does not create an Invoicing stage or close the cycle. The task projection is
+Plan, Handover, and Invoicing. Applicable HO evidence advances the cycle to
+`4 - Invoicing`; it does not close the cycle. The task projection is
 still partial against the white-paper catalog. Mapping/BOQ, RFI, Warranty,
 handover-document applicability, and ERP invoice-sheet exceptions still need
 their authoritative source contracts and task-opening rules confirmed.
