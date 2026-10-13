@@ -17,7 +17,7 @@ MAX_ROWS = 20000
 OPS_ROSTER = {
     "Capex": {
         "pm": ("Mohammed Sohail Mohammed Ilyas",),
-        "co": ("Farooq Ansary", "Ghlzar Ahmad Fazal Malik"),
+        "co": ("Ghlzar Ahmad Fazal Malik",),
     },
     "Incident": {
         "pm": ("Abdulraheem Mohammed", "Mohammed Sohail Mohammed Ilyas"),
