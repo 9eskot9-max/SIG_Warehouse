@@ -88,28 +88,13 @@ def _stage_tasks_for_user(cycles, memberships):
                 "project_id": cycle["project_id"], "ba": cycle["ba"],
                 "alias": cycle["alias"], "wo": cycle["wo"],
                 "family": cycle["family"], "cycle_stage": cycle["stage"],
-                "stage": TASK_STAGE.get(str(work.get("key") or ""), cycle["stage"]),
+                "stage": str(work.get("stage") or TASK_STAGE.get(str(work.get("key") or ""), cycle["stage"])),
                 "key": str(work.get("key") or ""), "label": str(work.get("label") or "Work"),
                 "owner_role": role, "shared": True,
                 "status": "Review due" if cycle.get("needs_review") else "Pending evidence",
                 "needs_review": bool(cycle.get("needs_review")),
                 "review_reason": str(cycle.get("delay_reason") or cycle.get("delay_note") or ""),
                 "expected_evidence": str(work.get("closes_on") or ""),
-            })
-
-        # A coverage gap is a real human review item, not a guessed evidence task.
-        if not cycle.get("work"):
-            tasks.append({
-                "id": cycle["name"] + "::coverage-review", "kind": "review",
-                "cycle": cycle["name"], "site": cycle["site"],
-                "project_id": cycle["project_id"], "ba": cycle["ba"],
-                "alias": cycle["alias"], "wo": cycle["wo"],
-                "family": cycle["family"], "cycle_stage": cycle["stage"],
-                "stage": "Review", "key": "coverage-review",
-                "label": "Review cycle work", "owner_role": "either", "shared": True,
-                "status": "Review required", "needs_review": True,
-                "review_reason": "No stage task is currently projected; confirm applicable work or legacy closure.",
-                "expected_evidence": "Classify source work; do not infer completion from missing evidence.",
             })
 
         # Deliberate cycle close is separate from evidence task completion.
@@ -175,7 +160,7 @@ def _family(value):
     return ""
 
 def _cycle_view(row, project, today):
-    """Derive display-stage from source events, avoiding stale projected stage labels."""
+    """Derive the highest evidenced stage without inventing missing predecessors."""
     closed = _flag(row, "terminal")
     has_prep = bool(row.get("mapping_at") or row.get("boq_at") or row.get("pimp_at")
                     or row.get("tcn_at") or row.get("mir_at") or row.get("first_visit_at"))
@@ -183,6 +168,12 @@ def _cycle_view(row, project, today):
     handover_done = bool(row.get("tags_at") and row.get("photos_at") and row.get("asbuilt_at"))
     if closed:
         stage = "Closed"
+    elif row.get("invoice_at"):
+        stage = "Invoiced"
+    elif row.get("ho_at") or row.get("asbuilt_at"):
+        # A GCL/FIS/MGCL export advances the ERP cycle to its As-Built slot,
+        # including legacy cycles with no earlier timestamps imported.
+        stage = "As-Built BOQ"
     elif prepared and not handover_done:
         stage = "Handover"
     elif prepared and handover_done:
@@ -193,7 +184,9 @@ def _cycle_view(row, project, today):
         stage = "Scope & readiness"
     work = []
     family = _family(project.get("custom_family") if project else "")
-    if not closed and (row.get("mapping_at") or row.get("boq_at") or row.get("pimp_at")):
+    if (not closed and not row.get("ho_at") and not row.get("asbuilt_at")
+            and not row.get("invoice_at")
+            and (row.get("mapping_at") or row.get("boq_at") or row.get("pimp_at"))):
         for key, label, field, role in (
             ("tcn", "TCN / MDT", "tcn_at", "co"),
             ("mir", "MIR", "mir_at", "co"),
@@ -202,15 +195,18 @@ def _cycle_view(row, project, today):
             if not row.get(field):
                 work.append({"key": key, "label": label, "owner_role": role,
                              "closes_on": label + " evidence"})
-    if not closed and prepared:
+    if not closed and not row.get("invoice_at") and prepared:
         for key, label, field, role in (
             ("tags", "Tags", "tags_at", "co"),
             ("photos", "Photos", "photos_at", "co"),
-            ("asbuilt", "As-Built BOQ file", "asbuilt_at", "pm"),
         ):
             if not row.get(field):
                 work.append({"key": key, "label": label, "owner_role": role,
                              "closes_on": label + " evidence"})
+    if not closed and not row.get("invoice_at") and (prepared or row.get("ho_at")) and not row.get("asbuilt_at"):
+        work.append({"key": "asbuilt", "label": "As-Built BOQ file", "owner_role": "pm",
+                     "stage": "As-Built BOQ" if row.get("ho_at") else "Handover",
+                     "closes_on": "ASBUILT_BOQ_GENERATED"})
     for item in work:
         item["shared"] = True
     delay = _flag(row, "is_delayed") or _flag(row, "is_aged") or bool(row.get("stage_due_on") and str(row.stage_due_on)[:10] < today)
@@ -229,10 +225,10 @@ def _cycle_view(row, project, today):
         "last_event_at": str(row.get("last_event_at") or ""),
         "is_delayed": _flag(row, "is_delayed"), "is_aged": _flag(row, "is_aged"),
         "past_due": bool(row.get("stage_due_on") and str(row.stage_due_on)[:10] < today),
-        "needs_review": bool(delay and not closed), "work": work,
+        "needs_review": bool(delay and not closed and work), "work": work,
         "events": {key: str(row.get(key) or "") for key in (
             "mapping_at", "boq_at", "tcn_at", "mir_at", "first_visit_at",
-            "tags_at", "photos_at", "asbuilt_at", "warranty_at", "ho_at")},
+            "tags_at", "photos_at", "asbuilt_at", "warranty_at", "ho_at", "invoice_at")},
     }
 
 @frappe.whitelist()
@@ -265,7 +261,7 @@ def get_overview():
     fields = ["name", "site", "site_key", "project", "erp_project", "project_stream", "po", "wo", "stage", "stage_due_on", "terminal",
               "closed_on", "closed_by", "is_delayed", "is_aged", "delay_reason", "delay_note", "last_event_at",
               "mapping_at", "boq_at", "pimp_at", "tcn_at", "mir_at", "first_visit_at", "tags_at", "photos_at",
-              "asbuilt_at", "warranty_at", "ho_at"]
+              "asbuilt_at", "warranty_at", "ho_at", "invoice_at"]
     rows, result["complete"]["cycles"] = _all_visible(
         "SIG Site Cycle", fields, order_by="terminal asc, stage_due_on asc, last_event_at desc")
     projects_by_name = {}
@@ -301,7 +297,8 @@ def get_overview():
     if result["task_route"]["ready"]:
         result["stage_tasks"] = _stage_tasks_for_user(result["cycles"], result["task_route"]["memberships"])
         result["summary"]["stage_tasks"] = sum(1 for task in result["stage_tasks"] if task["kind"] == "stage")
-        result["summary"]["review_tasks"] = sum(1 for task in result["stage_tasks"] if task["kind"] == "review")
+        result["summary"]["review_tasks"] = sum(1 for task in result["stage_tasks"]
+                                                if task["kind"] == "stage" and task["needs_review"])
     result["todos_has_more"] = len(todos) > len(result["todos"]) if result["todo_access"] else False
     return result
 
@@ -337,7 +334,7 @@ def export_workbook(filter="open"):
                "Stage", "Status", "Pending work", "Review due", "Delayed", "Aged",
                "Due date", "Delay reason", "Delay note", "Closed on", "Closed by",
                "Mapping at", "BOQ at", "TCN at", "MIR at", "Visit at",
-               "Tags at", "Photos at", "As-Built BOQ at", "Warranty at", "Handover at"]
+               "Tags at", "Photos at", "As-Built BOQ at", "Warranty at", "Handover at", "Invoice at"]
     ws.append(headers)
     stage_ws = wb.create_sheet("Stage tasks")
     stage_ws.append(["Task ID", "Cycle ID", "Site", "WO", "BA", "Project alias",
@@ -355,7 +352,8 @@ def export_workbook(filter="open"):
                    cycle.get("stage_due_on"), cycle.get("delay_reason"), cycle.get("delay_note"),
                    cycle.get("closed_on"), cycle.get("closed_by")] +
                   [events.get(field) for field in ("mapping_at", "boq_at", "tcn_at", "mir_at",
-                   "first_visit_at", "tags_at", "photos_at", "asbuilt_at", "warranty_at", "ho_at")])
+                   "first_visit_at", "tags_at", "photos_at", "asbuilt_at", "warranty_at", "ho_at",
+                   "invoice_at")])
     for task in tasks:
         cycle = cycle_by_name.get(task.get("cycle"))
         if not cycle:

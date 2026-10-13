@@ -12,14 +12,12 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
     function visibleRows() {
         if (filter === 'cycles') return cycles().filter((r) => !r.terminal).map((cycle) => ({kind:'cycle', cycle}));
         let rows = tasks();
-        if (filter === 'review') rows = rows.filter((task) => task.needs_review || task.kind === 'review');
+        if (filter === 'review') rows = rows.filter((task) => task.kind === 'stage' && task.needs_review);
         if (filter.startsWith('stage:')) {
             const stage = filter.slice(6);
             rows = rows.filter((task) => filter === 'stage:Cycle closure'
                 ? task.kind === 'closure'
                 : task.stage === stage && task.kind !== 'closure');
-        } else if (filter === 'tasks') {
-            rows = rows.filter((task) => task.kind !== 'review');
         }
         return rows.map((task) => ({kind:task.kind, task, cycle:cycles().find((cycle) => cycle.name === task.cycle)}))
             .filter((row) => row.cycle);
@@ -37,15 +35,13 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
         const stats = '<section class="sig-ops-stats"><div><strong>' + esc(summary.stage_tasks || 0) + '</strong><span>' + __('My stage tasks') + '</span></div><button data-filter="review" class="is-warning"><strong>' + esc(summary.review_tasks || 0) + '</strong><span>' + __('Work to review') + '</span></button><button data-filter="cycles"><strong>' + all.filter((r) => !r.terminal).length + '</strong><span>' + __('Open site cycles') + '</span></button></section>';
         const stageDefs = [
             ['Scope & readiness', 'mapping'], ['Preparation', 'prep'],
-            ['Handover', 'handover'], ['Completion documents', 'documents'],
+            ['Handover', 'handover'], ['As-Built BOQ', 'asbuilt'],
+            ['Completion documents', 'documents'],
             ['Cycle closure', 'closure'],
         ];
         const stages = stageDefs.map(([stage, group]) => {
-            const count = group === 'mapping' ? tasks().filter((t) => t.stage === stage && t.kind === 'stage').length
-                : group === 'prep' ? tasks().filter((t) => t.stage === stage && t.kind === 'stage').length
-                : group === 'handover' ? tasks().filter((t) => t.stage === stage && t.kind === 'stage').length
-                : group === 'documents' ? tasks().filter((t) => t.stage === stage && t.kind === 'stage').length
-                : tasks().filter((t) => t.kind === 'closure').length;
+            const count = group === 'closure' ? tasks().filter((t) => t.kind === 'closure').length
+                : tasks().filter((t) => t.stage === stage && t.kind === 'stage').length;
             return '<button data-stage="' + esc(stage) + '" class="' + (filter === 'stage:' + stage ? 'active' : '') + '"><b>' + count + '</b><span>' + esc(stage) + '</span>' + (stage === 'Handover' ? '<small>' + __('Tags · Photos · As-Built BOQ are parallel') + '</small>' : '') + '</button>';
         }).join('');
         const tableRows = rows.map((row) => {
@@ -63,7 +59,7 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
                 : (task.review_reason || '');
             const closeButton = row.kind === 'closure' && data.can_close_cycles
                 ? '<button class="btn btn-default sig-ops-close-one" data-cycle-name="' + esc(cycle.name) + '">' + __('Close cycle') + '</button>' : '';
-            return '<tr data-cycle="' + esc(cycle.name) + '" class="' + (checked ? 'selected' : '') + '"><td>' + (selectable ? '<input type="checkbox" class="sig-ops-cycle-check" value="' + esc(cycle.name) + '" ' + (checked ? 'checked' : '') + '>' : '') + '</td><td><b>' + link('SIG Site Cycle', cycle.name, cycle.site) + '</b><small>' + __('WO') + ': ' + esc(cycle.wo || '—') + '</small></td><td><b>' + esc(cycle.ba || '—') + '</b><small>' + esc(cycle.alias || '—') + '</small></td><td><span class="sig-ops-stage-label">' + esc(stage || cycle.stage) + '</span></td><td>' + esc(label) + (task.shared ? '<small>' + __('Shared ') + esc(task.owner_role === 'pm' ? __('PM work') : task.owner_role === 'co' ? __('Coordinator work') : __('PM / Coordinator work')) + '</small>' : '') + '</td><td><span class="' + (row.kind === 'review' || (task.needs_review || cycle.needs_review) ? 'sig-ops-badge warning' : 'sig-ops-badge') + '">' + esc(status || __('Open')) + '</span>' + (reason ? '<small>' + esc(reason) + '</small>' : '') + closeButton + '</td></tr>';
+            return '<tr data-cycle="' + esc(cycle.name) + '" class="' + (checked ? 'selected' : '') + '"><td>' + (selectable ? '<input type="checkbox" class="sig-ops-cycle-check" value="' + esc(cycle.name) + '" ' + (checked ? 'checked' : '') + '>' : '') + '</td><td><b>' + link('SIG Site Cycle', cycle.name, cycle.site) + '</b><small>' + __('WO') + ': ' + esc(cycle.wo || '—') + '</small></td><td><b>' + esc(cycle.ba || '—') + '</b><small>' + esc(cycle.alias || '—') + '</small></td><td><span class="sig-ops-stage-label">' + esc(stage || cycle.stage) + '</span></td><td>' + esc(label) + (task.shared ? '<small>' + __('Shared ') + esc(task.owner_role === 'pm' ? __('PM work') : task.owner_role === 'co' ? __('Coordinator work') : __('PM / Coordinator work')) + '</small>' : '') + '</td><td><span class="' + ((row.kind === 'cycle' ? cycle.needs_review : task.needs_review) ? 'sig-ops-badge warning' : 'sig-ops-badge') + '">' + esc(status || __('Open')) + '</span>' + (reason ? '<small>' + esc(reason) + '</small>' : '') + closeButton + '</td></tr>';
         }).join('');
         const pager = pageCount > 1 ? '<div class="sig-ops-pagination"><button class="btn btn-default sig-ops-prev" ' + (pageNumber <= 1 ? 'disabled' : '') + '>' + __('Previous') + '</button><span>' + __('Page {0} of {1}', [pageNumber, pageCount]) + '</span><button class="btn btn-default sig-ops-next" ' + (pageNumber >= pageCount ? 'disabled' : '') + '>' + __('Next') + '</button></div>' : '';
         const routeMessage = route.ready ? '' : '<div class="sig-ops-empty">' + __('Stage task routing needs review: ') + esc(route.issue || __('Your Employee link could not be verified.')) + '</div>';
