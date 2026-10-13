@@ -13,6 +13,21 @@ def _add_site(data, fieldname):
     return data
 
 
+def _ensure_connection_group(data, label, items):
+    """Keep required Site Cycle connections in the Field Ops group."""
+    transactions = data.setdefault("transactions", [])
+    group = next((g for g in transactions if g.get("label") == label), None)
+    if group is None:
+        group = {"label": label, "items": []}
+        transactions.append(group)
+
+    group_items = group.setdefault("items", [])
+    for item in items:
+        if item not in group_items:
+            group_items.append(item)
+    return data
+
+
 def material_request(data):
     return _add_site(data, "custom_site")
 
@@ -74,7 +89,11 @@ def asset(data):
 
 
 def site_cycle(data):
-    return _add_site(data, "site")
+    # `site_id` is retained even on older Cycles whose optional Site Link is blank.
+    # Frappe v15 skips dashboard overrides for custom DocTypes; the app-owned
+    # client bridge also renders this relationship until the DocType is adopted.
+    data.setdefault("internal_links", {})["SIG Site"] = "site_id"
+    return _ensure_connection_group(data, "Field Ops", ["SIG Site"])
 
 
 def field_visit(data):
