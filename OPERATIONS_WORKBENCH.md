@@ -7,20 +7,19 @@ can close a cycle with a reason and recorded actor/time. Put that action on the
 first normal task row for the cycle, or its Open cycles row when no task is
 projected; do not create a separate closure-only row.
 
-The Workbench's **Delivery stages** strip is the existing four-stage overview.
-The linked **Site Cycles** page (`/app/site-cycles`) expands that view into one
-row per open cycle with its current stage and projected open items. PMs and
-Coordinators see the cycle pool for their confirmed project-family scopes;
-Warehouse users see cycles with a routed Warehouse item; System Managers see
-all permission-visible open cycles. The page retains evidence history in the
-selected-cycle panel. Its Excel export contains separate cycle and stage-task
-sheets. **Project Progress** remains the separate evidence register and is not
-repurposed by this page.
+The Workbench's **Delivery stages** strip summarizes the signed-in user's
+assigned Operations scope. The linked **Site Cycles** page (`/app/site-cycles`)
+is a different view: it lists every open cycle across project scopes that the
+signed-in user may read under normal Frappe permissions. It does not apply the
+Workbench's employee roster filter. The page retains evidence history in the
+selected-cycle panel, and its Excel export contains the same all-project cycle
+pool plus the projected stage tasks. **Project Progress** remains the separate
+evidence register and is not repurposed by this page.
 
 Task owner labels use the approved short names (Sohil, Raheem, Gulzar, Arshad,
-Imran, Waleed, Obed, Ramzan, Tahir). A list such as `Sohil / Raheem` means the
-task remains shared by that project's PM role; it is not a per-cycle assignment.
-The page canvas is neutral, with muted stage-specific accents.
+Imran, Waleed, Obed, Ramzan, Tahir). A list such as `Sohil / Raheem` names the
+people responsible for that task category; the page does not add per-cycle ERP
+assignments. The page canvas is neutral, with muted stage-specific accents.
 
 ## Stage model
 
