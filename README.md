@@ -25,6 +25,8 @@ repo first - a one-time manual step, same as `sig_whatsapp`'s original setup.
 ## Operations Workbench
 
 The app-owned Operations Workbench provides role-routed stage work, personal ToDos,
-open site cycles, and explicit cycle closure. Stage rules, the Step 6c As-Built
-Operational distinction, and current access boundaries are recorded in
+open site cycles, and explicit cycle closure. Its Site Cycles subpage gives a
+one-row-per-open-cycle view with stage, pending evidence items, named owner labels,
+and Excel export. Stage rules, the Step 6c As-Built Operational distinction, and
+current access boundaries are recorded in
 [`OPERATIONS_WORKBENCH.md`](OPERATIONS_WORKBENCH.md).

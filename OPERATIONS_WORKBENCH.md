@@ -7,6 +7,21 @@ can close a cycle with a reason and recorded actor/time. Put that action on the
 first normal task row for the cycle, or its Open cycles row when no task is
 projected; do not create a separate closure-only row.
 
+The Workbench's **Delivery stages** strip is the existing four-stage overview.
+The linked **Site Cycles** page (`/app/site-cycles`) expands that view into one
+row per open cycle with its current stage and projected open items. PMs and
+Coordinators see the cycle pool for their confirmed project-family scopes;
+Warehouse users see cycles with a routed Warehouse item; System Managers see
+all permission-visible open cycles. The page retains evidence history in the
+selected-cycle panel. Its Excel export contains separate cycle and stage-task
+sheets. **Project Progress** remains the separate evidence register and is not
+repurposed by this page.
+
+Task owner labels use the approved short names (Sohil, Raheem, Gulzar, Arshad,
+Imran, Waleed, Obed, Ramzan, Tahir). A list such as `Sohil / Raheem` means the
+task remains shared by that project's PM role; it is not a per-cycle assignment.
+The page canvas is neutral, with muted stage-specific accents.
+
 ## Stage model
 
 | Stage | Meaning in the Workbench |
@@ -32,8 +47,10 @@ and read access at that field's permlevel before returning its value. The
 current Warehouse Manager path has the necessary existing read access. PM and
 Coordinator Stock Viewer access does not include the level-1 field, so their
 Workbench shows that Warehouse status is restricted instead of inferring
-closure. No Page role, DocType permission, Role Profile, or user role is changed
-by this release.
+closure. The Site Cycles Page declares the same four audience roles as the
+Operations Workbench; it adds no DocType permission, Role Profile, or user role.
+Live Page-role and linked-record access still require the pre/post-deployment
+permission comparison and persona acceptance checks.
 
 The existing Page role list also excludes the current Ramzan account, and it
 does not have SIG Site Cycle read access. The Workbench does not grant those
