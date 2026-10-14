@@ -298,9 +298,8 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
     }
 
     // ---- receipt viewer -----------------------------------------------------------------------
-    // Base size is computed from the image's natural size: tall photos / long receipts open "fit width"
-    // (readable; scroll down), everything else opens "fit page". Wheel scrolls, Ctrl+wheel / pinch /
-    // buttons / double-click zoom, drag pans, buttons rotate.
+    // Every receipt opens "fit page" (the whole receipt visible); "Fit width" is one click (or F) away for
+    // long receipts. Wheel scrolls, Ctrl+wheel / pinch / buttons / double-click zoom, drag pans, buttons rotate.
     const vstage = () => q('.sig-pc-vstage');
     const vimg = () => q('.sig-pc-vstage img');
     function dims() {
@@ -313,7 +312,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
     const baseScale = (d) => view.mode === 'width' ? d.wide : d.contain;
     function layout(reset) {
         const d = dims(), img = vimg(); if (!d) return;
-        if (!view.mode) view.mode = d.contain < d.wide * 0.7 ? 'width' : 'page';
+        if (!view.mode) view.mode = 'page';
         const b = baseScale(d);
         img.style.width = (img.naturalWidth * b) + 'px';
         img.style.height = (img.naturalHeight * b) + 'px';
