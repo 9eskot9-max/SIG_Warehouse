@@ -7,6 +7,8 @@
 @media(max-width:1000px){.sig-cycles-layout{grid-template-columns:1fr}.sig-cycles-detail{position:static}.sig-cycles-stage-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:700px){.sig-cycles-page{padding:8px}.sig-cycles-header{align-items:flex-start;flex-direction:column;padding:16px}.sig-cycles-header h1{font-size:20px}.sig-cycles-summary{grid-template-columns:1fr;gap:7px}.sig-cycles-summary>div{min-height:52px}.sig-cycles-toolbar{align-items:stretch;flex-direction:column}.sig-cycles-toolbar label,.sig-cycles-toolbar .sig-cycles-search{min-width:0}.sig-cycles-count{margin:0;padding:0}.sig-cycles-section-head{align-items:flex-start}.sig-cycles-stage-grid button{padding:9px}.sig-cycles-table-wrap th,.sig-cycles-table-wrap td{padding:8px 7px}}
 
+.sig-cycles-operational-status{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;padding:5px 0;border-top:1px solid #edf1f4;font-weight:650}.sig-cycles-operational-status small{margin:0!important;font-size:10px;color:#8b621c!important}.sig-cycles-operational-status.closed small{color:#327345!important}.sig-cycles-operational-status.unavailable small{color:var(--muted)!important;font-weight:400}.sig-cycles-detail-body .sig-cycles-operational-status{padding:8px 0}
+
 /* Keep the page canvas neutral; use restrained stage accents instead of a blue hero. */
 .sig-cycles-page{--navy:var(--text-color,#27333d);--blue:#537f91;--ink:var(--text-color,#27333d);--muted:#66737c;--line:var(--border-color,#dfe4e6);--wash:#f6f7f7;--warn:#8b621c;background:var(--bg-color,#f3f5f5);min-height:calc(100vh - 120px)}
 .sig-cycles-header{background:var(--card-bg,#fff);color:var(--ink);border:1px solid var(--line);box-shadow:0 1px 4px #172b3610}

@@ -9,6 +9,19 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
     const ownerLabel = (task) => {
         return (task.owner_names || []).join(' / ');
     };
+    const operationalStatusHtml = (cycle) => {
+        const operational = cycle.asbuilt_operational || {};
+        if (operational.visible !== true) {
+            return '<small class="sig-ops-operational-status unavailable">' + esc(__('As-Built Operational status unavailable')) + '</small>';
+        }
+        if (!operational.applicable) return '';
+        const closed = Boolean(operational.closed);
+        const state = closed ? __('Closed') : __('Open');
+        const owners = !closed && (operational.owner_names || []).length
+            ? ' · ' + esc((operational.owner_names || []).join(' / ')) : '';
+        return '<small class="sig-ops-operational-status ' + (closed ? 'closed' : 'open') + '">' +
+            esc(__('As-Built Operational')) + ': ' + esc(state) + owners + '</small>';
+    };
     const cycles = () => data.cycles || [];
     const tasks = () => data.stage_tasks || [];
 
@@ -51,7 +64,7 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
             visibleCycleRows.add(cycle.name);
             const selectable = firstCycleRow && (row.kind === 'cycle' || row.kind === 'stage');
             const checked = selected.has(cycle.name);
-            const label = row.kind === 'cycle' ? ((cycle.work || []).map((item) => item.label).join(' · ') || __('Open site cycle'))
+            const label = row.kind === 'cycle' ? ((cycle.work || []).filter((item) => item.key !== 'asbuilt_operational').map((item) => item.label).join(' · ') || __('Open site cycle'))
                 : task.label || __('Open cycle');
             const stage = row.kind === 'cycle' ? cycle.stage : task.stage;
             const status = row.kind === 'cycle'
@@ -63,7 +76,8 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
             const closeButton = firstCycleRow && data.can_close_cycles
                 ? '<button class="btn btn-default sig-ops-close-one" data-cycle-name="' + esc(cycle.name) + '">' + __('Close cycle') + '</button>' : '';
             const projectLabel = cycle.alias || cycle.family || '—';
-            return '<tr data-cycle="' + esc(cycle.name) + '" class="' + (checked ? 'selected' : '') + '"><td>' + (selectable ? '<input type="checkbox" class="sig-ops-cycle-check" value="' + esc(cycle.name) + '" ' + (checked ? 'checked' : '') + '>' : '') + '</td><td><b>' + link('SIG Site Cycle', cycle.name, cycle.site) + '</b><small>' + __('WO') + ': ' + esc(cycle.wo || '—') + '</small></td><td><b>' + esc(cycle.ba || '—') + '</b><small>' + esc(projectLabel) + '</small></td><td><span class="sig-ops-stage-label">' + esc(stage || cycle.stage) + '</span></td><td>' + esc(label) + (task.shared ? '<small>' + esc(ownerLabel(task)) + '</small>' : '') + '</td><td><span class="' + ((row.kind === 'cycle' ? cycle.needs_review : task.needs_review) ? 'sig-ops-badge warning' : 'sig-ops-badge') + '">' + esc(status || __('Open')) + '</span>' + (reason ? '<small>' + esc(reason) + '</small>' : '') + closeButton + '</td></tr>';
+            const operationalStatus = firstCycleRow ? operationalStatusHtml(cycle) : '';
+            return '<tr data-cycle="' + esc(cycle.name) + '" class="' + (checked ? 'selected' : '') + '"><td>' + (selectable ? '<input type="checkbox" class="sig-ops-cycle-check" value="' + esc(cycle.name) + '" ' + (checked ? 'checked' : '') + '>' : '') + '</td><td><b>' + link('SIG Site Cycle', cycle.name, cycle.site) + '</b><small>' + __('WO') + ': ' + esc(cycle.wo || '—') + '</small></td><td><b>' + esc(cycle.ba || '—') + '</b><small>' + esc(projectLabel) + '</small></td><td><span class="sig-ops-stage-label">' + esc(stage || cycle.stage) + '</span></td><td>' + esc(label) + (task.shared ? '<small>' + esc(ownerLabel(task)) + '</small>' : '') + operationalStatus + '</td><td><span class="' + ((row.kind === 'cycle' ? cycle.needs_review : task.needs_review) ? 'sig-ops-badge warning' : 'sig-ops-badge') + '">' + esc(status || __('Open')) + '</span>' + (reason ? '<small>' + esc(reason) + '</small>' : '') + closeButton + '</td></tr>';
         }).join('');
         const pager = pageCount > 1 ? '<div class="sig-ops-pagination"><button class="btn btn-default sig-ops-prev" ' + (pageNumber <= 1 ? 'disabled' : '') + '>' + __('Previous') + '</button><span>' + __('Page {0} of {1}', [pageNumber, pageCount]) + '</span><button class="btn btn-default sig-ops-next" ' + (pageNumber >= pageCount ? 'disabled' : '') + '>' + __('Next') + '</button></div>' : '';
         const routeMessage = route.ready ? '' : '<div class="sig-ops-empty">' + __('Stage task routing needs review: ') + esc(route.issue || __('Your Employee link could not be verified.')) + '</div>';

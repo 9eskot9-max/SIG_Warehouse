@@ -8,3 +8,5 @@
 @media(max-width:900px){.sig-ops-stage-flow{flex-wrap:wrap}.sig-ops-stage-flow>button{min-width:145px}.sig-ops-stage-flow>i{display:none}}
 @media(max-width:700px){.sig-ops-home{padding:8px}.sig-ops-header{padding:16px}.sig-ops-header h1{font-size:20px}.sig-ops-panel-head{align-items:flex-start}.sig-ops-actions{flex-direction:column}.sig-ops-stats{grid-template-columns:1fr;gap:7px}.sig-ops-stats button,.sig-ops-stats>div{padding:9px}.sig-ops-stage-title{display:block}.sig-ops-stage-title span{display:block;margin-top:4px}.sig-ops-selection{gap:8px}.sig-ops-todos{grid-template-columns:1fr}.sig-ops-table th,.sig-ops-table td{padding:8px 7px}}
 
+.sig-ops-operational-status{display:block;margin-top:4px!important;font-weight:600}.sig-ops-operational-status.open{color:#8b621c}.sig-ops-operational-status.closed{color:#327345}.sig-ops-operational-status.unavailable{color:var(--muted);font-weight:400}
+
