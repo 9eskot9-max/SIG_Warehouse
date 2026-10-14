@@ -384,7 +384,8 @@ def get_overview():
                           "aged": 0, "past_due": 0, "closed": 0, "exceptions": 0,
                           "stages": {}, "stage_tasks": 0, "review_tasks": 0},
               "complete": {"todos": True, "cycles": True}, "todo_access": False,
-              "can_close_cycles": False, "todo_create": False, "person": frappe.session.user,
+              "can_close_cycles": False, "can_export": False, "scope": "assigned",
+              "todo_create": False, "person": frappe.session.user,
               "task_route": {"ready": False, "issue": "", "memberships": []}}
     user, today = frappe.session.user, frappe.utils.nowdate()
     todos = []
@@ -445,6 +446,8 @@ def get_overview():
     result["task_route"] = _current_ops_membership(user)
     route_memberships = result["task_route"].get("memberships") or []
     can_see_all_cycles = user != "Guest" and "System Manager" in set(frappe.get_roles(user))
+    result["scope"] = "all" if can_see_all_cycles else "assigned"
+    result["can_export"] = bool(frappe.has_permission("SIG Site Cycle", "export"))
     result["cycles"] = _cycles_for_user(result["cycles"], route_memberships, can_see_all_cycles)
     result["cycles"].sort(key=lambda r: (not r["needs_review"], r["stage_due_on"] or "9999-12-31", r["site"].lower()))
 

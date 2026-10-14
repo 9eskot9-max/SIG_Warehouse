@@ -1,7 +1,7 @@
 frappe.pages['site-cycles'].on_page_load = function (wrapper) {
     const page = frappe.ui.make_app_page({parent: wrapper, title: __('Site Cycles'), single_column: true});
     const root = $('<main class="sig-cycles-page"></main>').appendTo(page.main);
-    const state = {data: {}, family: '', stage: '', query: '', page: 1, selected: '', events: [], eventStatus: 'idle'};
+    const state = {data: {}, family: '', stage: '', query: '', page: 1, selected: '', events: [], eventStatus: 'idle', loadId: 0};
     const pageSize = 50;
     const stageDefs = [
         ['1 - Initial', __('Mapping · BOQ'), 'initial'],
@@ -12,6 +12,7 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
     const esc = (value) => frappe.utils.escape_html(value == null ? '' : String(value));
     const date = (value) => value ? frappe.datetime.str_to_user(String(value).slice(0, 10)) : '—';
     const ownerLabel = (item) => (item.owner_names || []).join(' / ');
+    const cycleAlias = (cycle) => cycle.alias || cycle.project_alias || cycle.family || '—';
     const stageTone = (stage) => stage.startsWith('1 -') ? 'initial'
         : stage.startsWith('2 -') ? 'plan'
             : stage.startsWith('3 -') ? 'handover'
@@ -108,7 +109,7 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
         const rows = allRows.slice((state.page - 1) * pageSize, state.page * pageSize);
         root.find('.sig-cycles-count').text(`${allRows.length} ${__('cycles')}`);
         const body = rows.map((cycle) => {
-            const alias = cycle.alias || cycle.family || '—';
+            const alias = cycleAlias(cycle);
             const signal = cycle.needs_review
                 ? `<span class="sig-cycles-badge warning">${__('Review due')}</span>`
                 : `<span class="sig-cycles-badge">${__('Open')}</span>`;
@@ -151,7 +152,7 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
             const owners = ownerLabel(item);
             return `<div class="sig-cycles-detail-item"><strong>${esc(item.label || __('Open item'))}</strong><small>${esc(item.stage || cycle.stage)}${owners ? ` · ${__('Shared')} · ${esc(owners)}` : ''}</small></div>`;
         }).join('');
-        root.find('.sig-cycles-detail').html(`<div class="sig-cycles-detail-head"><div><h2>${esc(cycle.site)}</h2><p>${esc(cycle.ba || cycle.project_id || '—')} · ${esc(cycle.alias || cycle.family || '—')}</p></div>
+        root.find('.sig-cycles-detail').html(`<div class="sig-cycles-detail-head"><div><h2>${esc(cycle.site)}</h2><p>${esc(cycle.ba || cycle.project_id || '—')} · ${esc(cycleAlias(cycle))}</p></div>
             <button type="button" class="btn btn-default btn-xs sig-cycles-open-form">${__('Open cycle')}</button></div>
             <div class="sig-cycles-detail-body"><div class="sig-cycles-detail-stage">${esc(cycle.stage)}${cycle.wo ? ` · ${__('WO')} ${esc(cycle.wo)}` : ''}</div>
                 <h3>${__('Open stage items')}</h3>${items || `<p class="sig-cycles-muted">${__('No open stage item projected.')}</p>`}
@@ -183,16 +184,50 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
     }
 
     function load() {
+        const loadId = ++state.loadId;
+        let settled = false;
         root.html(`<div class="sig-cycles-loading">${__('Loading site cycles…')}</div>`);
-        frappe.call({method: 'sig_warehouse.sig_warehouse.operations_workbench.get_cycle_dashboard', type: 'GET'})
+        const timeout = window.setTimeout(() => {
+            if (settled || state.loadId !== loadId) return;
+            settled = true;
+            root.html(`<div class="sig-cycles-error">${__('Site Cycles is taking too long to load.')} <button type="button" class="btn btn-default btn-xs sig-cycles-retry">${__('Retry')}</button></div>`);
+            root.find('.sig-cycles-retry').on('click', load);
+        }, 45000);
+        frappe.call({method: 'sig_warehouse.sig_warehouse.operations_workbench.get_overview'})
             .then((response) => {
-                state.data = response.message || {cycles: [], summary: {}};
+                if (state.loadId !== loadId) return;
+                settled = true;
+                window.clearTimeout(timeout);
+                const overview = response.message || {};
+                const cycles = (overview.cycles || []).filter((cycle) => !cycle.terminal);
+                const stages = Object.fromEntries(stageDefs.map(([stage]) => [
+                    stage, cycles.filter((cycle) => cycle.stage === stage).length,
+                ]));
+                state.data = {
+                    cycles,
+                    route: overview.task_route || {ready: false, issue: '', memberships: []},
+                    scope: overview.scope || 'assigned',
+                    can_export: Boolean(overview.can_export),
+                    complete: (overview.complete || {}).cycles !== false,
+                    summary: {
+                        cycles: cycles.length,
+                        open_items: cycles.reduce((total, cycle) => total + (cycle.work || []).length, 0),
+                        review_due: cycles.filter((cycle) => cycle.needs_review).length,
+                        stages,
+                    },
+                };
                 if (state.selected && !(state.data.cycles || []).some((cycle) => cycle.name === state.selected)) state.selected = '';
                 render();
                 if (state.data.complete === false) root.prepend(`<div class="sig-cycles-notice">${__('The visible cycle list is partial. Refine the source data before treating these counts as complete.')}</div>`);
                 if (state.data.scope !== 'all' && !(state.data.route || {}).ready) root.prepend(`<div class="sig-cycles-notice">${esc((state.data.route || {}).issue || __('Your Operations scope could not be verified.'))}</div>`);
             })
-            .catch(() => root.html(`<div class="sig-cycles-error">${__('Site Cycles could not be loaded. Check your ERP access and refresh.')}</div>`));
+            .catch(() => {
+                if (state.loadId !== loadId) return;
+                settled = true;
+                window.clearTimeout(timeout);
+                root.html(`<div class="sig-cycles-error">${__('Site Cycles could not be loaded. Check your ERP access and refresh.')} <button type="button" class="btn btn-default btn-xs sig-cycles-retry">${__('Retry')}</button></div>`);
+                root.find('.sig-cycles-retry').on('click', load);
+            });
     }
 
     shell();
