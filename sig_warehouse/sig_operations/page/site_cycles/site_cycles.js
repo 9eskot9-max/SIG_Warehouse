@@ -32,9 +32,8 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
     }
 
     function shell() {
-        const manager = state.data.scope === 'all';
         root.html(`<header class="sig-cycles-header"><div><div class="sig-cycles-eyebrow">${__('SIG Operations')}</div>
-            <h1>${__('Site Cycles')}</h1><p class="sig-cycles-scope-caption">${manager ? __('Open site cycles across all project scopes.') : __('Open site cycles in your assigned project scopes.')}</p></div>
+            <h1>${__('Site Cycles')}</h1><p class="sig-cycles-scope-caption">${__('Open site cycles across all project scopes.')}</p></div>
             <nav><button type="button" class="btn btn-default sig-cycles-workbench">${__('Operations Workbench')}</button>
                 <button type="button" class="btn btn-default sig-cycles-visits">${__('Site Visits')}</button>
                 <button type="button" class="btn btn-default sig-cycles-export" style="display:none">${__('Export Excel')}</button>
@@ -51,7 +50,7 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
         root.find('.sig-cycles-workbench').on('click', () => frappe.set_route('operations-workbench'));
         root.find('.sig-cycles-visits').on('click', () => frappe.set_route('site-visits'));
         root.find('.sig-cycles-export').on('click', () => window.open(
-            '/api/method/sig_warehouse.sig_warehouse.operations_workbench.export_workbook?filter=cycles', '_blank'));
+            '/api/method/sig_warehouse.sig_warehouse.operations_workbench.export_workbook?filter=cycles&scope=all', '_blank'));
         root.find('.sig-cycles-refresh').on('click', load);
         root.find('.sig-cycles-family').on('change', function () { state.family = this.value; state.page = 1; state.selected = ''; state.events = []; render(); });
         root.find('.sig-cycles-search input').on('input', frappe.utils.debounce(function () { state.query = this.value.trim(); state.page = 1; render(); }, 250));
@@ -70,7 +69,7 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
 
     function renderFilters() {
         const select = root.find('.sig-cycles-family').empty();
-        select.append($('<option></option>').val('').text(state.data.scope === 'all' ? __('All project scopes') : __('All assigned scopes')));
+        select.append($('<option></option>').val('').text(__('All project scopes')));
         [...new Set(cyclesForFamily().map((cycle) => cycle.family).filter(Boolean))].sort().forEach((family) => {
             select.append($('<option></option>').val(family).text(family));
         });
@@ -98,7 +97,7 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
             const stage = item.stage || cycle.stage;
             const stageNote = stage !== cycle.stage ? `<small>${esc(stage)}</small>` : '';
             const owners = ownerLabel(item);
-            return `<div class="sig-cycles-work-item"><span>${esc(item.label || __('Open item'))}</span><small>${owners ? `${__('Shared')} · ${esc(owners)}` : ''}</small>${stageNote}</div>`;
+            return `<div class="sig-cycles-work-item"><span>${esc(item.label || __('Open item'))}</span><small>${owners ? esc(owners) : ''}</small>${stageNote}</div>`;
         }).join('');
     }
 
@@ -150,7 +149,7 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
                 : evidence || `<p class="sig-cycles-muted">${__('No evidence events recorded.')}</p>`;
         const items = (cycle.work || []).map((item) => {
             const owners = ownerLabel(item);
-            return `<div class="sig-cycles-detail-item"><strong>${esc(item.label || __('Open item'))}</strong><small>${esc(item.stage || cycle.stage)}${owners ? ` · ${__('Shared')} · ${esc(owners)}` : ''}</small></div>`;
+            return `<div class="sig-cycles-detail-item"><strong>${esc(item.label || __('Open item'))}</strong><small>${esc(item.stage || cycle.stage)}${owners ? ` · ${esc(owners)}` : ''}</small></div>`;
         }).join('');
         root.find('.sig-cycles-detail').html(`<div class="sig-cycles-detail-head"><div><h2>${esc(cycle.site)}</h2><p>${esc(cycle.ba || cycle.project_id || '—')} · ${esc(cycleAlias(cycle))}</p></div>
             <button type="button" class="btn btn-default btn-xs sig-cycles-open-form">${__('Open cycle')}</button></div>
@@ -173,9 +172,7 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
 
     function render() {
         root.find('.sig-cycles-export').toggle(Boolean(state.data.can_export));
-        root.find('.sig-cycles-scope-caption').text(state.data.scope === 'all'
-            ? __('Open site cycles across all project scopes.')
-            : __('Open site cycles in your assigned project scopes.'));
+        root.find('.sig-cycles-scope-caption').text(__('Open site cycles across all project scopes.'));
         renderFilters();
         renderSummary();
         renderStages();
@@ -193,7 +190,7 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
             root.find('.sig-cycles-table-wrap').html(`<div class="sig-cycles-error">${__('Site Cycles is taking too long to load.')} <button type="button" class="btn btn-default btn-xs sig-cycles-retry">${__('Retry')}</button></div>`);
             root.find('.sig-cycles-retry').on('click', load);
         }, 45000);
-        frappe.call({method: 'sig_warehouse.sig_warehouse.operations_workbench.get_overview'})
+        frappe.call({method: 'sig_warehouse.sig_warehouse.operations_workbench.get_cycle_dashboard'})
             .then((response) => {
                 if (state.loadId !== loadId) return;
                 settled = true;
@@ -205,8 +202,7 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
                 ]));
                 state.data = {
                     cycles,
-                    route: overview.task_route || {ready: false, issue: '', memberships: []},
-                    scope: overview.scope || 'assigned',
+                    scope: 'all',
                     can_export: Boolean(overview.can_export),
                     complete: (overview.complete || {}).cycles !== false,
                     summary: {
@@ -219,7 +215,6 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
                 if (state.selected && !(state.data.cycles || []).some((cycle) => cycle.name === state.selected)) state.selected = '';
                 render();
                 if (state.data.complete === false) root.prepend(`<div class="sig-cycles-notice">${__('The visible cycle list is partial. Refine the source data before treating these counts as complete.')}</div>`);
-                if (state.data.scope !== 'all' && !(state.data.route || {}).ready) root.prepend(`<div class="sig-cycles-notice">${esc((state.data.route || {}).issue || __('Your Operations scope could not be verified.'))}</div>`);
             })
             .catch(() => {
                 if (state.loadId !== loadId) return;

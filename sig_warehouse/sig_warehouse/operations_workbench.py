@@ -49,6 +49,12 @@ OPS_OWNER_NAMES = {
 }
 WAREHOUSE_OWNER_NAMES = ("Ramzan", "Tahir")
 
+# The Site Cycles page is a cross-project dashboard for the same audiences
+# allowed by its Page role list. Data reads still use normal Frappe permissions.
+SITE_CYCLE_DASHBOARD_ROLES = {
+    "System Manager", "Projects Manager", "Projects User", "SIG Field Ops",
+}
+
 TASK_STAGE = {
     "mapping": "1 - Initial", "boq": "1 - Initial",
     "tcn": "2 - Plan", "mir": "2 - Plan", "visit": "2 - Plan",
@@ -174,15 +180,17 @@ def _warehouse_operational_lines(cycles):
         return [], False
 
 
-def _stage_tasks_for_user(cycles, memberships):
+def _stage_tasks_for_user(cycles, memberships, all_project_scopes=False):
     """Project one queue row per logical task; never create one per employee."""
     tasks = []
     for cycle in cycles:
-        if cycle.get("terminal") or not any(m.get("scope") == cycle.get("family") for m in memberships):
+        if cycle.get("terminal"):
+            continue
+        if not all_project_scopes and not any(m.get("scope") == cycle.get("family") for m in memberships):
             continue
         for work in cycle.get("work") or []:
             role = work.get("owner_role") or "either"
-            if not _task_audience(cycle.get("family"), role, memberships):
+            if not all_project_scopes and not _task_audience(cycle.get("family"), role, memberships):
                 continue
             tasks.append({
                 "id": cycle["name"] + "::" + str(work.get("key") or "work"),
@@ -376,8 +384,7 @@ def _cycle_view(row, project, today, operational=None):
                                  "source_dns": operational.get("source_dns") or []},
     }
 
-@frappe.whitelist()
-def get_overview():
+def _get_overview(all_project_cycles=False):
     """Read current ToDos, evidence-derived pipeline work and authorized cycles."""
     result = {"todos": [], "cycles": [], "projects": [], "stage_tasks": [],
                     "summary": {"todos": 0, "overdue_todos": 0, "cycles": 0, "delayed": 0,
@@ -445,7 +452,9 @@ def get_overview():
         counts["stages"][cycle["stage"]] = counts["stages"].get(cycle["stage"], 0) + 1
     result["task_route"] = _current_ops_membership(user)
     route_memberships = result["task_route"].get("memberships") or []
-    can_see_all_cycles = user != "Guest" and "System Manager" in set(frappe.get_roles(user))
+    can_see_all_cycles = all_project_cycles or (
+        user != "Guest" and "System Manager" in set(frappe.get_roles(user))
+    )
     result["scope"] = "all" if can_see_all_cycles else "assigned"
     result["can_export"] = bool(frappe.has_permission("SIG Site Cycle", "export"))
     result["cycles"] = _cycles_for_user(result["cycles"], route_memberships, can_see_all_cycles)
@@ -464,7 +473,13 @@ def get_overview():
         counts["stages"][cycle["stage"]] = counts["stages"].get(cycle["stage"], 0) + 1
 
     result["can_close_cycles"] = _can_close_cycles(user, route_memberships)
-    if result["task_route"]["ready"]:
+    if all_project_cycles:
+        result["stage_tasks"] = _stage_tasks_for_user(
+            result["cycles"], result["task_route"]["memberships"], all_project_scopes=True)
+        result["summary"]["stage_tasks"] = sum(1 for task in result["stage_tasks"] if task["kind"] == "stage")
+        result["summary"]["review_tasks"] = sum(1 for task in result["stage_tasks"]
+                                                if task["kind"] == "stage" and task["needs_review"])
+    elif result["task_route"]["ready"]:
         result["stage_tasks"] = _stage_tasks_for_user(result["cycles"], result["task_route"]["memberships"])
         result["summary"]["stage_tasks"] = sum(1 for task in result["stage_tasks"] if task["kind"] == "stage")
         result["summary"]["review_tasks"] = sum(1 for task in result["stage_tasks"]
@@ -474,19 +489,32 @@ def get_overview():
 
 
 @frappe.whitelist()
-def get_cycle_dashboard():
-    """Return one permission-respecting row per open cycle for Site Cycles."""
-    if not frappe.has_permission("SIG Site Cycle", "read"):
-        frappe.throw("You need SIG Site Cycle read permission to view site cycles.",
+def get_overview():
+    """Return the signed-in user's ToDos and assigned Operations scope."""
+    return _get_overview()
+
+
+def _require_cycle_dashboard_access():
+    user = frappe.session.user
+    roles = set(frappe.get_roles(user)) if user != "Guest" else set()
+    if (user == "Guest" or not roles.intersection(SITE_CYCLE_DASHBOARD_ROLES)
+            or not frappe.has_permission("SIG Site Cycle", "read")):
+        frappe.throw("You need an Operations page role and SIG Site Cycle read access to view all project cycles.",
                      frappe.PermissionError)
-    data = get_overview()
+
+
+@frappe.whitelist()
+def get_cycle_dashboard():
+    """Return every open cycle visible to the current user across project scopes."""
+    _require_cycle_dashboard_access()
+    data = _get_overview(all_project_cycles=True)
     cycles = [cycle for cycle in data.get("cycles") or [] if not cycle.get("terminal")]
     stages = {stage: sum(1 for cycle in cycles if cycle.get("stage") == stage)
               for stage in ("1 - Initial", "2 - Plan", "3 - Handover", "4 - Invoicing")}
     return {
         "cycles": cycles,
         "route": data.get("task_route") or {"ready": False, "issue": "", "memberships": []},
-        "scope": "all" if "System Manager" in set(frappe.get_roles(frappe.session.user)) else "assigned",
+        "scope": "all",
         "can_export": bool(frappe.has_permission("SIG Site Cycle", "export")),
         "complete": data.get("complete", {}).get("cycles", True),
         "summary": {
@@ -498,12 +526,18 @@ def get_cycle_dashboard():
     }
 
 @frappe.whitelist()
-def export_workbook(filter="open"):
-    """Export the opener's routed task queue and permission-visible cycles."""
+def export_workbook(filter="open", scope="assigned"):
+    """Export the opener's queue, or the all-project cycle dashboard when requested."""
     if not frappe.has_permission("SIG Site Cycle", "read") or not frappe.has_permission("SIG Site Cycle", "export"):
         frappe.throw("You need SIG Site Cycle read and export permission to download this workbook.",
                      frappe.PermissionError)
-    data = get_overview()
+    if scope == "all":
+        _require_cycle_dashboard_access()
+        if filter != "cycles":
+            frappe.throw("The all-project export is available for the Site Cycles report only.")
+        data = _get_overview(all_project_cycles=True)
+    else:
+        data = get_overview()
     if not data.get("complete", {}).get("cycles"):
         frappe.throw("The visible cycle read reached its safety limit. Refine the source data before exporting.")
     if not data.get("complete", {}).get("asbuilt_operational"):

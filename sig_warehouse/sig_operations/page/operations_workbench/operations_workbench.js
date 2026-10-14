@@ -7,8 +7,7 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
     const date = (v) => v ? frappe.datetime.str_to_user(String(v).slice(0, 10)) : '—';
     const link = (doctype, name, label) => name ? '<a href="#" data-doctype="' + esc(doctype) + '" data-name="' + esc(name) + '">' + esc(label || name) + '</a>' : '—';
     const ownerLabel = (task) => {
-        const names = (task.owner_names || []).join(' / ');
-        return names ? __('Shared') + ' · ' + names : __('Shared work');
+        return (task.owner_names || []).join(' / ');
     };
     const cycles = () => data.cycles || [];
     const tasks = () => data.stage_tasks || [];
@@ -39,7 +38,7 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
             ['1 - Initial', __('Mapping · BOQ')],
             ['2 - Plan', __('TCN · MIR · Visit')],
             ['3 - Handover', __('Tags · Photos · As-Built Operational')],
-            ['4 - Invoicing', __('As-Built BOQ · invoice-sheet workflow in ERPNext')],
+            ['4 - Invoicing', __('As-Built BOQ · Invoice')],
         ];
         const stages = stageDefs.map(([stage, description]) => {
             const count = tasks().filter((task) => task.stage === stage && task.kind === 'stage').length;
@@ -68,16 +67,12 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
         }).join('');
         const pager = pageCount > 1 ? '<div class="sig-ops-pagination"><button class="btn btn-default sig-ops-prev" ' + (pageNumber <= 1 ? 'disabled' : '') + '>' + __('Previous') + '</button><span>' + __('Page {0} of {1}', [pageNumber, pageCount]) + '</span><button class="btn btn-default sig-ops-next" ' + (pageNumber >= pageCount ? 'disabled' : '') + '>' + __('Next') + '</button></div>' : '';
         const routeMessage = route.ready ? '' : '<div class="sig-ops-empty">' + __('Stage task routing needs review: ') + esc(route.issue || __('Your Employee link could not be verified.')) + '</div>';
-        const warehouseMessage = data.operational_access === 'restricted'
-            ? '<div class="sig-ops-empty">' + __('As-Built Operational is Warehouse work; its DN closure status is not visible to your current role.') + '</div>'
-            : data.operational_access === 'unavailable'
-                ? '<div class="sig-ops-empty">' + __('Warehouse DN status could not be loaded; no completion is assumed.') + '</div>' : '';
         const title = filter === 'cycles' ? __('Open site cycles') : filter === 'review' ? __('Review due') : filter.startsWith('stage:') ? esc(filter.slice(6)) : __('My stage tasks');
         root.html('<header class="sig-ops-header"><div><div class="sig-ops-eyebrow">' + __('SIG Operations') + '</div><h1>' + __('Operations Workbench') + '</h1></div><nav class="sig-ops-header-actions" aria-label="' + __('Operations links') + '"><button class="btn btn-default sig-ops-projects">' + __('Projects') + '</button><button class="btn btn-default sig-ops-cycles">' + __('Site Cycles') + '</button><button class="btn btn-default sig-ops-visits">' + __('Site Visits') + '</button><button class="btn btn-default sig-ops-refresh">' + __('Refresh') + '</button></nav></header>' +
             '<section class="sig-ops-panel sig-ops-my-todos"><div class="sig-ops-panel-head"><div><h2>' + __('My ToDos') + ' <span class="sig-ops-count">' + esc(data.todo_access ? (summary.todos || 0) : '—') + ((data.todos_has_more || (data.complete && !data.complete.todos)) ? '+' : '') + '</span></h2><p>' + __('Personal follow-ups allocated to your signed-in ERP account.') + '</p></div>' + (data.todo_create ? '<button class="btn btn-default sig-ops-new-todo">' + __('Create a follow-up') + '</button>' : '') + (data.todo_access ? '<button class="btn btn-primary sig-ops-all-todos">' + __('Open My ToDos') + '</button>' : '') + '</div>' + todoRows + ((data.todos_has_more || (data.complete && !data.complete.todos)) ? '<div class="sig-ops-footnote">' + __('Showing the first 50. Open My ToDos to view the complete list.') + '</div>' : '') + '</section>' +
-            stats + '<section class="sig-ops-stage"><div class="sig-ops-stage-title"><h2>' + __('Delivery stages') + '</h2><span>' + __('Four active ERP stages; Closed is a separate terminal state.') + '</span></div><div class="sig-ops-stage-flow">' + stages + '</div></section>' +
-            '<section class="sig-ops-panel sig-ops-main"><div class="sig-ops-panel-head"><div><h2>' + title + '</h2><p>' + __('Shared stage work, delay review and team cycles use one operational list.') + '</p></div><div class="sig-ops-actions"><button class="btn btn-default sig-ops-export">' + __('Export Excel') + '</button><button class="btn btn-primary sig-ops-close" ' + (data.can_close_cycles && selected.size ? '' : 'disabled') + '>' + __('Close selected cycles') + '</button></div></div>' +
-            '<div class="sig-ops-toolbar"><nav>' + [['tasks', __('My stage tasks')], ['review', __('Review due')], ['cycles', __('Open cycles')]].map(([key, label]) => '<button data-filter="' + key + '" class="' + (filter === key ? 'active' : '') + '">' + label + '</button>').join('') + '</nav><span class="sig-ops-filter-count">' + allRows.length + ' ' + __('items') + '</span></div>' + routeMessage + warehouseMessage +
+            stats + '<section class="sig-ops-stage"><div class="sig-ops-stage-title"><h2>' + __('Delivery stages') + '</h2></div><div class="sig-ops-stage-flow">' + stages + '</div></section>' +
+            '<section class="sig-ops-panel sig-ops-main"><div class="sig-ops-panel-head"><div><h2>' + title + '</h2></div><div class="sig-ops-actions"><button class="btn btn-default sig-ops-export">' + __('Export Excel') + '</button><button class="btn btn-primary sig-ops-close" ' + (data.can_close_cycles && selected.size ? '' : 'disabled') + '>' + __('Close selected cycles') + '</button></div></div>' +
+            '<div class="sig-ops-toolbar"><nav>' + [['tasks', __('My stage tasks')], ['review', __('Review due')], ['cycles', __('Open cycles')]].map(([key, label]) => '<button data-filter="' + key + '" class="' + (filter === key ? 'active' : '') + '">' + label + '</button>').join('') + '</nav><span class="sig-ops-filter-count">' + allRows.length + ' ' + __('items') + '</span></div>' + routeMessage +
             '<div class="sig-ops-selection"><label><input type="checkbox" class="sig-ops-select-visible"> ' + __('Select cycles on this page') + '</label><span class="sig-ops-selected-count">' + selected.size + ' ' + __('cycles selected') + '</span><small>' + (allRows.length ? (pageNumber - 1) * pageSize + 1 : 0) + '–' + Math.min(pageNumber * pageSize, allRows.length) + ' ' + __('of') + ' ' + allRows.length + '</small></div>' +
             (rows.length ? '<div class="sig-ops-table-wrap"><table class="sig-ops-table"><thead><tr><th></th><th>' + __('Site / WO') + '</th><th>' + __('Project') + '</th><th>' + __('Stage') + '</th><th>' + __('Task / pending work') + '</th><th>' + __('Status / action') + '</th></tr></thead><tbody>' + tableRows + '</tbody></table></div>' + pager : '<div class="sig-ops-empty">' + __('No work in this view.') + '</div>') +
             '<div class="sig-ops-footnote">' + __('Matching evidence closes stage tasks. Delay flags the same task. Cycle closure records a reason and actor/time; unrelated personal ToDos remain open.') + '</div></section>');

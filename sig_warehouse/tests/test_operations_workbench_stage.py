@@ -230,6 +230,51 @@ def test_site_cycles_dashboard_system_manager_sees_all_open_projects_without_clo
     assert [row["name"] for row in rows] == ["INC-1", "CAP-1"]
 
 
+def test_site_cycles_dashboard_endpoint_returns_all_project_scopes_for_page_roles():
+    workbench = _workbench()
+    frappe = sys.modules["frappe"]
+    frappe.session = SimpleNamespace(user="pm@example.com")
+    frappe.get_roles = lambda _user: ["Projects Manager"]
+    frappe.has_permission = lambda doctype, ptype: doctype == "SIG Site Cycle" and ptype == "read"
+    frappe.PermissionError = RuntimeError
+    frappe.throw = lambda message, exc=None: (_ for _ in ()).throw((exc or RuntimeError)(message))
+    captured = {}
+    source_cycles = [
+        _cycle(name="INC-1", family="Incident"),
+        _cycle(name="CAP-1", family="Capex", site_key="CAPEX9"),
+        _cycle(name="CLOSED-1", family="Incident", terminal=1),
+    ]
+
+    def overview(all_project_cycles=False):
+        captured["all_project_cycles"] = all_project_cycles
+        return {"cycles": source_cycles, "task_route": {"memberships": []},
+                "complete": {"cycles": True}, "can_export": True}
+
+    workbench._get_overview = overview
+    result = workbench.get_cycle_dashboard()
+
+    assert captured["all_project_cycles"] is True
+    assert result["scope"] == "all"
+    assert [cycle["name"] for cycle in result["cycles"]] == ["INC-1", "CAP-1"]
+
+
+def test_site_cycles_dashboard_endpoint_rejects_users_outside_page_roles():
+    workbench = _workbench()
+    frappe = sys.modules["frappe"]
+    frappe.session = SimpleNamespace(user="viewer@example.com")
+    frappe.get_roles = lambda _user: ["Accounts User"]
+    frappe.has_permission = lambda *_args: True
+    frappe.PermissionError = RuntimeError
+    frappe.throw = lambda message, exc=None: (_ for _ in ()).throw((exc or RuntimeError)(message))
+
+    try:
+        workbench.get_cycle_dashboard()
+    except RuntimeError as error:
+        assert "Operations page role" in str(error)
+    else:
+        raise AssertionError("a non-page role received the all-project cycle dashboard")
+
+
 def test_site_cycles_dashboard_warehouse_only_sees_cycles_with_routed_warehouse_work():
     workbench = _workbench()
     cycles = [
@@ -312,6 +357,41 @@ def test_cycle_export_includes_named_owners_and_keeps_late_columns_aligned():
     assert cycles.cell(2, 32).value == "INVOICE"
     assert tasks.cell(1, 10).value == "Owner(s)"
     assert tasks.cell(2, 10).value == "Sohil / Raheem"
+
+
+def test_site_cycles_export_uses_the_all_project_pool_only_for_cycle_reports():
+    workbench = _workbench()
+    frappe = sys.modules["frappe"]
+    frappe.session = SimpleNamespace(user="pm@example.com")
+    frappe.get_roles = lambda _user: ["Projects Manager"]
+    frappe.has_permission = lambda *_args: True
+    frappe.PermissionError = RuntimeError
+    frappe.throw = lambda message, exc=None: (_ for _ in ()).throw((exc or RuntimeError)(message))
+    frappe.local = SimpleNamespace(response=SimpleNamespace())
+    captured = {}
+    cycle = {
+        "name": "INC-1", "site": "ZBH874", "wo": "WO-1", "ba": "10001134",
+        "alias": "Incident", "project_id": "10001134", "family": "Incident",
+        "stage": "4 - Invoicing", "terminal": False, "work": [], "needs_review": False,
+        "is_delayed": False, "is_aged": False, "stage_due_on": "", "delay_reason": "",
+        "delay_note": "", "closed_on": "", "closed_by": "", "events": {},
+        "asbuilt_operational": {"closed": True, "source_dns": []},
+    }
+
+    def overview(all_project_cycles=False):
+        captured["all_project_cycles"] = all_project_cycles
+        return {"complete": {"cycles": True, "asbuilt_operational": True},
+                "cycles": [cycle], "stage_tasks": []}
+
+    workbench._get_overview = overview
+    workbench.get_overview = lambda: (_ for _ in ()).throw(AssertionError("personal overview used"))
+    workbench.export_workbook(filter="cycles", scope="all")
+
+    from openpyxl import load_workbook
+    workbook = load_workbook(BytesIO(frappe.local.response.filecontent), data_only=True)
+    assert captured["all_project_cycles"] is True
+    assert workbook["Cycles"].cell(2, 1).value == "INC-1"
+    assert workbook["Stage tasks"].max_row == 1
 
 
 def test_asbuilt_operational_closes_only_on_explicit_site_dn_flag():
