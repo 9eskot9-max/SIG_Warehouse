@@ -218,3 +218,89 @@ projects,مشاريع
 "Tags · Photos · As-Built Operational · As-Built BOQ",الوسوم · الصور · إقفال التشغيل للمخططات المنفذة · ملف مخططات ما بعد التنفيذ
 "As-Built Operational is Warehouse work; its DN closure status is not visible to your current role.",حالة إقفال إشعار التسليم للتشغيل من مهام المستودع ولا تظهر لدورك الحالي.
 "Warehouse DN status could not be loaded; no completion is assumed.",تعذر تحميل حالة إشعار التسليم من المستودع؛ لم يُفترض اكتمالها.
+Petty Cash Review,مراجعة العهدة النقدية
+Unmatched sender,مرسل غير مطابق
+Unassigned sender,مرسل غير محدد
+The server rejected the request (HTTP {0}).,رفض الخادم الطلب (HTTP {0}).
+Loading invoices…,جارٍ تحميل الفواتير…
+staged,قيد المطابقة
+Review board unavailable,لوحة المراجعة غير متاحة
+Could not load invoices.,تعذر تحميل الفواتير.
+Draft purchase invoices,فواتير الشراء المسودة
+"Invoices created by confirmed receipts, awaiting finance review and submit.",فواتير أُنشئت من إيصالات مؤكدة بانتظار مراجعة المالية واعتمادها.
+Draft payments from custody,دفعات مسودة من العهدة
+"Payment entries from employee custody, awaiting finance review and submit.",قيود دفع من عهدة الموظفين بانتظار مراجعة المالية واعتمادها.
+Confirmed receipts,الإيصالات المؤكدة
+Receipts already confirmed and handed to finance.,إيصالات تم تأكيدها وتسليمها للمالية.
+PC clearances,تسويات العهدة
+Cycle clearance register per employee.,سجل تسوية الدورة لكل موظف.
+All PC transactions,جميع حركات العهدة
+"Every receipt, including rejected and archived ones.",كل الإيصالات بما فيها المرفوضة والمؤرشفة.
+Sender mapping,مطابقة المرسلين
+Match phone senders to employees so their receipts can be confirmed.,طابق أرقام المرسلين بالموظفين ليمكن تأكيد إيصالاتهم.
+Petty cash,العهدة النقدية
+Petty cash invoice review,مراجعة فواتير العهدة النقدية
+Refresh,تحديث
+Loading…,جارٍ التحميل…
+Finance handoff and records,تسليم المالية والسجلات
+Confirmed receipts become draft invoices and payments for finance. Open them from here.,تتحول الإيصالات المؤكدة إلى فواتير ودفعات مسودة للمالية. افتحها من هنا.
+Confirm creates a draft Purchase Invoice and a draft Payment Entry only. Finance reviews and submits them; ERPNext permissions remain enforced.,التأكيد ينشئ فاتورة شراء مسودة وقيد دفع مسودة فقط. تراجعها المالية وتعتمدها، وتبقى صلاحيات ERPNext سارية.
+Dismiss,إغلاق
+{0} pending · {1} need a category · {2} from unmatched senders,{0} قيد المراجعة · {1} تحتاج تصنيفاً · {2} من مرسلين غير مطابقين
+Pending review,قيد المراجعة
+Need a category,تحتاج تصنيفاً
+Unmatched senders,مرسلون غير مطابقين
+Nothing in this filter.,لا يوجد شيء في هذا التصفية.
+No invoices currently need review.,لا توجد فواتير تحتاج مراجعة حالياً.
+Review person,المراجَع
+Invoice {0} of {1},الفاتورة {0} من {1}
+Previous,السابق
+Next,التالي
+Unmatched sender: this receipt cannot be confirmed until the sender is matched to an Employee in Sender mapping.,مرسل غير مطابق: لا يمكن تأكيد هذا الإيصال حتى تتم مطابقة المرسل بموظف في مطابقة المرسلين.
+No receipt file URL,لا يوجد رابط لملف الإيصال
+Invoice PDF,ملف الفاتورة PDF
+Zoom out,تصغير
+Fit,ملاءمة
+Zoom in,تكبير
+Actual size,الحجم الفعلي
+Rotate,تدوير
+Wheel scrolls · Ctrl+wheel or double-click zooms · drag to move,العجلة للتمرير · Ctrl+العجلة أو النقر المزدوج للتكبير · اسحب للتحريك
+Invoice receipt,إيصال الفاتورة
+Amount (incl. VAT),المبلغ (شامل الضريبة)
+VAT invoice,فاتورة ضريبية
+Transaction category,تصنيف الحركة
+Choose category…,اختر التصنيف…
+Invoice / Notes,الفاتورة / ملاحظات
+"Supplier, vehicle & site",المورد والمركبة والموقع
+Merchant,التاجر
+Supplier VAT number (15 digits),الرقم الضريبي للمورد (15 رقماً)
+Invoice number,رقم الفاتورة
+Vehicle,المركبة
+ODO,عداد المسافة
+Site / Project,الموقع / المشروع
+Confirm,تأكيد
+Reject,رفض
+Open receipt,فتح الإيصال
+Source row,صف المصدر
+Open record,فتح السجل
+Previous/Next never change a receipt. Only Confirm or Reject does. Keys: ← → navigate," + − 0 zoom, R rotate, F fit.,السابق/التالي لا يغيّران الإيصال. التأكيد أو الرفض فقط يغيّره. المفاتيح: ← → للتنقل، + − 0 للتكبير، R للتدوير، F للملاءمة."
+VAT {0} · net {1} SAR,الضريبة {0} · الصافي {1} ريال
+VAT will not be claimed on the invoice until a valid 15-digit supplier VAT number is entered; finance will review it.,لن تُحتسب الضريبة على الفاتورة حتى يُدخل رقم ضريبي صحيح من 15 رقماً للمورد؛ وستراجعها المالية.
+Choose a transaction category before confirming.,اختر تصنيف الحركة قبل التأكيد.
+Enter an amount greater than zero.,أدخل مبلغاً أكبر من صفر.
+Confirming…,جارٍ التأكيد…
+Cleared,تمت التسوية
+Draft Purchase Invoice,فاتورة شراء مسودة
+Draft Payment Entry,قيد دفع مسودة
+Not confirmed. Nothing was saved.,لم يتم التأكيد. لم يُحفظ أي شيء.
+Reason for rejection,سبب الرفض
+Reject receipt,رفض الإيصال
+Cancel,إلغاء
+Give a reason for rejecting this receipt.,اذكر سبب رفض هذا الإيصال.
+Rejected,مرفوض
+Fit width,ملاءمة العرض
+Fit page,ملاءمة الصفحة
+Receipt preview unavailable — use Open receipt,معاينة الإيصال غير متاحة — استخدم فتح الإيصال
+Not available,غير متاح
+Your ERP role cannot review petty cash receipts.,صلاحيتك في النظام لا تسمح بمراجعة إيصالات العهدة النقدية.
+Review receipts from site staff and confirm them into draft invoices and payments for finance.,راجع إيصالات موظفي المواقع وأكّدها لتصبح فواتير ودفعات مسودة للمالية.

@@ -158,6 +158,8 @@ frappe.pages['finance-workbench'].on_page_load = function (wrapper) {
     ];
 
     const specialist = [
+        {variant: 'warn', title: __('Petty cash invoice review'), description: __('Review receipts from site staff and confirm them into draft invoices and payments for finance.'), roleAny: ['System Manager', 'Accounts User', 'Accounts Manager'], doctype: 'SIG PC Transaction', route: ['pc-invoice-review'],
+            metric: {key: 'pc-pending-review', function: 'Count', filters: [['SIG PC Transaction', 'closure_status', 'in', ['Draft', 'Needs Review']]]}},
         {variant: 'navy', title: __('SIG Petty Cash'), description: __('Open the separate evidence, clearance, and finance handoff workspace.'), roleAny: ['System Manager', 'Accounts User', 'Accounts Manager', 'SIG Finance Viewer', 'SIG PC Clearance'], route: ['Workspaces', 'SIG Petty Cash']},
         {variant: 'navy', title: __('ZATCA Integrations'), description: __('Review tax-compliance evidence linked to the source invoice.'), roleAny: ['System Manager', 'Accounts User', 'Accounts Manager'], route: ['Workspaces', 'ZATCA Integrations']}
     ];
@@ -235,7 +237,8 @@ frappe.pages['finance-workbench'].on_page_load = function (wrapper) {
         if (Array.isArray(route) && route.length) frappe.set_route(...route);
     });
 
-    tawalAndOperations.forEach((item) => {
+    // Cards with a live count: the Tawal/SNB positions and the petty cash review queue.
+    [...tawalAndOperations, ...specialist].forEach((item) => {
         if (!item.metric || !canOpen(item)) return;
         frappe.call({
             method: 'frappe.desk.doctype.number_card.number_card.get_result',
