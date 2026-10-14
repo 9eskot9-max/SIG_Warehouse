@@ -156,7 +156,7 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
             root.find('.sig-cycles-detail').html(`<div class="sig-cycles-detail-empty">${__('Select a cycle to see its open items and evidence history.')}</div>`);
             return;
         }
-        const evidence = (state.events || []).map((event) => `<div class="sig-cycles-event"><strong>${esc(event.code)}</strong><small>${esc(date(event.occurred_at))} · ${esc(event.source || 'ERP')}</small></div>`).join('');
+        const evidence = (state.events || []).map((event) => `<div class="sig-cycles-event"><strong>${esc(event.code)}</strong><small>${esc(date(event.occurred_at))}</small></div>`).join('');
         const evidenceContent = state.eventStatus === 'loading' ? `<p class="sig-cycles-muted">${__('Loading evidence history…')}</p>`
             : state.eventStatus === 'error' ? `<p class="sig-cycles-muted">${__('Evidence history is unavailable for this cycle.')}</p>`
                 : evidence || `<p class="sig-cycles-muted">${__('No evidence events recorded.')}</p>`;

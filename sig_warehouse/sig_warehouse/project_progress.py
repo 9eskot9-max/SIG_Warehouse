@@ -97,14 +97,14 @@ def events_for(cycle):
     if not frappe.db.exists('SIG Site Cycle', cycle):
         frappe.throw('SIG Site Cycle was not found.')
     rows = frappe.db.sql(
-        "SELECT event_code, occurred_at, recorded_at, artifact_ref, source_sub, event_id "
+        "SELECT event_code, occurred_at, recorded_at, artifact_ref, event_id "
         "FROM `tabSIG Evidence Event` WHERE cycle = %s "
         "ORDER BY occurred_at DESC, recorded_at DESC LIMIT 80",
         (cycle,), as_dict=True,
     )
     return [{'code': text_value(row.event_code), 'occurred_at': str(row.occurred_at or ''),
              'recorded_at': str(row.recorded_at or ''), 'artifact_ref': text_value(row.artifact_ref),
-             'source': text_value(row.source_sub), 'event_id': text_value(row.event_id)}
+             'event_id': text_value(row.event_id)}
             for row in rows]
 
 
