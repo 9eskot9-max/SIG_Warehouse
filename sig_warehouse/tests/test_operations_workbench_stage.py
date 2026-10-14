@@ -331,7 +331,8 @@ def test_cycle_export_includes_named_owners_and_keeps_late_columns_aligned():
                        "mir_at": "MIR", "first_visit_at": "VISIT", "tags_at": "TAGS",
                        "photos_at": "PHOTOS", "asbuilt_at": "ASBUILT",
                        "warranty_at": "WARRANTY", "ho_at": "HO", "invoice_at": "INVOICE"},
-            "asbuilt_operational": {"closed": True, "source_dns": ["DN-1"]},
+            "asbuilt_operational": {"visible": True, "applicable": True,
+                                    "closed": True, "source_dns": ["DN-1"]},
         }],
         "stage_tasks": [{
             "id": "INC-1::asbuilt", "cycle": "INC-1", "stage": "4 - Invoicing",
@@ -349,8 +350,8 @@ def test_cycle_export_includes_named_owners_and_keeps_late_columns_aligned():
     tasks = workbook["Stage tasks"]
     assert cycles.cell(1, 11).value == "Pending item owners"
     assert cycles.cell(2, 11).value == "As-Built BOQ file: Sohil / Raheem"
-    assert cycles.cell(1, 28).value == "As-Built Operational closed"
-    assert cycles.cell(2, 28).value is True
+    assert cycles.cell(1, 28).value == "As-Built Operational status"
+    assert cycles.cell(2, 28).value == "Closed"
     assert cycles.cell(2, 29).value == "DN-1"
     assert cycles.cell(2, 30).value == "WARRANTY"
     assert cycles.cell(2, 31).value == "HO"
@@ -392,6 +393,69 @@ def test_site_cycles_export_uses_the_all_project_pool_only_for_cycle_reports():
     assert captured["all_project_cycles"] is True
     assert workbook["Cycles"].cell(2, 1).value == "INC-1"
     assert workbook["Stage tasks"].max_row == 1
+
+
+def test_site_cycles_export_keeps_cycle_workbook_when_warehouse_coverage_is_unavailable():
+    workbench = _workbench()
+    frappe = sys.modules["frappe"]
+    frappe.session = SimpleNamespace(user="pm@example.com")
+    frappe.get_roles = lambda _user: ["Projects Manager"]
+    frappe.has_permission = lambda *_args: True
+    frappe.PermissionError = RuntimeError
+    frappe.throw = lambda message, exc=None: (_ for _ in ()).throw((exc or RuntimeError)(message))
+    frappe.local = SimpleNamespace(response=SimpleNamespace())
+    cycle = {
+        "name": "INC-1", "site": "ZBH874", "wo": "WO-1", "ba": "10001134",
+        "alias": "Incident", "project_id": "10001134", "family": "Incident",
+        "stage": "4 - Invoicing", "terminal": False, "work": [], "needs_review": False,
+        "is_delayed": False, "is_aged": False, "stage_due_on": "", "events": {},
+        "asbuilt_operational": {"visible": False, "applicable": None,
+                                 "closed": None, "source_dns": []},
+    }
+    workbench._get_overview = lambda all_project_cycles=False: {
+        "complete": {"cycles": True, "asbuilt_operational": None},
+        "operational_access": "unavailable", "cycles": [cycle], "stage_tasks": [],
+    }
+
+    workbench.export_workbook(filter="cycles", scope="all")
+
+    from openpyxl import load_workbook
+    workbook = load_workbook(BytesIO(frappe.local.response.filecontent), data_only=True)
+    assert workbook["Cycles"].cell(2, 1).value == "INC-1"
+    assert workbook["Cycles"].cell(2, 28).value == "Coverage could not be verified"
+    assert workbook["Cycles"].cell(2, 29).value in (None, "")
+    assert "Warehouse tasks may be missing" in workbook["Export notes"].cell(2, 2).value
+
+
+def test_site_cycles_export_shows_open_status_without_stock_entry_read_access():
+    workbench = _workbench()
+    frappe = sys.modules["frappe"]
+    frappe.session = SimpleNamespace(user="pm@example.com")
+    frappe.get_roles = lambda _user: ["Projects Manager"]
+    frappe.has_permission = lambda doctype, _ptype: doctype == "SIG Site Cycle"
+    frappe.PermissionError = RuntimeError
+    frappe.throw = lambda message, exc=None: (_ for _ in ()).throw((exc or RuntimeError)(message))
+    frappe.local = SimpleNamespace(response=SimpleNamespace())
+    cycle = {
+        "name": "INC-1", "site": "ZBH874", "wo": "WO-1", "ba": "10001134",
+        "alias": "Incident", "project_id": "10001134", "family": "Incident",
+        "stage": "4 - Invoicing", "terminal": False, "work": [], "needs_review": False,
+        "is_delayed": False, "is_aged": False, "stage_due_on": "", "events": {},
+        "asbuilt_operational": {"visible": True, "applicable": True,
+                                 "closed": False, "source_dns": []},
+    }
+    workbench._get_overview = lambda all_project_cycles=False: {
+        "complete": {"cycles": True, "asbuilt_operational": True},
+        "operational_access": "available", "cycles": [cycle], "stage_tasks": [],
+    }
+
+    workbench.export_workbook(filter="cycles", scope="all")
+
+    from openpyxl import load_workbook
+    workbook = load_workbook(BytesIO(frappe.local.response.filecontent), data_only=True)
+    assert workbook["Cycles"].cell(2, 28).value == "Open"
+    assert workbook["Cycles"].cell(2, 29).value in (None, "")
+    assert "Export notes" not in workbook.sheetnames
 
 
 def test_asbuilt_operational_closes_only_on_explicit_site_dn_flag():
@@ -447,7 +511,7 @@ def test_cycle_closure_is_limited_to_field_ops_pm_or_co():
     assert not workbench._can_close_cycles("warehouse@example.com", [{"scope": "Incident", "role": "warehouse"}])
 
 
-def test_workbench_does_not_read_return_closed_for_permlevel_zero_stock_viewer():
+def test_workbench_exposes_only_cycle_status_without_stock_entry_field_access():
     workbench = _workbench()
     fake_frappe = workbench.frappe
     detail_meta = type("DetailMeta", (), {
@@ -459,10 +523,93 @@ def test_workbench_does_not_read_return_closed_for_permlevel_zero_stock_viewer()
         type("Perm", (), {"role": "SIG Stock Viewer", "permlevel": 1, "read": "0"})(),
         type("Perm", (), {"role": "Stock Manager", "permlevel": 1, "read": 1})(),
     ]})()
-    fake_frappe.has_permission = lambda *_args, **_kwargs: True
+    fake_frappe.has_permission = lambda doctype, ptype, **_kwargs: (
+        doctype == "SIG Site Cycle" and ptype == "read"
+    )
     fake_frappe.get_meta = lambda doctype: detail_meta if doctype == "Stock Entry Detail" else stock_meta
     fake_frappe.get_roles = lambda _user: ["SIG Stock Viewer"]
     fake_frappe.session = type("Session", (), {"user": "viewer@example.com"})()
-    assert workbench._warehouse_operational_lines([]) == ([], None)
+    query_log = {}
+
+    def read_scoped_lines(query, params, as_dict):
+        query_log.update({"query": query, "params": params, "as_dict": as_dict})
+        return [Row(custom_site="ZBH874", custom_return_closed=1)]
+
+    fake_frappe.db = SimpleNamespace(sql=read_scoped_lines)
+    cycle = Row(name="INC-1", site_key="ZBH874", site="ZBH874", terminal=0)
+
+    lines, complete = workbench._warehouse_operational_lines([cycle])
+    state = workbench._asbuilt_operational_status(cycle, lines)
+
+    assert complete is True
+    assert state == {"applicable": True, "closed": True, "source_dns": []}
+    assert "ZBH874" in query_log["params"]
+    assert "UPPER(IFNULL(sed.custom_site" in query_log["query"]
+    assert "Material Issue" in query_log["params"]
+    assert "SELECT sed.parent" not in query_log["query"]
+    assert "MAX(CASE WHEN IFNULL(sed.custom_return_closed" in query_log["query"]
+    assert "GROUP BY UPPER(IFNULL(sed.custom_site" in query_log["query"]
+    assert query_log["as_dict"] is True
+    assert "DN-1" not in str(lines)
+
+
+def test_source_dn_names_are_limited_to_stock_entries_visible_to_the_user():
+    workbench = _workbench()
+    fake_frappe = workbench.frappe
+    detail_meta = type("DetailMeta", (), {
+        "has_field": lambda _self, _field: True,
+        "get_field": lambda _self, _field: type("Field", (), {"permlevel": 1})(),
+    })()
+    stock_meta = type("StockMeta", (), {"permissions": [
+        type("Perm", (), {"role": "Stock Manager", "permlevel": 1, "read": 1})(),
+    ]})()
+    fake_frappe.has_permission = lambda doctype, ptype, **_kwargs: (
+        (doctype, ptype) in {("SIG Site Cycle", "read"), ("Stock Entry", "read")}
+    )
     fake_frappe.get_roles = lambda _user: ["Stock Manager"]
-    assert workbench._warehouse_operational_lines([]) == ([], True)
+    fake_frappe.session = type("Session", (), {"user": "warehouse@example.com"})()
+    fake_frappe.get_meta = lambda doctype: detail_meta if doctype == "Stock Entry Detail" else stock_meta
+    fake_frappe.get_list = lambda doctype, **_kwargs: (
+        [Row(name="DN-ALLOWED")] if doctype == "Stock Entry" else []
+    )
+    queries = []
+
+    def read_lines(query, params, as_dict):
+        queries.append((query, params))
+        if "GROUP BY" in query:
+            return [Row(custom_site="ZBH874", custom_return_closed=1)]
+        return [Row(parent="DN-ALLOWED", custom_site="ZBH874", custom_return_closed=1)]
+
+    fake_frappe.db = SimpleNamespace(sql=read_lines)
+    cycle = Row(name="INC-1", site_key="ZBH874", site="ZBH874", terminal=0)
+
+    lines, complete = workbench._warehouse_operational_lines([cycle])
+    state = workbench._asbuilt_operational_status(cycle, lines)
+
+    assert complete is True
+    assert state == {"applicable": True, "closed": True, "source_dns": ["DN-ALLOWED"]}
+    assert any("DN-ALLOWED" in params for _query, params in queries)
+    assert "DN-RESTRICTED" not in str(queries)
+
+
+def test_warehouse_status_query_is_limited_to_open_cycles_in_the_callers_scope():
+    workbench = _workbench()
+    rows = [
+        Row(name="INC-1", erp_project="INC-PROJ", project="Incident", terminal=0,
+            site_key="ZBH874"),
+        Row(name="CAP-1", erp_project="CAP-PROJ", project="Capex", terminal=0,
+            site_key="CAP001"),
+        Row(name="INC-CLOSED", erp_project="INC-PROJ", project="Incident", terminal=1,
+            site_key="ZBH875"),
+    ]
+    projects = {
+        "INC-PROJ": {"custom_family": "Incident"},
+        "CAP-PROJ": {"custom_family": "Capex"},
+    }
+
+    scoped = workbench._warehouse_cycles_in_scope(
+        rows, projects, [{"scope": "Incident", "role": "pm"}], can_see_all=False)
+    all_project = workbench._warehouse_cycles_in_scope(rows, projects, [], can_see_all=True)
+
+    assert [row.name for row in scoped] == ["INC-1"]
+    assert [row.name for row in all_project] == ["INC-1", "CAP-1"]

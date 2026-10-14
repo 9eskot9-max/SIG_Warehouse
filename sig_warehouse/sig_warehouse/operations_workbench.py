@@ -132,14 +132,11 @@ def _asbuilt_operational_status(cycle, lines):
     }
 
 
-def _warehouse_operational_lines(cycles):
-    """Read closure flags only from Stock Entries visible to the current user."""
-    if not frappe.has_permission("Stock Entry", "read"):
-        return [], None
+def _can_read_operational_source_names(detail_meta):
+    """Source DN names are optional; the cycle-level status is the approved shared view."""
     try:
-        detail_meta = frappe.get_meta("Stock Entry Detail")
-        if not all(detail_meta.has_field(field) for field in ("custom_site", "custom_return_closed")):
-            return [], False
+        if not frappe.has_permission("Stock Entry", "read"):
+            return False
         closed_field = detail_meta.get_field("custom_return_closed")
         permlevel = int(getattr(closed_field, "permlevel", 0) or 0)
         if permlevel:
@@ -152,32 +149,94 @@ def _warehouse_operational_lines(cycles):
                 for permission in stock_meta.permissions
             )
             if not field_read:
-                return [], None
+                return False
+        return True
+    except Exception:
+        return False
+
+
+def _warehouse_operational_lines(cycles):
+    """Build a narrow cycle-site status view without granting Stock Entry access.
+
+    Callers pass only cycles already loaded through permission-aware SIG Site Cycle
+    reads and filtered to the user's routed scope (or the authorized all-project
+    dashboard). This query exposes only the explicit closed flag for matching site
+    DNs. Source DN names are retained only when the user already has Stock Entry and
+    field-level read access.
+    """
+    try:
+        detail_meta = frappe.get_meta("Stock Entry Detail")
+        if not all(detail_meta.has_field(field) for field in ("custom_site", "custom_return_closed")):
+            return [], False
         site_refs = sorted({
-            str(cycle.get(field) or "").strip()
+            str(cycle.get(field) or "").strip().upper()
             for cycle in cycles for field in ("site_key", "site")
             if str(cycle.get(field) or "").strip()
         })
         if not site_refs:
             return [], True
-        sources, complete = _all_visible(
-            "Stock Entry", ["name"],
-            filters={"docstatus": 1, "is_return": 0, "purpose": ["in", ["Material Issue", "Material Transfer"]]},
-            order_by="posting_date asc, name asc", max_rows=MAX_ROWS)
-        if not complete:
-            return [], False
-        source_names = [str(row.name) for row in sources if row.get("name")]
         lines = []
-        for start in range(0, len(source_names), 400):
-            batch = source_names[start:start + 400]
-            lines.extend(frappe.get_all(
-                "Stock Entry Detail",
-                filters={"parent": ["in", batch], "parenttype": "Stock Entry", "custom_site": ["in", site_refs]},
-                fields=["parent", "custom_site", "project", "custom_return_closed"],
-                limit_page_length=0))
+        for start in range(0, len(site_refs), 400):
+            batch = site_refs[start:start + 400]
+            placeholders = ", ".join(["%s"] * len(batch))
+            rows = frappe.db.sql(
+                """SELECT MIN(sed.custom_site) AS custom_site,
+                          MAX(CASE WHEN IFNULL(sed.custom_return_closed, 0) = 1 THEN 1 ELSE 0 END)
+                          AS custom_return_closed FROM `tabStock Entry Detail` sed
+                   INNER JOIN `tabStock Entry` se ON se.name = sed.parent
+                   WHERE sed.parenttype = %s
+                     AND UPPER(IFNULL(sed.custom_site, '')) IN (""" + placeholders + """)
+                     AND se.docstatus = %s AND se.is_return = %s
+                     AND se.purpose IN (%s, %s)
+                   GROUP BY UPPER(IFNULL(sed.custom_site, ''))""",
+                tuple(["Stock Entry"] + batch + [1, 0, "Material Issue", "Material Transfer"]),
+                as_dict=True,
+            )
+            lines.extend(rows)
+
+        # Status is intentionally visible to cycle viewers, but DN identifiers
+        # remain subject to Stock Entry record permissions and field access.
+        if _can_read_operational_source_names(detail_meta):
+            try:
+                sources, source_read_complete = _all_visible(
+                    "Stock Entry", ["name"],
+                    filters={"docstatus": 1, "is_return": 0,
+                             "purpose": ["in", ["Material Issue", "Material Transfer"]]},
+                    order_by="posting_date asc, name asc", max_rows=MAX_ROWS)
+                source_names = [str(row.get("name") or "") for row in sources if row.get("name")]
+                if source_read_complete and source_names:
+                    for start in range(0, len(source_names), 400):
+                        batch = source_names[start:start + 400]
+                        placeholders = ", ".join(["%s"] * len(batch))
+                        source_lines = frappe.db.sql(
+                            "SELECT sed.parent, sed.custom_site, sed.custom_return_closed "
+                            "FROM `tabStock Entry Detail` sed "
+                            "WHERE sed.parenttype = %s AND sed.parent IN (" + placeholders + ") "
+                            "AND UPPER(IFNULL(sed.custom_site, '')) IN (" + ", ".join(["%s"] * len(site_refs)) + ")",
+                            tuple(["Stock Entry"] + batch + site_refs),
+                            as_dict=True,
+                        )
+                        lines.extend(source_lines)
+            except Exception:
+                # A failure in the optional identifier read must not hide the
+                # cycle-level Open/Closed status already derived above.
+                pass
         return lines, True
     except Exception:
         return [], False
+
+
+def _warehouse_cycles_in_scope(rows, projects_by_name, memberships, can_see_all):
+    """Limit the derived Warehouse status read to open cycles this caller may see."""
+    open_rows = [row for row in rows if not _flag(row, "terminal")]
+    if can_see_all:
+        return open_rows
+    visible_scopes = {str(m.get("scope") or "") for m in memberships}
+    return [
+        row for row in open_rows
+        if _family((projects_by_name.get(str(row.get("erp_project") or "")) or {}).get("custom_family")
+                   or row.get("project")) in visible_scopes
+    ]
 
 
 def _stage_tasks_for_user(cycles, memberships, all_project_scopes=False):
@@ -381,7 +440,8 @@ def _cycle_view(row, project, today, operational=None):
         "asbuilt_operational": {"visible": operational_visible,
                                  "applicable": bool(operational.get("applicable")) if operational_visible else None,
                                  "closed": bool(operational.get("closed")) if operational_visible else None,
-                                 "source_dns": operational.get("source_dns") or []},
+                                 "source_dns": operational.get("source_dns") or [],
+                                 "owner_names": _owner_names(family, "warehouse")},
     }
 
 def _get_overview(all_project_cycles=False):
@@ -426,8 +486,15 @@ def _get_overview(all_project_cycles=False):
         streams, _ = _all_visible("SIG Project Stream", ["name", "alias"],
                                   filters={"name": ["in", stream_names]}, max_rows=5000)
         aliases_by_stream = {str(stream.name): str(stream.get("alias") or "") for stream in streams}
+    result["task_route"] = _current_ops_membership(user)
+    route_memberships = result["task_route"].get("memberships") or []
+    can_see_all_cycles = all_project_cycles or (
+        user != "Guest" and "System Manager" in set(frappe.get_roles(user))
+    )
+    warehouse_cycles = _warehouse_cycles_in_scope(
+        rows, projects_by_name, route_memberships, can_see_all_cycles)
     counts = result["summary"]
-    warehouse_lines, warehouse_complete = _warehouse_operational_lines(rows)
+    warehouse_lines, warehouse_complete = _warehouse_operational_lines(warehouse_cycles)
     result["complete"]["asbuilt_operational"] = warehouse_complete
     result["operational_access"] = (
         "available" if warehouse_complete is True
@@ -450,11 +517,6 @@ def _get_overview(all_project_cycles=False):
             counts["past_due"] += int(cycle["past_due"])
             counts["exceptions"] += int(cycle["needs_review"])
         counts["stages"][cycle["stage"]] = counts["stages"].get(cycle["stage"], 0) + 1
-    result["task_route"] = _current_ops_membership(user)
-    route_memberships = result["task_route"].get("memberships") or []
-    can_see_all_cycles = all_project_cycles or (
-        user != "Guest" and "System Manager" in set(frappe.get_roles(user))
-    )
     result["scope"] = "all" if can_see_all_cycles else "assigned"
     result["can_export"] = bool(frappe.has_permission("SIG Site Cycle", "export"))
     result["cycles"] = _cycles_for_user(result["cycles"], route_memberships, can_see_all_cycles)
@@ -540,8 +602,8 @@ def export_workbook(filter="open", scope="assigned"):
         data = get_overview()
     if not data.get("complete", {}).get("cycles"):
         frappe.throw("The visible cycle read reached its safety limit. Refine the source data before exporting.")
-    if not data.get("complete", {}).get("asbuilt_operational"):
-        frappe.throw("As-Built Operational coverage could not be verified for this account. Check Stock Entry read access and retry.")
+    operational_complete = data.get("complete", {}).get("asbuilt_operational") is True
+    operational_access = data.get("operational_access") or "unavailable"
     all_cycles = list(data.get("cycles") or [])
     if filter == "cycles" or filter == "open":
         cycles = [c for c in all_cycles if not c.get("terminal")]
@@ -565,8 +627,8 @@ def export_workbook(filter="open", scope="assigned"):
                "Stage", "Status", "Pending work", "Pending item owners", "Review due", "Delayed", "Aged",
                "Due date", "Delay reason", "Delay note", "Closed on", "Closed by",
                "Mapping at", "BOQ at", "TCN at", "MIR at", "Visit at",
-               "Tags at", "Photos at", "As-Built BOQ at", "As-Built Operational closed",
-               "As-Built DN source(s)", "Warranty at", "Handover at", "Invoice at"]
+               "Tags at", "Photos at", "As-Built BOQ at", "As-Built Operational status",
+               "As-Built DN source(s) (if accessible)", "Warranty at", "Handover at", "Invoice at"]
     ws.append(headers)
     stage_ws = wb.create_sheet("Stage tasks")
     stage_ws.append(["Task ID", "Cycle ID", "Site", "WO", "BA", "Project alias",
@@ -588,8 +650,23 @@ def export_workbook(filter="open", scope="assigned"):
                   [events.get(field) for field in ("mapping_at", "boq_at", "tcn_at", "mir_at",
                    "first_visit_at", "tags_at", "photos_at", "asbuilt_at")])
         operational = cycle.get("asbuilt_operational") or {}
-        ws.cell(ws.max_row, 28, bool(operational.get("closed")))
-        ws.cell(ws.max_row, 29, "; ".join(operational.get("source_dns") or []))
+        if not operational_complete:
+            operational_status = (
+                "Unavailable to this account" if operational_access == "restricted"
+                else "Coverage could not be verified"
+            )
+            source_dns = ""
+        elif not operational.get("visible"):
+            operational_status = "Coverage could not be verified"
+            source_dns = ""
+        elif not operational.get("applicable"):
+            operational_status = "No matching DN"
+            source_dns = ""
+        else:
+            operational_status = "Closed" if operational.get("closed") else "Open"
+            source_dns = "; ".join(operational.get("source_dns") or [])
+        ws.cell(ws.max_row, 28, operational_status)
+        ws.cell(ws.max_row, 29, source_dns)
         ws.cell(ws.max_row, 30, events.get("warranty_at"))
         ws.cell(ws.max_row, 31, events.get("ho_at"))
         ws.cell(ws.max_row, 32, events.get("invoice_at"))
@@ -602,6 +679,14 @@ def export_workbook(filter="open", scope="assigned"):
                          cycle.get("ba"), cycle.get("alias"), task.get("stage"), cycle.get("stage"),
                          task.get("label"), audience, task.get("status"),
                          task.get("expected_evidence"), task.get("review_reason")])
+    if not operational_complete:
+        note_ws = wb.create_sheet("Export notes")
+        note_ws.append(["Data coverage", "Details"])
+        note_ws.append([
+            "As-Built Operational",
+            "Stock Entry coverage was not available to this account. Cycle and task rows include accessible data; "
+            "As-Built Operational statuses and related Warehouse tasks may be missing."
+        ])
     for sheet in wb.worksheets:
         sheet.freeze_panes = "A2"
         sheet.auto_filter.ref = sheet.dimensions

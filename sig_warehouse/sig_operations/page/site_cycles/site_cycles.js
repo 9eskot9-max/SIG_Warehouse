@@ -91,14 +91,27 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
     }
 
     function workHtml(cycle) {
-        const items = cycle.work || [];
-        if (!items.length) return `<span class="sig-cycles-muted">${__('No open stage item projected')}</span>`;
-        return items.map((item) => {
+        const items = (cycle.work || []).filter((item) => item.key !== 'asbuilt_operational');
+        const hasOperationalTask = (cycle.work || []).some((item) => item.key === 'asbuilt_operational');
+        const tasks = items.length ? items.map((item) => {
             const stage = item.stage || cycle.stage;
             const stageNote = stage !== cycle.stage ? `<small>${esc(stage)}</small>` : '';
             const owners = ownerLabel(item);
             return `<div class="sig-cycles-work-item"><span>${esc(item.label || __('Open item'))}</span><small>${owners ? esc(owners) : ''}</small>${stageNote}</div>`;
-        }).join('');
+        }).join('') : (hasOperationalTask ? '' : `<span class="sig-cycles-muted">${__('No open stage item projected')}</span>`);
+        return tasks + operationalStatusHtml(cycle);
+    }
+
+    function operationalStatusHtml(cycle) {
+        const operational = cycle.asbuilt_operational || {};
+        if (operational.visible !== true) {
+            return `<div class="sig-cycles-operational-status unavailable"><span>${__('As-Built Operational')}</span><small>${__('Status unavailable')}</small></div>`;
+        }
+        if (!operational.applicable) return '';
+        const closed = Boolean(operational.closed);
+        const state = closed ? __('Closed') : __('Open');
+        const owners = !closed ? ownerLabel({owner_names: operational.owner_names || []}) : '';
+        return `<div class="sig-cycles-operational-status ${closed ? 'closed' : 'open'}"><span>${__('As-Built Operational')}</span><small>${state}${owners ? ` · ${esc(owners)}` : ''}</small></div>`;
     }
 
     function renderTable() {
@@ -148,13 +161,17 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
             : state.eventStatus === 'error' ? `<p class="sig-cycles-muted">${__('Evidence history is unavailable for this cycle.')}</p>`
                 : evidence || `<p class="sig-cycles-muted">${__('No evidence events recorded.')}</p>`;
         const items = (cycle.work || []).map((item) => {
+            if (item.key === 'asbuilt_operational') return '';
             const owners = ownerLabel(item);
             return `<div class="sig-cycles-detail-item"><strong>${esc(item.label || __('Open item'))}</strong><small>${esc(item.stage || cycle.stage)}${owners ? ` · ${esc(owners)}` : ''}</small></div>`;
         }).join('');
+        const hasOperationalTask = (cycle.work || []).some((item) => item.key === 'asbuilt_operational');
+        const operationalStatus = operationalStatusHtml(cycle);
         root.find('.sig-cycles-detail').html(`<div class="sig-cycles-detail-head"><div><h2>${esc(cycle.site)}</h2><p>${esc(cycle.ba || cycle.project_id || '—')} · ${esc(cycleAlias(cycle))}</p></div>
             <button type="button" class="btn btn-default btn-xs sig-cycles-open-form">${__('Open cycle')}</button></div>
             <div class="sig-cycles-detail-body"><div class="sig-cycles-detail-stage">${esc(cycle.stage)}${cycle.wo ? ` · ${__('WO')} ${esc(cycle.wo)}` : ''}</div>
-                <h3>${__('Open stage items')}</h3>${items || `<p class="sig-cycles-muted">${__('No open stage item projected.')}</p>`}
+                ${operationalStatus ? `<h3>${__('As-Built Operational')}</h3>${operationalStatus}` : ''}
+                <h3>${__('Open stage items')}</h3>${items || (hasOperationalTask ? '' : `<p class="sig-cycles-muted">${__('No open stage item projected.')}</p>`)}
                 <h3>${__('Evidence history')}</h3>${evidenceContent}</div>`);
         root.find('.sig-cycles-open-form').on('click', () => frappe.set_route('Form', 'SIG Site Cycle', cycle.name));
     }

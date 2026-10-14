@@ -40,13 +40,16 @@ This is distinct from the PM-owned As-Built BOQ file closed by
 
 ## Access boundary
 
-The current live field `custom_return_closed` is at Stock Entry permlevel 1.
-The Workbench and the As-Built read model require both Stock Entry read access
-and read access at that field's permlevel before returning its value. The
-current Warehouse Manager path has the necessary existing read access. PM and
-Coordinator Stock Viewer access does not include the level-1 field, so their
-Workbench shows that Warehouse status is restricted instead of inferring
-closure. The Site Cycles Page declares the same four audience roles as the
+The cycle pages show the explicit As-Built Operational Open/Closed status to
+anyone who can already see that cycle. The server reads only the status flag for
+submitted outbound DN lines matching site keys from that user's permission-
+visible, routed cycles; it does not grant Stock Entry read access or expose the
+Stock Entry contents. DN source names are included in Excel only when a
+permission-filtered Stock Entry list returns those records and the user already
+has read access at the flag field's permlevel.
+If the narrow status read fails, the pages say the status is unavailable and
+the workbook marks the incomplete coverage instead of treating it as open or
+closed. The Site Cycles Page declares the same four audience roles as the
 Operations Workbench; it adds no DocType permission, Role Profile, or user role.
 Live Page-role and linked-record access still require the pre/post-deployment
 permission comparison and persona acceptance checks.
