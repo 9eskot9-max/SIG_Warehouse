@@ -483,6 +483,21 @@
 
     const sig_round = (v) => Math.round((Number(v) || 0) * 1e6) / 1e6;
 
+    function sig_return_deadline(postingDate) {
+        const parts = String(postingDate || '').slice(0, 10).split('-').map(Number);
+        if (parts.length !== 3 || parts.some((part) => !Number.isFinite(part) || part <= 0)) return '';
+        const date = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2] + 10));
+        return date.toISOString().slice(0, 10);
+    }
+
+    function sig_riyadh_today() {
+        const parts = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit',
+        }).formatToParts(new Date());
+        const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+        return `${value.year}-${value.month}-${value.day}`;
+    }
+
     function sig_open_return_dialog(opts) {
         const { sourceSe, mrName, onDone } = opts || {};
         if (!sourceSe) return;
@@ -507,6 +522,10 @@
     }
 
     function sig_render_return_dialog(se, openLines, mrName, onDone) {
+        const deadline = sig_return_deadline(se.posting_date);
+        const lateReturn = !!deadline && sig_riyadh_today() > deadline;
+        const deadlineLabel = deadline ? deadline : __('not available');
+        const returnWindowNote = __('Submit the return or custody declaration by {0} (Riyadh date). Any undeclared balance is automatically closed as consumed from the following day. A closed line must be reopened with a reason before correction.', [deadlineLabel]);
         const leftOf = (it) => sig_round(it.qty - (it.custom_qty_returned || 0) - (it.custom_qty_custody || 0));
         const rowsHtml = openLines.map((it, i) => {
             const left = leftOf(it);
@@ -552,11 +571,15 @@
             title,
             size: 'large',
             fields: [
+                { fieldtype: 'HTML', fieldname: 'return_window_note',
+                  options: `<div class="alert alert-info">${frappe.utils.escape_html(returnWindowNote)}</div>` },
+                { fieldtype: 'Section Break' },
                 { fieldtype: 'Select', fieldname: 'to_wh', label: __('To Warehouse'),
                   options: [...new Set([defaultWh, ...SIG_SOURCE_WAREHOUSES])].join('\n'), default: defaultWh, reqd: 1 },
                 { fieldtype: 'Date', fieldname: 'posting_date', label: __('Posting Date'), default: frappe.datetime.get_today() },
                 { fieldtype: 'Column Break' },
-                { fieldtype: 'Small Text', fieldname: 'remarks', label: __('Remarks') },
+                { fieldtype: 'Small Text', fieldname: 'remarks',
+                  label: lateReturn ? __('Remarks / reason for late return') : __('Remarks'), reqd: lateReturn },
                 { fieldtype: 'Check', fieldname: 'close_as_consumed',
                   label: __('No material returned — close all undeclared lines as consumed'), default: 0,
                   change() {

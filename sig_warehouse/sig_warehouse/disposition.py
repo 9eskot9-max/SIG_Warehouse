@@ -17,6 +17,7 @@ Position rather than the original DN line) are designed in 9A.9 but not
 built in this pass - deliberately scoped to what was actually asked for.
 """
 import hashlib
+import math
 
 import frappe
 
@@ -29,7 +30,18 @@ COMPANY = "Salah Ibrahim Algain Contracting Company Ltd"
 EPS = 1e-6
 
 
-def _signature(source_se, action, lines):
+def _signature(source_se, action, lines, to_wh=None, custodian=None, reason=None, posting_date=None):
+    parts = [
+        source_se, action, str(to_wh or ""), str(custodian or ""),
+        str(reason or "").strip(), str(posting_date or ""),
+    ]
+    for line in sorted(lines, key=lambda x: x["sed"]):
+        parts.append(f"{line['sed']}:{line.get('qty', '')}")
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
+
+
+def _legacy_signature(source_se, action, lines):
+    """Signature used before destination and disposition metadata were included."""
     parts = [source_se, action]
     for line in sorted(lines, key=lambda x: x["sed"]):
         parts.append(f"{line['sed']}:{line.get('qty', '')}")
@@ -57,10 +69,14 @@ def _authorize(source_doc, warehouse=None):
 
 def _parse_lines(line_count, form):
     lines = []
+    seen = set()
     for i in range(1, int(line_count or 0) + 1):
         sed = form.get(f"sed_{i}")
         if not sed:
             continue
+        if sed in seen:
+            frappe.throw(f"Duplicate source Stock Entry Detail on line {i}: {sed}", frappe.ValidationError)
+        seen.add(sed)
         qty_raw = form.get(f"qty_{i}")
         qty = None
         if qty_raw not in (None, ""):
@@ -68,8 +84,37 @@ def _parse_lines(line_count, form):
                 qty = float(qty_raw)
             except (TypeError, ValueError):
                 frappe.throw(f"Invalid qty on line {i}: {qty_raw}", frappe.ValidationError)
+            if not math.isfinite(qty):
+                frappe.throw(f"Invalid qty on line {i}: {qty_raw}", frappe.ValidationError)
         lines.append({"sed": sed, "qty": qty})
     return lines
+
+
+def _lock_source(source_se):
+    """Serialize a human disposition against another operator or the expiry job."""
+    rows = frappe.db.sql(
+        "select name from `tabStock Entry` where name = %s for update",
+        (source_se,),
+    )
+    if not rows:
+        frappe.throw(f"Stock Entry not found: {source_se}")
+
+
+def _write_disposition_comment(source_se, action, lines, reason=None, destination=None):
+    detail = ", ".join(
+        f"{line['sed']} ({line['qty']})" if line.get("qty") is not None else line["sed"]
+        for line in lines
+    )
+    content = f"SIG Warehouse {action}; lines: {detail}"
+    if destination:
+        content += f"; destination: {destination}"
+    if (reason or "").strip():
+        content += f"; reason: {(reason or '').strip()}"
+    frappe.get_doc({
+        "doctype": "Comment", "comment_type": "Comment",
+        "reference_doctype": "Stock Entry", "reference_name": source_se,
+        "content": content,
+    }).insert(ignore_permissions=True)
 
 
 def stamp_return_links(return_se, source_se=None, apply=True):
@@ -162,19 +207,34 @@ def sig_declare_disposition(operation_id, action, source_se, line_count=0, to_wh
     if not lines:
         return {"result": "exception", "reason": "no lines"}
 
+    _lock_source(source_se)
     source_doc = frappe.get_doc("Stock Entry", source_se)
     warehouse_for_auth = to_wh if action == "RETURN" else None
     _authorize(source_doc, warehouse_for_auth)
+    late_return = False
+    if action == "RETURN":
+        from frappe.utils.data import get_datetime_in_timezone
 
-    sig = _signature(source_se, action, lines)
+        return_deadline = frappe.utils.add_days(frappe.utils.getdate(source_doc.posting_date), 10)
+        policy_today = get_datetime_in_timezone("Asia/Riyadh").date()
+        late_return = policy_today > return_deadline
+
+    sig = _signature(source_se, action, lines, to_wh, custodian, reason, posting_date)
+    legacy_sig = _legacy_signature(source_se, action, lines)
     existing = frappe.db.get_value(
         "SIG Dispatch Operation", {"operation_id": operation_id},
         ["name", "signature", "stock_entry"], as_dict=True,
     )
     if existing:
-        if existing.signature != sig:
+        if existing.signature not in (sig, legacy_sig):
             return {"result": "conflict", "operation_id": operation_id}
         return {"result": "duplicate", "operation_id": operation_id, "stock_entry": existing.stock_entry}
+
+    if late_return and not (reason or "").strip():
+        return {
+            "result": "exception", "reason": "LATE_RETURN_REASON_REQUIRED",
+            "deadline": str(return_deadline),
+        }
 
     details = _load_source_details(source_se, [line["sed"] for line in lines])
     for line in lines:
@@ -210,22 +270,23 @@ def sig_declare_disposition(operation_id, action, source_se, line_count=0, to_wh
             item = {
                 "item_code": row.item_code, "qty": line["qty"], "uom": row.uom,
                 "custom_original_stock_entry": source_se, "custom_original_se_detail": row.name,
+                "against_stock_entry": source_se, "ste_detail": row.name,
             }
             if row.custom_row_key:
                 item["custom_row_key"] = row.custom_row_key
             if new_purpose == "Material Receipt":
-                item["t_warehouse"] = row.s_warehouse
+                item["t_warehouse"] = to_wh
                 # a return reverses the issue, so it credits the account the issue debited
                 item["expense_account"] = MATERIALS_EXPENSE_ACCOUNT
             else:
                 item["s_warehouse"] = row.t_warehouse
-                item["t_warehouse"] = row.s_warehouse
+                item["t_warehouse"] = to_wh
             items.append(item)
 
         return_se = frappe.get_doc({
             "doctype": "Stock Entry", "stock_entry_type": new_purpose, "purpose": new_purpose,
             "company": COMPANY, "is_return": 1, "custom_return_against_se": source_se,
-            "posting_date": posting_date or frappe.utils.nowdate(),
+            "posting_date": posting_date or policy_today,
             "set_posting_time": 1 if posting_date else 0,
             "remarks": (reason or "SIG Warehouse return") + f" | operation {operation_id}",
             "items": items,
@@ -233,13 +294,7 @@ def sig_declare_disposition(operation_id, action, source_se, line_count=0, to_wh
         return_se.insert(ignore_permissions=False)
         return_se.submit()
         stamp_return_links(return_se.name, source_se=source_se)
-        frappe.db.commit()
         stock_entry_name = return_se.name
-
-        for line in lines:
-            row = details[line["sed"]]
-            new_returned = float(row.custom_qty_returned or 0) + line["qty"]
-            frappe.db.set_value("Stock Entry Detail", line["sed"], "custom_qty_returned", new_returned, update_modified=False)
 
     elif action == "CUSTODY":
         if not custodian:
@@ -272,12 +327,9 @@ def sig_declare_disposition(operation_id, action, source_se, line_count=0, to_wh
                 }).insert(ignore_permissions=True)
             new_custody = float(row.custom_qty_custody or 0) + line["qty"]
             frappe.db.set_value("Stock Entry Detail", line["sed"], "custom_qty_custody", new_custody, update_modified=False)
-        frappe.db.commit()
-
     elif action == "CLOSE":
         for line in lines:
             frappe.db.set_value("Stock Entry Detail", line["sed"], "custom_return_closed", 1, update_modified=False)
-        frappe.db.commit()
 
     elif action == "REOPEN":
         if not (reason or "").strip():
@@ -287,7 +339,6 @@ def sig_declare_disposition(operation_id, action, source_se, line_count=0, to_wh
         # a rare later physical return can be entered from the original DN.
         for line in lines:
             frappe.db.set_value("Stock Entry Detail", line["sed"], "custom_return_closed", 0, update_modified=False)
-        frappe.db.commit()
 
     return_state = rollup.recompute_return_state(source_se)  # also clears source_se's document cache
     mr_lifecycle = {
@@ -300,6 +351,11 @@ def sig_declare_disposition(operation_id, action, source_se, line_count=0, to_wh
         # rollup.recompute_mr_dispatch_state for why this matters at all).
         frappe.clear_document_cache("Stock Entry", stock_entry_name)
 
+    _write_disposition_comment(
+        source_se, "LATE_RETURN" if late_return else action,
+        lines, reason=reason, destination=to_wh,
+    )
+
     frappe.get_doc({
         "doctype": "SIG Dispatch Operation", "operation_id": operation_id, "op_type": "DISPOSITION",
         "action": action, "source_se": source_se, "stock_entry": stock_entry_name,
@@ -311,7 +367,7 @@ def sig_declare_disposition(operation_id, action, source_se, line_count=0, to_wh
     return {
         "result": "created", "operation_id": operation_id, "action": action,
         "stock_entry": stock_entry_name, "lines": len(lines), "return_state": return_state,
-        "mr_lifecycle": mr_lifecycle,
+        "mr_lifecycle": mr_lifecycle, "late_correction": late_return,
     }
 
 

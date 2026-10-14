@@ -86,3 +86,69 @@ def test_return_closed_field_read_uses_its_permlevel_not_only_doctype_read(monke
     assert stage5_as_built._return_closed_is_readable() is False
     monkeypatch.setattr(frappe, "get_roles", lambda _user: ["Stock Manager"], raising=False)
     assert stage5_as_built._return_closed_is_readable() is True
+
+
+def test_erp_abdraft_export_contains_po_provenance_and_marks_pending_groups(monkeypatch):
+    frappe = stage5_as_built.frappe
+    monkeypatch.setattr(frappe, "has_permission", lambda *_args, **_kwargs: True, raising=False)
+    monkeypatch.setattr(
+        frappe,
+        "get_meta",
+        lambda _doctype: SimpleNamespace(
+            get_field=lambda _field: SimpleNamespace(permlevel=0), permissions=[]
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(frappe, "get_roles", lambda _user: ["Stock Manager"], raising=False)
+    monkeypatch.setattr(frappe, "session", SimpleNamespace(user="warehouse@example.com"), raising=False)
+
+    source = SimpleNamespace(
+        name="DN-1", posting_date="2026-10-01", purpose="Material Issue"
+    )
+    line = SimpleNamespace(
+        name="DN-1-ROW-1", parent="DN-1", item_code="ITEM-1", qty=10, uom="Nos",
+        custom_site="SITE-1", project="PROJ-1", material_request="MR-1",
+        custom_row_key="ROW-1", custom_qty_returned=2, custom_qty_custody=1,
+        custom_return_disposition="PARTIAL", custom_return_closed=0,
+    )
+    monkeypatch.setattr(stage5_as_built, "_submitted_sources", lambda: [source])
+    monkeypatch.setattr(stage5_as_built, "_line_rows", lambda *_args, **_kwargs: [line])
+    monkeypatch.setattr(
+        frappe,
+        "get_list",
+        lambda _doctype, **_kwargs: [SimpleNamespace(name="MR-1", custom_po_number="PO-7")],
+        raising=False,
+    )
+
+    result = stage5_as_built.sig_get_as_built_for_abdraft()
+
+    assert result["contract"] == "sigpc_abdraft_v1"
+    assert result["complete"] is True
+    assert result["pending_groups"] == [{"site": "SITE-1", "po_number": "PO-7"}]
+    assert result["rows"][0]["source_dn"] == "DN-1"
+    assert result["rows"][0]["po_number"] == "PO-7"
+    assert result["rows"][0]["as_built_qty"] == 7
+    assert result["rows"][0]["return_pending"] is True
+
+
+def test_erp_abdraft_export_with_no_lines_is_incomplete_and_safe_to_preserve(monkeypatch):
+    frappe = stage5_as_built.frappe
+    monkeypatch.setattr(frappe, "has_permission", lambda *_args, **_kwargs: True, raising=False)
+    monkeypatch.setattr(
+        frappe,
+        "get_meta",
+        lambda _doctype: SimpleNamespace(
+            get_field=lambda _field: SimpleNamespace(permlevel=0), permissions=[]
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(frappe, "get_roles", lambda _user: ["Stock Manager"], raising=False)
+    monkeypatch.setattr(frappe, "session", SimpleNamespace(user="warehouse@example.com"), raising=False)
+    monkeypatch.setattr(stage5_as_built, "_submitted_sources", lambda: [])
+    monkeypatch.setattr(stage5_as_built, "_line_rows", lambda *_args, **_kwargs: [])
+
+    result = stage5_as_built.sig_get_as_built_for_abdraft()
+
+    assert result["complete"] is False
+    assert result["rows"] == []
+    assert result["integrity_errors"]

@@ -229,18 +229,180 @@ def _linked_mr_names(stock_entry_doc):
     return names
 
 
+def _return_source_names(stock_entry_doc):
+    """Return original DNs that this ERP return can identify without guessing."""
+    if not getattr(stock_entry_doc, "is_return", 0):
+        return set()
+    names = set()
+    header_source = (
+        getattr(stock_entry_doc, "custom_return_against_se", None)
+        or getattr(stock_entry_doc, "return_against", None)
+    )
+    if header_source:
+        names.add(header_source)
+    for row in getattr(stock_entry_doc, "items", []) or []:
+        for fieldname in ("custom_original_stock_entry", "against_stock_entry"):
+            source = getattr(row, fieldname, None)
+            if source:
+                names.add(source)
+        for fieldname in ("custom_original_se_detail", "ste_detail"):
+            detail = getattr(row, fieldname, None)
+            if detail:
+                parent = frappe.db.get_value("Stock Entry Detail", detail, "parent")
+                if parent:
+                    names.add(parent)
+    return names
+
+
+def _apply_return_event(source_se, stock_entry_doc, direction):
+    """Apply one submitted/cancelled return event to one original DN.
+
+    Exact source detail links are preferred. Legacy header-linked rows may be
+    distributed only across duplicate item/UOM lines that share the same
+    site/project/MIR identity. Ambiguous rows leave counters untouched.
+    """
+    source_rows = frappe.get_all(
+        "Stock Entry Detail",
+        filters={"parent": source_se, "parenttype": "Stock Entry"},
+        fields=["name", "item_code", "qty", "uom", "custom_site", "project",
+                "material_request", "custom_row_key", "custom_qty_custody", "custom_qty_returned",
+                "custom_return_closed"],
+        order_by="idx asc, name asc",
+    )
+    if not source_rows:
+        return {"updated": False, "reason": "SOURCE_LINES_MISSING"}
+    source_by_name = {str(row.name): row for row in source_rows}
+    changes = {name: 0.0 for name in source_by_name}
+    fallback_by_key = {}
+    header_source = (
+        getattr(stock_entry_doc, "custom_return_against_se", None)
+        or getattr(stock_entry_doc, "return_against", None)
+    )
+    if header_source and header_source != source_se:
+        return {"updated": False, "reason": "RETURN_HEADER_SOURCE_MISMATCH"}
+    matched = False
+    for row in getattr(stock_entry_doc, "items", []) or []:
+        linked_source = row.get("custom_original_stock_entry") or row.get("against_stock_entry")
+        linked_detail = row.get("custom_original_se_detail") or row.get("ste_detail")
+        if linked_detail:
+            detail = source_by_name.get(str(linked_detail))
+            if not detail:
+                return {"updated": False, "reason": "RETURN_DETAIL_NOT_ON_SOURCE", "line": row.name}
+            if linked_source and linked_source != source_se:
+                return {"updated": False, "reason": "RETURN_SOURCE_MISMATCH", "line": row.name}
+            if direction > 0 and getattr(detail, "custom_return_closed", 0):
+                return {"updated": False, "reason": "RETURN_SOURCE_LINE_CLOSED", "line": row.name}
+            changes[str(detail.name)] += direction * float(row.qty or 0)
+            matched = True
+            continue
+        if linked_source and linked_source != source_se:
+            continue
+        if header_source and header_source != source_se and linked_source != source_se:
+            continue
+        if header_source != source_se and linked_source != source_se:
+            continue
+        key = (str(row.item_code or ""), str(row.uom or "").strip().casefold())
+        fallback_by_key[key] = fallback_by_key.get(key, 0.0) + float(row.qty or 0)
+        matched = True
+
+    if not matched:
+        return {"updated": False, "reason": "RETURN_SOURCE_LINK_MISSING"}
+
+    for (item_code, uom), qty in fallback_by_key.items():
+        candidates = [
+            row for row in source_rows
+            if str(row.item_code or "") == item_code and str(row.uom or "").strip().casefold() == uom
+        ]
+        if not candidates:
+            return {"updated": False, "reason": "RETURN_LINE_UNMATCHED", "item_code": item_code, "uom": uom}
+        if direction > 0 and any(getattr(row, "custom_return_closed", 0) for row in candidates):
+            return {
+                "updated": False, "reason": "RETURN_LINE_CLOSED_LINK_REQUIRED",
+                "item_code": item_code, "uom": uom,
+            }
+        # Mapping can split one ERP item into separate CUCs. Do not allocate
+        # an unlinked historical return across such source lines by accident.
+        identities = {
+            (row.custom_site, row.project, row.material_request, row.custom_row_key)
+            for row in candidates
+        }
+        if len(identities) != 1:
+            return {"updated": False, "reason": "RETURN_LINE_AMBIGUOUS", "item_code": item_code, "uom": uom}
+        remaining = qty
+        ordered = candidates if direction > 0 else list(reversed(candidates))
+        for row in ordered:
+            name = str(row.name)
+            current = float(row.custom_qty_returned or 0) + changes[name]
+            if direction > 0:
+                capacity = max(0.0, float(row.qty or 0) - float(row.custom_qty_custody or 0) - current)
+            else:
+                capacity = max(0.0, current)
+            allocated = min(capacity, remaining)
+            changes[name] += direction * allocated
+            remaining -= allocated
+        if remaining > 1e-6:
+            return {"updated": False, "reason": "RETURN_QTY_DOES_NOT_MATCH_SOURCE", "item_code": item_code, "uom": uom}
+
+    for row in source_rows:
+        name = str(row.name)
+        returned = float(row.custom_qty_returned or 0) + changes[name]
+        if returned < -1e-6 or returned + float(row.custom_qty_custody or 0) > float(row.qty or 0) + 1e-6:
+            return {"updated": False, "reason": "RETURN_ALLOCATION_INVALID", "line": name}
+
+    changed = 0
+    for name, delta in changes.items():
+        if abs(delta) <= 1e-6:
+            continue
+        current = float(source_by_name[name].custom_qty_returned or 0)
+        frappe.db.set_value("Stock Entry Detail", name, "custom_qty_returned", current + delta, update_modified=False)
+        frappe.clear_document_cache("Stock Entry Detail", name)
+        changed += 1
+    return {"updated": True, "lines": changed}
+
+
+def _sync_returned_stock_entry(doc, direction):
+    results = {}
+    for source_se in sorted(_return_source_names(doc)):
+        # Serialize native ERP returns with the disposition endpoint and the
+        # daily expiry job, both of which lock this source DN before allocation.
+        locked = frappe.db.sql(
+            "select name from `tabStock Entry` where name = %s for update",
+            (source_se,),
+        )
+        if not locked:
+            result = {"updated": False, "reason": "RETURN_SOURCE_MISSING"}
+            results[source_se] = result
+            frappe.throw(f"Return source {source_se} no longer exists; stock return was not reconciled.")
+        result = _apply_return_event(source_se, doc, direction)
+        results[source_se] = result
+        if result.get("updated"):
+            recompute_return_state(source_se)
+            source_doc = frappe.get_doc("Stock Entry", source_se)
+            for mr_name in _linked_mr_names(source_doc):
+                recompute_mr_lifecycle_state(mr_name)
+        else:
+            frappe.throw(
+                f"Return could not be reconciled to source DN {source_se} ({result.get('reason')}). "
+                "No Stock Entry return was posted or cancelled."
+            )
+    return results
+
+
 def on_stock_entry_submit(doc, method=None):
+    if getattr(doc, "is_return", 0):
+        _sync_returned_stock_entry(doc, direction=1)
     for mr_name in _linked_mr_names(doc):
         recompute_mr_dispatch_state(mr_name)
-    if _linked_mr_names(doc):
-        frappe.db.commit()
+    # Do not commit inside the document hook. Dispatch/return endpoints must
+    # commit the Stock Entry, counters, and operation record as one transaction.
 
 
 def on_stock_entry_cancel(doc, method=None):
+    if getattr(doc, "is_return", 0):
+        _sync_returned_stock_entry(doc, direction=-1)
     for mr_name in _linked_mr_names(doc):
         recompute_mr_dispatch_state(mr_name)
-    if _linked_mr_names(doc):
-        frappe.db.commit()
+    # The caller owns the transaction so cancellation and rollups stay atomic.
 
 
 def on_material_request_submit(doc, method=None):

@@ -9,9 +9,14 @@
             if (frm.__sig_declare_buttons_added) return;
             frm.__sig_declare_buttons_added = true;
 
+            const hasClosedLines = (frm.doc.items || []).some((it) => !!it.custom_return_closed);
             if (frm.doc.custom_return_state === 'DECLARED') {
                 frm.add_custom_button(__('Reopen for correction'), () => sig_open_disposition_dialog(frm, 'REOPEN'), __('Declare'));
                 return;
+            }
+
+            if (hasClosedLines) {
+                frm.add_custom_button(__('Reopen for correction'), () => sig_open_disposition_dialog(frm, 'REOPEN'), __('Declare'));
             }
 
             frm.add_custom_button(__('Declare Return'), () => sig_open_disposition_dialog(frm, 'RETURN'), __('Declare'));

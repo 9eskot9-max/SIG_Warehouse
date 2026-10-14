@@ -296,8 +296,6 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
                 f"({detail}) before {se.name}. Reason: {frappe.utils.escape_html(amendment_reason)}"
             ),
         }).insert(ignore_permissions=True)
-    frappe.db.commit()  # commits the allocated voucher together with its Stock Entry, or not at all
-
     mr_state = rollup.recompute_mr_dispatch_state(mr)  # also clears the MR's document cache
     # the new dispatch SE itself needs its own clear - see rollup.py for why.
     frappe.clear_document_cache("Stock Entry", se.name)

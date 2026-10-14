@@ -45,6 +45,26 @@ def _return_closed_is_readable():
     )
 
 
+def _field_is_readable(doctype, fieldname):
+    """Check the field's permission level against this user's effective roles."""
+    permission_doctype = "Stock Entry" if doctype == "Stock Entry Detail" else doctype
+    if not frappe.has_permission(permission_doctype, "read"):
+        return False
+    field = frappe.get_meta(doctype).get_field(fieldname)
+    if not field:
+        return False
+    permlevel = int(getattr(field, "permlevel", 0) or 0)
+    if not permlevel:
+        return True
+    roles = set(frappe.get_roles(frappe.session.user)) | {"All"}
+    return any(
+        str(getattr(permission, "role", "")) in roles
+        and int(getattr(permission, "permlevel", 0) or 0) == permlevel
+        and getattr(permission, "read", 0) in (1, True, "1", "Yes", "yes")
+        for permission in frappe.get_meta(permission_doctype).permissions
+    )
+
+
 def _submitted_sources(from_date=None, to_date=None):
     if not frappe.has_permission("Stock Entry", "read"):
         frappe.throw("Not permitted to read Stock Entry", frappe.PermissionError)
@@ -78,6 +98,7 @@ def _line_rows(sources, site=None, project=None, include_return_closed=True):
         filters["project"] = project
     fields = [
         "name", "parent", "item_code", "qty", "uom", "custom_site", "project",
+        "material_request",
         "custom_row_key", "custom_qty_returned", "custom_qty_custody",
         "custom_return_disposition",
     ]
@@ -179,3 +200,117 @@ def sig_get_as_built(site=None, project=None, from_date=None, to_date=None):
     result.update({"result": "ok", "source_documents": len(sources), "source_lines": len(rows),
                    "operational_closure_access": "available" if return_closed_visible else "restricted"})
     return result
+
+
+@frappe.whitelist()
+def sig_get_as_built_for_abdraft():
+    """Read-only, line-level ERP source contract for SIGPC's ABDraft rebuild.
+
+    The caller must be able to read Stock Entry, Material Request and the return
+    allocation fields. This method does not bypass the caller's document or
+    field permissions and never writes Mapping AB or ERP stock data.
+    """
+    if not frappe.has_permission("Stock Entry", "read"):
+        frappe.throw("Not permitted to read Stock Entry for As-Built import", frappe.PermissionError)
+    if not frappe.has_permission("Material Request", "read"):
+        frappe.throw("Not permitted to read Material Request for As-Built import", frappe.PermissionError)
+    for fieldname in ("custom_qty_returned", "custom_qty_custody", "custom_return_closed", "custom_return_disposition"):
+        if not _field_is_readable("Stock Entry Detail", fieldname):
+            frappe.throw(f"Not permitted to read Stock Entry Detail.{fieldname}", frappe.PermissionError)
+    if not _field_is_readable("Material Request", "custom_po_number"):
+        frappe.throw("Not permitted to read Material Request.custom_po_number", frappe.PermissionError)
+
+    sources = _submitted_sources()
+    lines = _line_rows(sources, include_return_closed=True)
+    if not lines:
+        return {
+            "result": "ok", "contract": "sigpc_abdraft_v1", "complete": False,
+            "source_documents": len(sources), "source_lines": 0,
+            "integrity_errors": ["ERP returned no submitted outbound DN lines; existing ABDraft must be preserved."],
+            "pending_groups": [], "rows": [],
+        }
+
+    mr_names = sorted({str(row.material_request) for row in lines if row.material_request})
+    mr_by_name = {}
+    if mr_names:
+        start = 0
+        while True:
+            batch = frappe.get_list(
+                "Material Request",
+                filters={"name": ["in", mr_names]},
+                fields=["name", "custom_po_number"],
+                order_by="name asc", start=start, page_length=500,
+            )
+            mr_by_name.update({str(row.name): row for row in batch})
+            if len(batch) < 500:
+                break
+            start += len(batch)
+
+    source_by_name = {str(row.name): row for row in sources}
+    derived = build_as_built_rows(sources, lines)
+    output_rows = []
+    pending_groups = {}
+    integrity_errors = []
+    for line, calculated in zip(lines, derived):
+        mr_name = str(line.material_request or "")
+        mr = mr_by_name.get(mr_name)
+        po_number = str(getattr(mr, "custom_po_number", "") or "").strip() if mr else ""
+        site = str(line.custom_site or "").strip()
+        disposition = str(line.custom_return_disposition or "").strip().upper()
+        returned = float(line.custom_qty_returned or 0)
+        custody = float(line.custom_qty_custody or 0)
+        issued = float(line.qty or 0)
+        operational_closed = bool(line.custom_return_closed)
+        resolved = (
+            operational_closed
+            or returned + custody + EPS >= issued
+            or disposition in ("RETURNED", "IN_HAND", "CONSUMED_CLOSED")
+        )
+        return_pending = not resolved
+
+        if not mr_name or not mr:
+            integrity_errors.append(f"{line.parent}/{line.name}: linked Material Request is missing or unreadable")
+        if not po_number:
+            integrity_errors.append(f"{line.parent}/{line.name}: Material Request has no PO/BA")
+        if not site:
+            integrity_errors.append(f"{line.parent}/{line.name}: site is missing")
+        if calculated["exceptions"]:
+            integrity_errors.append(
+                f"{line.parent}/{line.name}: " + ", ".join(calculated["exceptions"])
+            )
+        if return_pending and site and po_number:
+            pending_groups[(site, po_number)] = True
+
+        output_rows.append({
+            "source_dn": str(line.parent),
+            "source_dn_line": str(line.name),
+            "posting_date": str(source_by_name[str(line.parent)].posting_date),
+            "material_request": mr_name,
+            "site": site,
+            "po_number": po_number,
+            "item_code": str(line.item_code or ""),
+            "uom": str(line.uom or ""),
+            "row_key": str(line.custom_row_key or ""),
+            "issued_qty": issued,
+            "returned_qty": returned,
+            "custody_qty": custody,
+            "as_built_qty": calculated["as_built_qty"],
+            "operational_closed": operational_closed,
+            "disposition": disposition,
+            "return_pending": return_pending,
+            "exceptions": calculated["exceptions"],
+        })
+
+    return {
+        "result": "ok",
+        "contract": "sigpc_abdraft_v1",
+        "complete": not integrity_errors,
+        "source_documents": len(sources),
+        "source_lines": len(lines),
+        "integrity_errors": integrity_errors,
+        "pending_groups": [
+            {"site": site, "po_number": po_number}
+            for site, po_number in sorted(pending_groups)
+        ],
+        "rows": output_rows,
+    }

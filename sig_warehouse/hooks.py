@@ -5,6 +5,9 @@ app_description = "ERP-native warehouse workbench: dispatch, returns and custody
 app_email = "it@sigtele.com"
 app_license = "mit"
 
+# Capture the effective date at the migration that first deploys the 10-day policy.
+after_migrate = "sig_warehouse.sig_warehouse.return_closure.initialize_return_policy_start"
+
 # 2026-09-22: doctype_js used to ALSO register stock_entry.js here, while
 # app_include_js (below) already loads the exact same file on every desk
 # page. Frappe evaluates both hooks independently - a Stock Entry form was
@@ -63,6 +66,9 @@ app_include_js = [
 # Field visit feed (gate F1: shadow; see docs/field_visit_feed_design.md). Runs every 15 minutes; mode is
 # SIG Field Ops Settings.feed_mode (Off / Shadow / Live) and defaults to Shadow.
 scheduler_events = {
+    "daily": [
+        "sig_warehouse.sig_warehouse.return_closure.close_expired_return_windows",
+    ],
     "cron": {
         "*/15 * * * *": ["sig_warehouse.sig_warehouse.field_feed.run_feed"],
     },
