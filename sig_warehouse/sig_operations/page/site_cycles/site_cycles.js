@@ -186,11 +186,11 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
     function load() {
         const loadId = ++state.loadId;
         let settled = false;
-        root.html(`<div class="sig-cycles-loading">${__('Loading site cycles…')}</div>`);
+        root.find('.sig-cycles-table-wrap').html(`<div class="sig-cycles-loading">${__('Loading site cycles…')}</div>`);
         const timeout = window.setTimeout(() => {
             if (settled || state.loadId !== loadId) return;
             settled = true;
-            root.html(`<div class="sig-cycles-error">${__('Site Cycles is taking too long to load.')} <button type="button" class="btn btn-default btn-xs sig-cycles-retry">${__('Retry')}</button></div>`);
+            root.find('.sig-cycles-table-wrap').html(`<div class="sig-cycles-error">${__('Site Cycles is taking too long to load.')} <button type="button" class="btn btn-default btn-xs sig-cycles-retry">${__('Retry')}</button></div>`);
             root.find('.sig-cycles-retry').on('click', load);
         }, 45000);
         frappe.call({method: 'sig_warehouse.sig_warehouse.operations_workbench.get_overview'})
@@ -225,7 +225,7 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
                 if (state.loadId !== loadId) return;
                 settled = true;
                 window.clearTimeout(timeout);
-                root.html(`<div class="sig-cycles-error">${__('Site Cycles could not be loaded. Check your ERP access and refresh.')} <button type="button" class="btn btn-default btn-xs sig-cycles-retry">${__('Retry')}</button></div>`);
+                root.find('.sig-cycles-table-wrap').html(`<div class="sig-cycles-error">${__('Site Cycles could not be loaded. Check your ERP access and refresh.')} <button type="button" class="btn btn-default btn-xs sig-cycles-retry">${__('Retry')}</button></div>`);
                 root.find('.sig-cycles-retry').on('click', load);
             });
     }
