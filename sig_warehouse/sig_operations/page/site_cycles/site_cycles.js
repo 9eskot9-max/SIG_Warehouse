@@ -184,7 +184,7 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
 
     function load() {
         root.html(`<div class="sig-cycles-loading">${__('Loading site cycles…')}</div>`);
-        frappe.call({method: 'sig_warehouse.sig_warehouse.operations_workbench.get_cycle_dashboard'})
+        frappe.call({method: 'sig_warehouse.sig_warehouse.operations_workbench.get_cycle_dashboard', type: 'GET'})
             .then((response) => {
                 state.data = response.message || {cycles: [], summary: {}};
                 if (state.selected && !(state.data.cycles || []).some((cycle) => cycle.name === state.selected)) state.selected = '';
