@@ -39,6 +39,16 @@ WAREHOUSE_USERS = {
     "tahir.shahzad@sigtele.com",
 }
 
+# Short owner labels confirmed for the Operations dashboard. Stage work remains
+# shared by its project-family role; these names explain who that role covers
+# and do not assign an individual or change access.
+OPS_OWNER_NAMES = {
+    "Capex": {"pm": ("Sohil",), "co": ("Gulzar",)},
+    "Incident": {"pm": ("Sohil", "Raheem"), "co": ("Arshad",)},
+    "Colocation": {"pm": ("Imran",), "co": ("Waleed", "Obed")},
+}
+WAREHOUSE_OWNER_NAMES = ("Ramzan", "Tahir")
+
 TASK_STAGE = {
     "mapping": "1 - Initial", "boq": "1 - Initial",
     "tcn": "2 - Plan", "mir": "2 - Plan", "visit": "2 - Plan",
@@ -85,6 +95,16 @@ def _task_audience(family, owner_role, memberships):
     if owner_role == "either":
         return any(m["scope"] == family and m["role"] in ("pm", "co") for m in memberships)
     return any(m["scope"] == family and m["role"] == owner_role for m in memberships)
+
+
+def _owner_names(family, owner_role):
+    """Return short display names for the confirmed shared task audience."""
+    if owner_role == "warehouse":
+        return list(WAREHOUSE_OWNER_NAMES)
+    family_owners = OPS_OWNER_NAMES.get(family, {})
+    if owner_role == "either":
+        return list(dict.fromkeys(family_owners.get("pm", ()) + family_owners.get("co", ())))
+    return list(family_owners.get(owner_role, ()))
 
 
 def _asbuilt_operational_status(cycle, lines):
@@ -172,7 +192,8 @@ def _stage_tasks_for_user(cycles, memberships):
                 "family": cycle["family"], "cycle_stage": cycle["stage"],
                 "stage": str(work.get("stage") or TASK_STAGE.get(str(work.get("key") or ""), cycle["stage"])),
                 "key": str(work.get("key") or ""), "label": str(work.get("label") or "Work"),
-                "owner_role": role, "shared": True,
+                "owner_role": role, "owner_names": _owner_names(cycle.get("family"), role),
+                "shared": True,
                 "status": "Review due" if cycle.get("needs_review") else "Pending evidence",
                 "needs_review": bool(cycle.get("needs_review")),
                 "review_reason": str(cycle.get("delay_reason") or cycle.get("delay_note") or ""),
@@ -180,6 +201,41 @@ def _stage_tasks_for_user(cycles, memberships):
             })
 
     return tasks
+
+
+def _cycles_for_user(cycles, memberships, can_see_all=False):
+    """Return open cycles for the user's confirmed project scope.
+
+    PMs and coordinators share the cycle pool for their project family. Their
+    cycle dashboard shows every open item in that family so the handoff is
+    visible to the team. Warehouse users see only cycles with a warehouse
+    action routed to them. System Managers can inspect the full visible pool.
+    """
+    visible = []
+    if can_see_all:
+        memberships = []
+    scope_roles = {(str(item.get("scope") or ""), str(item.get("role") or ""))
+                   for item in memberships}
+    team_scopes = {scope for scope, role in scope_roles if role in ("pm", "co")}
+    all_scopes = team_scopes | {scope for scope, role in scope_roles if role == "warehouse"}
+    warehouse_only = bool(all_scopes) and not team_scopes
+
+    for cycle in cycles:
+        if cycle.get("terminal"):
+            continue
+        family = str(cycle.get("family") or "")
+        if not can_see_all and family not in all_scopes:
+            continue
+        row = dict(cycle)
+        work = list(cycle.get("work") or [])
+        if warehouse_only:
+            work = [item for item in work
+                    if _task_audience(family, item.get("owner_role") or "either", memberships)]
+            if not work:
+                continue
+        row["work"] = work
+        visible.append(row)
+    return visible
 
 
 class _PlainText(HTMLParser):
@@ -292,6 +348,7 @@ def _cycle_view(row, project, today, operational=None):
                      "stage": "4 - Invoicing" if row.get("ho_at") or row.get("invoice_at") else "3 - Handover",
                      "closes_on": "ASBUILT_BOQ_GENERATED"})
     for item in work:
+        item["owner_names"] = _owner_names(family, item.get("owner_role") or "either")
         item["shared"] = True
     delay = _flag(row, "is_delayed") or _flag(row, "is_aged") or bool(row.get("stage_due_on") and str(row.stage_due_on)[:10] < today)
     return {
@@ -385,9 +442,24 @@ def get_overview():
             counts["past_due"] += int(cycle["past_due"])
             counts["exceptions"] += int(cycle["needs_review"])
         counts["stages"][cycle["stage"]] = counts["stages"].get(cycle["stage"], 0) + 1
-    result["cycles"].sort(key=lambda r: (r["terminal"], not r["needs_review"], r["stage_due_on"] or "9999-12-31", r["site"].lower()))
     result["task_route"] = _current_ops_membership(user)
     route_memberships = result["task_route"].get("memberships") or []
+    can_see_all_cycles = user != "Guest" and "System Manager" in set(frappe.get_roles(user))
+    result["cycles"] = _cycles_for_user(result["cycles"], route_memberships, can_see_all_cycles)
+    result["cycles"].sort(key=lambda r: (not r["needs_review"], r["stage_due_on"] or "9999-12-31", r["site"].lower()))
+
+    # The client receives only the open, in-scope cycle pool. Recompute these
+    # totals after routing so the Workbench and the cycles subpage agree.
+    counts.update({"cycles": 0, "delayed": 0, "aged": 0, "past_due": 0,
+                   "exceptions": 0, "closed": 0, "stages": {}})
+    for cycle in result["cycles"]:
+        counts["cycles"] += 1
+        counts["delayed"] += int(cycle["is_delayed"])
+        counts["aged"] += int(cycle["is_aged"])
+        counts["past_due"] += int(cycle["past_due"])
+        counts["exceptions"] += int(cycle["needs_review"])
+        counts["stages"][cycle["stage"]] = counts["stages"].get(cycle["stage"], 0) + 1
+
     result["can_close_cycles"] = _can_close_cycles(user, route_memberships)
     if result["task_route"]["ready"]:
         result["stage_tasks"] = _stage_tasks_for_user(result["cycles"], result["task_route"]["memberships"])
@@ -396,6 +468,31 @@ def get_overview():
                                                 if task["kind"] == "stage" and task["needs_review"])
     result["todos_has_more"] = len(todos) > len(result["todos"]) if result["todo_access"] else False
     return result
+
+
+@frappe.whitelist()
+def get_cycle_dashboard():
+    """Return one permission-respecting row per open cycle for Site Cycles."""
+    if not frappe.has_permission("SIG Site Cycle", "read"):
+        frappe.throw("You need SIG Site Cycle read permission to view site cycles.",
+                     frappe.PermissionError)
+    data = get_overview()
+    cycles = [cycle for cycle in data.get("cycles") or [] if not cycle.get("terminal")]
+    stages = {stage: sum(1 for cycle in cycles if cycle.get("stage") == stage)
+              for stage in ("1 - Initial", "2 - Plan", "3 - Handover", "4 - Invoicing")}
+    return {
+        "cycles": cycles,
+        "route": data.get("task_route") or {"ready": False, "issue": "", "memberships": []},
+        "scope": "all" if "System Manager" in set(frappe.get_roles(frappe.session.user)) else "assigned",
+        "can_export": bool(frappe.has_permission("SIG Site Cycle", "export")),
+        "complete": data.get("complete", {}).get("cycles", True),
+        "summary": {
+            "cycles": len(cycles),
+            "open_items": sum(len(cycle.get("work") or []) for cycle in cycles),
+            "review_due": sum(1 for cycle in cycles if cycle.get("needs_review")),
+            "stages": stages,
+        },
+    }
 
 @frappe.whitelist()
 def export_workbook(filter="open"):
@@ -428,7 +525,7 @@ def export_workbook(filter="open"):
     ws = wb.active
     ws.title = "Cycles"
     headers = ["Cycle ID", "Site", "WO", "BA", "Project alias", "ERP Project", "Scope",
-               "Stage", "Status", "Pending work", "Review due", "Delayed", "Aged",
+               "Stage", "Status", "Pending work", "Pending item owners", "Review due", "Delayed", "Aged",
                "Due date", "Delay reason", "Delay note", "Closed on", "Closed by",
                "Mapping at", "BOQ at", "TCN at", "MIR at", "Visit at",
                "Tags at", "Photos at", "As-Built BOQ at", "As-Built Operational closed",
@@ -436,33 +533,34 @@ def export_workbook(filter="open"):
     ws.append(headers)
     stage_ws = wb.create_sheet("Stage tasks")
     stage_ws.append(["Task ID", "Cycle ID", "Site", "WO", "BA", "Project alias",
-                     "Task stage", "Cycle stage", "Task", "Role", "Status",
+                     "Task stage", "Cycle stage", "Task", "Owner(s)", "Status",
                      "Expected evidence", "Review reason"])
     cycle_by_name = {c.get("name"): c for c in all_cycles}
     for cycle in cycles:
         events = cycle.get("events") or {}
-        pending = {w.get("key") for w in cycle.get("work") or []}
         ws.append([cycle.get("name"), cycle.get("site"), cycle.get("wo"), cycle.get("ba"),
                    cycle.get("alias"), cycle.get("project_id"), cycle.get("family"),
                    cycle.get("stage"), "Closed" if cycle.get("terminal") else "Open",
                    "; ".join(w.get("label", "") for w in cycle.get("work") or []),
+                   "; ".join(
+                       f"{w.get('label', 'Work')}: {' / '.join(w.get('owner_names') or [])}"
+                       for w in cycle.get("work") or []),
                    bool(cycle.get("needs_review")), bool(cycle.get("is_delayed")), bool(cycle.get("is_aged")),
                    cycle.get("stage_due_on"), cycle.get("delay_reason"), cycle.get("delay_note"),
                    cycle.get("closed_on"), cycle.get("closed_by")] +
                   [events.get(field) for field in ("mapping_at", "boq_at", "tcn_at", "mir_at",
                    "first_visit_at", "tags_at", "photos_at", "asbuilt_at")])
         operational = cycle.get("asbuilt_operational") or {}
-        ws.cell(ws.max_row, 25, bool(operational.get("closed")))
-        ws.cell(ws.max_row, 26, "; ".join(operational.get("source_dns") or []))
-        ws.cell(ws.max_row, 27, events.get("warranty_at"))
-        ws.cell(ws.max_row, 28, events.get("ho_at"))
-        ws.cell(ws.max_row, 29, events.get("invoice_at"))
+        ws.cell(ws.max_row, 28, bool(operational.get("closed")))
+        ws.cell(ws.max_row, 29, "; ".join(operational.get("source_dns") or []))
+        ws.cell(ws.max_row, 30, events.get("warranty_at"))
+        ws.cell(ws.max_row, 31, events.get("ho_at"))
+        ws.cell(ws.max_row, 32, events.get("invoice_at"))
     for task in tasks:
         cycle = cycle_by_name.get(task.get("cycle"))
         if not cycle:
             continue
-        role = task.get("owner_role") or "either"
-        audience = "PM" if role == "pm" else "Coordinator" if role == "co" else "Warehouse" if role == "warehouse" else "PM or Coordinator"
+        audience = " / ".join(task.get("owner_names") or [])
         stage_ws.append([task.get("id"), cycle.get("name"), cycle.get("site"), cycle.get("wo"),
                          cycle.get("ba"), cycle.get("alias"), task.get("stage"), cycle.get("stage"),
                          task.get("label"), audience, task.get("status"),

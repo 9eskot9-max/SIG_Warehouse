@@ -1,8 +1,9 @@
 """Evidence-stage regressions for the Operations Workbench read model."""
 import importlib.util
+from io import BytesIO
 import sys
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 
 def _workbench():
@@ -198,6 +199,119 @@ def test_cycle_closure_is_not_projected_as_a_duplicate_queue_row():
         [cycle], [{"scope": "Incident", "role": "pm"}])
     assert [task["key"] for task in tasks] == ["asbuilt"]
     assert all(task["kind"] == "stage" for task in tasks)
+
+
+def test_site_cycles_dashboard_is_one_open_cycle_row_per_cycle_and_scoped_by_project_family():
+    workbench = _workbench()
+    incident = _cycle(name="INC-1", family="Incident", work=[
+        {"key": "tags", "label": "Tags", "owner_role": "co", "stage": "3 - Handover"},
+        {"key": "asbuilt", "label": "As-Built BOQ file", "owner_role": "pm", "stage": "4 - Invoicing"},
+    ])
+    capex = _cycle(name="CAP-1", family="Capex", site_key="CAPEX9")
+    closed_incident = _cycle(name="INC-CLOSED", family="Incident", terminal=1)
+
+    rows = workbench._cycles_for_user(
+        [incident, capex, closed_incident], [{"scope": "Incident", "role": "pm"}])
+
+    assert [row["name"] for row in rows] == ["INC-1"]
+    assert [item["key"] for item in rows[0]["work"]] == ["tags", "asbuilt"]
+
+
+def test_site_cycles_dashboard_system_manager_sees_all_open_projects_without_closed_rows():
+    workbench = _workbench()
+    cycles = [
+        _cycle(name="INC-1", family="Incident"),
+        _cycle(name="CAP-1", family="Capex", site_key="CAPEX9"),
+        _cycle(name="CLOSED-1", family="Incident", terminal=1),
+    ]
+
+    rows = workbench._cycles_for_user(cycles, [], can_see_all=True)
+
+    assert [row["name"] for row in rows] == ["INC-1", "CAP-1"]
+
+
+def test_site_cycles_dashboard_warehouse_only_sees_cycles_with_routed_warehouse_work():
+    workbench = _workbench()
+    cycles = [
+        _cycle(name="INC-DN", family="Incident", work=[
+            {"key": "asbuilt_operational", "label": "As-Built Operational", "owner_role": "warehouse"},
+            {"key": "asbuilt", "label": "As-Built BOQ file", "owner_role": "pm"},
+        ]),
+        _cycle(name="INC-NO-DN", family="Incident", work=[
+            {"key": "asbuilt", "label": "As-Built BOQ file", "owner_role": "pm"},
+        ]),
+    ]
+
+    rows = workbench._cycles_for_user(cycles, [{"scope": "Incident", "role": "warehouse"}])
+
+    assert [row["name"] for row in rows] == ["INC-DN"]
+    assert [item["key"] for item in rows[0]["work"]] == ["asbuilt_operational"]
+
+
+def test_site_cycles_dashboard_unrouted_user_gets_no_cycle_rows():
+    workbench = _workbench()
+    rows = workbench._cycles_for_user([_cycle(name="INC-1", family="Incident")], [])
+    assert rows == []
+
+
+def test_site_cycles_uses_short_names_for_the_confirmed_shared_owner_roster():
+    workbench = _workbench()
+
+    assert workbench._owner_names("Capex", "pm") == ["Sohil"]
+    assert workbench._owner_names("Capex", "co") == ["Gulzar"]
+    assert workbench._owner_names("Incident", "pm") == ["Sohil", "Raheem"]
+    assert workbench._owner_names("Incident", "co") == ["Arshad"]
+    assert workbench._owner_names("Colocation", "pm") == ["Imran"]
+    assert workbench._owner_names("Colocation", "co") == ["Waleed", "Obed"]
+    assert workbench._owner_names("Incident", "warehouse") == ["Ramzan", "Tahir"]
+
+
+def test_cycle_export_includes_named_owners_and_keeps_late_columns_aligned():
+    workbench = _workbench()
+    frappe = sys.modules["frappe"]
+    frappe.session = SimpleNamespace(user="pm@example.com")
+    frappe.has_permission = lambda *_args, **_kwargs: True
+    frappe.local = SimpleNamespace(response=SimpleNamespace())
+    workbench.get_overview = lambda: {
+        "complete": {"cycles": True, "asbuilt_operational": True},
+        "cycles": [{
+            "name": "INC-1", "site": "ZBH874", "wo": "WO-1", "ba": "10001134",
+            "alias": "Incident", "project_id": "10001134", "family": "Incident",
+            "stage": "4 - Invoicing", "terminal": False,
+            "work": [{"label": "As-Built BOQ file", "owner_names": ["Sohil", "Raheem"]}],
+            "needs_review": False, "is_delayed": False, "is_aged": False,
+            "stage_due_on": "", "delay_reason": "", "delay_note": "",
+            "closed_on": "", "closed_by": "",
+            "events": {"mapping_at": "MAPPING", "boq_at": "BOQ", "tcn_at": "TCN",
+                       "mir_at": "MIR", "first_visit_at": "VISIT", "tags_at": "TAGS",
+                       "photos_at": "PHOTOS", "asbuilt_at": "ASBUILT",
+                       "warranty_at": "WARRANTY", "ho_at": "HO", "invoice_at": "INVOICE"},
+            "asbuilt_operational": {"closed": True, "source_dns": ["DN-1"]},
+        }],
+        "stage_tasks": [{
+            "id": "INC-1::asbuilt", "cycle": "INC-1", "stage": "4 - Invoicing",
+            "label": "As-Built BOQ file", "owner_names": ["Sohil", "Raheem"],
+            "status": "Pending evidence", "expected_evidence": "ASBUILT_BOQ_GENERATED",
+            "review_reason": "",
+        }],
+    }
+
+    workbench.export_workbook(filter="cycles")
+
+    from openpyxl import load_workbook
+    workbook = load_workbook(BytesIO(frappe.local.response.filecontent), data_only=True)
+    cycles = workbook["Cycles"]
+    tasks = workbook["Stage tasks"]
+    assert cycles.cell(1, 11).value == "Pending item owners"
+    assert cycles.cell(2, 11).value == "As-Built BOQ file: Sohil / Raheem"
+    assert cycles.cell(1, 28).value == "As-Built Operational closed"
+    assert cycles.cell(2, 28).value is True
+    assert cycles.cell(2, 29).value == "DN-1"
+    assert cycles.cell(2, 30).value == "WARRANTY"
+    assert cycles.cell(2, 31).value == "HO"
+    assert cycles.cell(2, 32).value == "INVOICE"
+    assert tasks.cell(1, 10).value == "Owner(s)"
+    assert tasks.cell(2, 10).value == "Sohil / Raheem"
 
 
 def test_asbuilt_operational_closes_only_on_explicit_site_dn_flag():
