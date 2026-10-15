@@ -4,7 +4,9 @@
 // Actions are the sig_pc_* Server Scripts.
 // Navigation only links to ERPNext records; ERPNext permissions stay authoritative.
 frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
-    const page = frappe.ui.make_app_page({parent: wrapper, title: __('Petty Cash'), single_column: true});
+    const page = frappe.ui.make_app_page({parent: wrapper, title: '', single_column: true});
+    // Keep the Desk shell but remove its duplicate page heading; the workbench has its own header.
+    $(wrapper).find('.page-head').hide();
     const language = String(frappe.boot?.lang || 'en').toLowerCase();
     const root = $('<main class="sig-pc-home"></main>').attr('dir', language.startsWith('ar') ? 'rtl' : 'ltr').attr('lang', language).appendTo(page.main);
     const el = root[0];
@@ -179,7 +181,6 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
                 <p class="sig-pc-count">${__('Loading invoices…')}</p></div>
             <div class="sig-pc-header-actions">${navButtons()}<button type="button" class="sig-pc-ghost sig-pc-refresh"><i class="fa fa-refresh" aria-hidden="true"></i> ${__('Refresh')}</button></div>
         </header>
-        <div class="sig-pc-banner" role="status" aria-live="polite" hidden></div>
         <section class="sig-pc-stats"></section>
         <section class="sig-pc-review"><div class="sig-pc-empty">${__('Loading…')}</div></section>
         <section class="sig-pc-section">
@@ -192,11 +193,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
     root.on('click', '[data-link]', function () { go(LINKS[Number($(this).data('link'))]); });
     root.on('click', '.sig-pc-refresh', () => load());
     root.on('click', '[data-route]', function (e) { e.preventDefault(); frappe.set_route(...JSON.parse($(this).attr('data-route'))); });
-    root.on('click', '.sig-pc-banner-close', () => showBanner(''));
     loadMetrics();
-
-    function showBanner(html) { const b = q('.sig-pc-banner'); b.hidden = !html; b.innerHTML = html ? `<span>${html}</span><button type="button" class="sig-pc-banner-close" aria-label="${__('Dismiss')}">×</button>` : ''; }
-    const docLink = (doctype, name) => `<a href="#" data-route="${esc(JSON.stringify(['Form', doctype, name]))}">${esc(name)}</a>`;
 
     // ---- render -------------------------------------------------------------------------------
     function render() {
@@ -301,7 +298,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
         const options = CATEGORIES.map((c) => `<option value="${esc(c)}"${selected === c ? ' selected' : ''}>${esc(c)}</option>`).join('');
         const dup = x._dup ? `<p class="sig-pc-dupwarn"><i class="fa fa-exclamation-triangle" aria-hidden="true"></i> ${x._dup.kind === 'image' ? __('Possible duplicate: same receipt image as {0}.', [x._dup.others.join(', ')]) : __('Possible duplicate: same sender, date and amount as {0}.', [x._dup.others.join(', ')])}</p>` : '';
         return `<article class="sig-pc-card-review" data-name="${esc(x.name)}"><div class="sig-pc-photo">${viewer(x.source_media_url)}</div><div class="sig-pc-side">
-            <div class="sig-pc-title">${esc(x.source_id || x.name)}</div>
+            <div class="sig-pc-title">${__('Receipt details')}</div>
             ${dup}
             ${field('amount', __('Amount (incl. VAT)'), x.amount, 'number', ' step="0.01" min="0"')}
             <label class="sig-pc-vat"><input data-f="has_vat" type="checkbox"${Number(x.has_vat) ? ' checked' : ''}> ${__('VAT invoice')} <span class="sig-pc-vat-amount"></span></label><p class="sig-pc-vatwarn"></p>
@@ -358,13 +355,9 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
         setBusy(c, true);
         c.querySelector('.sig-pc-confirm').textContent = __('Confirming…');
         try {
-            const m = (await call('sig_pc_close_transaction', v)) || {};
-            const banner = `${__('Cleared')} ${esc(x.source_id || x.name)} · ${esc(v.transaction_category)}` +
-                (m.purchase_invoice ? ` · ${__('Draft Purchase Invoice')} ${docLink('Purchase Invoice', m.purchase_invoice)}` : '') +
-                (m.payment_entry ? ` · ${__('Draft Payment Entry')} ${docLink('Payment Entry', m.payment_entry)}` : '');
+            await call('sig_pc_close_transaction', v);
             setBusy(c, false);
             afterRemoval(x);
-            showBanner(banner);
         } catch (e) {
             setBusy(c, false);
             c.querySelector('.sig-pc-confirm').textContent = __('Confirm');
@@ -388,7 +381,6 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
                 await call('sig_pc_reject_transaction', {transaction_id: x.name, notes: reason});
                 setBusy(c, false);
                 afterRemoval(x);
-                showBanner(`${__('Rejected')} ${esc(x.source_id || x.name)}`);
             } catch (e) { setBusy(c, false); showMsg(c, `<div class="sig-pc-error">${esc(e.message)}</div>`); }
         });
     }

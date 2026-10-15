@@ -26,12 +26,6 @@
 .sig-pc-ghost:hover, .sig-pc-ghost:focus-visible { background: rgba(255,255,255,.18); color: #fff; outline: none; }
 .sig-pc-ghost i { margin-inline-end: 4px; color: #7FD4F2; }
 
-.sig-pc-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; padding: 10px 14px;
-    border: 1px solid #81c784; border-inline-start: 4px solid var(--sig-ok); border-radius: 8px; background: var(--sig-ok-bg); color: var(--sig-ok); font-size: 13px; }
-.sig-pc-banner[hidden] { display: none; }
-.sig-pc-banner a { color: var(--sig-navy); font-weight: 600; text-decoration: underline; }
-.sig-pc-banner-close { border: 0; background: transparent; color: var(--sig-ok); font-size: 18px; line-height: 1; }
-
 /* Stat chips double as filters. */
 .sig-pc-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
 .sig-pc-stat { display: flex; align-items: baseline; gap: 10px; padding: 7px 14px; border: 1px solid var(--border-color); border-inline-start: 4px solid var(--sig-blue);
