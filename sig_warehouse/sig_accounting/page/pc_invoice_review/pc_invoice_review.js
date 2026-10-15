@@ -37,6 +37,9 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
     const money = (n) => (Math.round((Number(n) || 0) * 100) / 100).toFixed(2);
     const number = (n) => new Intl.NumberFormat(language.replace('_', '-'), {maximumFractionDigits: 0}).format(n);
     const fmtDate = (d) => !d ? '—' : (frappe.datetime && frappe.datetime.str_to_user ? frappe.datetime.str_to_user(String(d).slice(0, 10)) : String(d).slice(0, 10));
+    // A receipt's category is the saved one, or the suggestion carried by the receipt source (`purpose`).
+    const catOf = (x) => x.transaction_category || (CATEGORIES.includes(x.purpose) ? x.purpose : '');
+    const isSuggested = (x) => !x.transaction_category && !!catOf(x);
     const countText = (n) => (n === 1 ? __('1 receipt') : __('{0} receipts', [n]));
     const senderOf = (v) => (S.senders[phoneKey(v)] || {}).employee_name;
     const unmatchedSender = (x) => isPhone(x.employee_name) && !senderOf(x.employee_name);
@@ -110,10 +113,10 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
 
     const matchesSearch = (x) => {
         if (!S.search) return true;
-        const hay = [x.source_id, x.name, x.details, x.merchant, x.transaction_category, money(x.amount), label(x.employee_name)].join(' ').toLowerCase();
+        const hay = [x.source_id, x.name, x.details, x.merchant, catOf(x), money(x.amount), label(x.employee_name)].join(' ').toLowerCase();
         return S.search.toLowerCase().split(/\s+/).every((t) => hay.includes(t));
     };
-    const visibleRows = () => S.rows.filter((x) => (S.filter === 'nocat' ? !x.transaction_category : S.filter === 'unmatched' ? unmatchedSender(x) : S.filter === 'dup' ? !!x._dup : true) && matchesSearch(x));
+    const visibleRows = () => S.rows.filter((x) => (S.filter === 'nocat' ? !catOf(x) : S.filter === 'unmatched' ? unmatchedSender(x) : S.filter === 'dup' ? !!x._dup : true) && matchesSearch(x));
     function peopleList() {
         const seen = {}, out = [];
         visibleRows().forEach((x) => { const l = label(x.employee_name); if (!seen[l]) { seen[l] = 1; out.push(l); } });
@@ -197,7 +200,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
 
     // ---- render -------------------------------------------------------------------------------
     function render() {
-        const nocat = S.rows.filter((x) => !x.transaction_category).length;
+        const nocat = S.rows.filter((x) => !catOf(x)).length;
         const unmatched = S.rows.filter(unmatchedSender).length;
         const dups = S.rows.filter((x) => x._dup).length;
         const total = S.rows.reduce((a, r) => a + (Number(r.amount) || 0), 0);
@@ -247,10 +250,10 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
         const showWho = S.person === ALL;
         const items = groups.map((g) => `<div class="sig-pc-day"><span>${esc(fmtDate(g.date))}</span><small>${countText(g.items.length)} · ${money(g.total)} SAR</small></div>` +
             g.items.map(({x, i}) => {
-                const state = x._dup ? 'warn' : (x.transaction_category ? 'ok' : 'bad');
+                const state = x._dup ? 'warn' : (x.transaction_category ? 'ok' : isSuggested(x) ? 'sugg' : 'bad');
                 return `<button type="button" class="sig-pc-qi ${i === S.index ? 'active' : ''}" data-i="${i}" role="option" aria-selected="${i === S.index}">
                     <i class="sig-pc-dot sig-pc-dot--${state}" aria-hidden="true"></i>
-                    <span class="sig-pc-qi-main"><b>${money(x.amount)}</b><span class="sig-pc-qi-cat ${x.transaction_category ? '' : 'is-missing'}">${esc(x.transaction_category || __('No category'))}</span>
+                    <span class="sig-pc-qi-main"><b>${money(x.amount)}</b><span class="sig-pc-qi-cat ${catOf(x) ? (isSuggested(x) ? 'is-suggested' : '') : 'is-missing'}">${esc(catOf(x) || __('No category'))}${isSuggested(x) ? ` · ${__('suggested')}` : ''}</span>
                     ${showWho ? `<small>${esc(label(x.employee_name))}</small>` : ''}</span>
                     ${x._dup ? `<em class="sig-pc-badge">${__('Duplicate?')}</em>` : ''}</button>`;
             }).join('')).join('');
@@ -261,7 +264,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
             </div>
             <div class="sig-pc-queue-meta"><span>${__('Pending dates')}</span><span>${countText(rows.length)} · ${money(rows.reduce((a, r) => a + (Number(r.amount) || 0), 0))} SAR</span></div>
             <div class="sig-pc-queue-list" role="listbox">${items}</div>
-            <div class="sig-pc-legend"><span><i class="sig-pc-dot sig-pc-dot--bad"></i>${__('No category')}</span><span><i class="sig-pc-dot sig-pc-dot--ok"></i>${__('Category set')}</span><span><i class="sig-pc-dot sig-pc-dot--warn"></i>${__('Duplicate?')}</span></div>
+            <div class="sig-pc-legend"><span><i class="sig-pc-dot sig-pc-dot--bad"></i>${__('No category')}</span><span><i class="sig-pc-dot sig-pc-dot--ok"></i>${__('Category set')}</span><span><i class="sig-pc-dot sig-pc-dot--sugg"></i>${__('Suggested')}</span><span><i class="sig-pc-dot sig-pc-dot--warn"></i>${__('Duplicate?')}</span></div>
         </aside>`;
     }
     function wireQueue(rows, prevScroll) {
@@ -294,7 +297,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
     const field = (f, lbl, v, type, extra) => `<div class="sig-pc-field"><label>${lbl}</label><input data-f="${f}" class="form-control input-sm" type="${type || 'text'}" value="${esc(v)}"${extra || ''}></div>`;
 
     function card(x) {
-        const selected = x.transaction_category || x.purpose || '';
+        const selected = catOf(x);
         const options = CATEGORIES.map((c) => `<option value="${esc(c)}"${selected === c ? ' selected' : ''}>${esc(c)}</option>`).join('');
         const dup = x._dup ? `<p class="sig-pc-dupwarn"><i class="fa fa-exclamation-triangle" aria-hidden="true"></i> ${x._dup.kind === 'image' ? __('Possible duplicate: same receipt image as {0}.', [x._dup.others.join(', ')]) : __('Possible duplicate: same sender, date and amount as {0}.', [x._dup.others.join(', ')])}</p>` : '';
         return `<article class="sig-pc-card-review" data-name="${esc(x.name)}"><div class="sig-pc-photo">${viewer(x.source_media_url)}</div><div class="sig-pc-side">
@@ -302,7 +305,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
             ${dup}
             ${field('amount', __('Amount (incl. VAT)'), x.amount, 'number', ' step="0.01" min="0"')}
             <label class="sig-pc-vat"><input data-f="has_vat" type="checkbox"${Number(x.has_vat) ? ' checked' : ''}> ${__('VAT invoice')} <span class="sig-pc-vat-amount"></span></label><p class="sig-pc-vatwarn"></p>
-            <div class="sig-pc-field"><label>${__('Transaction category')}</label><select data-f="transaction_category" class="form-control input-sm"><option value="">${__('Choose category…')}</option>${options}</select></div>
+            <div class="sig-pc-field"><label>${__('Transaction category')}</label><select data-f="transaction_category" class="form-control input-sm"><option value="">${__('Choose category…')}</option>${options}</select>${isSuggested(x) ? `<p class="sig-pc-suggest">${__('Suggested from the receipt source. Check it, then confirm.')}</p>` : ''}</div>
             <div class="sig-pc-field"><label>${__('Notes')}</label><textarea data-f="details" class="form-control input-sm" rows="2">${esc(x.details || x.invoice_number || '')}</textarea></div>
             <details class="sig-pc-more"${x.supplier_vat_number || x.merchant ? ' open' : ''}><summary>${__('Supplier')}</summary>
                 ${field('merchant', __('Merchant'), x.merchant)}${field('supplier_vat_number', __('Supplier VAT number (15 digits)'), x.supplier_vat_number, 'text', ' inputmode="numeric" maxlength="15"')}</details>
