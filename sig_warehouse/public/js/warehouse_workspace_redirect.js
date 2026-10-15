@@ -34,6 +34,13 @@
             route: 'employee-workbench',
             allowNativeOnceKey: 'sig_my_work_allow_native_workspace_once',
             roleAny: ['Employee', 'Employee Self Service', 'HR User', 'HR Manager', 'System Manager']
+        },
+        // Petty cash: the Petty Cash page is the main entry (it absorbed the old workspace's cards and shortcuts).
+        // Users without a review role (e.g. SIG Finance Viewer, SIG PC Clearance) stay on the native workspace.
+        'sig-petty-cash': {
+            route: 'pc-invoice-review',
+            allowNativeOnceKey: 'sig_petty_cash_allow_native_workspace_once',
+            roleAny: ['System Manager', 'Accounts User', 'Accounts Manager', 'Operations User', 'Operations Manager']
         }
     };
 
