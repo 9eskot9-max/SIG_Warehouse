@@ -304,3 +304,31 @@ Receipt preview unavailable — use Open receipt,معاينة الإيصال غ�
 Not available,غير متاح
 Your ERP role cannot review petty cash receipts.,صلاحيتك في النظام لا تسمح بمراجعة إيصالات العهدة النقدية.
 Review receipts from site staff and confirm them into draft invoices and payments for finance.,راجع إيصالات موظفي المواقع وأكّدها لتصبح فواتير ودفعات مسودة للمالية.
+Petty Cash,العهدة النقدية
+1 receipt,إيصال واحد
+{0} receipts,{0} إيصالات
+Petty cash unavailable,العهدة النقدية غير متاحة
+Confirmed this month,المؤكدة هذا الشهر
+Receipts confirmed this month and handed to finance.,إيصالات تم تأكيدها هذا الشهر وتسليمها للمالية.
+Archive pending,بانتظار الأرشفة
+Receipts waiting to be archived by the SIGPC sync.,إيصالات بانتظار الأرشفة عبر مزامنة SIGPC.
+Rejected receipts,الإيصالات المرفوضة
+Receipts rejected during review.,إيصالات رُفضت أثناء المراجعة.
+{0} pending · {1} SAR,{0} قيد المراجعة · {1} ريال
+Possible duplicates,تكرارات محتملة
+Nothing matches this filter.,لا يوجد ما يطابق هذا التصفية.
+Clear filters,مسح التصفية
+Unmatched sender: this receipt cannot be confirmed until the phone is recorded on the Employee or an Employee-linked Contact.,مرسل غير مطابق: لا يمكن تأكيد هذا الإيصال حتى يُسجَّل الهاتف على الموظف أو على جهة اتصال مرتبطة بالموظف.
+No category,بدون تصنيف
+Duplicate?,تكرار محتمل؟
+Pending receipts,الإيصالات المعلقة
+All senders,جميع المرسلين
+Search receipts…,ابحث في الإيصالات…
+Pending dates,التواريخ المعلقة
+Category set,تم تحديد التصنيف
+Possible duplicate: same receipt image as {0}.,تكرار محتمل: نفس صورة الإيصال مثل {0}.
+"Possible duplicate: same sender, date and amount as {0}.",تكرار محتمل: نفس المرسل والتاريخ والمبلغ مثل {0}.
+Notes,ملاحظات
+Supplier,المورد
+"Previous/Next never change a receipt. Only Confirm or Reject does. Keys: ← → navigate, Ctrl+Enter confirm, + − 0 zoom, R rotate, F fit.",السابق/التالي لا يغيّران الإيصال. التأكيد أو الرفض فقط يغيّره. المفاتيح: ← → للتنقل، Ctrl+Enter للتأكيد، + − 0 للتكبير، R للتدوير، F للملاءمة.
+"Review receipts, confirm them into draft invoices and payments, and follow them through finance.",راجع الإيصالات وأكّدها لتصبح فواتير ودفعات مسودة، وتابعها حتى المالية.
