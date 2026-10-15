@@ -1,6 +1,6 @@
 // Petty cash invoice review - app-owned Desk Page (replaces the website Web Page /pc-invoice-review).
 // Runs inside the Desk shell, so the SIG logo/navbar, session, CSRF and permissions are native.
-// Data: SIG PC Transaction (one list call) + SIG PC Sender Staging. Actions are the sig_pc_* Server Scripts.
+// Data: SIG PC Transaction + a role-gated resolver over Employee Mobile and linked Contact phones. Actions are the sig_pc_* Server Scripts.
 // Navigation only links to ERPNext records; ERPNext permissions stay authoritative.
 frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
     const page = frappe.ui.make_app_page({parent: wrapper, title: __('Petty Cash Review'), single_column: true});
@@ -19,15 +19,25 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
     let view = {s: 1, x: 0, y: 0, r: 0, mode: null};
 
     const esc = (v) => frappe.utils.escape_html(v == null ? '' : String(v));
-    const isPhone = (v) => /^\+?\d{9,15}$/.test(String(v || '').replace(/\s/g, ''));
-    const phoneKey = (v) => String(v || '').replace(/\s/g, '').replace(/^\+/, '');
+    const isPhone = (v) => {
+        const raw = String(v || '').trim();
+        const digits = raw.replace(/\D/g, '');
+        return /^[+()\d\s.-]+$/.test(raw) && digits.length >= 9 && digits.length <= 15;
+    };
+    const phoneKey = (v) => {
+        let digits = String(v || '').replace(/\D/g, '');
+        if (digits.startsWith('00')) digits = digits.slice(2);
+        if (digits.length === 10 && digits.startsWith('05')) digits = '966' + digits.slice(1);
+        else if (digits.length === 9 && digits.startsWith('5')) digits = '966' + digits;
+        return digits;
+    };
     const isPdf = (v) => /\.pdf(?:[?#]|$)/i.test(String(v || '')) || /[?&]\w*=pdf(?:&|$)/i.test(String(v || ''));
     const money = (n) => (Math.round((Number(n) || 0) * 100) / 100).toFixed(2);
     const number = (n) => new Intl.NumberFormat(language.replace('_', '-'), {maximumFractionDigits: 0}).format(n);
     const unmatchedSender = (x) => isPhone(x.employee_name) && !S.senders[phoneKey(x.employee_name)];
 
     function label(v) {
-        if (isPhone(v)) return S.senders[phoneKey(v)] || (__('Unmatched sender') + ' · ' + v);
+        if (isPhone(v)) return (S.senders[phoneKey(v)] || {}).employee_name || (__('Unmatched sender') + ' · ' + v);
         return String(v || __('Unassigned sender'));
     }
 
@@ -64,13 +74,10 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
     async function load() {
         setCount(__('Loading invoices…'));
         try {
-            const [tx, st] = await Promise.all([
-                call('frappe.client.get_list', {doctype: 'SIG PC Transaction', fields: JSON.stringify(FIELDS), filters: JSON.stringify([['closure_status', 'in', ['Draft', 'Needs Review']]]), order_by: 'employee_name asc, transaction_date asc', limit_page_length: 0}),
-                call('frappe.client.get_list', {doctype: 'SIG PC Sender Staging', fields: JSON.stringify(['sender_phone', 'candidate_name', 'employee']), limit_page_length: 0}).catch(() => [])
-            ]);
+            const tx = await call('frappe.client.get_list', {doctype: 'SIG PC Transaction', fields: JSON.stringify(FIELDS), filters: JSON.stringify([['closure_status', 'in', ['Draft', 'Needs Review']]]), order_by: 'employee_name asc, transaction_date asc', limit_page_length: 0});
             S.rows = tx || [];
-            S.senders = {};
-            (st || []).forEach((r) => { if (r.candidate_name) S.senders[phoneKey(r.sender_phone)] = r.candidate_name + (r.employee ? '' : ' · ' + __('staged')); });
+            const senderPhones = [...new Set(S.rows.filter((x) => isPhone(x.employee_name)).map((x) => phoneKey(x.employee_name)))];
+            S.senders = await call('sig_warehouse.sig_warehouse.pc_sender.resolve_pc_employee_senders', {phone_numbers: JSON.stringify(senderPhones)}) || {};
             S.loadedAt = Date.now();
             render();
         } catch (e) {
@@ -108,7 +115,6 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
             metric: {key: 'pc-closed', filters: [['SIG PC Transaction', 'closure_status', '=', 'Closed']]}},
         {variant: 'navy', title: __('PC clearances'), description: __('Cycle clearance register per employee.'), doctype: 'SIG PC Clearance', route: ['List', 'SIG PC Clearance', 'List']},
         {variant: 'slate', title: __('All PC transactions'), description: __('Every receipt, including rejected and archived ones.'), doctype: 'SIG PC Transaction', route: ['List', 'SIG PC Transaction', 'List']},
-        {variant: 'slate', title: __('Sender mapping'), description: __('Match phone senders to employees so their receipts can be confirmed.'), doctype: 'SIG PC Sender Staging', route: ['List', 'SIG PC Sender Staging', 'List']}
     ];
 
     function navButtons() {
@@ -181,7 +187,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
             <div class="sig-pc-panel-head"><label class="sig-pc-person">${__('Review person')} <select class="sig-pc-person-select">${people.map((p) => `<option value="${esc(p)}"${p === S.person ? ' selected' : ''}>${esc(p)} (${counts[p]})</option>`).join('')}</select></label>
                 <div class="sig-pc-progress">${__('Invoice {0} of {1}', [S.index + 1, rows.length])} · ${esc(x.transaction_date || '')}</div>
                 <div class="sig-pc-nav"><button type="button" class="btn btn-default btn-sm" data-prev ${S.index === 0 ? 'disabled' : ''}>← ${__('Previous')}</button><button type="button" class="btn btn-default btn-sm" data-next ${S.index === rows.length - 1 ? 'disabled' : ''}>${__('Next')} →</button></div></div>
-            ${unmatchedSender(x) ? `<p class="sig-pc-stagenote">${__('Unmatched sender: this receipt cannot be confirmed until the sender is matched to an Employee in Sender mapping.')}</p>` : ''}
+            ${unmatchedSender(x) ? `<p class="sig-pc-stagenote">${__('Unmatched sender: this receipt cannot be confirmed until the phone is recorded on the Employee or an Employee-linked Contact.')}</p>` : ''}
             ${card(x)}</div>`;
         review.querySelector('.sig-pc-person-select').addEventListener('change', (e) => { S.person = e.target.value; S.index = 0; render(); });
         review.querySelector('[data-prev]').addEventListener('click', () => step(-1));
