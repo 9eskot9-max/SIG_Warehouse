@@ -73,6 +73,9 @@
 .sig-pc-qi-main small { overflow: hidden; color: var(--sig-slate); font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
 .sig-pc-dot { display: inline-block; flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--sig-slate); }
 .sig-pc-dot--ok { background: var(--sig-ok); } .sig-pc-dot--bad { background: var(--sig-bad); } .sig-pc-dot--warn { background: #e0a100; }
+.sig-pc-dot--sugg { background: transparent; box-shadow: inset 0 0 0 2px var(--sig-ok); }
+.sig-pc-qi-cat.is-suggested { color: var(--sig-ok); font-style: italic; }
+.sig-pc-suggest { margin: 4px 0 0; color: var(--sig-ok); font-size: 11.5px; }
 .sig-pc-badge { flex: none; padding: 1px 6px; border-radius: 8px; background: var(--sig-warn-bg); color: var(--sig-warn); font-size: 10px; font-style: normal; font-weight: 700; }
 .sig-pc-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 6px 10px; border-top: 1px solid var(--border-color); color: var(--text-muted); font-size: 10.5px; }
 .sig-pc-legend .sig-pc-dot { width: 7px; height: 7px; margin-inline-end: 4px; }

@@ -332,3 +332,6 @@ Notes,ملاحظات
 Supplier,المورد
 "Previous/Next never change a receipt. Only Confirm or Reject does. Keys: ← → navigate, Ctrl+Enter confirm, + − 0 zoom, R rotate, F fit.",السابق/التالي لا يغيّران الإيصال. التأكيد أو الرفض فقط يغيّره. المفاتيح: ← → للتنقل، Ctrl+Enter للتأكيد، + − 0 للتكبير، R للتدوير، F للملاءمة.
 "Review receipts, confirm them into draft invoices and payments, and follow them through finance.",راجع الإيصالات وأكّدها لتصبح فواتير ودفعات مسودة، وتابعها حتى المالية.
+suggested,مقترح
+Suggested,مقترح
+"Suggested from the receipt source. Check it, then confirm.",مقترح من مصدر الإيصال. راجعه ثم أكّد.
