@@ -2,9 +2,10 @@
 frappe.pages['finance-workbench'].on_page_load = function (wrapper) {
     const page = frappe.ui.make_app_page({
         parent: wrapper,
-        title: __('SIG Accounting'),
+        title: '',
         single_column: true
     });
+    $(wrapper).find('.page-head').hide();
 
     const language = String(frappe.boot?.lang || 'en').toLowerCase();
     const direction = language.startsWith('ar') ? 'rtl' : 'ltr';
@@ -37,6 +38,11 @@ frappe.pages['finance-workbench'].on_page_load = function (wrapper) {
         {variant: 'slate', title: __('Purchase Register'), doctype: 'Purchase Invoice', report: 'Purchase Register', route: ['query-report', 'Purchase Register']},
         {variant: 'slate', title: __('Purchase Invoice Trends'), doctype: 'Purchase Invoice', report: 'Purchase Invoice Trends', route: ['query-report', 'Purchase Invoice Trends']},
         {variant: 'slate', title: __('Accounts Payable'), doctype: 'Purchase Invoice', report: 'Accounts Payable', route: ['query-report', 'Accounts Payable']}
+    ];
+
+    const purchasingDocuments = [
+        {variant: 'blue', title: __('Purchase Orders'), description: __('Open ERPNext purchase orders for finance and purchasing review.'), icon: 'shopping-cart', doctype: 'Purchase Order', route: ['List', 'Purchase Order', 'List']},
+        {variant: 'blue', title: __('Quotations'), description: __('Review quotation records in ERPNext.'), icon: 'file-text-o', doctype: 'Quotation', route: ['List', 'Quotation', 'List']}
     ];
 
     const tawalAndOperations = [
@@ -219,6 +225,7 @@ frappe.pages['finance-workbench'].on_page_load = function (wrapper) {
         ${section(__('Financial control'), __('Core statements and ledger traceability. Each report keeps its own filters.'), control)}
         ${section(__('Sales and collections'), __('Customer billing and receivable review, including the Tawal customer lane.'), collections)}
         ${section(__('Purchasing and payables'), __('Supplier invoice review after the Purchase Order and receipt handoff.'), payables)}
+        ${section(__('Purchasing documents'), __('Open purchase orders and quotations.'), purchasingDocuments, false)}
         ${section(__('Operational follow-up and positions'), __('Tawal customer review, payment processing, SNB-linked entries, supplier exposure, and draft journals from SIG Accounting.'), tawalAndOperations)}
         ${section(__('Reconciliation and evidence'), __('Review source evidence before matching, approval, or posting.'), review)}
         ${section(__('Specialist finance lanes'), __('Separate controlled workspaces for petty cash and tax-compliance evidence.'), specialist)}

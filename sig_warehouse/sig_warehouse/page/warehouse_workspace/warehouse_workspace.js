@@ -3,13 +3,14 @@
 frappe.pages['warehouse-workspace'].on_page_load = function (wrapper) {
     const page = frappe.ui.make_app_page({
         parent: wrapper,
-        title: __('Warehouse'),
+        title: '',
         single_column: true
     });
-    page.add_inner_button(__('Original Warehouse Workspace'), () => {
+    $(wrapper).find('.page-head').hide();
+    const openOriginalWorkspace = () => {
         window.sessionStorage.setItem('sig_warehouse_allow_native_workspace_once', '1');
         frappe.set_route('Workspaces', 'SIG Warehouse');
-    });
+    };
     const root = $('<main class="sig-wh-home"></main>').appendTo(page.main);
 
     const primary = [
@@ -161,12 +162,21 @@ frappe.pages['warehouse-workspace'].on_page_load = function (wrapper) {
             description: __('Reference ERPNext stock and purchase units.'),
             doctype: 'UOM',
             route: ['List', 'UOM']
-        },
+        }
+    ];
+
+    const purchasingDocuments = [
         {
-            title: __('Purchase orders — handoff'), variant: 'slate',
+            title: __('Purchase Orders'), variant: 'slate',
             description: __('Purchasing owns the order; use it as receipt context, not a warehouse approval.'),
             doctype: 'Purchase Order',
             route: ['List', 'Purchase Order']
+        },
+        {
+            title: __('Quotations'), variant: 'slate',
+            description: __('Review the purchasing quotation reference; purchasing owns the commercial decision.'),
+            doctype: 'Quotation',
+            route: ['List', 'Quotation']
         }
     ];
 
@@ -220,7 +230,8 @@ frappe.pages['warehouse-workspace'].on_page_load = function (wrapper) {
                     <h1>${__('Warehouse workbench')}</h1>
                     <p>${__('Daily warehouse work, with stock records and controls kept in their existing ERPNext flows.')}</p>
                 </div>
-                <span class="sig-wh-header-mark" aria-hidden="true"><i class="fa fa-cubes"></i></span>
+                <div class="sig-wh-header-actions"><button type="button" class="btn btn-default sig-wh-native-workspace">${__('Original Warehouse Workspace')}</button>
+                    <span class="sig-wh-header-mark" aria-hidden="true"><i class="fa fa-cubes"></i></span></div>
             </header>
             ${availablePrimary.length ? `<section class="sig-wh-section" aria-labelledby="sig-wh-primary-title">
                 <div class="sig-wh-section-heading"><div><h2 id="sig-wh-primary-title">${__('Start work')}</h2>
@@ -228,6 +239,7 @@ frappe.pages['warehouse-workspace'].on_page_load = function (wrapper) {
                 <div class="sig-wh-primary-grid">${availablePrimary.map((item) => card(item, false)).join('')}</div>
             </section>` : ''}
             ${section(__('Open queues'), __('Work waiting for review or follow-up.'), queues)}
+            ${section(__('Purchasing documents'), __('Review purchase orders and quotations; purchasing owns commercial decisions.'), purchasingDocuments)}
             ${section(__('Stock and locations'), __('Item and warehouse references, followed by current position.'), stock)}
             ${section(__('Movement history'), __('Use these views for traceability and project follow-up.'), movement)}
             ${section(__('Controls and handoffs'), __('Less-frequent setup and controlled stock corrections.'), controls)}
@@ -239,6 +251,7 @@ frappe.pages['warehouse-workspace'].on_page_load = function (wrapper) {
             catch (e) { return; }
             if (Array.isArray(route) && route.length) frappe.set_route(...route);
         });
+        root.find('.sig-wh-native-workspace').on('click', openOriginalWorkspace);
     }
 
     render();

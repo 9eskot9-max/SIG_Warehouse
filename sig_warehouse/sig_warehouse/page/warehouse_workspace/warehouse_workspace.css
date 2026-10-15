@@ -61,6 +61,7 @@
 .sig-wh-header p { color: #C9DCEC; }
 .sig-wh-section-heading p { color: var(--text-muted); }
 .sig-wh-header-mark { display: grid; flex: 0 0 62px; width: 62px; height: 62px; place-items: center; border-radius: 12px; background: rgba(255, 255, 255, .09); color: #7FD4F2; font-size: 26px; }
+.sig-wh-header-actions { display: flex; align-items: center; gap: 12px; }
 
 /* Section headings: navy title with a short sea-gradient signal bar. */
 .sig-wh-section { margin-bottom: 27px; }

@@ -1,5 +1,6 @@
 frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
-    const page = frappe.ui.make_app_page({parent: wrapper, title: __('Operations Workbench'), single_column: true});
+    const page = frappe.ui.make_app_page({parent: wrapper, title: '', single_column: true});
+    $(wrapper).find('.page-head').hide();
     const root = $('<main class="sig-ops-home"></main>').appendTo(page.main);
     let data = {}, filter = 'tasks', selected = new Set(), pageNumber = 1;
     const pageSize = 50;

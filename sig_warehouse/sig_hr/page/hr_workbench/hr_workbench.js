@@ -2,13 +2,14 @@
 // RTL from frappe.boot.lang. ERPNext documents and reports remain authoritative; the only action here is the
 // HR email request (HR Manager / System Manager), which never changes a User or Employee.
 frappe.pages['hr-workbench'].on_page_load = function (wrapper) {
-    const page = frappe.ui.make_app_page({parent: wrapper, title: __('SIG HR'), single_column: true});
+    const page = frappe.ui.make_app_page({parent: wrapper, title: '', single_column: true});
+    $(wrapper).find('.page-head').hide();
     // Same escape hatch as the Warehouse workbench: the sidebar's SIG HR entry is redirected here by
     // warehouse_workspace_redirect.js; this opens the native workspace once without redirecting back.
-    page.add_inner_button(__('Original HR Workspace'), () => {
+    const openOriginalWorkspace = () => {
         window.sessionStorage.setItem('sig_hr_allow_native_workspace_once', '1');
         frappe.set_route('Workspaces', 'SIG HR');
-    });
+    };
     const language = String(frappe.boot?.lang || 'en').toLowerCase();
     const root = $('<main class="sig-hr-home"></main>')
         .attr('dir', language.startsWith('ar') ? 'rtl' : 'ltr')
@@ -106,7 +107,8 @@ frappe.pages['hr-workbench'].on_page_load = function (wrapper) {
             <div><div class="sig-hr-eyebrow">${__('Human Resources')}</div>
                 <h1>${__('HR workbench')}</h1>
                 <p>${__('Daily people work, compliance, and the link between employees and finance.')}</p></div>
-            <span class="sig-hr-header-mark" aria-hidden="true"><i class="fa fa-users"></i></span>
+            <div class="sig-hr-header-actions"><button type="button" class="btn btn-default sig-hr-native-workspace">${__('Original HR Workspace')}</button>
+                <span class="sig-hr-header-mark" aria-hidden="true"><i class="fa fa-users"></i></span></div>
         </header>
         ${section(__('Daily people work'), __('Open the employee records and the onboarding checks.'), daily, false)}
         ${section(__('Needs attention'), __('Counts that need action today.'), attention)}
@@ -125,6 +127,7 @@ frappe.pages['hr-workbench'].on_page_load = function (wrapper) {
         if (routeOptions) frappe.route_options = routeOptions;
         if (Array.isArray(route) && route.length) frappe.set_route(...route);
     });
+    root.find('.sig-hr-native-workspace').on('click', openOriginalWorkspace);
 
     function openEmailRequest() {
         const M = 'sig_warehouse.sig_hr.email_request.send_email_requests';

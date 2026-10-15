@@ -4,11 +4,12 @@
 // the user can read/create the target), filtered routes. Navigation only: ERPNext permissions and User Permissions
 // (an employee sees only their own records) remain authoritative.
 frappe.pages['employee-workbench'].on_page_load = function (wrapper) {
-    const page = frappe.ui.make_app_page({parent: wrapper, title: __('Employee Page'), single_column: true});
-    page.add_inner_button(__('Original Employee Workspace'), () => {
+    const page = frappe.ui.make_app_page({parent: wrapper, title: '', single_column: true});
+    $(wrapper).find('.page-head').hide();
+    const openOriginalWorkspace = () => {
         window.sessionStorage.setItem('sig_my_work_allow_native_workspace_once', '1');
         frappe.set_route('Workspaces', 'SIG - My Work');
-    });
+    };
     const language = String(frappe.boot?.lang || 'en').toLowerCase();
     const root = $('<main class="sig-emp-home"></main>')
         .attr('dir', language.startsWith('ar') ? 'rtl' : 'ltr')
@@ -83,7 +84,8 @@ frappe.pages['employee-workbench'].on_page_load = function (wrapper) {
                 <div><div class="sig-emp-eyebrow">${__('My work')}</div>
                     <h1>${__('Employee page')}</h1>
                     <p>${hello}</p></div>
-                <span class="sig-emp-header-mark" aria-hidden="true"><i class="fa fa-user-circle-o"></i></span>
+                <div class="sig-emp-header-actions"><button type="button" class="btn btn-default sig-emp-native-workspace">${__('Original Employee Workspace')}</button>
+                    <span class="sig-emp-header-mark" aria-hidden="true"><i class="fa fa-user-circle-o"></i></span></div>
             </header>
             ${missing}
             ${section(__('My tasks'), __('Open your requests, tickets, and attendance.'), tasks)}
@@ -97,6 +99,7 @@ frappe.pages['employee-workbench'].on_page_load = function (wrapper) {
             if (routeOptions) frappe.route_options = routeOptions;
             if (Array.isArray(route) && route.length) frappe.set_route(...route);
         });
+        root.find('.sig-emp-native-workspace').on('click', openOriginalWorkspace);
     }
 
     frappe.call({
