@@ -1,0 +1,629 @@
+{
+  "status": "OWNER-APPROVED ROUTING - TASK ASSIGNMENT ONLY - NOT DEPLOYED",
+  "as_of": "2026-10-17",
+  "phase": "task_assignment_only",
+  "routing_version": "pc-review-2026-10-17-v1",
+  "apply_visibility_gates": false,
+  "default_review_group": "unassigned",
+  "oversight_employee_name": "Mohammed Salah Ibrahim Algain",
+  "policy": [
+    "Employee-specific review group overrides legacy Source Manager.",
+    "General is a PC routing bucket; preserve actual HR/Finance Departments.",
+    "Finance is tasked for General and every unassigned or unresolved sender.",
+    "GM has oversight; future restriction for unassigned is Finance and GM only.",
+    "The owner confirmed the seven interim Source Manager assignments on 2026-10-17.",
+    "A reviewer’s ToDo count excludes that reviewer’s own receipts; the group peers receive the remaining group count.",
+    "This mapping does not grant Page, DocType, Report, attachment or confirmation access."
+  ],
+  "review_groups": {
+    "capex": {
+      "reviewers": [
+        "Mohammed Sohail Mohammed Ilyas",
+        "MOHAMMAD FAROOQ ANSARY",
+        "Ghlzar Ahmad Fazal Malik"
+      ],
+      "label": "Capex",
+      "department": "Operations - SIG",
+      "lead": "Mohammed Sohail Mohammed Ilyas"
+    },
+    "incident": {
+      "reviewers": [
+        "Abdulraheem Mohammed",
+        "Mohammed Sohail Mohammed Ilyas",
+        "Arshad ahmed abdulhameed"
+      ],
+      "label": "Incident",
+      "department": "Operations - SIG",
+      "lead": "Abdulraheem Mohammed"
+    },
+    "colocation": {
+      "reviewers": [
+        "Mohammed Imran Ansary",
+        "Mohamed Walid Khalil Nmer Rahma",
+        "Obed Sharrif"
+      ],
+      "label": "Colocation",
+      "department": "Operations - SIG",
+      "lead": "Mohammed Imran Ansary"
+    },
+    "warehouse": {
+      "reviewers": [
+        "Tahir Shahzad Khalid Pervez",
+        "Hamid Ahmed Jawad"
+      ],
+      "label": "Warehousing",
+      "department": "Warehousing - SIG",
+      "lead": "Tahir Shahzad Khalid Pervez; Hamid Ahmed Jawad"
+    },
+    "general": {
+      "reviewers": [
+        "Bleeg Hamdi Mohamed Sherief",
+        "Mahmoud Kamal Mahmoud Muhammad",
+        "Syedahumaira Gilani"
+      ],
+      "label": "General",
+      "lead": "Finance"
+    },
+    "unassigned": {
+      "reviewers": [
+        "Bleeg Hamdi Mohamed Sherief",
+        "Mahmoud Kamal Mahmoud Muhammad",
+        "Syedahumaira Gilani"
+      ],
+      "label": "Unassigned",
+      "lead": "Finance"
+    }
+  },
+  "employees": [
+    {
+      "employee": "HR-EMP-00004",
+      "employee_name": "Abdelrhman Moustafa Hassan Elmaleh",
+      "department": "Purchase - SIG",
+      "current_subdepartment": "Procurement",
+      "work_group": "general",
+      "pc_review_group": "general",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00020",
+      "employee_name": "Abdul Rashid Haji Muhammad",
+      "department": "Warehousing - SIG",
+      "current_subdepartment": "Logistics",
+      "work_group": "warehouse",
+      "pc_review_group": "warehouse",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00036",
+      "employee_name": "Abdullah Muqbil Alqahtani",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Site Operations",
+      "work_group": "unassigned",
+      "pc_review_group": "unassigned",
+      "basis": "Unclear assignment: Finance fallback"
+    },
+    {
+      "employee": "HR-EMP-00033",
+      "employee_name": "Abdullha Mohmmed Hamza Awad",
+      "department": "Human Resources - SIG",
+      "current_subdepartment": "HR",
+      "work_group": "general",
+      "pc_review_group": "general",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00052",
+      "employee_name": "Abdulqadir Fazel Akber",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Colocation Delivery",
+      "work_group": "colocation",
+      "pc_review_group": "colocation",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00034",
+      "employee_name": "Abdulraheem Mohammed",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Incident & Capex Delivery",
+      "work_group": "incident",
+      "pc_review_group": "incident",
+      "basis": "Owner-approved operational group; recipient's own receipts omitted from their ToDo count"
+    },
+    {
+      "employee": "HR-EMP-00008",
+      "employee_name": "Abid Saeed Shaukat Ali",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Incident & Capex Delivery",
+      "work_group": "capex",
+      "pc_review_group": "capex",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00023",
+      "employee_name": "Adil Sher Rehmat Ali",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Site Operations",
+      "work_group": "incident",
+      "pc_review_group": "incident",
+      "basis": "Owner-confirmed interim assignment from existing Source Manager (2026-10-17)"
+    },
+    {
+      "employee": "HR-EMP-00026",
+      "employee_name": "Ali Haider Muhammad Ramzan",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Incident & Capex Delivery",
+      "work_group": "capex",
+      "pc_review_group": "capex",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00046",
+      "employee_name": "Ali Riza Riast Ali ( Mohammed Ali )",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Colocation Delivery",
+      "work_group": "colocation",
+      "pc_review_group": "colocation",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00028",
+      "employee_name": "Arshad ahmed abdulhameed",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Incident & Capex Delivery",
+      "work_group": "incident",
+      "pc_review_group": "incident",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00019",
+      "employee_name": "Asif Nawaz Muhammad Nawaz",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Colocation Delivery",
+      "work_group": "colocation",
+      "pc_review_group": "colocation",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00016",
+      "employee_name": "Bleeg Hamdi Mohamed Sherief",
+      "department": "Accounts - SIG",
+      "current_subdepartment": null,
+      "work_group": "general",
+      "pc_review_group": "general",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00029",
+      "employee_name": "Faizan Hanif Muhammad Hanif",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Site Operations",
+      "work_group": "capex",
+      "pc_review_group": "capex",
+      "basis": "Owner-confirmed interim assignment from existing Source Manager (2026-10-17)"
+    },
+    {
+      "employee": "HR-EMP-00047",
+      "employee_name": "Fazal Rauf Khan Fazal Ghafoor",
+      "department": "Warehousing - SIG",
+      "current_subdepartment": "Logistics",
+      "work_group": "warehouse",
+      "pc_review_group": "warehouse",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00002",
+      "employee_name": "Ghlzar Ahmad Fazal Malik",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Incident & Capex Delivery",
+      "work_group": "capex",
+      "pc_review_group": "capex",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00018",
+      "employee_name": "Ghulamrahim Mudamatkhan",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Incident & Capex Delivery",
+      "work_group": "capex",
+      "pc_review_group": "capex",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00006",
+      "employee_name": "Hamid Ahmed Jawad",
+      "department": "Warehousing - SIG",
+      "current_subdepartment": "Logistics",
+      "work_group": "warehouse",
+      "pc_review_group": "warehouse",
+      "basis": "Owner-approved operational group; recipient's own receipts omitted from their ToDo count"
+    },
+    {
+      "employee": "HR-EMP-00059",
+      "employee_name": "Imad Ulllah Waheed",
+      "department": "Operations - SIG",
+      "current_subdepartment": null,
+      "work_group": "unassigned",
+      "pc_review_group": "unassigned",
+      "basis": "Unclear assignment: Finance fallback"
+    },
+    {
+      "employee": "HR-EMP-00021",
+      "employee_name": "Imran Muhammad Ramzan",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Incident & Capex Delivery",
+      "work_group": "incident",
+      "pc_review_group": "incident",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00057",
+      "employee_name": "Imran Siddiqui",
+      "department": "Operations - SIG",
+      "current_subdepartment": null,
+      "work_group": "unassigned",
+      "pc_review_group": "unassigned",
+      "basis": "Unclear assignment: Finance fallback"
+    },
+    {
+      "employee": "HR-EMP-00024",
+      "employee_name": "Mahmoud Kamal Mahmoud Muhammad",
+      "department": "Accounts - SIG",
+      "current_subdepartment": "Finance",
+      "work_group": "general",
+      "pc_review_group": "general",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00058",
+      "employee_name": "Mahmoud Samir Elsayed",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Incident & Capex Delivery",
+      "work_group": "capex",
+      "pc_review_group": "capex",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00032",
+      "employee_name": "Mohamed Osman Bakri Mohamed",
+      "department": "Warehousing - SIG",
+      "current_subdepartment": "Logistics",
+      "work_group": "warehouse",
+      "pc_review_group": "warehouse",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00007",
+      "employee_name": "Mohamed Walid Khalil Nmer Rahma",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Colocation Delivery",
+      "work_group": "colocation",
+      "pc_review_group": "colocation",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00038",
+      "employee_name": "MOHAMMAD FAROOQ ANSARY",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Incident & Capex Delivery",
+      "work_group": "capex",
+      "pc_review_group": "capex",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00051",
+      "employee_name": "Mohammed Adnan Irsahd",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Incident & Capex Delivery",
+      "work_group": "capex",
+      "pc_review_group": "capex",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00066",
+      "employee_name": "Mohammed Dahlan",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Site Operations",
+      "work_group": "unassigned",
+      "pc_review_group": "unassigned",
+      "basis": "Unclear assignment: Finance fallback"
+    },
+    {
+      "employee": "HR-EMP-00009",
+      "employee_name": "Mohammed Imran Ansary",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Colocation Delivery",
+      "work_group": "colocation",
+      "pc_review_group": "colocation",
+      "basis": "Owner-approved operational group; recipient's own receipts omitted from their ToDo count"
+    },
+    {
+      "employee": "HR-EMP-00035",
+      "employee_name": "Mohammed Salah Ibrahim Algain",
+      "department": "Management - SIG",
+      "current_subdepartment": "Senior Administration",
+      "work_group": "general",
+      "pc_review_group": "general",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00011",
+      "employee_name": "Mohammed Sohail Mohammed Ilyas",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Incident & Capex Delivery",
+      "work_group": "capex",
+      "pc_review_group": "capex",
+      "basis": "Owner-approved operational group; recipient's own receipts omitted from their ToDo count"
+    },
+    {
+      "employee": "HR-EMP-00056",
+      "employee_name": "Mohsin Gulzar Mohammad Gulzar",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Site Operations",
+      "work_group": "unassigned",
+      "pc_review_group": "unassigned",
+      "basis": "Unclear assignment: Finance fallback"
+    },
+    {
+      "employee": "HR-EMP-00045",
+      "employee_name": "Muhammad Adnan Sajid",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Incident & Capex Delivery",
+      "work_group": "capex",
+      "pc_review_group": "capex",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00012",
+      "employee_name": "Muhammad Akram Sardar Muhammad",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Site Operations",
+      "work_group": "incident",
+      "pc_review_group": "incident",
+      "basis": "Owner-confirmed interim assignment from existing Source Manager (2026-10-17)"
+    },
+    {
+      "employee": "HR-EMP-00040",
+      "employee_name": "Muhammad Arslan Muhammad Aslam",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Site Operations",
+      "work_group": "unassigned",
+      "pc_review_group": "unassigned",
+      "basis": "Unclear assignment: Finance fallback"
+    },
+    {
+      "employee": "HR-EMP-00017",
+      "employee_name": "Muhammad Arslan Muhammad Sabir",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Site Operations",
+      "work_group": "incident",
+      "pc_review_group": "incident",
+      "basis": "Owner-confirmed interim assignment from existing Source Manager (2026-10-17)"
+    },
+    {
+      "employee": "HR-EMP-00014",
+      "employee_name": "Muhammad Bilal Khalid Saeed",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Incident & Capex Delivery",
+      "work_group": "capex",
+      "pc_review_group": "capex",
+      "basis": "Owner-confirmed interim assignment from existing Source Manager (2026-10-17)"
+    },
+    {
+      "employee": "HR-EMP-00044",
+      "employee_name": "Muhammad Ramzan Tariq Mehar",
+      "department": "Warehousing - SIG",
+      "current_subdepartment": "Warehouse",
+      "work_group": "warehouse",
+      "pc_review_group": "warehouse",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00010",
+      "employee_name": "Muhammad Umar Muhammad Siddique",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Site Operations",
+      "work_group": "incident",
+      "pc_review_group": "incident",
+      "basis": "Owner-confirmed interim assignment from existing Source Manager (2026-10-17)"
+    },
+    {
+      "employee": "HR-EMP-00025",
+      "employee_name": "Muhammad Waqas Muhammad Ayyub",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Incident & Capex Delivery",
+      "work_group": "incident",
+      "pc_review_group": "incident",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00053",
+      "employee_name": "Muhammad Yasir Muammad Sidique",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Colocation Delivery",
+      "work_group": "colocation",
+      "pc_review_group": "colocation",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00061",
+      "employee_name": "Muhammed Riaz Abdul Sattar",
+      "department": "Operations - SIG",
+      "current_subdepartment": null,
+      "work_group": "unassigned",
+      "pc_review_group": "unassigned",
+      "basis": "Unclear assignment: Finance fallback"
+    },
+    {
+      "employee": "HR-EMP-00060",
+      "employee_name": "Muman Bhatti Ramzan",
+      "department": "Operations - SIG",
+      "current_subdepartment": null,
+      "work_group": "unassigned",
+      "pc_review_group": "unassigned",
+      "basis": "Unclear assignment: Finance fallback"
+    },
+    {
+      "employee": "HR-EMP-00031",
+      "employee_name": "Muneeb Hassan Muhammad Munir",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Colocation Delivery",
+      "work_group": "colocation",
+      "pc_review_group": "colocation",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00043",
+      "employee_name": "Mushtaq Ahmad Muhammad Hayat",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Site Operations",
+      "work_group": "unassigned",
+      "pc_review_group": "unassigned",
+      "basis": "Unclear assignment: Finance fallback"
+    },
+    {
+      "employee": "HR-EMP-00039",
+      "employee_name": "Obed Sharrif",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Colocation Delivery",
+      "work_group": "colocation",
+      "pc_review_group": "colocation",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00015",
+      "employee_name": "Piran Ditta Muhammad Ramzan",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Site Operations",
+      "work_group": "unassigned",
+      "pc_review_group": "unassigned",
+      "basis": "Unclear assignment: Finance fallback"
+    },
+    {
+      "employee": "HR-EMP-00042",
+      "employee_name": "Saddam Hussain Yaqoob Khan",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Site Operations",
+      "work_group": "unassigned",
+      "pc_review_group": "unassigned",
+      "basis": "Unclear assignment: Finance fallback"
+    },
+    {
+      "employee": "HR-EMP-00037",
+      "employee_name": "Sagheer Abbas Muhammad Nawaz Kashmiri",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Colocation Delivery",
+      "work_group": "colocation",
+      "pc_review_group": "colocation",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00041",
+      "employee_name": "Sajjad Raza Sabtain Ali",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Site Operations",
+      "work_group": "unassigned",
+      "pc_review_group": "unassigned",
+      "basis": "Unclear assignment: Finance fallback"
+    },
+    {
+      "employee": "HR-EMP-00027",
+      "employee_name": "Sultan Afsar Ashraf Muhammed",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Incident & Capex Delivery",
+      "work_group": "capex",
+      "pc_review_group": "capex",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00003",
+      "employee_name": "Syedahumaira Gilani",
+      "department": "Accounts - SIG",
+      "current_subdepartment": "Administration",
+      "work_group": "general",
+      "pc_review_group": "general",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00013",
+      "employee_name": "Tahir Shahzad Khalid Pervez",
+      "department": "Warehousing - SIG",
+      "current_subdepartment": "Logistics",
+      "work_group": "warehouse",
+      "pc_review_group": "warehouse",
+      "basis": "Owner-approved operational group; recipient's own receipts omitted from their ToDo count"
+    },
+    {
+      "employee": "HR-EMP-00054",
+      "employee_name": "Umer Rafiquec",
+      "department": "Operations - SIG",
+      "current_subdepartment": null,
+      "work_group": "unassigned",
+      "pc_review_group": "unassigned",
+      "basis": "Unclear assignment: Finance fallback"
+    },
+    {
+      "employee": "HR-EMP-00055",
+      "employee_name": "Waqar Younas Muhammad Ayoub",
+      "department": "Operations - SIG",
+      "current_subdepartment": null,
+      "work_group": "unassigned",
+      "pc_review_group": "unassigned",
+      "basis": "Unclear assignment: Finance fallback"
+    },
+    {
+      "employee": "HR-EMP-00005",
+      "employee_name": "Yawar Raza Sibtain Ali",
+      "department": "Operations - SIG",
+      "current_subdepartment": "Colocation Delivery",
+      "work_group": "colocation",
+      "pc_review_group": "colocation",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00050",
+      "employee_name": "Zaheer Abbas Nawaz Kahmiri",
+      "department": "Warehousing - SIG",
+      "current_subdepartment": "Warehouse",
+      "work_group": "warehouse",
+      "pc_review_group": "warehouse",
+      "basis": "Owner scope corrections or current Department/Subdepartment"
+    },
+    {
+      "employee": "HR-EMP-00022",
+      "employee_name": "Zahidurrehman Said Muhammad",
+      "department": "Operations - SIG",
+      "current_subdepartment": null,
+      "work_group": "incident",
+      "pc_review_group": "incident",
+      "basis": "Owner-confirmed interim assignment from existing Source Manager (2026-10-17)"
+    }
+  ],
+  "excluded_records": [
+    {
+      "name": "HR-EMP-00001",
+      "employee_name": "MG"
+    },
+    {
+      "name": "HR-EMP-00062",
+      "employee_name": "WhatsApp Sender 966536139137"
+    },
+    {
+      "name": "HR-EMP-00063",
+      "employee_name": "WhatsApp Sender 966540586217"
+    },
+    {
+      "name": "HR-EMP-00064",
+      "employee_name": "WhatsApp Sender 966549345853"
+    },
+    {
+      "name": "HR-EMP-00065",
+      "employee_name": "WhatsApp Sender 966583819674"
+    }
+  ],
+  "verified_secondary_sender": {
+    "source": "Employee-linked Contact, verified in Check SIG PC phone recognition conversation",
+    "employee": "HR-EMP-00026",
+    "phone": "966536139137",
+    "employee_name": "Ali Haider Muhammad Ramzan"
+  }
+}
