@@ -13,6 +13,13 @@ DOCTYPE = "SIG PC Transaction"
 PAGE = "pc-invoice-review"
 WORKSPACE = "SIG Petty Cash"
 SHORTCUT_LABEL = "Invoice Review Board"
+BASE_PAGE_ROLES = {
+    "System Manager",
+    "Accounts User",
+    "Accounts Manager",
+    "Operations User",
+    "Operations Manager",
+}
 
 PTYPES = (
     "read",
@@ -88,7 +95,7 @@ NEW_ALLOWLIST = 'ROLES = ["Accounts User", "Accounts Manager", "Operations User"
 
 
 def execute():
-    _assert_page_source_synced()
+    _sync_page_roles()
     _ensure_read_permission()
     _assign_missing_reviewer_roles()
     _enable_review_actions()
@@ -98,13 +105,20 @@ def execute():
     frappe.clear_cache(doctype="Page")
 
 
-def _assert_page_source_synced():
+def _sync_page_roles():
     if not frappe.db.exists("Role", ROLE):
         frappe.throw("SIG PC Clearance role is missing; refusing the petty-cash access patch.")
     page = frappe.get_doc("Page", PAGE)
     page_roles = {row.role for row in page.roles}
-    if page.module != "SIG Accounting" or ROLE not in page_roles:
-        frappe.throw("pc-invoice-review Page source did not sync with SIG PC Clearance in SIG Accounting.")
+    if page.module != "SIG Accounting":
+        frappe.throw("pc-invoice-review is no longer owned by SIG Accounting; refusing the access patch.")
+    if not BASE_PAGE_ROLES.issubset(page_roles) or page_roles - (BASE_PAGE_ROLES | {ROLE}):
+        frappe.throw("pc-invoice-review Page role list changed; review the full audience before updating it.")
+    if ROLE not in page_roles:
+        page.append("roles", {"role": ROLE})
+        page.save(ignore_permissions=True)
+    if ROLE not in {row.role for row in page.roles}:
+        frappe.throw("SIG PC Clearance did not persist on pc-invoice-review.")
 
 
 def _row_values(row):
