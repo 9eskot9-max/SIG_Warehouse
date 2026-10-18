@@ -13,4 +13,5 @@ sig_warehouse.sig_warehouse.patches.v1_0.rename_asbuilt_stage_to_invoicing
 sig_warehouse.sig_warehouse.patches.v1_0.normalize_invoicing_stage_logic
 sig_warehouse.sig_warehouse.patches.v1_0.repair_invoicing_delay_state
 sig_warehouse.sig_warehouse.patches.v1_0.enable_pc_review_access
+sig_warehouse.sig_warehouse.patches.v1_0.clean_pc_review_workspace_link
 
