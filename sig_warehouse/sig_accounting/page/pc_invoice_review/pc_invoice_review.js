@@ -15,7 +15,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
     const CATEGORIES = ['Fuel/Disel', 'Hotel Rent', 'Food expenses', 'Equipment Rental', 'Car Maintanence', 'Construction/Operational Material', 'Vehicle OIL change', 'Vehicle Other Misc.', 'Drinking water', 'Medical expenses', 'Phone bill', 'Trailer Rent', 'Dyna Rent', 'Work Labor', 'Car Spare Parts', 'Others', 'Air-Ticket', 'Bus Ticket', 'Fax', 'Iqama fees', 'Office rental', 'Stationaries', 'Taxi', 'Train ticket', 'VISA fees', 'Xerox Copy', 'Fork Lift Rent', 'Pickup Rent', 'Office - Housekeeping', 'Warehouse misc.'];
     const FIELDS = ['name', 'employee_name', 'transaction_date', 'amount', 'purpose', 'transaction_category', 'has_vat', 'vat_amount', 'supplier_vat_number', 'merchant', 'invoice_number', 'details', 'source_id', 'source_media_url', 'source_row_url'];
     const VAT_RATE = 0.15;
-    const REVIEWERS = ['System Manager', 'Accounts User', 'Accounts Manager', 'Operations User', 'Operations Manager'];
+    const REVIEWERS = ['System Manager', 'Accounts User', 'Accounts Manager', 'Operations User', 'Operations Manager', 'SIG PC Clearance'];
     const FINANCE = ['System Manager', 'Accounts User', 'Accounts Manager', 'SIG Finance Viewer'];
     const ALL = '__all__';
 

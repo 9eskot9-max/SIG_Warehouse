@@ -14,7 +14,8 @@
   {"role": "Accounts User"},
   {"role": "Accounts Manager"},
   {"role": "Operations User"},
-  {"role": "Operations Manager"}
+  {"role": "Operations Manager"},
+  {"role": "SIG PC Clearance"}
  ],
  "standard": "Yes",
  "title": "Petty Cash",

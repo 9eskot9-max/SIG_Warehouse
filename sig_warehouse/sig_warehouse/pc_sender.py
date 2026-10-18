@@ -12,6 +12,7 @@ REVIEW_ROLES = {
     "Accounts Manager",
     "Operations User",
     "Operations Manager",
+    "SIG PC Clearance",
 }
 
 
@@ -34,7 +35,7 @@ def resolve_pc_employee_senders(phone_numbers=None):
     This API does not expose the employee directory to petty-cash reviewers.
     """
     if not REVIEW_ROLES.intersection(frappe.get_roles(frappe.session.user)):
-        frappe.throw("You need an Accounts or Operations reviewer role. [FINANCE_REVIEWER_REQUIRED]")
+        frappe.throw("You need an authorised petty-cash reviewer role. [FINANCE_REVIEWER_REQUIRED]")
 
     if isinstance(phone_numbers, str):
         try:
@@ -50,6 +51,19 @@ def resolve_pc_employee_senders(phone_numbers=None):
         return {}
     if len(requested) > 1000:
         frappe.throw("Too many sender phones were requested. [PC_SENDER_LOOKUP_LIMIT]")
+
+    # Resolve only numbers represented by pending receipts. This keeps the API
+    # aligned with its caller and prevents arbitrary Employee/Contact phone lookup.
+    pending = frappe.get_list(
+        "SIG PC Transaction",
+        filters={"closure_status": ["in", ["Draft", "Needs Review"]]},
+        fields=["employee_name"],
+        limit_page_length=0,
+    )
+    pending_phone_keys = {_phone_key(row.employee_name) for row in pending}
+    requested.intersection_update(pending_phone_keys)
+    if not requested:
+        return {}
 
     matches = {}
 

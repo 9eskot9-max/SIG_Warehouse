@@ -58,7 +58,7 @@ app_include_js = [
     "/assets/sig_warehouse/js/material_request_list.js?v=20260929-2",
     "/assets/sig_warehouse/js/material_request.js?v=20260929-2",
     "/assets/sig_warehouse/js/stock_entry.js?v=20260929-2",
-    "/assets/sig_warehouse/js/warehouse_workspace_redirect.js?v=20261015-1",
+    "/assets/sig_warehouse/js/warehouse_workspace_redirect.js?v=20261018-1",
     "/assets/sig_warehouse/js/print_download.js?v=20261006-1",
     "/assets/sig_warehouse/js/site_cycle_connections.js?v=20261013-1",
 ]
