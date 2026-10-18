@@ -17,7 +17,7 @@ MAX_ROWS = 20000
 OPS_ROSTER = {
     "Capex": {
         "pm": ("Mohammed Sohail Mohammed Ilyas",),
-        "co": ("Ghlzar Ahmad Fazal Malik",),
+        "co": ("Ghlzar Ahmad Fazal Malik", "Sultan Afsar Ashraf Muhammed"),
     },
     "Incident": {
         "pm": ("Abdulraheem Mohammed", "Mohammed Sohail Mohammed Ilyas"),
@@ -43,7 +43,7 @@ WAREHOUSE_USERS = {
 # shared by its project-family role; these names explain who that role covers
 # and do not assign an individual or change access.
 OPS_OWNER_NAMES = {
-    "Capex": {"pm": ("Sohil",), "co": ("Gulzar",)},
+    "Capex": {"pm": ("Sohil",), "co": ("Gulzar", "Sultan")},
     "Incident": {"pm": ("Sohil", "Raheem"), "co": ("Arshad",)},
     "Colocation": {"pm": ("Imran",), "co": ("Waleed", "Obed")},
 }
