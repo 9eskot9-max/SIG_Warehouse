@@ -137,6 +137,7 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
 
     function operationalStatusHtml(cycle) {
         const operational = cycle.asbuilt_operational || {};
+        if (operational.display === false) return '';
         if (operational.visible !== true) {
             return `<div class="sig-cycles-operational-status unavailable"><span>${__('As-Built Operational')}</span><small>${__('Status unavailable')}</small></div>`;
         }

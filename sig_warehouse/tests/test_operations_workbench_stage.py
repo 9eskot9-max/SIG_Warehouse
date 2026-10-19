@@ -151,20 +151,20 @@ def test_asbuilt_file_closes_on_its_own_evidence_and_invoicing_stage_keeps_it_vi
     assert [(item["key"], item["stage"]) for item in pending["work"]] == [("asbuilt", "4 - Invoicing")]
 
 
-def test_gcl_keeps_parallel_handover_work_when_preparation_is_evidenced():
+def test_handover_keeps_only_handover_work_when_preparation_is_evidenced():
     workbench = _workbench()
     cycle = workbench._cycle_view(
         _cycle(ho_at=None, tcn_at="2026-08-20", mir_at="2026-08-20", first_visit_at="2026-08-21", sessions_completed=2, last_visit_at="2026-08-22"),
         {"name": "10001134", "custom_family": "Incident"}, "2026-10-13",
         {"applicable": True, "closed": False, "source_dns": ["DN-1"]})
     assert {(item["key"], item["owner_role"]) for item in cycle["work"]} == {
-        ("tags", "co"), ("asbuilt_operational", "warehouse"), ("asbuilt", "pm")}
+        ("tags", "co"), ("asbuilt_operational", "warehouse")}
     operational = next(item for item in cycle["work"] if item["key"] == "asbuilt_operational")
     assert operational["stage"] == "3 - Handover"
     assert operational["source_dns"] == ["DN-1"]
 
 
-def test_ho_moves_only_the_cycle_summary_and_boq_file_to_invoicing():
+def test_ho_moves_cycle_to_invoicing_and_removes_all_handover_work():
     workbench = _workbench()
     cycle = workbench._cycle_view(
         _cycle(tcn_at="2026-08-20", mir_at="2026-08-20", first_visit_at="2026-08-21", sessions_completed=2, last_visit_at="2026-08-22"),
@@ -173,10 +173,20 @@ def test_ho_moves_only_the_cycle_summary_and_boq_file_to_invoicing():
     assert cycle["stage"] == "4 - Invoicing"
     stages = {item["key"]: item.get("stage", workbench.TASK_STAGE.get(item["key"]))
               for item in cycle["work"]}
-    assert stages == {
-        "tags": "3 - Handover",
-        "asbuilt_operational": "3 - Handover", "asbuilt": "4 - Invoicing",
-    }
+    assert stages == {"asbuilt": "4 - Invoicing"}
+    assert cycle["asbuilt_operational"]["display"] is False
+
+
+def test_asbuilt_boq_never_appears_as_handover_work():
+    workbench = _workbench()
+    cycle = workbench._cycle_view(
+        _cycle(ho_at=None, tcn_at="2026-08-20", mir_at="2026-08-20",
+               first_visit_at="2026-08-21", sessions_completed=2, last_visit_at="2026-08-22"),
+        {"name": "10001134", "custom_family": "Incident"}, "2026-10-13",
+        {"applicable": True, "closed": False, "source_dns": ["DN-1"]})
+    assert cycle["stage"] == "3 - Handover"
+    assert "asbuilt" not in [item["key"] for item in cycle["work"]]
+    assert all(item["stage"] == "3 - Handover" for item in cycle["work"])
 
 
 def test_missing_permission_to_read_operational_flag_does_not_claim_handover_complete():
@@ -625,7 +635,7 @@ def test_warehouse_status_query_is_limited_to_open_cycles_in_the_callers_scope()
     assert [row.name for row in all_project] == ["INC-1", "CAP-1"]
 
 
-def test_one_visit_waits_for_tags_without_photos_or_premature_asbuilt_task():
+def test_handover_stage_waits_for_tags_without_an_invoicing_task():
     workbench = _workbench()
     row = _cycle(ho_at=None, stage="2 - Plan", tcn_at="2026-10-01", mir_at="2026-10-02", first_visit_at="2026-10-03")
     cycle = workbench._cycle_view(row, {"custom_family": "Incident"}, "2026-10-19")
@@ -634,7 +644,8 @@ def test_one_visit_waits_for_tags_without_photos_or_premature_asbuilt_task():
     row.update(sessions_completed=2, last_visit_at="2026-10-04")
     cycle = workbench._cycle_view(row, {"custom_family": "Incident"}, "2026-10-19")
     assert cycle["stage"] == "3 - Handover"
-    assert {w["key"] for w in cycle["work"]} == {"tags", "asbuilt"}
+    assert {w["key"] for w in cycle["work"]} == {"tags"}
+    assert all(w["stage"] == "3 - Handover" for w in cycle["work"])
 
 
 def test_partial_legacy_plan_does_not_need_mapping_before_it_can_show_missing_work():
