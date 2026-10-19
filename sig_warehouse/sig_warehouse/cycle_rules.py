@@ -36,14 +36,16 @@ def derive_cycle_state(row):
     else:
         stage = "1 - Initial"
         anchor = str(row.get("mapping_at") or row.get("boq_at") or row.get("last_event_at") or "")[:19] or None
-    # Stored PM decisions and previously reached stages are a progression floor.
-    # Missing legacy evidence must not silently move an approved cycle backwards.
+    # Preserve an explicit Invoicing decision even when its HO evidence predates
+    # the integration. Handover is different: it is evidence-gated, so a stale
+    # saved Stage 3 label cannot override the approved entry rule above.
     # Only terminal closes a cycle; a stale stage-5 label alone cannot close it.
     sig_saved_stage = str(row.get("stage") or "")
     if sig_saved_stage == "4 - As-Built":
         sig_saved_stage = "4 - Invoicing"
-    if stage != "5 - Closed" and sig_saved_stage in ("1 - Initial", "2 - Plan", "3 - Handover", "4 - Invoicing"):
+    if stage != "5 - Closed" and sig_saved_stage in ("1 - Initial", "2 - Plan", "4 - Invoicing"):
         if sig_saved_stage > stage:
             stage = sig_saved_stage
             anchor = str(row.get("stage_anchor_at") or row.get("last_event_at") or "")[:19] or None
     return stage, anchor
+
