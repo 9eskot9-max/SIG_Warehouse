@@ -35,3 +35,9 @@ Declared permission changes: none. No Page/Workspace/Report role list, DocPerm, 
 Affected audiences: System Manager, Projects Manager/User, SIG Field Ops (PM/coordinator), and existing Warehouse audiences consuming the derived operational summary. Finance, HR, employee/viewer and integration access baselines remain part of the required snapshot comparison; their transaction behavior is outside this Operations change.
 
 Before snapshot: `permissions.before.json`. Automated rule/migration/Workbench tests, JS checks and actual release checks are recorded in the release evidence. Full Frappe staging migration twice, fresh actual-user workflows for each audience, and Arabic/browser acceptance remain NOT TESTED until explicitly recorded; a successful build or snapshot alone is not acceptance.
+
+## Source handoff
+
+PR: https://github.com/9eskot9-max/SIG_Warehouse/pull/32. Source is based on the separately merged petty-cash release `b609364`, whose migration is preserved before this one in patches.txt. That release is already on Cloud's target bench while the production site's Apps page still reports `98b3ce4`; this Operations PR is left unmerged and no Cloud deployment/update is started by this change.
+
+Validation: **48 tests PASS** (cycle thresholds, stored PM stage preservation, pending work, exports, migration-source parity/idempotency and existing Field Visit access repair). Both JS syntax checks PASS. The exact live intake script with the proposed stage block compiles under RestrictedPython 8.0 and rewrites idempotently. An offline simulation against the 532-cycle/347-visit snapshot makes no demotions, closures or PM-note edits and has zero changes on its second run. This simulation is not a native Frappe migration/transaction test. No source permissions, role profiles, user assignments or live business data were changed during preparation.
