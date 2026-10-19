@@ -45,9 +45,11 @@ The live read-only preview contains 532 open cycles. It proposes 26 stage correc
 
 Preview files: `ERPNext/backups/permission_release_evidence_gated_handover_20261019/handover_stage_reconciliation_preview.csv` and `.json`.
 
-## Source handoff
+## Release verification — 20 October 2026
 
-PR: https://github.com/9eskot9-max/SIG_Warehouse/pull/32. Source is based on the separately merged petty-cash release `b609364`, whose migration is preserved before this one in patches.txt. That release is already on Cloud's target bench while the production site's Apps page still reports `98b3ce4`; this Operations PR is left unmerged and no Cloud deployment/update is started by this change.
+Follow-up PR [#35](https://github.com/9eskot9-max/SIG_Warehouse/pull/35) merged as `2175bd72` and deployed to the active `neosys.frappe.cloud` site. Cloud reports the new app hash installed, no deployment in progress and no pending app updates. Site update `69j7ved856` completed with backups enabled and failing patches not skipped.
 
-Validation: **48 tests PASS** (cycle thresholds, stored PM stage preservation, pending work, exports, migration-source parity/idempotency and existing Field Visit access repair). Both JS syntax checks PASS. The exact live intake script with the proposed stage block compiles under RestrictedPython 8.0 and rewrites idempotently. An offline simulation against the 532-cycle/347-visit snapshot makes no demotions, closures or PM-note edits and has zero changes on its second run. This simulation is not a native Frappe migration/transaction test. No source permissions, role profiles, user assignments or live business data were changed during preparation.
+The live read-back matches the preview: 532 open cycles; 269 Initial, 181 Plan, 15 Handover, 67 Invoicing. Exactly 26 saved Handover cycles moved (23 to Plan, 3 to Initial); no cycle was closed and no Invoicing stage changed. Open stage items are 1,168 and review due is 454; the 28-item increase is pending Plan work now visible on the corrected cycles, not newly created ToDos. No Plan cycle already meeting the Handover rule remains unpromoted. Live checks found zero stage/task placement violations: As-Built BOQ is only in Invoicing; Handover tasks and As-Built Operational status are absent after HO/invoice evidence.
+
+Validation: **49 cycle rule and Operations Workbench tests PASS**. The Site Cycles and Operations Workbench routes render after deployment. Permission snapshot diff: 0 removed, 0 added; standard DocType permissions, Quotation permissions, 590 Custom DocPerm rows and 121 User Permissions are unchanged. A fresh direct PM/coordinator session and workflow test remains NOT TESTED; the browser route was checked in the existing impersonated session. Detailed evidence and the affected-cycle CSV are in `ERPNext/backups/permission_release_evidence_gated_handover_20261019/`.
 
