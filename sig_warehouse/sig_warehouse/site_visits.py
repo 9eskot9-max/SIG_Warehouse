@@ -23,9 +23,10 @@ from sig_warehouse.sig_warehouse import field_feed, field_sessions as fs
 STREAM_PM = {
     'tiinc': 'Abdulraheem Mohammed',             # Incident Recovery
     'ticpx': 'Mohammed Sohail Mohammed Ilyas',   # Capex-DG/DC/HVAC Update
+    'ticpx2': 'Mohammed Sohail Mohammed Ilyas',  # Live load transfer/SIG (Capex2)
     'ti5g': 'Mohammed Imran Ansary',             # SIG_5G_Collocation
 }
-STREAM_LABEL = {'tiinc': 'Incident', 'ticpx': 'Capex', 'ti5g': '5G Collocation'}
+STREAM_LABEL = {'tiinc': 'Incident', 'ticpx': 'Capex', 'ticpx2': 'Capex2', 'ti5g': '5G Collocation'}
 
 
 def text_value(value):

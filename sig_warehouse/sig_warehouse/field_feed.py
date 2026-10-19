@@ -11,6 +11,7 @@ existing register_evidence_event endpoint (one code path to SIG Field Visit / Si
 its SIG Site is created and linked when missing, and a stale feed raises a ToDo.
 """
 import hashlib
+import traceback
 from datetime import datetime, timedelta, timezone
 
 import frappe
@@ -26,7 +27,7 @@ POST_BATCH = 25                          # sessions posted per run
 STALE_HOURS = 24                         # no Inbox row at all for this long raises an alert
 DEFAULT_WH = "\u0645\u0633\u062a\u0648\u062f\u0639 \u0627\u0644\u0645\u0632\u0627\u062d\u0645\u064a\u0629 - SIG"
 # group stream -> the project label the RV80 evidence events used on Site Cycles (5g / Capex-9 / incident)
-STREAM_PROJECT = {"ti5g": "5g", "ticpx": "Capex-9", "tiinc": "incident"}
+STREAM_PROJECT = {"ti5g": "5g", "ticpx": "Capex-9", "ticpx2": "Capex", "tiinc": "incident"}
 
 
 def _now():
@@ -156,6 +157,8 @@ def post_session(name, force=False):
         return {"result": "already_posted"}
     if not force and (s.status != "COMPLETED" or s.disposition != "PENDING"):
         return {"result": "not_eligible", "status": s.status, "disposition": s.disposition}
+    if s.stream == "ticpx2":
+        _check_capex2_scope(s.site_key)
     created_site = _ensure_site(s.site_key)
     who = frappe.db.get_value("Employee", s.employee, "employee_name") if s.employee else None
     now = fs.fmt(_now())
@@ -164,8 +167,8 @@ def post_session(name, force=False):
     payload = {
         "event_code": "FIELD_VISIT_COMPLETED", "site_id": s.site_key, "site_key": s.site_key,
         "occurred_at": str(end_at)[:19], "recorded_at": now, "project": STREAM_PROJECT.get(s.stream, s.stream),
-        "artifact_ref": s.name, "batch_id": _batch_id(s.name), "seq": 1, "source_sub": "WA-FEED",
-        "source_workbook": "sig_warehouse.field_feed", "operator": "field_feed", "machine": "erpnext",
+        "artifact_ref": s.name, "batch_id": _batch_id(s.name), "seq": 1,
+        "operator": "field_feed", "machine": "erpnext",
         "core_version": "F2", "session_key": s.name, "status": "COMPLETED", "start_at": str(s.start_at)[:19],
         "end_at": str(end_at)[:19], "duration_hours": s.hours or 0, "reporter": s.reporter,
         "reporter_name": who or s.reporter_name, "activity_code": s.activity_code or "UNSPECIFIED",
@@ -190,6 +193,17 @@ def post_session(name, force=False):
     return {"result": res.get("result") or "created", "site_created": created_site, "cycle": cycle}
 
 
+def _check_capex2_scope(site):
+    """The new group's family must not be silently applied to another family's work."""
+    for cycle in frappe.get_all("SIG Site Cycle", filters={"site_key": site, "terminal": 0},
+                               fields=["name", "project", "erp_project"], limit_page_length=0):
+        family = frappe.db.get_value("Project", cycle.erp_project, "custom_family") if cycle.erp_project else None
+        label = str(family or cycle.project or "").strip().lower()
+        if label in ("incident", "colocation", "colo", "5g"):
+            raise ValueError("Capex2 visit needs scope review: %s has another project's open cycle %s" %
+                             (site, cycle.name))
+
+
 def _post_pending(limit=POST_BATCH):
     names = frappe.get_all("SIG Field Session", filters={"disposition": "PENDING", "status": "COMPLETED", "posted": 0},
                            order_by="start_at asc", pluck="name", limit_page_length=limit)
@@ -199,7 +213,9 @@ def _post_pending(limit=POST_BATCH):
             r = post_session(name)
         except Exception:
             frappe.db.rollback()
-            frappe.log_error(title="SIG field feed post failed: " + name)
+            # Keep the full key and original error out of the 140-character title.
+            frappe.log_error(title="SIG field feed post failed",
+                             message="Session: " + name + "\n" + traceback.format_exc())
             failed += 1
             continue
         if r.get("result") in ("created", "duplicate"):
@@ -278,6 +294,9 @@ def run_feed(rebuild=False):
         if mode == "Live" and caught_up:
             frappe.db.commit()
             posted = _post_pending()
+            if posted["failed"]:
+                raise RuntimeError("Field evidence posting failed for %d session(s); see SIG field feed post failed logs." %
+                                   posted["failed"])
 
         newest = frappe.db.sql("select max(occurred_at) from `tabSIG Field Message`")[0][0]
         inbox_at = last_row_at or st.get("feed_last_inbox_at")
@@ -303,13 +322,57 @@ def run_feed(rebuild=False):
                 "exceptions": len(exceptions), **posted}
     except Exception:
         frappe.db.rollback()
-        frappe.log_error(title="SIG field feed run failed")
+        error = traceback.format_exc()
+        frappe.log_error(title="SIG field feed run failed", message=error)
         frappe.db.set_value("SIG Field Ops Settings", "SIG Field Ops Settings", {
-            "feed_last_run": fs.fmt(now), "feed_status": "ERROR", "feed_error": frappe.get_traceback()[-900:]})
+            "feed_last_run": fs.fmt(now), "feed_status": "ERROR", "feed_error": error[-900:]})
         frappe.db.commit()
         _alert(st, "SIG-FEED-ERROR", "The field visit feed run failed; see SIG Field Ops Settings > Last Error and the Error Log.")
         frappe.db.commit()
-        return {"result": "error"}
+        # Scheduler success means evidence acceptance succeeded, not just that
+        # the runner swallowed its exception. Settings/error alert are committed.
+        raise
+
+
+@frappe.whitelist()
+def sig_field_feed_import_capex2(since="", dry_run=1):
+    """Preview/import only the newly enabled group, without resetting the Inbox cursor.
+
+    Default to the current 72-hour session window. Older history requires an
+    explicit dated preview; no force-posting of unpaired/auto-closed sessions.
+    """
+    if "System Manager" not in frappe.get_roles():
+        frappe.throw("Not permitted", frappe.PermissionError)
+    now = _now()
+    trusted_from = fs.fmt(fs.parse_ts(str(since))) if since else fs.fmt(now - timedelta(hours=WINDOW_HOURS))
+    # Include an earlier Start for a session whose End falls inside the window.
+    fetch_from = fs.fmt(fs.parse_ts(trusted_from) - timedelta(hours=24))
+    # Inbox A's inferred Google type varies across exports. Compare canonical
+    # timestamps locally, as the normal cursor initializer does, instead of a
+    # GViz string/date comparison that can silently return zero rows.
+    group_rows = fs._gviz("select A,C,D,E,F where E = '120363025557580310@g.us'")
+    raw = [row for row in group_rows if row and str(row[0])[:19] >= fetch_from]
+    messages = []
+    for row in raw:
+        if len(row) >= 5:
+            message = fs.parse_row(row[:5])
+            if message and message["kind"] in ("START", "END", "MEDIA"):
+                messages.append(message)
+    sessions, exceptions = fs.assemble(messages, now)
+    current = [session for session in sessions if fs.fmt(session["start_at"]) >= trusted_from]
+    result = {"since": trusted_from, "source_rows": len(raw), "messages": len(messages),
+              "sessions": [{"site": session["site"], "status": session["status"],
+                            "start_at": fs.fmt(session["start_at"]),
+                            "end_at": fs.fmt(session["end_at"]) if session["end_at"] else None}
+                           for session in current], "exceptions": len(exceptions)}
+    if int(dry_run):
+        return {"result": "preview", **result}
+    stored, _last = _store_messages(messages)
+    sites = set(frappe.get_all("SIG Site", pluck="name", limit_page_length=0))
+    touched = _upsert_sessions(sessions, trusted_from, sites, _employee_by_phone())
+    frappe.db.commit()
+    return {"result": "imported", "stored": stored, "touched": touched,
+            "posting": "normal live feed; no forced historical visits", **result}
 
 
 @frappe.whitelist()

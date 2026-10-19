@@ -26,13 +26,17 @@ def derive_cycle_state(row):
     sig_plan = [str(row.get(sig_field))[:19] for sig_field in
                 ("pimp_at", "tcn_at", "mir_at", "first_visit_at", "tags_at") if row.get(sig_field)]
     if row.get("terminal") in (1, True, "1", "Yes", "yes"):
-        stage, anchor = "5 - Closed", None
+        stage = "5 - Closed"
+        anchor = None
     elif sig_final:
-        stage, anchor = "4 - Invoicing", min(sig_final)
+        stage = "4 - Invoicing"
+        anchor = min(sig_final)
     elif sig_handover:
-        stage, anchor = "3 - Handover", min(sig_handover)
+        stage = "3 - Handover"
+        anchor = min(sig_handover)
     elif sig_plan:
-        stage, anchor = "2 - Plan", max(sig_plan)
+        stage = "2 - Plan"
+        anchor = max(sig_plan)
     else:
         stage = "1 - Initial"
         anchor = str(row.get("mapping_at") or row.get("boq_at") or row.get("last_event_at") or "")[:19] or None

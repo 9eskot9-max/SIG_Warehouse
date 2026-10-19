@@ -390,7 +390,8 @@ def _cycle_view(row, project, today, operational=None):
             if not (visit_count if key == "visit" else row.get(field)):
                 work.append({"key": key, "label": label, "owner_role": role,
                              "closes_on": label + " evidence"})
-    if not closed and stage in ("2 - Plan", "3 - Handover") and prepared and not row.get("tags_at"):
+    if (not closed and stage in ("2 - Plan", "3 - Handover") and not row.get("tags_at")
+            and (family in ("Capex", "Colocation") or prepared)):
         work.append({"key": "tags", "label": "Tags", "owner_role": "co",
                      "stage": "2 - Plan" if stage == "2 - Plan" else "3 - Handover",
                      "closes_on": "Tags evidence"})

@@ -25,12 +25,13 @@ MAX_TEXT = 80               # a Start/End command is short; longer text is conve
 STREAM_BY_GROUP = {
     "120363147758691305@g.us": "ti5g",      # SIG_5G_Collocation
     "966550946813-1635410699@g.us": "ticpx",  # Capex-DG/DC/HVAC Update
+    "120363025557580310@g.us": "ticpx2",    # Live load transfer/SIG — Capex2
     "120363027593567578@g.us": "tiinc",     # Incident Recovery
 }
 ACTIVITIES = {"SURVEY", "INSTALL", "HANDOVER", "WARRANTY", "DISMANTLE", "SNAG"}
 ACTIVITY_ALIAS = {"HO": "HANDOVER", "INSTALLATION": "INSTALL", "IMPLEMENT": "INSTALL"}
 
-_SITE = re.compile(r"(?<![A-Za-z0-9])([A-Za-z]{1,4}\d{3,5}[A-Za-z]?|\d{3}-\d{2}-\d{3})(?![A-Za-z0-9])")
+_SITE = re.compile(r"(?<![A-Za-z0-9])([A-Za-z]{1,4}\d{3,5}(?:[A-Za-z]\d{0,2})?|\d{3}-\d{2}-\d{3})(?![A-Za-z0-9])")
 _CMD = re.compile(r"(?<![A-Za-z])(start|end)(?![A-Za-z])", re.I)
 
 
