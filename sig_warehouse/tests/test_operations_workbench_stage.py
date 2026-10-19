@@ -71,6 +71,16 @@ def test_ho_evidence_moves_open_asbuilt_boq_task_to_erp_invoicing_stage():
     assert co_tasks == []
 
 
+def test_cycle_response_preserves_evidence_derived_gross_value():
+    workbench = _workbench()
+    project = {"name": "10001134", "custom_family": "Incident"}
+    cycle = workbench._cycle_view(_cycle(gross_value=39693.91), project, "2026-10-19")
+    assert cycle["gross_value"] == 39693.91
+
+    cycle_without_value = workbench._cycle_view(_cycle(gross_value=None), project, "2026-10-19")
+    assert cycle_without_value["gross_value"] is None
+
+
 def test_invoicing_writer_rewrites_sla_and_delay_keys_idempotently():
     patch = _stage_patch()
     old_script = (

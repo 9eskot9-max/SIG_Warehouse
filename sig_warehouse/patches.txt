@@ -15,3 +15,4 @@ sig_warehouse.sig_warehouse.patches.v1_0.repair_invoicing_delay_state
 sig_warehouse.sig_warehouse.patches.v1_0.enable_pc_review_access
 sig_warehouse.sig_warehouse.patches.v1_0.clean_pc_review_workspace_link
 sig_warehouse.sig_warehouse.patches.v1_0.enable_operations_coordinator_access
+sig_warehouse.sig_warehouse.patches.v1_0.restore_sig_field_visit_access

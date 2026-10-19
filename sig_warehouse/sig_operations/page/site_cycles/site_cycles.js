@@ -13,6 +13,12 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
     const date = (value) => value ? frappe.datetime.str_to_user(String(value).slice(0, 10)) : '—';
     const ownerLabel = (item) => (item.owner_names || []).join(' / ');
     const cycleAlias = (cycle) => cycle.alias || cycle.project_alias || cycle.family || '—';
+    const money = (value) => {
+        const amount = Number(value);
+        return Number.isFinite(amount) && amount > 0
+            ? `${new Intl.NumberFormat(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}).format(amount)} SAR`
+            : '';
+    };
     const stageTone = (stage) => stage.startsWith('1 -') ? 'initial'
         : stage.startsWith('2 -') ? 'plan'
             : stage.startsWith('3 -') ? 'handover'
@@ -22,13 +28,40 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
         return (state.data.cycles || []).filter((cycle) => !state.family || cycle.family === state.family);
     }
 
+    // Match the legacy Evidence Dashboard: keep the project-family clusters
+    // together, then show the most advanced active stages first inside each
+    // cluster. Within a stage, older due items come first, followed by site.
+    function legacyCycleOrder(cycle) {
+        const family = String(cycle.family || '').trim().toLowerCase();
+        const familyOrder = /5g|colocation/.test(family) ? 1
+            : /capex/.test(family) ? 2
+                : /incident/.test(family) ? 3 : 9;
+        const stage = String(cycle.stage || '').match(/^([1-4])/);
+        const stageRank = stage ? Number(stage[1]) : 0;
+        const due = String(cycle.stage_due_on || '9999-12-31').slice(0, 10);
+        const site = String(cycle.site || '').toLowerCase();
+        return [familyOrder, -stageRank, due, site];
+    }
+
+    function sortCyclesLikeLegacy(cycles) {
+        return cycles.sort((a, b) => {
+            const left = legacyCycleOrder(a);
+            const right = legacyCycleOrder(b);
+            for (let i = 0; i < left.length; i++) {
+                if (left[i] < right[i]) return -1;
+                if (left[i] > right[i]) return 1;
+            }
+            return 0;
+        });
+    }
+
     function visibleCycles() {
         const query = state.query.toLowerCase();
-        return cyclesForFamily().filter((cycle) => {
+        return sortCyclesLikeLegacy(cyclesForFamily().filter((cycle) => {
             if (state.stage && cycle.stage !== state.stage) return false;
             const haystack = [cycle.site, cycle.name, cycle.wo, cycle.ba, cycle.project_id, cycle.alias, cycle.family].join(' ').toLowerCase();
             return !query || haystack.includes(query);
-        });
+        }));
     }
 
     function shell() {
@@ -122,12 +155,13 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
         root.find('.sig-cycles-count').text(`${allRows.length} ${__('cycles')}`);
         const body = rows.map((cycle) => {
             const alias = cycleAlias(cycle);
+            const woValue = money(cycle.gross_value);
             const signal = cycle.needs_review
                 ? `<span class="sig-cycles-badge warning">${__('Review due')}</span>`
                 : `<span class="sig-cycles-badge">${__('Open')}</span>`;
             const reason = cycle.delay_reason || cycle.delay_note;
             return `<tr data-cycle="${esc(cycle.name)}" class="${state.selected === cycle.name ? 'selected' : ''}">
-                <td><a href="#" class="sig-cycles-site" data-cycle="${esc(cycle.name)}">${esc(cycle.site)}</a><small>${__('WO')}: ${esc(cycle.wo || '—')}</small></td>
+                <td><a href="#" class="sig-cycles-site" data-cycle="${esc(cycle.name)}">${esc(cycle.site)}</a><small>${__('WO')}: ${esc(cycle.wo || '—')}</small>${woValue ? `<small>${__('WO value')}: ${esc(woValue)}</small>` : ''}</td>
                 <td><strong>${esc(cycle.ba || cycle.project_id || '—')}</strong><small>${esc(alias)}</small></td>
                 <td><span class="sig-cycles-stage tone-${stageTone(cycle.stage)}">${esc(cycle.stage)}</span></td>
                 <td>${workHtml(cycle)}</td><td>${signal}${reason ? `<small>${esc(reason)}</small>` : ''}${cycle.stage_due_on ? `<small>${__('Due')}: ${date(cycle.stage_due_on)}</small>` : ''}</td></tr>`;

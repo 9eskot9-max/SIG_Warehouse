@@ -6,6 +6,12 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
     const pageSize = 50;
     const esc = (v) => frappe.utils.escape_html(v == null ? '' : String(v));
     const date = (v) => v ? frappe.datetime.str_to_user(String(v).slice(0, 10)) : '—';
+    const money = (v) => {
+        const amount = Number(v);
+        return Number.isFinite(amount) && amount > 0
+            ? esc(new Intl.NumberFormat(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}).format(amount) + ' SAR')
+            : '';
+    };
     const link = (doctype, name, label) => name ? '<a href="#" data-doctype="' + esc(doctype) + '" data-name="' + esc(name) + '">' + esc(label || name) + '</a>' : '—';
     const ownerLabel = (task) => {
         return (task.owner_names || []).join(' / ');
@@ -78,7 +84,8 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
                 ? '<button class="btn btn-default sig-ops-close-one" data-cycle-name="' + esc(cycle.name) + '">' + __('Close cycle') + '</button>' : '';
             const projectLabel = cycle.alias || cycle.family || '—';
             const operationalStatus = firstCycleRow ? operationalStatusHtml(cycle) : '';
-            return '<tr data-cycle="' + esc(cycle.name) + '" class="' + (checked ? 'selected' : '') + '"><td>' + (selectable ? '<input type="checkbox" class="sig-ops-cycle-check" value="' + esc(cycle.name) + '" ' + (checked ? 'checked' : '') + '>' : '') + '</td><td><b>' + link('SIG Site Cycle', cycle.name, cycle.site) + '</b><small>' + __('WO') + ': ' + esc(cycle.wo || '—') + '</small></td><td><b>' + esc(cycle.ba || '—') + '</b><small>' + esc(projectLabel) + '</small></td><td><span class="sig-ops-stage-label">' + esc(stage || cycle.stage) + '</span></td><td>' + esc(label) + (task.shared ? '<small>' + esc(ownerLabel(task)) + '</small>' : '') + operationalStatus + '</td><td><span class="' + ((row.kind === 'cycle' ? cycle.needs_review : task.needs_review) ? 'sig-ops-badge warning' : 'sig-ops-badge') + '">' + esc(status || __('Open')) + '</span>' + (reason ? '<small>' + esc(reason) + '</small>' : '') + closeButton + '</td></tr>';
+            const woValue = money(cycle.gross_value);
+            return '<tr data-cycle="' + esc(cycle.name) + '" class="' + (checked ? 'selected' : '') + '"><td>' + (selectable ? '<input type="checkbox" class="sig-ops-cycle-check" value="' + esc(cycle.name) + '" ' + (checked ? 'checked' : '') + '>' : '') + '</td><td><b>' + link('SIG Site Cycle', cycle.name, cycle.site) + '</b><small>' + __('WO') + ': ' + esc(cycle.wo || '—') + '</small>' + (woValue ? '<small>' + __('WO value') + ': ' + woValue + '</small>' : '') + '</td><td><b>' + esc(cycle.ba || '—') + '</b><small>' + esc(projectLabel) + '</small></td><td><span class="sig-ops-stage-label">' + esc(stage || cycle.stage) + '</span></td><td>' + esc(label) + (task.shared ? '<small>' + esc(ownerLabel(task)) + '</small>' : '') + operationalStatus + '</td><td><span class="' + ((row.kind === 'cycle' ? cycle.needs_review : task.needs_review) ? 'sig-ops-badge warning' : 'sig-ops-badge') + '">' + esc(status || __('Open')) + '</span>' + (reason ? '<small>' + esc(reason) + '</small>' : '') + closeButton + '</td></tr>';
         }).join('');
         const pager = pageCount > 1 ? '<div class="sig-ops-pagination"><button class="btn btn-default sig-ops-prev" ' + (pageNumber <= 1 ? 'disabled' : '') + '>' + __('Previous') + '</button><span>' + __('Page {0} of {1}', [pageNumber, pageCount]) + '</span><button class="btn btn-default sig-ops-next" ' + (pageNumber >= pageCount ? 'disabled' : '') + '>' + __('Next') + '</button></div>' : '';
         const routeMessage = route.ready ? '' : '<div class="sig-ops-empty">' + __('Stage task routing needs review: ') + esc(route.issue || __('Your Employee link could not be verified.')) + '</div>';
