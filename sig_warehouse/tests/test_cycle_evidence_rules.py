@@ -33,10 +33,14 @@ def test_second_visit_anchor_does_not_reset_on_third_visit():
     assert derive_cycle_state(row) == ("3 - Handover", "2026-10-05")
 
 
-def test_manual_advanced_stage_and_explicit_closure_are_preserved():
+def test_invoicing_decision_is_preserved_but_handover_requires_current_evidence():
     assert derive_cycle_state(dict(stage="4 - Invoicing", stage_anchor_at="2026-09-01")) == (
         "4 - Invoicing", "2026-09-01")
-    assert derive_cycle_state(dict(stage="3 - Handover", mapping_at="2026-09-01"))[0] == "3 - Handover"
+    assert derive_cycle_state(dict(stage="3 - Handover", tcn_at="2026-09-01"))[0] == "2 - Plan"
+    assert derive_cycle_state(dict(stage="3 - Handover", mapping_at="2026-09-01"))[0] == "1 - Initial"
+    assert derive_cycle_state(dict(stage="3 - Handover", tcn_at="2026-09-01", mir_at="2026-09-02",
+                                   first_visit_at="2026-09-03", sessions_completed=1,
+                                   tags_at="2026-09-04"))[0] == "3 - Handover"
     assert derive_cycle_state(dict(stage="5 - Closed", terminal=0, tcn_at="2026-09-01"))[0] == "2 - Plan"
     assert derive_cycle_state(dict(stage="1 - Initial", mapping_at="2026-09-01"))[0] == "1 - Initial"
 
@@ -81,6 +85,44 @@ def test_patch_embeds_canonical_rule_and_is_idempotent_without_replacing_other_w
         patch.rewrite_evidence_writer("unrecognized writer")
 
 
+def test_evidence_gated_handover_patch_is_registered_and_reconciles_existing_cycles(monkeypatch):
+    patch = _patch()
+    source = Path(__file__).resolve().parents[1] / "patches.txt"
+    assert "sig_warehouse.sig_warehouse.patches.v1_0.reconcile_evidence_gated_handover" in source.read_text()
+
+    class DB:
+        scripts = {"register_evidence_event": "event script", "sig_field_ops_daily": "daily script"}
+        writes = {}
+
+        def exists(self, doctype, name):
+            return name in self.scripts
+
+        def get_value(self, doctype, name, field):
+            return self.scripts[name]
+
+        def set_value(self, doctype, name, field, value):
+            self.writes[name] = value
+
+    db = DB()
+    frappe = sys.modules["frappe"]
+    frappe.db = db
+    frappe.clear_cache = lambda **kwargs: None
+    frappe.logger = lambda name: SimpleNamespace(info=lambda *args: None)
+    migration = Path(__file__).resolve().parents[1] / "sig_warehouse/patches/v1_0/reconcile_evidence_gated_handover.py"
+    spec = importlib.util.spec_from_file_location("reconcile_evidence_gated_handover_test", migration)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "rewrite_evidence_writer", lambda text: text + " updated")
+    monkeypatch.setattr(module, "rewrite_daily_flags", lambda text: text + " updated")
+    reconciled = []
+    monkeypatch.setattr(module, "reconcile_open_cycles", lambda: reconciled.append(True) or 26)
+
+    module.execute()
+
+    assert db.writes == {name: text + " updated" for name, text in db.scripts.items()}
+    assert reconciled == [True]
+
+
 def test_daily_writer_keeps_invoice_delay_checkpoint_and_other_settings():
     patch = _patch()
     source = "stage_checkpoint = {'3 - Handover': 'handover', '4 - As-Built': 'asbuilt'}\n# unchanged\n"
@@ -88,3 +130,4 @@ def test_daily_writer_keeps_invoice_delay_checkpoint_and_other_settings():
     assert "'4 - Invoicing': 'invoicing'" in result
     assert "# unchanged" in result
     assert patch.rewrite_daily_flags(result) == result
+
