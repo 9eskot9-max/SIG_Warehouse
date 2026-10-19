@@ -6,6 +6,7 @@ adds permission-checked native Comments.
 """
 
 import frappe
+from sig_warehouse.sig_warehouse.cycle_rules import derive_cycle_state
 
 
 def text_value(value):
@@ -84,10 +85,11 @@ def position_for(row):
         return 'Explicit closure', 'SITE_CLOSED'
     if row.get('asbuilt_at'):
         return 'As-built recorded', 'As-built evidence exists; closure remains separate'
-    if row.get('ho_at'):
-        return 'As-built preparation', 'Handover document recorded'
-    if row.get('first_visit_at') and row.get('tcn_at') and row.get('mir_at'):
-        return 'Handover evidence', 'Visit + TCN + MIR'
+    stage, _anchor = derive_cycle_state(row)
+    if stage == '4 - Invoicing':
+        return 'Invoicing', 'Handover / invoice evidence recorded'
+    if stage == '3 - Handover':
+        return 'Handover', 'TCN + MIR + Visit + Tags, two visits, or downstream evidence'
     if row.get('pimp_at') or row.get('tcn_at') or row.get('mir_at') or row.get('first_visit_at'):
         return 'Implementation', 'Implementation evidence is partial'
     return 'Preparation', 'Mapping / BOQ evidence'
@@ -134,6 +136,7 @@ def get_progress(project='', view='current', search=''):
         "SELECT sc.name, sc.site_key, sc.site, sc.project, sc.po, sc.wo, sc.scope_id, "
         "sc.stage, sc.terminal, sc.closed_on, sc.gross_value, sc.mapping_at, sc.boq_at, "
         "sc.pimp_at, sc.tcn_at, sc.mir_at, sc.first_visit_at, sc.first_impl_visit_at, "
+        "sc.last_visit_at, sc.sessions_completed, sc.sessions_auto_closed, "
         "sc.tags_at, sc.photos_at, sc.warranty_at, sc.ho_at, sc.ho_doc_type, sc.asbuilt_at, "
         "sc.last_event_at, sc.last_event_code, sc.stage_anchor_at, sc.stage_due_on, "
         "sc.delay_reason, sc.delay_note, sc.cycle_flags, sc.resolution_state "
@@ -156,7 +159,7 @@ def get_progress(project='', view='current', search=''):
             'name': name, 'site': text_value(row.site_key) or text_value(row.site),
             'project': text_value(row.project) or 'Basic / unallocated work',
             'po': text_value(row.po), 'wo': text_value(row.wo), 'scope_id': text_value(row.scope_id),
-            'stage': text_value(row.stage), 'terminal': int(row.terminal or 0),
+            'stage': derive_cycle_state(row)[0], 'terminal': int(row.terminal or 0),
             'position': position, 'basis': basis, 'gross_value': row.gross_value,
             'activities': activity_for(row), 'last_event_at': str(row.last_event_at or ''),
             'last_event_code': text_value(row.last_event_code),

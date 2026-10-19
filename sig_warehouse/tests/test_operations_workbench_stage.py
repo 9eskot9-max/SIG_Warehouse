@@ -23,7 +23,7 @@ class Row(dict):
 
 def _cycle(**overrides):
     row = Row(name="ZBH874|WO-1|20260823", site_key="ZBH874", project="Incident",
-              erp_project="10001134", po="10001134", wo="WO-1", stage="4 - As-Built",  # pre-migration stored label
+              erp_project="10001134", po="10001134", wo="WO-1", stage="1 - Initial",  # stage must follow fixture evidence
               terminal=0, ho_at="2026-08-23 14:59:46", asbuilt_at=None,
               stage_due_on="2026-09-06", is_delayed=1, is_aged=1)
     row.update(overrides)
@@ -128,9 +128,9 @@ def test_cycle_summary_uses_four_erp_stages_and_closed_is_terminal():
     workbench = _workbench()
     project = {"name": "10001134", "custom_family": "Incident"}
     initial = workbench._cycle_view(_cycle(ho_at=None), project, "2026-10-13")
-    plan = workbench._cycle_view(_cycle(ho_at=None, mapping_at="2026-08-19"), project, "2026-10-13")
+    plan = workbench._cycle_view(_cycle(ho_at=None, tcn_at="2026-08-19"), project, "2026-10-13")
     handover = workbench._cycle_view(
-        _cycle(ho_at=None, tcn_at="2026-08-20", mir_at="2026-08-20", first_visit_at="2026-08-21"),
+        _cycle(ho_at=None, tcn_at="2026-08-20", mir_at="2026-08-20", first_visit_at="2026-08-21", sessions_completed=2, last_visit_at="2026-08-22"),
         project, "2026-10-13")
     invoicing = workbench._cycle_view(_cycle(), project, "2026-10-13")
     closed = workbench._cycle_view(_cycle(terminal=1, ho_at=None), project, "2026-10-13")
@@ -154,11 +154,11 @@ def test_asbuilt_file_closes_on_its_own_evidence_and_invoicing_stage_keeps_it_vi
 def test_gcl_keeps_parallel_handover_work_when_preparation_is_evidenced():
     workbench = _workbench()
     cycle = workbench._cycle_view(
-        _cycle(ho_at=None, tcn_at="2026-08-20", mir_at="2026-08-20", first_visit_at="2026-08-21"),
+        _cycle(ho_at=None, tcn_at="2026-08-20", mir_at="2026-08-20", first_visit_at="2026-08-21", sessions_completed=2, last_visit_at="2026-08-22"),
         {"name": "10001134", "custom_family": "Incident"}, "2026-10-13",
         {"applicable": True, "closed": False, "source_dns": ["DN-1"]})
     assert {(item["key"], item["owner_role"]) for item in cycle["work"]} == {
-        ("tags", "co"), ("photos", "co"), ("asbuilt_operational", "warehouse"), ("asbuilt", "pm")}
+        ("tags", "co"), ("asbuilt_operational", "warehouse"), ("asbuilt", "pm")}
     operational = next(item for item in cycle["work"] if item["key"] == "asbuilt_operational")
     assert operational["stage"] == "3 - Handover"
     assert operational["source_dns"] == ["DN-1"]
@@ -167,14 +167,14 @@ def test_gcl_keeps_parallel_handover_work_when_preparation_is_evidenced():
 def test_ho_moves_only_the_cycle_summary_and_boq_file_to_invoicing():
     workbench = _workbench()
     cycle = workbench._cycle_view(
-        _cycle(tcn_at="2026-08-20", mir_at="2026-08-20", first_visit_at="2026-08-21"),
+        _cycle(tcn_at="2026-08-20", mir_at="2026-08-20", first_visit_at="2026-08-21", sessions_completed=2, last_visit_at="2026-08-22"),
         {"name": "10001134", "custom_family": "Incident"}, "2026-10-13",
         {"applicable": True, "closed": False, "source_dns": ["DN-1"]})
     assert cycle["stage"] == "4 - Invoicing"
     stages = {item["key"]: item.get("stage", workbench.TASK_STAGE.get(item["key"]))
               for item in cycle["work"]}
     assert stages == {
-        "tags": "3 - Handover", "photos": "3 - Handover",
+        "tags": "3 - Handover",
         "asbuilt_operational": "3 - Handover", "asbuilt": "4 - Invoicing",
     }
 
@@ -313,7 +313,7 @@ def test_site_cycles_uses_short_names_for_the_confirmed_shared_owner_roster():
     workbench = _workbench()
 
     assert workbench._owner_names("Capex", "pm") == ["Sohil"]
-    assert workbench._owner_names("Capex", "co") == ["Gulzar"]
+    assert workbench._owner_names("Capex", "co") == ["Gulzar", "Sultan"]
     assert workbench._owner_names("Incident", "pm") == ["Sohil", "Raheem"]
     assert workbench._owner_names("Incident", "co") == ["Arshad"]
     assert workbench._owner_names("Colocation", "pm") == ["Imran"]
@@ -485,7 +485,7 @@ def test_legacy_cycle_project_family_fallback_keeps_warehouse_task_routable():
     workbench = _workbench()
     cycle = workbench._cycle_view(
         _cycle(erp_project=None, ho_at=None, tcn_at="2026-08-20", mir_at="2026-08-20",
-              first_visit_at="2026-08-21"), None, "2026-10-13",
+              first_visit_at="2026-08-21", sessions_completed=2, last_visit_at="2026-08-22"), None, "2026-10-13",
         {"applicable": True, "closed": False, "source_dns": ["DN-1"]})
     assert cycle["family"] == "Incident"
     tasks = workbench._stage_tasks_for_user([cycle], [{"scope": "Incident", "role": "warehouse"}])
@@ -495,7 +495,7 @@ def test_legacy_cycle_project_family_fallback_keeps_warehouse_task_routable():
 def test_asbuilt_operational_is_not_assigned_to_pm_or_co_and_does_not_close_cycle():
     workbench = _workbench()
     cycle = workbench._cycle_view(
-        _cycle(ho_at=None, tcn_at="2026-08-20", mir_at="2026-08-20", first_visit_at="2026-08-21"),
+        _cycle(ho_at=None, tcn_at="2026-08-20", mir_at="2026-08-20", first_visit_at="2026-08-21", sessions_completed=2, last_visit_at="2026-08-22"),
         {"name": "10001134", "custom_family": "Incident"}, "2026-10-13",
         {"applicable": True, "closed": False, "source_dns": ["DN-1"]})
     pm = workbench._stage_tasks_for_user([cycle], [{"scope": "Incident", "role": "pm"}])
@@ -623,3 +623,30 @@ def test_warehouse_status_query_is_limited_to_open_cycles_in_the_callers_scope()
 
     assert [row.name for row in scoped] == ["INC-1"]
     assert [row.name for row in all_project] == ["INC-1", "CAP-1"]
+
+
+def test_one_visit_waits_for_tags_without_photos_or_premature_asbuilt_task():
+    workbench = _workbench()
+    row = _cycle(ho_at=None, stage="2 - Plan", tcn_at="2026-10-01", mir_at="2026-10-02", first_visit_at="2026-10-03")
+    cycle = workbench._cycle_view(row, {"custom_family": "Incident"}, "2026-10-19")
+    assert cycle["stage"] == "2 - Plan"
+    assert [(w["key"], w["stage"]) for w in cycle["work"]] == [("tags", "2 - Plan")]
+    row.update(sessions_completed=2, last_visit_at="2026-10-04")
+    cycle = workbench._cycle_view(row, {"custom_family": "Incident"}, "2026-10-19")
+    assert cycle["stage"] == "3 - Handover"
+    assert {w["key"] for w in cycle["work"]} == {"tags", "asbuilt"}
+
+
+def test_partial_legacy_plan_does_not_need_mapping_before_it_can_show_missing_work():
+    workbench = _workbench()
+    cycle = workbench._cycle_view(_cycle(ho_at=None, mir_at="2026-10-02"), {"custom_family": "Incident"}, "2026-10-19")
+    assert cycle["stage"] == "2 - Plan"
+    assert {w["key"] for w in cycle["work"]} == {"tcn", "visit"}
+
+
+def test_saved_pm_invoicing_decision_does_not_reopen_old_preparation_tasks():
+    workbench = _workbench()
+    cycle = workbench._cycle_view(_cycle(stage="4 - Invoicing", ho_at=None, mir_at="2026-10-02"),
+                                 {"custom_family": "Incident"}, "2026-10-19")
+    assert cycle["stage"] == "4 - Invoicing"
+    assert [(w["key"], w["stage"]) for w in cycle["work"]] == [("asbuilt", "4 - Invoicing")]
