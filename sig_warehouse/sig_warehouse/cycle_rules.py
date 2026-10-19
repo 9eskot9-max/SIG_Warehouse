@@ -11,7 +11,7 @@ def derive_cycle_state(row):
     sig_visit = str(row.get("first_visit_at") or "")[:19]
     sig_tags = str(row.get("tags_at") or "")[:19]
     sig_handover = []
-    if sig_tcn and sig_mir and sig_visit and sig_tags:
+    if sig_tcn and sig_mir and sig_visits >= 1 and sig_tags:
         sig_handover.append(max(sig_tcn, sig_mir, sig_visit, sig_tags))
     if sig_tcn and sig_mir and sig_visits >= 2:
         sig_second = str(row.get("second_visit_at") or row.get("last_visit_at") or sig_visit)[:19]

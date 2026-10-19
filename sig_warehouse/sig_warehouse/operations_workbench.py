@@ -370,7 +370,9 @@ def _cycle_view(row, project, today, operational=None):
     operational_visible = operational is not None
     operational = operational or {"applicable": False, "closed": False, "source_dns": []}
     closed = _flag(row, "terminal")
-    prepared = bool(row.get("tcn_at") and row.get("mir_at") and row.get("first_visit_at"))
+    visit_count = max(int(row.get("sessions_completed") or 0) + int(row.get("sessions_auto_closed") or 0),
+                      1 if row.get("first_visit_at") else 0)
+    prepared = bool(row.get("tcn_at") and row.get("mir_at") and visit_count)
     stored_stage, _anchor = derive_cycle_state(row)
     stage = "Closed" if closed else stored_stage
     in_handover = stage in ("3 - Handover", "4 - Invoicing")
@@ -385,7 +387,7 @@ def _cycle_view(row, project, today, operational=None):
             ("mir", "MIR", "mir_at", "co"),
             ("visit", "Visit", "first_visit_at", "pm"),
         ):
-            if not row.get(field):
+            if not (visit_count if key == "visit" else row.get(field)):
                 work.append({"key": key, "label": label, "owner_role": role,
                              "closes_on": label + " evidence"})
     if not closed and prepared and not row.get("tags_at"):
@@ -413,8 +415,7 @@ def _cycle_view(row, project, today, operational=None):
         "ba": str((project or {}).get("custom_agreement_no") or row.get("po") or ""),
         "alias": str(row.get("project_alias") or ""), "wo": str(row.get("wo") or ""),
         "gross_value": float(row.get("gross_value")) if row.get("gross_value") not in (None, "") else None,
-        "visit_count": max(int(row.get("sessions_completed") or 0) + int(row.get("sessions_auto_closed") or 0),
-                           1 if row.get("first_visit_at") else 0),
+        "visit_count": visit_count,
         "family": family, "stage": stage, "legacy_stage": str(row.get("stage") or ""),
         "terminal": closed, "closed_on": str(row.get("closed_on") or ""),
         "closed_by": str(row.get("closed_by") or ""),

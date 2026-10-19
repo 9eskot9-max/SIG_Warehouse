@@ -12,6 +12,7 @@ from sig_warehouse.sig_warehouse.cycle_rules import derive_cycle_state
 @pytest.mark.parametrize("extra,expected", [
     ({}, "2 - Plan"),
     ({"tags_at": "2026-10-04"}, "3 - Handover"),
+    ({"tags_at": "2026-10-04", "first_visit_at": None, "sessions_auto_closed": 1}, "3 - Handover"),
     ({"sessions_completed": 2, "last_visit_at": "2026-10-04"}, "3 - Handover"),
     ({"sessions_completed": 1, "sessions_auto_closed": 1, "last_visit_at": "2026-10-04"}, "3 - Handover"),
     ({"mir_at": None, "tags_at": "2026-10-04", "sessions_completed": 2}, "2 - Plan"),
