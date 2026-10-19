@@ -433,7 +433,7 @@ def _cycle_view(row, project, today, operational=None):
                                  # Warehouse DN work belongs to Handover only. Once a cycle
                                  # advances to Invoicing, do not leave a stale Open status
                                  # beside its current invoice-stage work.
-                                 "display": operational_visible and stage != "4 - Invoicing",
+                                 "display": operational_visible and stage == "3 - Handover",
                                  "applicable": bool(operational.get("applicable")) if operational_visible else None,
                                  "closed": bool(operational.get("closed")) if operational_visible else None,
                                  "source_dns": operational.get("source_dns") or [],
