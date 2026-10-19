@@ -1,7 +1,7 @@
 // Petty Cash - the main petty cash page (app-owned Desk Page; replaces the website Web Page and the SIG Petty Cash workspace).
 // Runs inside the Desk shell, so the SIG logo/navbar, session, CSRF and permissions are native.
 // Data: SIG PC Transaction + a role-gated resolver over Employee Mobile and linked Contact phones (pc_sender.py).
-// Actions are the sig_pc_* Server Scripts.
+// Confirmation/rejection use the app's atomic native draft-JE commands.
 // Navigation only links to ERPNext records; ERPNext permissions stay authoritative.
 frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
     const page = frappe.ui.make_app_page({parent: wrapper, title: '', single_column: true});
@@ -13,7 +13,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
     const q = (sel) => el.querySelector(sel);
 
     const CATEGORIES = ['Fuel/Disel', 'Hotel Rent', 'Food expenses', 'Equipment Rental', 'Car Maintanence', 'Construction/Operational Material', 'Vehicle OIL change', 'Vehicle Other Misc.', 'Drinking water', 'Medical expenses', 'Phone bill', 'Trailer Rent', 'Dyna Rent', 'Work Labor', 'Car Spare Parts', 'Others', 'Air-Ticket', 'Bus Ticket', 'Fax', 'Iqama fees', 'Office rental', 'Stationaries', 'Taxi', 'Train ticket', 'VISA fees', 'Xerox Copy', 'Fork Lift Rent', 'Pickup Rent', 'Office - Housekeeping', 'Warehouse misc.'];
-    const FIELDS = ['name', 'employee_name', 'transaction_date', 'amount', 'purpose', 'transaction_category', 'has_vat', 'vat_amount', 'supplier_vat_number', 'merchant', 'invoice_number', 'details', 'source_id', 'source_media_url', 'source_row_url'];
+    const FIELDS = ['name', 'modified', 'employee_name', 'transaction_date', 'amount', 'purpose', 'transaction_category', 'has_vat', 'vat_amount', 'supplier_vat_number', 'merchant', 'invoice_number', 'details', 'source_id', 'source_media_url', 'source_row_url'];
     const VAT_RATE = 0.15;
     const REVIEWERS = ['System Manager', 'Accounts User', 'Accounts Manager', 'Operations User', 'Operations Manager', 'SIG PC Clearance'];
     const FINANCE = ['System Manager', 'Accounts User', 'Accounts Manager', 'SIG Finance Viewer'];
@@ -68,10 +68,10 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
         return out.filter(Boolean);
     }
     function readError(xhr) {
-        let body = xhr && xhr.responseJSON;
+        let body = xhr && (xhr.responseJSON || xhr);
         if (!body) { try { body = JSON.parse(xhr.responseText); } catch (e) { body = {}; } }
         const msgs = serverMessages(body);
-        return msgs.length ? msgs.join('\n') : __('The server rejected the request (HTTP {0}).', [xhr && xhr.status]);
+        return msgs.length ? msgs.join('\n') : `${__('The server rejected the request.')} HTTP ${Number(xhr && xhr.status) || 'unknown'}`;
     }
     // silent: we show one readable message ourselves instead of Frappe's popup.
     function call(method, args) {
@@ -84,7 +84,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
     async function load() {
         setCount(__('Loading invoices…'));
         try {
-            const tx = await call('frappe.client.get_list', {doctype: 'SIG PC Transaction', fields: JSON.stringify(FIELDS), filters: JSON.stringify([['closure_status', 'in', ['Draft', 'Needs Review']]]), order_by: 'employee_name asc, transaction_date asc', limit_page_length: 0});
+            const tx = await call('sig_warehouse.sig_warehouse.pc_journal.pending_receipts', {});
             S.rows = tx || [];
             const senderPhones = [...new Set(S.rows.filter((x) => isPhone(x.employee_name)).map((x) => phoneKey(x.employee_name)))];
             S.senders = (await call('sig_warehouse.sig_warehouse.pc_sender.resolve_pc_employee_senders', {phone_numbers: JSON.stringify(senderPhones)})) || {};
@@ -138,9 +138,11 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
         {title: __('Finance workbench'), icon: 'line-chart', roleAny: FINANCE, route: ['finance-workbench']}
     ];
     const LINKS = [
-        {variant: 'warn', title: __('Draft purchase invoices'), description: __('Invoices created by confirmed receipts, awaiting finance review and submit.'), doctype: 'Purchase Invoice', route: ['List', 'Purchase Invoice', 'List'], routeOptions: {naming_series: ['like', 'ACC-PC-PINV%'], docstatus: 0},
+        {variant: 'warn', title: __('Draft clearance journals'), description: __('One journal per confirmed receipt. Finance reviews the original invoice and submits.'), doctype: 'Journal Entry', route: ['List', 'Journal Entry', 'List'], routeOptions: {custom_pc_receipt: ['is', 'set'], docstatus: 0},
+            metric: {key: 'pc-draft-je', doc: 'Journal Entry', filters: [['Journal Entry', 'custom_pc_receipt', 'is', 'set'], ['Journal Entry', 'docstatus', '=', 0]]}},
+        {variant: 'warn', title: __('Legacy draft purchase invoices'), description: __('Existing invoice drafts from the previous receipt workflow; Finance will reconcile them separately.'), doctype: 'Purchase Invoice', route: ['List', 'Purchase Invoice', 'List'], routeOptions: {naming_series: ['like', 'ACC-PC-PINV%'], docstatus: 0},
             metric: {key: 'pc-draft-pi', doc: 'Purchase Invoice', filters: [['Purchase Invoice', 'naming_series', 'like', 'ACC-PC-PINV%'], ['Purchase Invoice', 'docstatus', '=', 0]]}},
-        {variant: 'warn', title: __('Draft payments from custody'), description: __('Payment entries from employee custody, awaiting finance review and submit.'), doctype: 'Payment Entry', route: ['List', 'Payment Entry', 'List'], routeOptions: {custom_pc_clearance: 1, docstatus: 0},
+        {variant: 'warn', title: __('Legacy draft payments'), description: __('Existing payment drafts from the previous receipt workflow; no new ones are created by Confirm.'), doctype: 'Payment Entry', route: ['List', 'Payment Entry', 'List'], routeOptions: {custom_pc_clearance: 1, docstatus: 0},
             metric: {key: 'pc-draft-pe', doc: 'Payment Entry', filters: [['Payment Entry', 'custom_pc_clearance', '=', 1], ['Payment Entry', 'docstatus', '=', 0]]}},
         {variant: 'cyan', title: __('Confirmed this month'), description: __('Receipts confirmed this month and handed to finance.'), doctype: 'SIG PC Transaction', route: ['List', 'SIG PC Transaction', 'List'], routeOptions: {closure_status: 'Closed', reviewed_at: ['Timespan', 'this month']},
             metric: {key: 'pc-closed-month', doc: 'SIG PC Transaction', filters: [['SIG PC Transaction', 'closure_status', '=', 'Closed'], ['SIG PC Transaction', 'reviewed_at', 'Timespan', 'this month']]}},
@@ -184,10 +186,10 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
         <section class="sig-pc-stats"></section>
         <section class="sig-pc-review"><div class="sig-pc-empty">${__('Loading…')}</div></section>
         <section class="sig-pc-section">
-            <div class="sig-pc-section-heading"><h2>${__('Finance handoff and records')}</h2><p>${__('Confirmed receipts become draft invoices and payments for finance. Open them from here.')}</p></div>
+            <div class="sig-pc-section-heading"><h2>${__('Finance handoff and records')}</h2><p>${__('Confirmed receipts create draft clearance journals for Finance. Open them from here.')}</p></div>
             <div class="sig-pc-grid">${LINKS.filter(canOpen).map(linkCard).join('')}</div>
         </section>
-        <p class="sig-pc-footnote">${__('Confirm creates a draft Purchase Invoice and a draft Payment Entry only. Finance reviews and submits them; ERPNext permissions remain enforced.')}</p>`);
+        <p class="sig-pc-footnote">${__('Confirm creates one draft Journal Entry linked to the original receipt. Finance assesses VAT and submits; no ledger posting happens at confirmation.')}</p>`);
 
     root.on('click', '[data-nav]', function () { go(NAV.filter(canOpen)[Number($(this).data('nav'))]); });
     root.on('click', '[data-link]', function () { go(LINKS[Number($(this).data('link'))]); });
@@ -304,7 +306,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
             <label class="sig-pc-vat"><input data-f="has_vat" type="checkbox"${Number(x.has_vat) ? ' checked' : ''}> ${__('VAT invoice')} <span class="sig-pc-vat-amount"></span></label><p class="sig-pc-vatwarn"></p>
             <div class="sig-pc-field"><label>${__('Transaction category')}</label><select data-f="transaction_category" class="form-control input-sm"><option value="">${__('Choose category…')}</option>${options}</select>${isSuggested(x) ? `<p class="sig-pc-suggest">${__('Suggested from the receipt source. Check it, then confirm.')}</p>` : ''}</div>
             <div class="sig-pc-field"><label>${__('Notes')}</label><textarea data-f="details" class="form-control input-sm" rows="2">${esc(x.details || x.invoice_number || '')}</textarea></div>
-            <details class="sig-pc-more"${x.supplier_vat_number || x.merchant ? ' open' : ''}><summary>${__('Supplier')}</summary>
+            <details class="sig-pc-more"${x.supplier_vat_number || x.merchant ? ' open' : ''}><summary>${__('Merchant evidence')}</summary>
                 ${field('merchant', __('Merchant'), x.merchant)}${field('supplier_vat_number', __('Supplier VAT number (15 digits)'), x.supplier_vat_number, 'text', ' inputmode="numeric" maxlength="15"')}</details>
             <div class="sig-pc-actions"><button type="button" class="btn btn-primary sig-pc-confirm">${__('Confirm')}</button><button type="button" class="btn btn-danger sig-pc-reject">${__('Reject')}</button></div>
             <div class="sig-pc-msg"></div>
@@ -322,8 +324,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
         const v = values(c), amount = Number(v.amount) || 0, on = v.has_vat === '1';
         const vat = on ? Math.round(amount * VAT_RATE / (1 + VAT_RATE) * 100) / 100 : 0;
         c.querySelector('.sig-pc-vat-amount').textContent = on ? __('VAT {0} · net {1} SAR', [money(vat), money(amount - vat)]) : '';
-        const no = String(v.supplier_vat_number || '').replace(/\s/g, '');
-        c.querySelector('.sig-pc-vatwarn').textContent = on && !(no.length === 15 && /^\d+$/.test(no)) ? __('VAT will not be claimed on the invoice until a valid 15-digit supplier VAT number is entered; finance will review it.') : '';
+        c.querySelector('.sig-pc-vatwarn').textContent = on ? __('VAT is receipt evidence. The draft books gross expense; Finance assesses VAT before submission.') : '';
     }
     const showMsg = (c, html) => { c.querySelector('.sig-pc-msg').innerHTML = html; };
     const setBusy = (c, b) => { S.busy = b; c.querySelectorAll('button').forEach((x) => { x.disabled = b; }); };
@@ -351,11 +352,13 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
         if (!v.transaction_category) { showMsg(c, `<div class="sig-pc-error">${__('Choose a transaction category before confirming.')}</div>`); return; }
         if (!(Number(v.amount) > 0)) { showMsg(c, `<div class="sig-pc-error">${__('Enter an amount greater than zero.')}</div>`); return; }
         v.transaction_id = x.name;
+        v.expected_modified = x.modified;
         showMsg(c, '');
         setBusy(c, true);
         c.querySelector('.sig-pc-confirm').textContent = __('Confirming…');
         try {
-            await call('sig_pc_close_transaction', v);
+            const result = await call('sig_warehouse.sig_warehouse.pc_journal.confirm_receipt', v);
+            frappe.show_alert({message: __('Draft Journal Entry created: {0}', [result.journal_entry]), indicator: 'green'});
             setBusy(c, false);
             afterRemoval(x);
         } catch (e) {
@@ -378,7 +381,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
             if (!reason) { showMsg(c, `<div class="sig-pc-error">${__('Give a reason for rejecting this receipt.')}</div>`); return; }
             setBusy(c, true); showMsg(c, '');
             try {
-                await call('sig_pc_reject_transaction', {transaction_id: x.name, notes: reason});
+                await call('sig_warehouse.sig_warehouse.pc_journal.reject_receipt', {transaction_id: x.name, expected_modified: x.modified, notes: reason});
                 setBusy(c, false);
                 afterRemoval(x);
             } catch (e) { setBusy(c, false); showMsg(c, `<div class="sig-pc-error">${esc(e.message)}</div>`); }

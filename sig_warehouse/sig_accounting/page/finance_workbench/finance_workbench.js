@@ -164,7 +164,7 @@ frappe.pages['finance-workbench'].on_page_load = function (wrapper) {
     ];
 
     const specialist = [
-        {variant: 'warn', title: __('Petty cash'), description: __('Review receipts, confirm them into draft invoices and payments, and follow them through finance.'), roleAny: ['System Manager', 'Accounts User', 'Accounts Manager'], doctype: 'SIG PC Transaction', route: ['pc-invoice-review'],
+        {variant: 'warn', title: __('Petty cash'), description: __('Review receipts, create draft clearance journals, and follow Finance submission.'), roleAny: ['System Manager', 'Accounts User', 'Accounts Manager'], doctype: 'SIG PC Transaction', route: ['pc-invoice-review'],
             metric: {key: 'pc-pending-review', function: 'Count', filters: [['SIG PC Transaction', 'closure_status', 'in', ['Draft', 'Needs Review']]]}},
         {variant: 'navy', title: __('ZATCA Integrations'), description: __('Review tax-compliance evidence linked to the source invoice.'), roleAny: ['System Manager', 'Accounts User', 'Accounts Manager'], route: ['Workspaces', 'ZATCA Integrations']}
     ];
