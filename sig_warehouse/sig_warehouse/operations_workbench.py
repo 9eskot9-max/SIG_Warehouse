@@ -424,6 +424,7 @@ def _cycle_view(row, project, today, operational=None):
         "project_id": str((project or {}).get("name") or row.get("erp_project") or ""),
         "ba": str((project or {}).get("custom_agreement_no") or row.get("po") or ""),
         "alias": str(row.get("project_alias") or ""), "wo": str(row.get("wo") or ""),
+        "gross_value": float(row.get("gross_value")) if row.get("gross_value") not in (None, "") else None,
         "family": family, "stage": stage, "legacy_stage": str(row.get("stage") or ""),
         "terminal": closed, "closed_on": str(row.get("closed_on") or ""),
         "closed_by": str(row.get("closed_by") or ""),
@@ -468,7 +469,7 @@ def _get_overview(all_project_cycles=False):
         result["todos"] = [{**row, "description": _plain_text(row.get("description"))} for row in todos[:50]]
     if not frappe.has_permission("SIG Site Cycle", "read"):
         return result
-    fields = ["name", "site", "site_key", "project", "erp_project", "project_stream", "po", "wo", "stage", "stage_due_on", "terminal",
+    fields = ["name", "site", "site_key", "project", "erp_project", "project_stream", "po", "wo", "gross_value", "stage", "stage_due_on", "terminal",
               "closed_on", "closed_by", "is_delayed", "is_aged", "delay_reason", "delay_note", "last_event_at",
               "mapping_at", "boq_at", "pimp_at", "tcn_at", "mir_at", "first_visit_at", "tags_at", "photos_at",
               "asbuilt_at", "warranty_at", "ho_at", "invoice_at"]
