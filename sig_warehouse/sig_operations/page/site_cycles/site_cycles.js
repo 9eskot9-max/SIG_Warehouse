@@ -6,7 +6,7 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
     const stageDefs = [
         ['1 - Initial', __('Mapping · BOQ'), 'initial'],
         ['2 - Plan', __('TCN · MIR · Visit'), 'plan'],
-        ['3 - Handover', __('Tags · Photos · As-Built Operational'), 'handover'],
+        ['3 - Handover', __('Tags · As-Built Operational'), 'handover'],
         ['4 - Invoicing', __('As-Built BOQ file'), 'invoicing'],
     ];
     const esc = (value) => frappe.utils.escape_html(value == null ? '' : String(value));
@@ -161,7 +161,7 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
                 : `<span class="sig-cycles-badge">${__('Open')}</span>`;
             const reason = cycle.delay_reason || cycle.delay_note;
             return `<tr data-cycle="${esc(cycle.name)}" class="${state.selected === cycle.name ? 'selected' : ''}">
-                <td><a href="#" class="sig-cycles-site" data-cycle="${esc(cycle.name)}">${esc(cycle.site)}</a><small>${__('WO')}: ${esc(cycle.wo || '—')}</small>${woValue ? `<small>${__('WO value')}: ${esc(woValue)}</small>` : ''}</td>
+                <td><a href="#" class="sig-cycles-site" data-cycle="${esc(cycle.name)}">${esc(cycle.site)}</a>${woValue ? ` <span class="sig-cycles-value">- ${esc(woValue)}</span>` : ''}<small>${__('WO')}: ${esc(cycle.wo || '—')}</small></td>
                 <td><strong>${esc(cycle.ba || cycle.project_id || '—')}</strong><small>${esc(alias)}</small></td>
                 <td><span class="sig-cycles-stage tone-${stageTone(cycle.stage)}">${esc(cycle.stage)}</span></td>
                 <td>${workHtml(cycle)}</td><td>${signal}${reason ? `<small>${esc(reason)}</small>` : ''}${cycle.stage_due_on ? `<small>${__('Due')}: ${date(cycle.stage_due_on)}</small>` : ''}</td></tr>`;

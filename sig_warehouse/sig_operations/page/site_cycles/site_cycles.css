@@ -34,3 +34,5 @@
 .sig-cycles-stage.tone-invoicing{background:#eef3e9;color:#557043}
 .sig-cycles-table-wrap tbody tr:hover,.sig-cycles-table-wrap tbody tr.selected{background:#f7f8f6}
 .sig-cycles-detail-stage{background:#f5f6f5;color:var(--ink)}
+
+.sig-cycles-value{display:inline;font-weight:400;color:var(--text-muted,#687787);white-space:nowrap}

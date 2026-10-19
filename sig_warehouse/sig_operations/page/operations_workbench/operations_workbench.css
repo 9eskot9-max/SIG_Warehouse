@@ -10,3 +10,5 @@
 
 .sig-ops-operational-status{display:block;margin-top:4px!important;font-weight:600}.sig-ops-operational-status.open{color:#8b621c}.sig-ops-operational-status.closed{color:#327345}.sig-ops-operational-status.unavailable{color:var(--muted);font-weight:400}
 
+
+.sig-ops-value{display:inline;font-weight:400;color:var(--muted);white-space:nowrap}

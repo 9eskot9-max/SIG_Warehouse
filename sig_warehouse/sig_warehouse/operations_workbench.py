@@ -8,6 +8,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 
 import frappe
+from sig_warehouse.sig_warehouse.cycle_rules import derive_cycle_state
 
 PAGE_SIZE = 500
 MAX_ROWS = 20000
@@ -58,7 +59,7 @@ SITE_CYCLE_DASHBOARD_ROLES = {
 TASK_STAGE = {
     "mapping": "1 - Initial", "boq": "1 - Initial",
     "tcn": "2 - Plan", "mir": "2 - Plan", "visit": "2 - Plan",
-    "tags": "3 - Handover", "photos": "3 - Handover", "asbuilt": "3 - Handover",
+    "tags": "3 - Handover", "asbuilt": "3 - Handover",
     "asbuilt_operational": "3 - Handover",
 }
 
@@ -369,26 +370,16 @@ def _cycle_view(row, project, today, operational=None):
     operational_visible = operational is not None
     operational = operational or {"applicable": False, "closed": False, "source_dns": []}
     closed = _flag(row, "terminal")
-    has_prep = bool(row.get("mapping_at") or row.get("boq_at") or row.get("pimp_at")
-                    or row.get("tcn_at") or row.get("mir_at") or row.get("first_visit_at"))
     prepared = bool(row.get("tcn_at") and row.get("mir_at") and row.get("first_visit_at"))
-    if closed:
-        stage = "Closed"
-    elif row.get("invoice_at") or row.get("ho_at"):
-        # Applicable handover evidence starts the final active Invoicing stage.
-        # The PM-owned As-Built BOQ file remains a task within this stage.
-        stage = "4 - Invoicing"
-    elif prepared:
-        stage = "3 - Handover"
-    elif has_prep:
-        stage = "2 - Plan"
-    else:
-        stage = "1 - Initial"
+    stored_stage, _anchor = derive_cycle_state(row)
+    stage = "Closed" if closed else stored_stage
+    in_handover = stage in ("3 - Handover", "4 - Invoicing")
     work = []
     family = _family((project or {}).get("custom_family") or row.get("project"))
-    if (not closed and not row.get("ho_at") and not row.get("asbuilt_at")
+    if (not closed and not in_handover and not row.get("ho_at") and not row.get("asbuilt_at")
             and not row.get("invoice_at")
-            and (row.get("mapping_at") or row.get("boq_at") or row.get("pimp_at"))):
+            and any(row.get(field) for field in ("mapping_at", "boq_at", "pimp_at", "tcn_at",
+                                                 "mir_at", "first_visit_at", "tags_at"))):
         for key, label, field, role in (
             ("tcn", "TCN / MDT", "tcn_at", "co"),
             ("mir", "MIR", "mir_at", "co"),
@@ -397,22 +388,19 @@ def _cycle_view(row, project, today, operational=None):
             if not row.get(field):
                 work.append({"key": key, "label": label, "owner_role": role,
                              "closes_on": label + " evidence"})
-    if not closed and prepared:
-        for key, label, field, role in (
-            ("tags", "Tags", "tags_at", "co"),
-            ("photos", "Photos", "photos_at", "co"),
-        ):
-            if not row.get(field):
-                work.append({"key": key, "label": label, "owner_role": role,
-                             "closes_on": label + " evidence"})
+    if not closed and prepared and not row.get("tags_at"):
+        work.append({"key": "tags", "label": "Tags", "owner_role": "co",
+                     "stage": "2 - Plan" if stage == "2 - Plan" else "3 - Handover",
+                     "closes_on": "Tags evidence"})
+    if not closed and in_handover:
         if operational.get("applicable") and not operational.get("closed"):
             work.append({"key": "asbuilt_operational", "label": "As-Built Operational",
                          "owner_role": "warehouse", "stage": "3 - Handover",
                          "closes_on": "Any linked site DN line custom_return_closed = 1",
                          "source_dns": operational.get("source_dns") or []})
-    if not closed and (prepared or row.get("ho_at") or row.get("invoice_at")) and not row.get("asbuilt_at"):
+    if not closed and in_handover and not row.get("asbuilt_at"):
         work.append({"key": "asbuilt", "label": "As-Built BOQ file", "owner_role": "pm",
-                     "stage": "4 - Invoicing" if row.get("ho_at") or row.get("invoice_at") else "3 - Handover",
+                     "stage": "4 - Invoicing" if stage == "4 - Invoicing" else "3 - Handover",
                      "closes_on": "ASBUILT_BOQ_GENERATED"})
     for item in work:
         item["owner_names"] = _owner_names(family, item.get("owner_role") or "either")
@@ -425,6 +413,8 @@ def _cycle_view(row, project, today, operational=None):
         "ba": str((project or {}).get("custom_agreement_no") or row.get("po") or ""),
         "alias": str(row.get("project_alias") or ""), "wo": str(row.get("wo") or ""),
         "gross_value": float(row.get("gross_value")) if row.get("gross_value") not in (None, "") else None,
+        "visit_count": max(int(row.get("sessions_completed") or 0) + int(row.get("sessions_auto_closed") or 0),
+                           1 if row.get("first_visit_at") else 0),
         "family": family, "stage": stage, "legacy_stage": str(row.get("stage") or ""),
         "terminal": closed, "closed_on": str(row.get("closed_on") or ""),
         "closed_by": str(row.get("closed_by") or ""),
@@ -471,7 +461,8 @@ def _get_overview(all_project_cycles=False):
         return result
     fields = ["name", "site", "site_key", "project", "erp_project", "project_stream", "po", "wo", "gross_value", "stage", "stage_due_on", "terminal",
               "closed_on", "closed_by", "is_delayed", "is_aged", "delay_reason", "delay_note", "last_event_at",
-              "mapping_at", "boq_at", "pimp_at", "tcn_at", "mir_at", "first_visit_at", "tags_at", "photos_at",
+              "mapping_at", "boq_at", "pimp_at", "tcn_at", "mir_at", "first_visit_at", "last_visit_at",
+              "sessions_completed", "sessions_auto_closed", "tags_at", "photos_at",
               "asbuilt_at", "warranty_at", "ho_at", "invoice_at"]
     rows, result["complete"]["cycles"] = _all_visible(
         "SIG Site Cycle", fields, order_by="terminal asc, stage_due_on asc, last_event_at desc")
@@ -629,7 +620,8 @@ def export_workbook(filter="open", scope="assigned"):
                "Due date", "Delay reason", "Delay note", "Closed on", "Closed by",
                "Mapping at", "BOQ at", "TCN at", "MIR at", "Visit at",
                "Tags at", "Photos at", "As-Built BOQ at", "As-Built Operational status",
-               "As-Built DN source(s) (if accessible)", "Warranty at", "Handover at", "Invoice at"]
+               "As-Built DN source(s) (if accessible)", "Warranty at", "Handover at", "Invoice at",
+               "WO value (SAR)", "Visits"]
     ws.append(headers)
     stage_ws = wb.create_sheet("Stage tasks")
     stage_ws.append(["Task ID", "Cycle ID", "Site", "WO", "BA", "Project alias",
@@ -671,6 +663,9 @@ def export_workbook(filter="open", scope="assigned"):
         ws.cell(ws.max_row, 30, events.get("warranty_at"))
         ws.cell(ws.max_row, 31, events.get("ho_at"))
         ws.cell(ws.max_row, 32, events.get("invoice_at"))
+        ws.cell(ws.max_row, 33, cycle.get("gross_value"))
+        ws.cell(ws.max_row, 33).number_format = '#,##0.00'
+        ws.cell(ws.max_row, 34, cycle.get("visit_count"))
     for task in tasks:
         cycle = cycle_by_name.get(task.get("cycle"))
         if not cycle:
