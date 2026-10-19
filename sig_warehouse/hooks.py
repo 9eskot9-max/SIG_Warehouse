@@ -16,7 +16,21 @@ after_migrate = "sig_warehouse.sig_warehouse.return_closure.initialize_return_po
 # app_include_js alone is sufficient (it is what actually makes the file
 # reach the Kanban board too) and carries the cache-busting ?v= query, so
 # doctype_js is dropped rather than kept as a second copy.
-doctype_js = {}
+doctype_js = {"SIG PC Transaction": "public/js/pc_transaction.js"}
+
+# The legacy short names remain valid for old bookmarks; they use the same
+# native draft-JE writer. Overrides run before Server Script dispatch in v15.
+override_whitelisted_methods = {
+    "sig_pc_close_transaction": "sig_warehouse.sig_warehouse.pc_journal.confirm_receipt",
+    "sig_pc_create_pc_journal_draft": "sig_warehouse.sig_warehouse.pc_journal.confirm_receipt",
+    "sig_pc_reject_transaction": "sig_warehouse.sig_warehouse.pc_journal.reject_receipt",
+}
+permission_query_conditions = {
+    "SIG PC Transaction": "sig_warehouse.sig_warehouse.pc_journal.transaction_query_conditions",
+}
+has_permission = {
+    "SIG PC Transaction": "sig_warehouse.sig_warehouse.pc_journal.transaction_permission",
+}
 
 # Root cause of the 2026-09-18 freeze found and fixed (isolated offline
 # repro against 216 mock cards, no live server involved): sig_setup_kanban_
@@ -100,6 +114,9 @@ override_doctype_dashboards = {
 }
 
 doc_events = {
+    "Journal Entry": {
+        "before_insert": "sig_warehouse.sig_warehouse.pc_journal.guard_legacy_cycle",
+    },
     "Stock Entry": {
         # Child-line custom_site is the authoritative allocation.  A
         # single-site entry gets a header summary at insert time so normal
