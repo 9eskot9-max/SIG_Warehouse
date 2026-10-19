@@ -216,6 +216,10 @@ def _post_pending(limit=POST_BATCH):
             # Keep the full key and original error out of the 140-character title.
             frappe.log_error(title="SIG field feed post failed",
                              message="Session: " + name + "\n" + traceback.format_exc())
+            # The caller raises when any posting failed. Persist this diagnostic
+            # after rolling back the failed record so its outer rollback cannot
+            # erase the original exception and leave only a summary error.
+            frappe.db.commit()
             failed += 1
             continue
         if r.get("result") in ("created", "duplicate"):

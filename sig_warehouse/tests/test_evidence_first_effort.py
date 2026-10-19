@@ -46,10 +46,11 @@ def feed_module():
 
 def test_post_failure_keeps_original_trace_and_continues_next_record():
     feed, fake = feed_module()
-    logs, rollbacks = [], []
+    logs, rollbacks, log_commits = [], [], []
     long_key = "Capex2|" + "x" * 170
     fake.get_all = lambda *args, **kwargs: [long_key, "good-session"]
-    fake.db = SimpleNamespace(rollback=lambda: rollbacks.append(True))
+    fake.db = SimpleNamespace(rollback=lambda: rollbacks.append(True),
+                             commit=lambda: log_commits.append(True))
     fake.log_error = lambda **kwargs: logs.append(kwargs)
 
     def post(name):
@@ -60,6 +61,7 @@ def test_post_failure_keeps_original_trace_and_continues_next_record():
     feed.post_session = post
     assert feed._post_pending() == {"posted": 1, "failed": 1, "sites_created": 0}
     assert len(rollbacks) == 1
+    assert len(log_commits) == 1
     assert len(logs[0]["title"]) <= 140
     assert long_key in logs[0]["message"]
     assert "NameError: original evidence failure" in logs[0]["message"]
