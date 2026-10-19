@@ -177,6 +177,22 @@ def test_ho_moves_cycle_to_invoicing_and_removes_all_handover_work():
     assert cycle["asbuilt_operational"]["display"] is False
 
 
+def test_asbuilt_operational_status_is_only_displayed_during_handover():
+    workbench = _workbench()
+    operational = {"applicable": True, "closed": False, "source_dns": ["DN-1"]}
+    plan = workbench._cycle_view(
+        _cycle(ho_at=None, tcn_at="2026-08-20"),
+        {"name": "10001134", "custom_family": "Incident"}, "2026-10-13", operational)
+    invoicing = workbench._cycle_view(
+        _cycle(tcn_at="2026-08-20", mir_at="2026-08-20", first_visit_at="2026-08-21",
+               sessions_completed=2, last_visit_at="2026-08-22"),
+        {"name": "10001134", "custom_family": "Incident"}, "2026-10-13", operational)
+    assert plan["stage"] == "2 - Plan"
+    assert plan["asbuilt_operational"]["display"] is False
+    assert invoicing["stage"] == "4 - Invoicing"
+    assert invoicing["asbuilt_operational"]["display"] is False
+
+
 def test_asbuilt_boq_never_appears_as_handover_work():
     workbench = _workbench()
     cycle = workbench._cycle_view(
