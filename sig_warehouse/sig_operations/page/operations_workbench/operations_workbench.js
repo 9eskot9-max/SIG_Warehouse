@@ -18,6 +18,7 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
     };
     const operationalStatusHtml = (cycle) => {
         const operational = cycle.asbuilt_operational || {};
+        if (operational.display === false) return '';
         if (operational.visible !== true) {
             return '<small class="sig-ops-operational-status unavailable">' + esc(__('As-Built Operational status unavailable')) + '</small>';
         }

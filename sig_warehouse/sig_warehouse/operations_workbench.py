@@ -390,19 +390,19 @@ def _cycle_view(row, project, today, operational=None):
             if not (visit_count if key == "visit" else row.get(field)):
                 work.append({"key": key, "label": label, "owner_role": role,
                              "closes_on": label + " evidence"})
-    if not closed and prepared and not row.get("tags_at"):
+    if not closed and stage in ("2 - Plan", "3 - Handover") and prepared and not row.get("tags_at"):
         work.append({"key": "tags", "label": "Tags", "owner_role": "co",
                      "stage": "2 - Plan" if stage == "2 - Plan" else "3 - Handover",
                      "closes_on": "Tags evidence"})
-    if not closed and in_handover:
+    if not closed and stage == "3 - Handover":
         if operational.get("applicable") and not operational.get("closed"):
             work.append({"key": "asbuilt_operational", "label": "As-Built Operational",
                          "owner_role": "warehouse", "stage": "3 - Handover",
                          "closes_on": "Any linked site DN line custom_return_closed = 1",
                          "source_dns": operational.get("source_dns") or []})
-    if not closed and in_handover and not row.get("asbuilt_at"):
+    if not closed and stage == "4 - Invoicing" and not row.get("asbuilt_at"):
         work.append({"key": "asbuilt", "label": "As-Built BOQ file", "owner_role": "pm",
-                     "stage": "4 - Invoicing" if stage == "4 - Invoicing" else "3 - Handover",
+                     "stage": "4 - Invoicing",
                      "closes_on": "ASBUILT_BOQ_GENERATED"})
     for item in work:
         item["owner_names"] = _owner_names(family, item.get("owner_role") or "either")
@@ -430,6 +430,10 @@ def _cycle_view(row, project, today, operational=None):
             "mapping_at", "boq_at", "tcn_at", "mir_at", "first_visit_at",
             "tags_at", "photos_at", "asbuilt_at", "warranty_at", "ho_at", "invoice_at")},
         "asbuilt_operational": {"visible": operational_visible,
+                                 # Warehouse DN work belongs to Handover only. Once a cycle
+                                 # advances to Invoicing, do not leave a stale Open status
+                                 # beside its current invoice-stage work.
+                                 "display": operational_visible and stage != "4 - Invoicing",
                                  "applicable": bool(operational.get("applicable")) if operational_visible else None,
                                  "closed": bool(operational.get("closed")) if operational_visible else None,
                                  "source_dns": operational.get("source_dns") or [],
@@ -652,6 +656,9 @@ def export_workbook(filter="open", scope="assigned"):
             source_dns = ""
         elif not operational.get("visible"):
             operational_status = "Coverage could not be verified"
+            source_dns = ""
+        elif operational.get("display") is False:
+            operational_status = ""
             source_dns = ""
         elif not operational.get("applicable"):
             operational_status = "No matching DN"
