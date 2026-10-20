@@ -9,6 +9,7 @@ from openpyxl.styles import Font, PatternFill
 
 import frappe
 from sig_warehouse.sig_warehouse.cycle_rules import derive_cycle_state
+from sig_warehouse.sig_warehouse import cycle_kpi
 
 PAGE_SIZE = 500
 MAX_ROWS = 20000
@@ -564,23 +565,87 @@ def _require_cycle_dashboard_access():
 
 
 @frappe.whitelist()
-def get_cycle_dashboard():
-    """Return every open cycle visible to the current user across project scopes."""
+def get_cycle_dashboard(period_days=10):
+    """Return current cycles and read-only KPI projections for authorized history."""
     _require_cycle_dashboard_access()
+    try:
+        period_days = int(period_days)
+    except (TypeError, ValueError):
+        period_days = 10
+    if period_days not in (10, 30, 90):
+        period_days = 10
     data = _get_overview(all_project_cycles=True)
     cycles = [cycle for cycle in data.get("cycles") or [] if not cycle.get("terminal")]
+    fields = ["name", "site", "site_key", "project", "erp_project", "project_stream", "po", "wo", "stage",
+              "stage_due_on", "terminal", "closed_on", "closed_by", "is_delayed", "is_aged", "delay_reason",
+              "delay_note", "last_event_at", "mapping_at", "boq_at", "pimp_at", "tcn_at", "mir_at",
+              "first_visit_at", "last_visit_at", "sessions_completed", "sessions_auto_closed", "tags_at",
+              "photos_at", "asbuilt_at", "warranty_at", "ho_at", "invoice_at", "stage_anchor_at"]
+    all_rows, complete = _all_visible("SIG Site Cycle", fields, order_by="terminal asc, closed_on desc")
+    project_names = sorted({str(row.get("erp_project")) for row in all_rows if row.get("erp_project")})
+    project_map = {}
+    if project_names and frappe.has_permission("Project", "read"):
+        projects, _ = _all_visible("Project", ["name", "project_name", "custom_family", "custom_agreement_no"],
+                                   filters={"name": ["in", project_names]}, max_rows=MAX_ROWS)
+        project_map = {str(project.name): project for project in projects}
+    stream_names = sorted({str(row.get("project_stream")) for row in all_rows if row.get("project_stream")})
+    aliases = {}
+    if stream_names and frappe.db.exists("DocType", "SIG Project Stream") and frappe.has_permission("SIG Project Stream", "read"):
+        streams, _ = _all_visible("SIG Project Stream", ["name", "alias"],
+                                  filters={"name": ["in", stream_names]}, max_rows=MAX_ROWS)
+        aliases = {str(row.name): str(row.get("alias") or "") for row in streams}
+
+    events = []
+    cycle_names = [str(row.name) for row in all_rows]
+    for offset in range(0, len(cycle_names), 400):
+        batch = cycle_names[offset:offset + 400]
+        if not batch:
+            continue
+        marks = ",".join(["%s"] * len(batch))
+        events.extend(frappe.db.sql(
+            "SELECT name, event_id, cycle, event_code, occurred_at, recorded_at, source_sub, artifact_ref "
+            "FROM `tabSIG Evidence Event` WHERE cycle IN (" + marks + ") "
+            "ORDER BY occurred_at ASC, recorded_at ASC, name ASC", tuple(batch), as_dict=True))
+    replay = cycle_kpi.replay_cycles(all_rows, events, frappe.utils.now_datetime(), period_days)
+    kpi_summary = cycle_kpi.summarize(replay["cycles"])
+    open_names = {cycle["name"] for cycle in cycles}
+    open_timings = []
+    history = []
+    kpi_cycles = []
+    for row in all_rows:
+        key = str(row.name)
+        project = project_map.get(str(row.get("erp_project") or ""))
+        row["project_alias"] = aliases.get(str(row.get("project_stream") or ""), "")
+        family = _family((project or {}).get("custom_family") or row.get("project"))
+        metric = replay["cycles"].get(key) or {}
+        kpi_cycles.append({"name": key, "family": family, "project_id": str(row.get("erp_project") or ""), **metric})
+        if key in open_names:
+            open_timings.append({"name": key, **metric})
+        elif row.get("terminal") in (1, True, "1", "Yes", "yes"):
+            view = _cycle_view(row, project, frappe.utils.nowdate())
+            view["stage_timings"] = metric.get("stage_timings") or []
+            view["elapsed_days"] = metric.get("elapsed_days")
+            history.append(view)
+    timing_by_name = {row["name"]: row for row in open_timings}
+    for cycle in cycles:
+        cycle.update(timing_by_name.get(cycle["name"]) or {})
     stages = {stage: sum(1 for cycle in cycles if cycle.get("stage") == stage)
-              for stage in ("1 - Initial", "2 - Plan", "3 - Handover", "4 - Invoicing")}
+              for stage in cycle_kpi.STAGES}
     return {
         "cycles": cycles,
+        "closed_cycles": history,
+        "kpi_cycles": kpi_cycles,
+        "kpi_summary": kpi_summary,
+        "period_start": replay["period_start"].strftime("%Y-%m-%d"),
+        "period_end": replay["period_end"].strftime("%Y-%m-%d"),
+        "period_days": period_days,
+        "as_of": replay["as_of"].strftime("%Y-%m-%d %H:%M:%S"),
         "route": data.get("task_route") or {"ready": False, "issue": "", "memberships": []},
         "scope": "all",
         "can_export": bool(frappe.has_permission("SIG Site Cycle", "export")),
-        "complete": data.get("complete", {}).get("cycles", True),
+        "complete": bool(data.get("complete", {}).get("cycles", True) and complete),
         "summary": {
             "cycles": len(cycles),
-            "open_items": sum(len(cycle.get("work") or []) for cycle in cycles),
-            "review_due": sum(1 for cycle in cycles if cycle.get("needs_review")),
             "stages": stages,
         },
     }

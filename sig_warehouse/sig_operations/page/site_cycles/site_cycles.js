@@ -1,7 +1,7 @@
 frappe.pages['site-cycles'].on_page_load = function (wrapper) {
     const page = frappe.ui.make_app_page({parent: wrapper, title: __('Site Cycles'), single_column: true});
     const root = $('<main class="sig-cycles-page"></main>').appendTo(page.main);
-    const state = {data: {}, family: '', stage: '', query: '', page: 1, selected: '', events: [], eventStatus: 'idle', loadId: 0};
+    const state = {data: {}, family: '', project: '', periodDays: 10, stage: '', query: '', includeClosed: false, page: 1, selected: '', events: [], eventStatus: 'idle', loadId: 0};
     const pageSize = 50;
     const stageDefs = [
         ['1 - Initial', __('Mapping · BOQ'), 'initial'],
@@ -25,7 +25,12 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
                 : stage.startsWith('4 -') ? 'invoicing' : 'closed';
 
     function cyclesForFamily() {
-        return (state.data.cycles || []).filter((cycle) => !state.family || cycle.family === state.family);
+        return allCycles().filter((cycle) => !state.family || cycle.family === state.family)
+            .filter((cycle) => !state.project || cycle.project_id === state.project);
+    }
+
+    function allCycles() {
+        return (state.data.cycles || []).concat(state.includeClosed ? (state.data.closed_cycles || []) : []);
     }
 
     // Match the legacy Evidence Dashboard: keep the project-family clusters
@@ -71,50 +76,82 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
                 <button type="button" class="btn btn-default sig-cycles-visits">${__('Site Visits')}</button>
                 <button type="button" class="btn btn-default sig-cycles-export" style="display:none">${__('Export Excel')}</button>
                 <button type="button" class="btn btn-default sig-cycles-refresh">${__('Refresh')}</button></nav></header>
-            <div class="sig-cycles-summary"></div>
-            <section class="sig-cycles-stages"><div class="sig-cycles-section-head"><div><h2>${__('Open cycles by stage')}</h2>
-                <p>${__('Four active stages. Closed cycles are omitted.')}</p></div><button type="button" class="btn btn-default btn-xs sig-cycles-clear-stage">${__('All stages')}</button></div>
+            <div class="sig-cycles-pending-total"><strong class="sig-cycles-pending-number">—</strong><span>${__('Pending cycles')}</span><small class="sig-cycles-period"></small></div>
+            <section class="sig-cycles-stages"><div class="sig-cycles-section-head"><div><h2>${__('Current stage')}</h2>
+                <p>${__('Click a stage to filter the cycle list.')}</p></div><button type="button" class="btn btn-default btn-xs sig-cycles-clear-stage">${__('All stages')}</button></div>
                 <div class="sig-cycles-stage-grid"></div></section>
-            <div class="sig-cycles-toolbar"><label>${__('Project scope')}<select class="form-control sig-cycles-family"></select></label>
+            <div class="sig-cycles-summary"></div>
+            <div class="sig-cycles-toolbar"><label>${__('Project')}<select class="form-control sig-cycles-project"></select></label>
+                <label>${__('Family')}<select class="form-control sig-cycles-family"></select></label>
+                <label>${__('Period')}<select class="form-control sig-cycles-period-filter"><option value="10">${__('10 completed days')}</option><option value="30">${__('30 completed days')}</option><option value="90">${__('90 completed days')}</option></select></label>
                 <label class="sig-cycles-search">${__('Find a cycle')}<input class="form-control" placeholder="${__('Site, BA, alias or WO')}"></label>
+                <label class="sig-cycles-history-toggle"><input type="checkbox"> ${__('Include closed cycles')}</label>
                 <span class="sig-cycles-count"></span></div>
             <div class="sig-cycles-layout"><section class="sig-cycles-table-wrap"></section><aside class="sig-cycles-detail"></aside></div>
-            <div class="sig-cycles-footnote">${__('Open items close when matching evidence is recorded. Review due flags existing pending work; age alone does not create a task.')}</div>`);
+            <div class="sig-cycles-footnote">${__('Open items close when matching evidence is recorded. Review due flags existing pending work; age alone does not create a task. Historical KPI timing is reconstructed from recorded evidence; averages exclude unknown starts.')}</div>`);
         root.find('.sig-cycles-workbench').on('click', () => frappe.set_route('operations-workbench'));
         root.find('.sig-cycles-visits').on('click', () => frappe.set_route('site-visits'));
         root.find('.sig-cycles-export').on('click', () => window.open(
             '/api/method/sig_warehouse.sig_warehouse.operations_workbench.export_workbook?filter=cycles&scope=all', '_blank'));
         root.find('.sig-cycles-refresh').on('click', load);
         root.find('.sig-cycles-family').on('change', function () { state.family = this.value; state.page = 1; state.selected = ''; state.events = []; render(); });
+        root.find('.sig-cycles-project').on('change', function () { state.project = this.value; state.page = 1; state.selected = ''; state.events = []; render(); });
+        root.find('.sig-cycles-period-filter').on('change', function () { state.periodDays = Number(this.value) || 10; load(); });
+        root.find('.sig-cycles-history-toggle input').on('change', function () { state.includeClosed = this.checked; state.page = 1; state.selected = ''; state.events = []; render(); });
         root.find('.sig-cycles-search input').on('input', frappe.utils.debounce(function () { state.query = this.value.trim(); state.page = 1; render(); }, 250));
         root.find('.sig-cycles-clear-stage').on('click', () => { state.stage = ''; state.page = 1; render(); });
     }
 
     function renderSummary() {
-        const summary = state.data.summary || {};
+        const scoped = (state.data.kpi_cycles || []).filter((cycle) =>
+            (!state.family || cycle.family === state.family) && (!state.project || cycle.project_id === state.project));
+        const completed = scoped.filter((cycle) => cycle.completion_in_period);
+        const durations = completed.map((cycle) => Number(cycle.elapsed_days)).filter(Number.isFinite);
+        const average = durations.length ? `${(durations.reduce((sum, value) => sum + value, 0) / durations.length).toFixed(1)} d` : '—';
+        const start = state.data.period_start;
+        const end = state.data.period_end;
+        const lastDay = end ? new Date(`${end}T00:00:00Z`) : null;
+        if (lastDay) lastDay.setUTCDate(lastDay.getUTCDate() - 1);
+        root.find('.sig-cycles-pending-number').text(cyclesForFamily().filter((cycle) => !cycle.terminal).length.toLocaleString());
+        root.find('.sig-cycles-period').text(start && lastDay ? `${date(start)} – ${date(lastDay.toISOString().slice(0, 10))}` : '');
         const cards = [
-            [summary.cycles || 0, __('Open cycles')],
-            [summary.open_items || 0, __('Open stage items')],
-            [summary.review_due || 0, __('Cycles with review due')],
+            [completed.length, __('Completed cycles /{0}d', [state.periodDays]), __('Qualifying cycle closures')],
+            [average, __('Average Cycle'), `n=${durations.length} ${__('of')} ${completed.length}`],
         ];
-        root.find('.sig-cycles-summary').html(cards.map(([value, label]) => `<div><strong>${esc(value)}</strong><span>${label}</span></div>`).join(''));
+        root.find('.sig-cycles-summary').html(cards.map(([value, label, detail]) => `<div title="${esc(label === __('Average Cycle') ? __('Known Initial-to-completion intervals only; unknown starts are excluded.') : '')}"><strong>${esc(value)}</strong><span>${esc(label)}<small>${esc(detail)}</small></span></div>`).join(''));
     }
 
     function renderFilters() {
+        const all = (state.data.cycles || []).concat(state.data.closed_cycles || []);
         const select = root.find('.sig-cycles-family').empty();
         select.append($('<option></option>').val('').text(__('All project scopes')));
-        [...new Set(cyclesForFamily().map((cycle) => cycle.family).filter(Boolean))].sort().forEach((family) => {
+        [...new Set(all.map((cycle) => cycle.family).filter(Boolean))].sort().forEach((family) => {
             select.append($('<option></option>').val(family).text(family));
         });
         select.val(state.family);
+        const project = root.find('.sig-cycles-project').empty();
+        project.append($('<option></option>').val('').text(__('All projects')));
+        const projects = new Map(all.filter((cycle) => cycle.project_id).map((cycle) => [cycle.project_id, cycle.project || cycle.project_id]));
+        [...projects.entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1]))).forEach(([id, label]) => {
+            project.append($('<option></option>').val(id).text(label));
+        });
+        project.val(state.project);
+        root.find('.sig-cycles-period-filter').val(String(state.periodDays));
         root.find('.sig-cycles-search input').val(state.query);
+        root.find('.sig-cycles-history-toggle input').prop('checked', state.includeClosed);
     }
 
     function renderStages() {
-        const scoped = cyclesForFamily();
+        const scoped = (state.data.cycles || []).filter((cycle) =>
+            (!state.family || cycle.family === state.family) && (!state.project || cycle.project_id === state.project));
+        const kpiCycles = (state.data.kpi_cycles || []).filter((cycle) =>
+            (!state.family || cycle.family === state.family) && (!state.project || cycle.project_id === state.project));
         const stages = stageDefs.map(([stage, caption, tone]) => {
             const count = scoped.filter((cycle) => cycle.stage === stage).length;
-            return `<button type="button" data-stage="${esc(stage)}" data-tone="${tone}" class="${state.stage === stage ? 'active' : ''}"><strong>${count}</strong><span>${esc(stage)}</span><small>${esc(caption)}</small></button>`;
+            const movements = kpiCycles.flatMap((cycle) => (cycle.stage_exits_in_period || []).filter((item) => item.stage === stage));
+            const durations = movements.map((item) => Number(item.days)).filter(Number.isFinite);
+            const average = durations.length ? `${(durations.reduce((sum, value) => sum + value, 0) / durations.length).toFixed(1)} d` : '—';
+            return `<button type="button" data-stage="${esc(stage)}" data-tone="${tone}" class="${state.stage === stage ? 'active' : ''}"><strong>${count}</strong><span>${esc(stage)}</span><small>${esc(caption)}</small><div class="sig-cycles-stage-kpis"><small><span>${__('Completed /{0}d', [state.periodDays])}</span><b title="${esc(__('Stage movement count from accepted evidence.'))}">${movements.length}</b></small><small><span>${__('Average stage')}</span><b title="n=${durations.length}; ${__('reconstructed from recorded evidence')}">${esc(average)}</b></small></div></button>`;
         }).join('');
         root.find('.sig-cycles-stage-grid').html(stages).find('button[data-stage]').on('click', function () {
             state.stage = state.stage === $(this).data('stage') ? '' : $(this).data('stage');
@@ -157,7 +194,9 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
         const body = rows.map((cycle) => {
             const alias = cycleAlias(cycle);
             const woValue = money(cycle.gross_value);
-            const signal = cycle.needs_review
+            const signal = cycle.terminal
+                ? `<span class="sig-cycles-badge closed">${__('Closed')}</span>`
+                : cycle.needs_review
                 ? `<span class="sig-cycles-badge warning">${__('Review due')}</span>`
                 : `<span class="sig-cycles-badge">${__('Open')}</span>`;
             const reason = cycle.delay_reason || cycle.delay_note;
@@ -169,7 +208,7 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
         }).join('');
         const pager = pageCount > 1 ? `<div class="sig-cycles-pager"><button type="button" class="btn btn-default btn-xs sig-cycles-prev" ${state.page <= 1 ? 'disabled' : ''}>${__('Previous')}</button>
             <span>${__('Page {0} of {1}', [state.page, pageCount])}</span><button type="button" class="btn btn-default btn-xs sig-cycles-next" ${state.page >= pageCount ? 'disabled' : ''}>${__('Next')}</button></div>` : '';
-        const table = `<div class="sig-cycles-table-title"><strong>${state.stage ? esc(state.stage) : __('All open cycles')}</strong><span>${allRows.length} ${__('cycles')}</span></div>
+        const table = `<div class="sig-cycles-table-title"><strong>${state.stage ? esc(state.stage) : state.includeClosed ? __('Cycles and closed history') : __('All open cycles')}</strong><span>${allRows.length} ${__('cycles')}</span></div>
             <table><thead><tr><th>${__('Site / WO')}</th><th>${__('Project')}</th><th>${__('Cycle stage')}</th><th>${__('Open items')}</th><th>${__('Signal')}</th></tr></thead>
             <tbody>${body || `<tr><td colspan="5" class="sig-cycles-empty">${__('No open cycles match these filters.')}</td></tr>`}</tbody></table>${pager}`;
         root.find('.sig-cycles-table-wrap').html(table);
@@ -186,7 +225,7 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
     }
 
     function renderDetail() {
-        const cycle = (state.data.cycles || []).find((item) => item.name === state.selected);
+        const cycle = allCycles().find((item) => item.name === state.selected);
         if (!cycle) {
             root.find('.sig-cycles-detail').html(`<div class="sig-cycles-detail-empty">${__('Select a cycle to see its open items and evidence history.')}</div>`);
             return;
@@ -202,9 +241,20 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
         }).join('');
         const hasOperationalTask = (cycle.work || []).some((item) => item.key === 'asbuilt_operational');
         const operationalStatus = operationalStatusHtml(cycle);
+        const timingRows = (cycle.stage_timings || []).map((item) => {
+            const running = Boolean(item.running);
+            const value = running ? item.elapsed_days : item.days;
+            const duration = value === null || value === undefined || !Number.isFinite(Number(value))
+                ? '—' : `${Number(value).toFixed(1)} d`;
+            return `<div class="sig-cycles-timing-row ${running ? 'running' : value == null ? 'unknown' : ''}"><span>${esc(item.stage)}</span><b>${esc(duration)}</b></div>`;
+        }).join('');
+        const elapsed = cycle.elapsed_days === null || cycle.elapsed_days === undefined || !Number.isFinite(Number(cycle.elapsed_days))
+            ? '—' : `${Number(cycle.elapsed_days).toFixed(1)} d`;
         root.find('.sig-cycles-detail').html(`<div class="sig-cycles-detail-head"><div><h2>${esc(cycle.site)}</h2><p>${esc(cycle.ba || cycle.project_id || '—')} · ${esc(cycleAlias(cycle))}</p></div>
             <button type="button" class="btn btn-default btn-xs sig-cycles-open-form">${__('Open cycle')}</button></div>
             <div class="sig-cycles-detail-body"><div class="sig-cycles-detail-stage">${esc(cycle.stage)}${cycle.wo ? ` · ${__('WO')} ${esc(cycle.wo)}` : ''}</div>
+                <div class="sig-cycles-elapsed"><span>${cycle.terminal ? __('Elapsed') : __('Elapsed so far')}</span><b>${esc(elapsed)}</b></div>
+                <h3>${__('Time in each stage')}</h3><div class="sig-cycles-timing-list">${timingRows || `<p class="sig-cycles-muted">${__('Stage timing unavailable')}</p>`}</div>
                 ${operationalStatus ? `<h3>${__('As-Built Operational')}</h3>${operationalStatus}` : ''}
                 <h3>${__('Open stage items')}</h3>${items || (hasOperationalTask ? '' : `<p class="sig-cycles-muted">${__('No open stage item projected.')}</p>`)}
                 <h3>${__('Evidence history')}</h3>${evidenceContent}</div>`);
@@ -242,18 +292,26 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
             root.find('.sig-cycles-table-wrap').html(`<div class="sig-cycles-error">${__('Site Cycles is taking too long to load.')} <button type="button" class="btn btn-default btn-xs sig-cycles-retry">${__('Retry')}</button></div>`);
             root.find('.sig-cycles-retry').on('click', load);
         }, 45000);
-        frappe.call({method: 'sig_warehouse.sig_warehouse.operations_workbench.get_cycle_dashboard'})
+        frappe.call({method: 'sig_warehouse.sig_warehouse.operations_workbench.get_cycle_dashboard', args: {period_days: state.periodDays}})
             .then((response) => {
                 if (state.loadId !== loadId) return;
                 settled = true;
                 window.clearTimeout(timeout);
                 const overview = response.message || {};
                 const cycles = (overview.cycles || []).filter((cycle) => !cycle.terminal);
+                const closedCycles = (overview.closed_cycles || []).filter((cycle) => cycle.terminal);
                 const stages = Object.fromEntries(stageDefs.map(([stage]) => [
                     stage, cycles.filter((cycle) => cycle.stage === stage).length,
                 ]));
                 state.data = {
                     cycles,
+                    closed_cycles: closedCycles,
+                    kpi_cycles: overview.kpi_cycles || [],
+                    kpi_summary: overview.kpi_summary || {},
+                    period_start: overview.period_start || '',
+                    period_end: overview.period_end || '',
+                    period_days: overview.period_days || state.periodDays,
+                    as_of: overview.as_of || '',
                     scope: 'all',
                     can_export: Boolean(overview.can_export),
                     complete: (overview.complete || {}).cycles !== false,
@@ -264,7 +322,7 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
                         stages,
                     },
                 };
-                if (state.selected && !(state.data.cycles || []).some((cycle) => cycle.name === state.selected)) state.selected = '';
+                if (state.selected && !allCycles().some((cycle) => cycle.name === state.selected)) state.selected = '';
                 render();
                 if (state.data.complete === false) root.prepend(`<div class="sig-cycles-notice">${__('The visible cycle list is partial. Refine the source data before treating these counts as complete.')}</div>`);
             })
