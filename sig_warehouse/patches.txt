@@ -21,3 +21,4 @@ sig_warehouse.sig_warehouse.patches.v1_0.align_operations_cycle_evidence
 sig_warehouse.sig_warehouse.patches.v1_0.reconcile_evidence_gated_handover
 sig_warehouse.sig_warehouse.patches.v1_0.repair_evidence_sandbox_assignment
 sig_warehouse.sig_warehouse.patches.v1_0.add_excel_setup
+sig_warehouse.sig_warehouse.patches.v1_0.split_excel_setup_structure

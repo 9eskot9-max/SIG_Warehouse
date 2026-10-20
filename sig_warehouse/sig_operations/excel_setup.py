@@ -7,7 +7,8 @@ import frappe
 from frappe.utils import now_datetime
 
 from sig_warehouse.sig_operations.excel_setup_contract import (
-    ADAPTER_VERSION, CONTRACT, FIELDS, KINDS, canonical, digest, merge_import, project_bundle, validate,
+    ADAPTER_VERSION, CONTRACT, SCHEMA_VERSION, FIELDS, KINDS, canonical, digest, merge_import,
+    project_bundle, validate, is_legacy, upgrade_legacy, bundle_complete,
 )
 
 EDIT_ROLES = {"System Manager", "Operations Manager", "Operations User", "Projects Manager", "SIG Excel Setup Editor"}
@@ -68,15 +69,24 @@ def _linked_masters(datasets):
             if row["po"] and row["po"] not in {str(v or "").strip() for v in project.values()}:
                 frappe.throw(f"PO does not match canonical Project {row['project']}")
             row["project"] = project["name"]
-            family_field = next((key for key in ("custom_project_family", "custom_family") if meta.has_field(key)), None)
-            row["family"] = str(frappe.db.get_value("Project", row["project"], family_field) or "") if family_field else ""
+            row["family"] = ""
+            for family_field in ("custom_project_family", "custom_family"):
+                if meta.has_field(family_field):
+                    row["family"] = str(frappe.db.get_value("Project", row["project"], family_field) or "")
+                    if row["family"]:
+                        break
             if meta.has_field("custom_is_canonical_agreement") and not frappe.db.get_value("Project", row["project"], "custom_is_canonical_agreement"):
                 frappe.throw(f"Select the canonical Project for PO {row['po']}")
+    for row in datasets.get("project_builder_links", []):
+        if row["enabled"]:
             if row["stream"] and (
                 not frappe.db.exists("DocType", "SIG Project Stream")
                 or frappe.db.get_value("SIG Project Stream", row["stream"], "project") != row["project"]
             ):
                 frappe.throw("Select an existing stream belonging to this canonical Project")
+            row["stream_alias"] = str(frappe.db.get_value("SIG Project Stream", row["stream"], "alias") or "") if row["stream"] else ""
+    for row in datasets.get("builder_contacts", []):
+        if row["enabled"]:
             _resolve_contact(row)
     for row in datasets["material_upl_links"]:
         if row["enabled"] and not frappe.db.exists("Item", row["item_code"]):
@@ -90,7 +100,11 @@ def _linked_masters(datasets):
 
 
 def _resolve_contact(row):
-    """Project setup references the existing directory; it is not a new directory."""
+    """Reusable Builder contacts reference the existing directory, not a PO row.
+
+    This never creates Project PM assignments or changes Project contact defaults.
+    Those remain the native Project setup's responsibility.
+    """
     if not any(row[key] for key in ("tawal_contact", "contact_name", "contact_phone", "contact_email")):
         return
     doctype = "SIG TAWAL Contact"
@@ -99,21 +113,13 @@ def _resolve_contact(row):
     filters = {"name": row["tawal_contact"]} if row["tawal_contact"] else (
         {"email": row["contact_email"]} if row["contact_email"] else {"full_name": row["contact_name"], "mobile": row["contact_phone"]})
     contacts = frappe.get_all(doctype, filters=filters, fields=["name", "full_name", "mobile", "email"], limit_page_length=2)
+    if not contacts and not row["tawal_contact"] and row.get("origin") == "RV80 Builder":
+        # Keep genuine legacy profile data visible for directory reconciliation.
+        # Pending rows cannot produce a complete RV80 import bundle.
+        return
     if len(contacts) != 1:
         frappe.throw("Select one exact contact from the existing TAWAL directory; ambiguous/new directory entries need its existing setup workflow")
     contact = contacts[0]
-    eligible = False
-    if frappe.db.exists("DocType", "SIG Project PM Assignment"):
-        eligible = bool(frappe.db.exists("SIG Project PM Assignment", {"project": row["project"], "tawal_contact": contact.name}))
-    project_meta = frappe.get_meta("Project")
-    if project_meta.has_field("custom_default_tawal_contact"):
-        eligible = eligible or frappe.db.get_value("Project", row["project"], "custom_default_tawal_contact") == contact.name
-    if frappe.db.exists("DocType", "SIG Project Stream"):
-        filters = {"project": row["project"], "default_tawal_contact": contact.name,
-                   **({"name": row["stream"]} if row["stream"] else {"alias": row["alias"]})}
-        eligible = eligible or bool(frappe.db.exists("SIG Project Stream", filters))
-    if not eligible:
-        frappe.throw("This contact is not assigned to the canonical Project/stream in existing Project setup")
     row.update(tawal_contact=contact.name, contact_name=contact.full_name or "", contact_phone=contact.mobile or "", contact_email=contact.email or "")
 
 
@@ -156,10 +162,15 @@ def _publish(datasets, base_revision, batch_id="", batch_hash=""):
 def get_page_state():
     _require(editor=True)
     doc, datasets = _state()
-    return {"revision": int(doc.revision or 0), "datasets": datasets, "fields": FIELDS,
+    migration_pending = is_legacy(datasets)
+    if migration_pending:
+        datasets = upgrade_legacy(datasets)
+    return {"schema_version": SCHEMA_VERSION, "migration_pending": migration_pending,
+            "revision": int(doc.revision or 0), "datasets": datasets, "fields": FIELDS,
             "published_at": doc.published_at, "published_by": doc.published_by,
             "options": {"builder_defaults.kind": sorted(KINDS), "material_upl_links.treatment": ["Direct 1:1", "Excluded", "Manual"]},
             "references": _reference_choices(),
+            "pending_builder_contacts": sum(r["enabled"] and not r["tawal_contact"] for r in datasets["builder_contacts"]),
             "counts": {key: len(value) for key, value in datasets.items()}}
 
 
@@ -228,10 +239,13 @@ def get_setup_bundle(workbook_type, adapter_version=0, last_revision=0, revision
         old = frappe.get_doc(REVISION, {"revision": int(revision)})
         current, datasets = int(old.revision), json.loads(old.configuration_json)
         doc = old
+    if is_legacy(datasets):
+        frappe.throw("Legacy Project/Builder associations are unverified. Publish the split setup and re-export Builder profiles.")
+    datasets = _validated(datasets)
     projected = project_bundle(datasets, workbook_type)
-    result = {"result": "ok", "contract": CONTRACT, "schema_version": 1, "revision": current,
+    result = {"result": "ok", "contract": CONTRACT, "schema_version": SCHEMA_VERSION, "revision": current,
               "minimum_adapter_version": ADAPTER_VERSION, "workbook_type": workbook_type,
-              "scope": "shared_published_setup", "complete": current > 0,
+              "scope": "shared_published_setup", "complete": current > 0 and bundle_complete(datasets, workbook_type),
               "hash": digest(projected), "published_at": str(doc.published_at or ""),
               "counts": {key: len(value) for key, value in projected.items()}}
     result["unchanged"] = current > 0 and int(last_revision) == current

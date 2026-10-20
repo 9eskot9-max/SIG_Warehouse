@@ -1,6 +1,6 @@
-# Excel Setup implementation — release candidate
+# Excel Setup initial release — superseded reference
 
-Source only, 20 October 2026. **Do not deploy/import this candidate as an accepted release.** The owner explicitly selected deployment later. Base is `origin/main` at `93d9e87`; the previous production observation was `2175bd7`. Review the entire later deployment revision, including the pre-existing main-branch changes.
+**Do not use the v1 combined Project/Builder import instructions below.** The AC-to-R row join was invalid. Use [structural v2](excel_setup_structure_v2_20261020.md) and `integrations/excel/manifest-v2.json`. Historical source/deployment notes below do not establish current acceptance.
 
 ## Included
 

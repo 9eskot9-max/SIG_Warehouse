@@ -1,0 +1,151 @@
+--- a/deployed/tcnword.bas
++++ b/deployed/tcnword.bas
+@@ -1483,10 +1483,14 @@
+         ' Legacy rows have an alias in C and blank X. New rows have PO in C
+         ' and an alias/stream in X; use that stream for PM and template lookup.
+         projVal = poProjectVal
+-        If Len(subProjectVal) > 0 Then projVal = subProjectVal
+-        ' Resolve the operational family once and reuse it for PM, MOP and email.
+-        ' Column C is now the PO; X is the optional subproject/alias. A PO-only
+-        ' row therefore needs the ERP-approved PO registry as its final fallback.
++        If IsErpProjectReference_Enhanced(poProjectVal) Then
++            projVal = ES_BuilderAliasForPo(poProjectVal, subProjectVal)
++            If Len(projVal) = 0 Then Err.Raise vbObjectError + 2842, , "Assign a Builder profile to ERP Project/PO " & poProjectVal & " in Excel Setup before export."
++        ElseIf Len(subProjectVal) > 0 Then
++            projVal = subProjectVal
++        End If
++        ' Resolve canonical family independently of the selected Builder profile.
++        ' ERP owns family for PO rows; Builder profiles own contact/template defaults.
+         familyKey = ResolveProjectFamily_Enhanced(poProjectVal, subProjectVal, projVal)
+         If Len(familyKey) > 0 Then
+             DebugN.DebugLogTesting "Row " & i & " - PO='" & poProjectVal & "', alias='" & subProjectVal & "' -> family='" & familyKey & "'"
+@@ -1539,12 +1543,8 @@
+         remarksInVal = GetCellValue_Enhanced(ws, i, colPos, "remarks")
+         changeType = GetCellValue_Enhanced(ws, i, colPos, "changetype")
+         Dim isIncidentProject As Boolean
+-        ' Legacy rows may keep Incident in column C; PO-first rows carry the
+-        ' operational alias in X. Check all three representations.
+-        isIncidentProject = IsIncidentProject_Enhanced(familyKey) Or _
+-                            IsIncidentProject_Enhanced(poProjectVal) Or _
+-                            IsIncidentProject_Enhanced(subProjectVal) Or _
+-                            IsIncidentProject_Enhanced(projVal)
++        ' A selected profile controls contacts/templates; only the ERP family classifies a PO.
++        isIncidentProject = IsIncidentProject_Enhanced(familyKey)
+         ' Default Change Type to "TCN" if not provided
+         If Len(Trim$(changeType)) = 0 Then
+             changeType = "TCN"
+@@ -1710,8 +1710,8 @@
+         ' Compute end datetime with potentially modified duration
+         endDT = ComputeEndDateTime_Enhanced_Custom(startDT, rawDurationVal)
+         Dim pmKey As String
+-        pmKey = LCase$(Trim$(familyKey))
+-        If Len(pmKey) = 0 Then pmKey = LCase$(Trim$(projVal))
++        ' Contacts belong to the selected Builder profile, never to a guessed PO/family join.
++        pmKey = LCase$(Trim$(projVal))
+         GetPMForProject_Enhanced pmMap, pmKey, pmName, pmMobile, pmEmail
+         If Len(pmKey) > 0 Then
+             If Len(Trim$(pmName)) = 0 And Len(Trim$(pmMobile)) = 0 And Len(Trim$(pmEmail)) = 0 Then
+@@ -1760,31 +1760,10 @@
+         DebugN.DebugLogAdmin "Row " & i & " - Remarks='" & remarksInVal & "', PurposeReason='" & purposeReason & "', ProductType='" & productType & "'"
+ 
+         Dim wordProj As String
+-        Dim lkWord As String
+-        Dim lkPoWord As String
+-        Dim lkAliasWord As String
+-        Dim lkFamilyWord As String
+         Dim builderWordOverride As String
+         builderWordOverride = ""
+-        ' PO is the canonical setup key. Keep alias fallback for the current
+-        ' Builder R block, where R remains the local alias/template key.
+-        lkPoWord = LCase$(Trim$(poProjectVal))
+-        lkAliasWord = LCase$(Trim$(subProjectVal))
+-        lkFamilyWord = LCase$(Trim$(familyKey))
+-        lkWord = LCase$(Trim$(projVal))
+         If Not wordProjectOverride Is Nothing Then
+-            If Len(lkPoWord) > 0 Then
+-                If wordProjectOverride.exists(lkPoWord) Then builderWordOverride = CStr(wordProjectOverride(lkPoWord))
+-            End If
+-            If Len(builderWordOverride) = 0 And Len(lkAliasWord) > 0 Then
+-                If wordProjectOverride.exists(lkAliasWord) Then builderWordOverride = CStr(wordProjectOverride(lkAliasWord))
+-            End If
+-            If Len(builderWordOverride) = 0 And Len(lkFamilyWord) > 0 Then
+-                If wordProjectOverride.exists(lkFamilyWord) Then builderWordOverride = CStr(wordProjectOverride(lkFamilyWord))
+-            End If
+-            If Len(builderWordOverride) = 0 And Len(lkWord) > 0 Then
+-                If wordProjectOverride.exists(lkWord) Then builderWordOverride = CStr(wordProjectOverride(lkWord))
+-            End If
++            If wordProjectOverride.exists(LCase$(Trim$(projVal))) Then builderWordOverride = CStr(wordProjectOverride(LCase$(Trim$(projVal))))
+         End If
+         If Len(familyKey) > 0 Then
+             wordProj = WordTemplateProjectToken(familyKey, builderWordOverride)
+@@ -4630,49 +4609,29 @@
+     IsIncidentProject_Enhanced = (InStr(1, Trim$(projectName), "incident", vbTextCompare) > 0)
+ End Function
+ 
+-' Resolve the canonical MOP/PM/email family for a TCN row. New rows carry the
+-' PO in column C and may carry an operational alias in X; the alias wins when
+-' present. PO-only rows use the same registry as ERP project setup. Keep this
+-' registry deliberately explicit: an unknown PO must remain unresolved rather
+-' than being guessed into a template family.
++Private Function IsErpProjectReference_Enhanced(ByVal value As String) As Boolean
++    Dim token As String
++    token = Trim$(value)
++    IsErpProjectReference_Enhanced = (Len(token) > 0 And IsNumeric(token)) Or (UCase$(Left$(token, 3)) = "WO-")
++End Function
++
++' ERP owns the canonical family for a PO. A Builder profile/stream cannot override it.
++' Alias-only legacy rows retain their existing template-family normalization.
+ Private Function ResolveProjectFamily_Enhanced(ByVal poProjectVal As String, ByVal subProjectVal As String, ByVal legacyProjectVal As String) As String
+-    Dim token As String
+-
++    Dim token As String, erpFamily As String, row As Object
++    If IsErpProjectReference_Enhanced(poProjectVal) Then
++        For Each row In ES_AllRows("projects")
++            If CBool(row("enabled")) And (StrComp(CStr(row("po")), Trim$(poProjectVal), vbTextCompare) = 0 Or StrComp(CStr(row("project")), Trim$(poProjectVal), vbTextCompare) = 0) Then
++                erpFamily = CStr(row("family"))
++                If IsCanonicalProjectFamily_Enhanced(erpFamily) Then ResolveProjectFamily_Enhanced = CanonicalProjectFamilyName_Enhanced(erpFamily)
++                Exit Function
++            End If
++        Next row
++        Exit Function
++    End If
+     token = WordTemplateProjectToken(Trim$(subProjectVal), vbNullString)
+-    If IsCanonicalProjectFamily_Enhanced(token) Then
+-        ResolveProjectFamily_Enhanced = CanonicalProjectFamilyName_Enhanced(token)
+-        Exit Function
+-    End If
+-
+-    token = WordTemplateProjectToken(Trim$(legacyProjectVal), vbNullString)
+-    If IsCanonicalProjectFamily_Enhanced(token) Then
+-        ResolveProjectFamily_Enhanced = CanonicalProjectFamilyName_Enhanced(token)
+-        Exit Function
+-    End If
+-
+-    token = NormalizePoFamilyKey_Enhanced(poProjectVal)
+-    ' ERP is the registry: the family stored on the ERP Project for this PO (ERPProjects sheet, refreshed by
+-    ' ItemCatalogueSync.ERP_ReplaceCataloguesFromERP; Open project wins). The Select Case below is only the fallback.
+-    Dim erpFamily As String
+-    On Error Resume Next
+-    erpFamily = CStr(Application.Run("ErpCat_FamilyForPo", token))
+-    If Err.Number <> 0 Then erpFamily = vbNullString: Err.Clear
+-    On Error GoTo 0
+-    If IsCanonicalProjectFamily_Enhanced(erpFamily) Then
+-        ResolveProjectFamily_Enhanced = CanonicalProjectFamilyName_Enhanced(erpFamily)
+-        Exit Function
+-    End If
+-    Select Case token
+-        ' ERP project setup registry (recent/open PO projects) - fallback copy.
+-        Case "10001045", "10001317", "1000280", "1000376", "1000455", "1000821"
+-            ResolveProjectFamily_Enhanced = "5G"
+-        Case "10001134", "1000268", "1000326", "1000735", "1000872"
+-            ResolveProjectFamily_Enhanced = "Incident"
+-        Case "10001113", "10001274", "1000237", "1000239", "1000723", "1000856"
+-            ResolveProjectFamily_Enhanced = "Capex"
+-        Case Else
+-            ResolveProjectFamily_Enhanced = ""
+-    End Select
++    If Not IsCanonicalProjectFamily_Enhanced(token) Then token = WordTemplateProjectToken(Trim$(legacyProjectVal), vbNullString)
++    If IsCanonicalProjectFamily_Enhanced(token) Then ResolveProjectFamily_Enhanced = CanonicalProjectFamilyName_Enhanced(token)
+ End Function
+ 
+ Private Function IsCanonicalProjectFamily_Enhanced(ByVal token As String) As Boolean
