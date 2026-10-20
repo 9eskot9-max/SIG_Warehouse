@@ -36,3 +36,39 @@
 .sig-cycles-detail-stage{background:#f5f6f5;color:var(--ink)}
 
 .sig-cycles-value{display:inline;font-weight:400;color:var(--text-muted,#687787);white-space:nowrap}
+
+/* Initial cycle KPIs: quiet cards, restrained stage accents, and numbers carry the colour. */
+.sig-cycles-pending-total{display:flex;align-items:baseline;gap:9px;padding:2px 2px 10px;color:var(--ink)}
+.sig-cycles-pending-total strong{font-size:24px;line-height:1;font-variant-numeric:tabular-nums;color:#334b5e}
+.sig-cycles-pending-total span{font-size:12px;font-weight:650}
+.sig-cycles-pending-total small{margin-inline-start:auto;color:var(--muted);font-size:10px}
+.sig-cycles-summary{grid-template-columns:repeat(2,minmax(0,1fr));margin:0 0 14px}
+.sig-cycles-summary>div{min-height:64px;background:#fff}
+.sig-cycles-summary strong{color:#426b84;font-size:24px}
+.sig-cycles-summary span{display:grid;gap:3px;color:var(--ink);font-weight:650}
+.sig-cycles-summary span small{color:var(--muted);font-size:10px;font-weight:400}
+.sig-cycles-stage-grid button{background:#fff;gap:3px}
+.sig-cycles-stage-grid button[data-tone]{border-color:color-mix(in srgb,var(--tone) 26%,white)}
+.sig-cycles-stage-grid button[data-tone] strong,.sig-cycles-stage-grid button[data-tone] span{color:var(--tone)}
+.sig-cycles-stage-grid button[data-tone]:hover,.sig-cycles-stage-grid button[data-tone].active{background:#fff;border-color:var(--tone);box-shadow:0 0 0 1px color-mix(in srgb,var(--tone) 35%,white)}
+.sig-cycles-stage-grid button[data-tone="initial"]{--tone:#607e91}
+.sig-cycles-stage-grid button[data-tone="plan"]{--tone:#9a8452}
+.sig-cycles-stage-grid button[data-tone="handover"]{--tone:#82778e}
+.sig-cycles-stage-grid button[data-tone="invoicing"]{--tone:#72836b}
+.sig-cycles-stage-kpis{display:grid;grid-template-columns:1fr 1fr;gap:5px;width:100%;margin-top:5px;padding-top:6px;border-top:1px solid #e9edef}
+.sig-cycles-stage-kpis small{display:flex;justify-content:space-between;gap:5px;color:var(--muted);font-size:9px}
+.sig-cycles-stage-kpis b{color:#465d69;font-size:10px;font-weight:650;white-space:nowrap}
+.sig-cycles-stage-kpis small+small{justify-content:space-between}
+.sig-cycles-toolbar .sig-cycles-history-toggle{display:flex;align-items:center;gap:6px;min-width:max-content;padding-bottom:8px;color:var(--muted)}
+.sig-cycles-history-toggle input{accent-color:#607e91}
+.sig-cycles-badge.closed{background:#eef2f4;color:#546a77}
+.sig-cycles-elapsed{display:flex;justify-content:space-between;align-items:baseline;padding:10px 0 7px;color:var(--muted);font-size:10px}
+.sig-cycles-elapsed b{color:#234b70;font-size:18px;font-variant-numeric:tabular-nums}
+.sig-cycles-timing-list{padding-bottom:9px;border-bottom:1px solid var(--line)}
+.sig-cycles-timing-row{display:flex;justify-content:space-between;gap:8px;padding:3px 0;color:#315b7b;font-size:10px}
+.sig-cycles-timing-row b{font-variant-numeric:tabular-nums;font-weight:650}
+.sig-cycles-timing-row.running{color:#47815a;font-weight:650}
+.sig-cycles-timing-row.unknown{color:#98a1a6}
+.sig-cycles-detail-body .sig-cycles-timing-list+h3{margin-top:14px}
+@media(max-width:1000px){.sig-cycles-toolbar{flex-wrap:wrap}.sig-cycles-toolbar label{flex:1}.sig-cycles-toolbar .sig-cycles-search{min-width:220px}}
+@media(max-width:700px){.sig-cycles-summary{grid-template-columns:1fr}.sig-cycles-stage-kpis{grid-template-columns:1fr}.sig-cycles-pending-total{flex-wrap:wrap}.sig-cycles-pending-total small{margin-inline-start:0}}
