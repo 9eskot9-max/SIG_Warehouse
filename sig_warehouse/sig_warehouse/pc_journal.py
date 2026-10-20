@@ -197,7 +197,7 @@ def transaction_status_report(employee=None, from_date=None, to_date=None):
         TRANSACTION,
         fields=["name", "employee_name", "transaction_date", "amount",
                 "transaction_category", "closure_status", "reviewed_by", "reviewed_at",
-                "journal_entry"],
+                "journal_entry", "source_media_url"],
         filters=filters,
         order_by="employee_name asc, transaction_date asc, name asc",
         limit_page_length=0,
@@ -257,6 +257,7 @@ def transaction_status_report(employee=None, from_date=None, to_date=None):
             "journal_status": journal_status,
             "reviewed_by": reviewer_name,
             "reviewed_at": row.reviewed_at,
+            "source_media_url": row.source_media_url,
             "review_group": review_group.get("label") if review_group else "Unassigned",
             "review_group_lead": review_group.get("lead") if review_group else None,
         })

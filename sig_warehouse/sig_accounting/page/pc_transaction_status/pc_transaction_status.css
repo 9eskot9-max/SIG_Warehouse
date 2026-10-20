@@ -32,8 +32,24 @@
 .sig-pc-status-badge.is-pending { color:#775800; background:#fff4cc; }
 .sig-pc-status-badge.is-bad { color:#9b2723; background:#fde8e7; }
 .sig-pc-status-foot { display:flex; justify-content:space-between; gap:16px; margin-top:15px; padding-top:9px; border-top:1px solid #d9e1eb; color:#697586; font-size:10px; }
+.sig-pc-status-receipts { margin-top:28px; }
+.sig-pc-status-receipts>h2 { margin:0; padding-bottom:8px; color:#102950; border-bottom:2px solid #22C7EE; font-size:19px; }
+.sig-pc-status-receipts>p { margin:7px 0 14px; color:#697586; font-size:12px; }
+.sig-pc-status-receipt { display:grid; grid-template-columns:minmax(220px, .38fr) minmax(0, 1fr); gap:18px; margin:0 0 18px; padding:14px; border:1px solid #d9e1eb; border-inline-start:4px solid #1E7FFC; border-radius:9px; background:#fff; break-inside:avoid; }
+.sig-pc-status-receipt-info h3 { margin:5px 0 10px; color:#102950; font-size:16px; }
+.sig-pc-status-receipt-count { color:#1689b7; font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
+.sig-pc-status-receipt-info dl { display:grid; gap:0; margin:0; }
+.sig-pc-status-receipt-info dl>div { display:grid; grid-template-columns:minmax(86px, .8fr) minmax(0, 1.2fr); gap:8px; padding:6px 0; border-bottom:1px solid #edf0f4; }
+.sig-pc-status-receipt-info dt { color:#697586; font-size:11px; font-weight:500; }
+.sig-pc-status-receipt-info dd { margin:0; color:#102950; font-size:12px; font-weight:600; overflow-wrap:anywhere; }
+.sig-pc-status-receipt-info dd small { display:block; margin-top:3px; color:#697586; font-weight:400; }
+.sig-pc-status-receipt-media { display:flex; min-height:300px; align-items:center; justify-content:center; overflow:hidden; border:1px solid #e1e7ee; border-radius:6px; background:#f3f6f9; }
+.sig-pc-status-receipt-image { display:block; width:100%; max-height:780px; object-fit:contain; background:#fff; }
+.sig-pc-status-receipt-pdf { display:block; width:100%; height:720px; border:0; background:#fff; }
+.sig-pc-status-no-receipt { display:grid; min-height:150px; width:100%; place-items:center; padding:20px; color:#697586; text-align:center; }
+.sig-pc-status-open-receipt { display:inline-block; margin-top:12px; font-size:12px; }
 .sig-pc-status-empty { padding:28px; color:#697586; text-align:center; }
-@media (max-width:900px) { .sig-pc-status-meta { grid-template-columns:1fr; } .sig-pc-printdoc { overflow-x:auto; padding:14px; } .sig-pc-status-table { min-width:900px; } }
+@media (max-width:900px) { .sig-pc-status-meta { grid-template-columns:1fr; } .sig-pc-printdoc { overflow-x:auto; padding:14px; } .sig-pc-status-table { min-width:900px; } .sig-pc-status-receipt { grid-template-columns:1fr; } .sig-pc-status-receipt-media { min-height:240px; } }
 @media print {
     body * { visibility:hidden!important; }
     .sig-pc-printdoc,.sig-pc-printdoc * { visibility:visible!important; }
@@ -42,5 +58,14 @@
     .sig-pc-status-table { font-size:9px; }
     .sig-pc-status-table thead { display:table-header-group; }
     .sig-pc-status-table tr { break-inside:avoid; }
-    @page { size:A4 landscape; margin:12mm; }
+    .sig-pc-status-receipts { break-before:page; }
+    .sig-pc-status-receipt { grid-template-columns:minmax(210px, .32fr) minmax(0, 1fr); gap:10px; margin:0; padding:8px; border-radius:0; break-inside:avoid; page-break-inside:avoid; }
+    .sig-pc-status-receipt-info h3 { font-size:13px; }
+    .sig-pc-status-receipt-info dl>div { padding:3px 0; }
+    .sig-pc-status-receipt-media { min-height:0; border:0; }
+    .sig-pc-status-receipt-image { width:auto; max-width:100%; max-height:170mm; }
+    .sig-pc-status-receipt-pdf { height:170mm; }
+    .sig-pc-status-open-receipt { display:none; }
+    .sig-pc-status-table { min-width:0; }
+    @page { size:A4 landscape; margin:10mm; }
 }
