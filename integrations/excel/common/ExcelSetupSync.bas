@@ -1,7 +1,7 @@
 Attribute VB_Name = "ExcelSetupSync"
 Option Explicit
-'V-excelsetup.common.261020001
-Public Const ES_ADAPTER_VERSION As Long = 1
+'V-excelsetup.common.261020002
+Public Const ES_ADAPTER_VERSION As Long = 2
 Private Const ES_ENDPOINT As String = "https://neosys.frappe.cloud/api/method/sig_warehouse.sig_operations.excel_setup.get_setup_bundle"
 Private Const ES_CACHE As String = "_ExcelSetupCache"
 Private Const ES_META As String = "_ExcelSetupMeta"
@@ -22,7 +22,7 @@ Public Sub ES_Refresh(ByVal workbookType As String, Optional ByVal force As Bool
     Set http = CreateObject("WinHttp.WinHttpRequest.5.1")
     http.SetTimeouts 15000, 15000, 30000, 60000
     If Not force Then lastRevision = ES_Revision()
-    http.Open "GET", ES_ENDPOINT & "?workbook_type=" & workbookType & "&adapter_version=1&last_revision=" & lastRevision, False
+    http.Open "GET", ES_ENDPOINT & "?workbook_type=" & workbookType & "&adapter_version=2&last_revision=" & lastRevision, False
     http.SetRequestHeader "Authorization", "token " & auth
     http.SetRequestHeader "Accept", "application/json"
     http.Send
@@ -30,8 +30,8 @@ Public Sub ES_Refresh(ByVal workbookType As String, Optional ByVal force As Bool
     If http.Status <> 200 Then Err.Raise vbObjectError + 2801, , "Excel Setup fetch failed (HTTP " & http.Status & "). Existing setup was retained."
     Set root = JsonConverter.ParseJson(http.ResponseText)
     Set data = root("message")
-    If CStr(data("contract")) <> "SIG_EXCEL_SETUP_V1" Or CStr(data("workbook_type")) <> workbookType Then Err.Raise vbObjectError + 2802, , "Unexpected setup contract/workbook."
-    If CLng(data("schema_version")) <> 1 Or CLng(data("minimum_adapter_version")) <> ES_ADAPTER_VERSION Then Err.Raise vbObjectError + 2803, , "Import the matching Excel Setup BAS release."
+    If CStr(data("contract")) <> "SIG_EXCEL_SETUP_V2" Or CStr(data("workbook_type")) <> workbookType Then Err.Raise vbObjectError + 2802, , "Unexpected setup contract/workbook."
+    If CLng(data("schema_version")) <> 2 Or CLng(data("minimum_adapter_version")) <> ES_ADAPTER_VERSION Then Err.Raise vbObjectError + 2803, , "Import the matching Excel Setup BAS release."
     If Not CBool(data("complete")) Then Err.Raise vbObjectError + 2804, , "ERP setup is unpublished or incomplete for this workbook. Existing setup was retained."
     If CBool(data("unchanged")) Then
         If Not ES_Ready() Then Err.Raise vbObjectError + 2805, , "Local setup metadata is incomplete; use ExcelSetup_ForceRefresh."
@@ -86,7 +86,7 @@ Public Sub ES_Refresh(ByVal workbookType As String, Optional ByVal force As Bool
     meta.Cells(4, 1) = "ACN user (reported)": meta.Cells(4, 2) = ACN.AC_GetCurrentUser()
     meta.Cells(5, 1) = "Workbook": meta.Cells(5, 2) = workbookType
     meta.Cells(6, 1) = "Adapter": meta.Cells(6, 2) = ES_ADAPTER_VERSION
-    meta.Cells(7, 1) = "Contract": meta.Cells(7, 2) = "SIG_EXCEL_SETUP_V1"
+    meta.Cells(7, 1) = "Contract": meta.Cells(7, 2) = "SIG_EXCEL_SETUP_V2"
     meta.Cells(8, 1) = "Status": meta.Cells(8, 2) = "Imported locally; server receipt not implemented"
     Set mRows = Nothing: mRevision = ""
     writing = False
@@ -172,7 +172,7 @@ End Function
 
 Public Function ES_Ready() As Boolean
     On Error GoTo Missing
-    ES_Ready = (ES_Revision() > 0 And CStr(ThisWorkbook.Worksheets(ES_META).Cells(7, 2).Value2) = "SIG_EXCEL_SETUP_V1" _
+    ES_Ready = (ES_Revision() > 0 And CStr(ThisWorkbook.Worksheets(ES_META).Cells(7, 2).Value2) = "SIG_EXCEL_SETUP_V2" _
         And CLng(ThisWorkbook.Worksheets(ES_META).Cells(6, 2).Value2) = ES_ADAPTER_VERSION _
         And ThisWorkbook.Worksheets(ES_CACHE).Cells(2, 1).Value2 <> "")
 Missing:
@@ -310,7 +310,7 @@ End Sub
 Public Sub ES_WriteSeed(ByVal datasets As Object, ByVal workbookType As String)
     Dim package As Object, target As Variant, stream As Object
     Set package = CreateObject("Scripting.Dictionary")
-    package.Add "schema_version", 1
+    package.Add "schema_version", 2
     package.Add "batch_id", workbookType & "-seed-" & Format$(Now, "yyyymmddhhnnss")
     package.Add "source", workbookType & " declared setup export"
     package.Add "datasets", datasets
@@ -322,3 +322,57 @@ Public Sub ES_WriteSeed(ByVal datasets As Object, ByVal workbookType As String)
     stream.SaveToFile CStr(target), 2: stream.Close
     MsgBox "Seed exported. Import through ERP Excel Setup preview; resolve conflicts before publishing.", vbInformation
 End Sub
+
+Public Function ES_SeedId(ByVal kind As String, ByVal key As String) As String
+    Dim token As String
+    token = AC_Crypto.AC_Sha256Utf8B64(LCase$(Trim$(key)))
+    token = Replace(Replace(Replace(token, "+", "-"), "/", "_"), "=", "")
+    ES_SeedId = kind & "-" & token
+End Function
+
+Public Function ES_ProfileAliasForProject(ByVal erpProject As String, Optional ByVal selector As String = "") As String
+    Dim link As Object, profile As Object, found As String, rank As Long, bestRank As Long
+    Dim ambiguous As Boolean, hasLinks As Boolean
+    bestRank = -1
+    For Each link In ES_AllRows("project_builder_links")
+        If CBool(link("enabled")) And StrComp(CStr(link("project")), erpProject, vbTextCompare) = 0 Then
+            hasLinks = True
+            For Each profile In ES_AllRows("builder_profiles")
+                If CBool(profile("enabled")) And CStr(profile("id")) = CStr(link("profile")) Then
+                    rank = -1
+                    If Len(Trim$(selector)) > 0 Then
+                        If StrComp(CStr(link("stream")), selector, vbTextCompare) = 0 Or StrComp(CStr(link("stream_alias")), selector, vbTextCompare) = 0 Then
+                            rank = 3
+                        ElseIf StrComp(CStr(profile("alias")), selector, vbTextCompare) = 0 Then
+                            rank = 2
+                        End If
+                    ElseIf Len(CStr(link("stream"))) = 0 Then
+                        rank = 1
+                    End If
+                    If rank >= 0 Then
+                        If rank > bestRank Then
+                            bestRank = rank: found = CStr(profile("alias")): ambiguous = False
+                        ElseIf rank = bestRank And StrComp(found, CStr(profile("alias")), vbTextCompare) <> 0 Then
+                            ambiguous = True
+                        End If
+                    End If
+                End If
+            Next profile
+        End If
+    Next link
+    If ambiguous Or (hasLinks And Len(found) = 0) Then Err.Raise vbObjectError + 2841, , "Select an explicitly assigned Builder profile or Project stream for " & erpProject
+    ES_ProfileAliasForProject = found
+End Function
+
+Public Function ES_BuilderAliasForPo(ByVal poOrProject As String, Optional ByVal selector As String = "") As String
+    Dim row As Object, project As String
+    For Each row In ES_AllRows("projects")
+        If CBool(row("enabled")) Then
+            If StrComp(CStr(row("po")), Trim$(poOrProject), vbTextCompare) = 0 Or StrComp(CStr(row("project")), Trim$(poOrProject), vbTextCompare) = 0 Then
+                If Len(project) > 0 And project <> CStr(row("project")) Then Err.Raise vbObjectError + 2841, , "Ambiguous canonical Project for PO " & poOrProject
+                project = CStr(row("project"))
+            End If
+        End If
+    Next row
+    If Len(project) > 0 Then ES_BuilderAliasForPo = ES_ProfileAliasForProject(project, selector)
+End Function

@@ -18,7 +18,10 @@ spec.loader.exec_module(contract)
 
 def data():
     return {
-        "projects": [{"id": "p", "project": "ERP-P", "po": "001", "alias": "Capex", "enabled": True}],
+        "projects": [{"id": "p", "project": "ERP-P", "po": "001", "enabled": True}],
+        "builder_profiles": [{"id": "profile", "alias": "Capex", "enabled": True}],
+        "builder_contacts": [{"id": "contact", "profile": "profile", "tawal_contact": "contact-1", "enabled": True}],
+        "project_builder_links": [{"id": "link", "project": "ERP-P", "profile": "profile", "stream": "", "enabled": True}],
         "tag_definitions": [{"id": "t", "item": "Module", "rule": "Module", "priority": "1"}],
         "tag_upl_links": [{"id": "l", "tag_item": "Module", "cuc": "CUC"}],
         "material_upl_links": [{"id": "m", "item_code": "ITEM", "cuc": "CUC", "treatment": "Direct 1:1", "source_uom": "Nos", "target_uom": "Nos", "quantity_basis": "One module = one contract unit"}],
@@ -38,13 +41,12 @@ def test_normalization_preserves_ids_po_zeroes_and_disabled_rows():
 
 def test_builder_alias_may_link_multiple_projects_and_po_may_be_pending():
     value = data()
-    value["projects"].append({
-        "id": "p2", "project": "ERP-P2", "po": "", "alias": "Capex", "enabled": True
-    })
+    value["projects"].append({"id": "p2", "project": "ERP-P2", "po": "", "enabled": True})
+    value["project_builder_links"].append({"id": "link2", "project": "ERP-P2", "profile": "profile", "enabled": True})
     result = contract.validate(value)
-    assert [(row["project"], row["alias"], row["po"]) for row in result["projects"]] == [
-        ("ERP-P", "Capex", "001"), ("ERP-P2", "Capex", "")
-    ]
+    assert len(result["builder_profiles"]) == 1
+    assert [(r["project"], r["profile"]) for r in result["project_builder_links"]] == [("ERP-P", "profile"), ("ERP-P2", "profile")]
+    assert result["projects"][1]["po"] == ""
 
 
 def test_project_id_remains_required_when_po_is_pending():
@@ -101,7 +103,7 @@ def test_separate_po_rules_remain_distinct_and_priority_is_explicit():
 
 def test_merge_is_additive_no_implicit_retirements_and_repeatable():
     original = contract.validate(data())
-    package = {"schema_version":1, "batch_id":"test", "datasets":{"builder_defaults":[{"id":"b", "kind":"csv_remarks", "key":"K", "value":"V"}]}}
+    package = {"schema_version":2, "batch_id":"test", "datasets":{"builder_defaults":[{"id":"b", "kind":"csv_remarks", "key":"K", "value":"V"}]}}
     first, counts = contract.merge_import(original, package)
     second, _ = contract.merge_import(first, package)
     assert first == second
@@ -113,7 +115,7 @@ def test_merge_is_additive_no_implicit_retirements_and_repeatable():
 def test_merge_rejects_duplicate_ids_inside_batch():
     row = {"id":"b", "kind":"csv_remarks", "key":"K", "value":"V"}
     with pytest.raises(ValueError, match="duplicate ID inside"):
-        contract.merge_import(contract.validate(data()), {"schema_version":1,"batch_id":"b","datasets":{"builder_defaults":[row,row]}})
+        contract.merge_import(contract.validate(data()), {"schema_version":2,"batch_id":"b","datasets":{"builder_defaults":[row,row]}})
 
 
 def test_workbook_projections_do_not_include_other_workbook_datasets():
@@ -163,24 +165,24 @@ def test_guest_and_unrelated_role_cannot_fetch(api):
     module, stub = api
     stub.session.user = "Guest"
     with pytest.raises(PermissionError):
-        module.get_setup_bundle("RV80", 1)
+        module.get_setup_bundle("RV80", 2)
     stub.session.user = "employee"
     stub.roles = {"Employee"}
     with pytest.raises(PermissionError):
-        module.get_setup_bundle("RV80", 1)
+        module.get_setup_bundle("RV80", 2)
 
 
 def test_projected_payload_checksum_and_revision_unchanged(api):
     module, _ = api
-    response = module.get_setup_bundle("SIGPC", 1)
+    response = module.get_setup_bundle("SIGPC", 2)
     expected = base64.b64encode(hashlib.sha256(response["payload_json"].encode()).digest()).decode()
     assert response["payload_sha256_b64"] == expected
     assert json.loads(response["payload_json"]) == response["datasets"]
     assert response["complete"] is True
-    unchanged = module.get_setup_bundle("SIGPC", 1, last_revision=3)
+    unchanged = module.get_setup_bundle("SIGPC", 2, last_revision=3)
     assert unchanged["unchanged"] and unchanged["datasets"] == {}
     with pytest.raises(ValueError, match="Unsupported"):
-        module.get_setup_bundle("SIGPC", 2)
+        module.get_setup_bundle("SIGPC", 1)
 
 
 def test_stale_editor_write_rejected_before_any_mutation(api, monkeypatch):
@@ -271,28 +273,162 @@ def test_permission_migration_is_append_only_and_repeatable(monkeypatch):
     assert [row.role for row in profiles["SIG PM"].roles].count(editor) == 1
 
 
-def test_builder_contacts_resolve_existing_directory_and_project_eligibility(api):
+def test_builder_contacts_resolve_existing_directory_without_inventing_project_assignment(api):
     module, stub = api
-    row = contract.validate(data())["projects"][0]
+    row = contract.validate(data())["builder_contacts"][0]
     row.update(contact_email="c@example.test", contact_name="Old display")
     contact = SimpleNamespace(name="contact-1", full_name="Canonical name", mobile="00123", email="c@example.test")
     stub.get_all = lambda *args, **kwargs: [contact]
-    stub.get_meta = lambda dt: SimpleNamespace(has_field=lambda field: False)
-    stub.db = SimpleNamespace(exists=lambda dt, value: dt == "DocType" and value in ("SIG TAWAL Contact", "SIG Project PM Assignment") or dt == "SIG Project PM Assignment" and value["project"] == "ERP-P")
+    stub.db = SimpleNamespace(exists=lambda dt, value: dt == "DocType" and value == "SIG TAWAL Contact")
     module._resolve_contact(row)
     assert row["tawal_contact"] == "contact-1"
     assert row["contact_name"] == "Canonical name"
     assert row["contact_phone"] == "00123"
-    row["project"] = "OTHER"
-    with pytest.raises(ValueError, match="not assigned"):
-        module._resolve_contact(row)
+    assert "project" not in row
 
 
 def test_ambiguous_directory_match_never_creates_a_parallel_contact(api):
     module, stub = api
-    row = contract.validate(data())["projects"][0]
+    row = contract.validate(data())["builder_contacts"][0]
     row.update(contact_email="c@example.test")
     stub.db = SimpleNamespace(exists=lambda *args: True)
     stub.get_all = lambda *args, **kwargs: [SimpleNamespace(name="one"), SimpleNamespace(name="two")]
     with pytest.raises(ValueError, match="one exact contact"):
         module._resolve_contact(row)
+
+
+def test_profiles_can_precede_any_project_or_po():
+    value = data()
+    value["projects"] = []
+    value["project_builder_links"] = []
+    result = contract.validate(value)
+    assert result["builder_profiles"][0]["alias"] == "Capex"
+    assert contract.bundle_complete(result, "RV80")
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda d: d["project_builder_links"][0].update(profile="missing"),
+    lambda d: d["project_builder_links"][0].update(project="missing"),
+    lambda d: d["builder_profiles"][0].update(enabled=False),
+    lambda d: d["builder_contacts"][0].update(profile="missing"),
+])
+def test_dangling_assignments_or_contacts_cannot_publish(mutate):
+    value = data()
+    mutate(value)
+    with pytest.raises(ValueError, match="enabled"):
+        contract.validate(value)
+
+
+def test_profile_alias_is_unique_but_can_be_assigned_repeatedly():
+    value = data()
+    value["builder_profiles"].append(dict(value["builder_profiles"][0], id="other", alias="CAPEX"))
+    with pytest.raises(ValueError, match="duplicate scoped"):
+        contract.validate(value)
+
+
+def legacy_data():
+    value = {k: v for k, v in data().items() if k not in ("builder_profiles", "builder_contacts", "project_builder_links")}
+    value["projects"] = [
+        {"id": "rv80-project-8", "project": "WO-0041", "po": "1000170", "alias": "capex7", "family": "", "template": "wrong", "internal_pm": "unverified", "enabled": True},
+        {"id": "rv80-project-7", "project": "WO-0040", "po": "1000157", "alias": "incident", "family": "5G", "enabled": True},
+    ]
+    return value
+
+
+def test_legacy_migration_never_carries_forward_false_row_joins():
+    legacy = legacy_data()
+    original = copy.deepcopy(legacy)
+    upgraded = contract.upgrade_legacy(legacy)
+    assert legacy == original
+    assert upgraded["builder_profiles"] == upgraded["builder_contacts"] == upgraded["project_builder_links"] == []
+    assert {(r["project"], r["po"]) for r in upgraded["projects"]} == {("WO-0041", "1000170"), ("WO-0040", "1000157")}
+    assert not any("alias" in r or "internal_pm" in r for r in upgraded["projects"])
+    assert upgraded["tag_definitions"] == contract.validate(data())["tag_definitions"]
+    assert contract.upgrade_legacy(upgraded) == upgraded
+    assert not contract.bundle_complete(upgraded, "RV80")
+
+
+def test_legacy_seed_and_historical_bundle_cannot_reintroduce_row_joins(api, monkeypatch):
+    module, stub = api
+    with pytest.raises(ValueError, match="schema_version 2"):
+        contract.merge_import(contract.validate(data()), {"schema_version": 1, "datasets": legacy_data(), "batch_id": "old"})
+    monkeypatch.setattr(module, "_state", lambda lock=False: (SimpleNamespace(revision=3), legacy_data()))
+    with pytest.raises(ValueError, match="Legacy Project/Builder"):
+        module.get_setup_bundle("RV80", 2)
+
+
+def test_empty_or_disabled_profiles_never_clear_existing_rv80(api, monkeypatch):
+    module, stub = api
+    value = contract.upgrade_legacy(legacy_data())
+    monkeypatch.setattr(module, "_state", lambda lock=False: (SimpleNamespace(revision=4, published_at="today"), value))
+    assert module.get_setup_bundle("RV80", 2)["complete"] is False
+    assert module.get_setup_bundle("SIGPC", 2)["complete"] is True
+
+
+def test_native_stream_must_belong_to_explicit_project(api):
+    module, stub = api
+    stub.db = SimpleNamespace(exists=lambda *args: True, get_value=lambda *args: "OTHER")
+    with pytest.raises(ValueError, match="stream belonging"):
+        module._linked_masters({"projects": [], "project_builder_links": [{"enabled": True, "project": "P", "profile": "builder", "stream": "S"}], "material_upl_links": []})
+
+
+def test_split_migration_patch_is_repeatable(monkeypatch, api):
+    module, stub = api
+    from importlib.util import spec_from_file_location, module_from_spec
+    state = {"data": legacy_data(), "revision": 3}
+    writes = []
+    def publish(value, revision):
+        assert revision == state["revision"]
+        state.update(data=value, revision=revision+1)
+        writes.append(value)
+    monkeypatch.setattr(module, "_state", lambda lock=False: (SimpleNamespace(revision=state["revision"]), state["data"]))
+    monkeypatch.setattr(module, "_publish", publish)
+    monkeypatch.setitem(sys.modules, "sig_warehouse.sig_operations.excel_setup", module)
+    stub.db = SimpleNamespace(exists=lambda *args: True)
+    spec = spec_from_file_location("split_patch", ROOT / "sig_warehouse/patches/v1_0/split_excel_setup_structure.py")
+    patch = module_from_spec(spec)
+    spec.loader.exec_module(patch)
+    patch.execute()
+    patch.execute()
+    assert len(writes) == 1 and state["revision"] == 4
+
+
+def test_pending_legacy_contacts_are_retained_but_block_rv80_import(api):
+    module, stub = api
+    row = contract.validate(data())["builder_contacts"][0]
+    row.update(tawal_contact="", contact_name="Legacy contact", origin="RV80 Builder")
+    stub.db = SimpleNamespace(exists=lambda *args: True)
+    stub.get_all = lambda *args, **kwargs: []
+    module._resolve_contact(row)
+    assert row["contact_name"] == "Legacy contact" and not row["tawal_contact"]
+    value = contract.validate(data())
+    value["builder_contacts"] = [row]
+    assert not contract.bundle_complete(value, "RV80")
+    row["origin"] = "ERP directory"
+    with pytest.raises(ValueError, match="one exact contact"):
+        module._resolve_contact(row)
+
+
+def test_seed_ignores_po_validation_order_and_keeps_profiles_before_po():
+    spec = importlib.util.spec_from_file_location("builder_seed_test", ROOT / "sig_operations/excel_setup_seed.py")
+    seed = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(seed)
+    rows = [{"R": "capex7", "S": "Contact", "T": "00123", "U": "c@example.test", "Y": "PM", "AC": "1000170", "AB": "5G"},
+            {"R": "mobily", "S": "Other", "AC": "1000238"}]
+    first = seed.builder_seed(rows, "seed")
+    rows[0]["AC"], rows[1]["AC"] = rows[1]["AC"], rows[0]["AC"]
+    rows[0]["AB"] = "Incident"
+    assert seed.builder_seed(rows, "seed") == first
+    assert set(first["datasets"]) == {"builder_profiles", "builder_contacts"}
+    assert {r["alias"] for r in first["datasets"]["builder_profiles"]} == {"capex7", "mobily"}
+    result = contract.validate(first["datasets"])
+    assert result["projects"] == result["project_builder_links"] == []
+    assert first["datasets"]["builder_contacts"][0]["contact_phone"] in ("00123", "")
+
+
+def test_conflicting_profile_source_rows_require_review():
+    spec = importlib.util.spec_from_file_location("builder_seed_conflict", ROOT / "sig_operations/excel_setup_seed.py")
+    seed = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(seed)
+    with pytest.raises(ValueError, match="Conflicting template"):
+        seed.builder_seed([{"R": "5g", "V": "one"}, {"R": "5g", "V": "two"}], "seed")

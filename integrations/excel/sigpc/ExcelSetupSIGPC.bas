@@ -1,6 +1,6 @@
 Attribute VB_Name = "ExcelSetupSIGPC"
 Option Explicit
-'V-excelsetup.sigpc.261020001
+'V-excelsetup.sigpc.261020002
 
 Public Sub ExcelSetup_RefreshFromERP()
     ES_Refresh "SIGPC"

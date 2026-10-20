@@ -1,0 +1,34 @@
+{
+  "release": "excel-setup-structure-v2-20261020",
+  "adapter_version": 2,
+  "schema_version": 2,
+  "contract": "SIG_EXCEL_SETUP_V2",
+  "status": "source prepared; ERP deployment and manual VBA import tracked separately",
+  "files": [
+    {
+      "workbook": "rv80",
+      "file": "ExcelSetupSync.bas",
+      "sha256": "851cc82eafb664383ea053cd4dceb9eda0ac3cbbb5a38cd6eb8552942553a337"
+    },
+    {
+      "workbook": "rv80",
+      "file": "ExcelSetupRV80.bas",
+      "sha256": "737c9dbbeb9de9ff47ae74c19ad8f72f110942bc3c19db6c636804e9f128dfbb"
+    },
+    {
+      "workbook": "rv80",
+      "file": "tcnword.bas",
+      "sha256": "d4585f02479ddb870b3fbc872eab504fe96710287ceb57e5bcee37ba10a4a731"
+    },
+    {
+      "workbook": "sigpc",
+      "file": "ExcelSetupSync.bas",
+      "sha256": "851cc82eafb664383ea053cd4dceb9eda0ac3cbbb5a38cd6eb8552942553a337"
+    },
+    {
+      "workbook": "sigpc",
+      "file": "ExcelSetupSIGPC.bas",
+      "sha256": "41e65b57943d024de77464dd140d83d0e91ad0a59a247013428998889464c0b8"
+    }
+  ]
+}

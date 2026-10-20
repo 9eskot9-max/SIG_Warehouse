@@ -3,18 +3,21 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
     const method = 'sig_warehouse.sig_operations.excel_setup.';
     const root = $('<div class="sig-excel-setup"></div>').appendTo(page.main);
     let state, selected = 'projects', dirty = false;
-    const labels = {projects: __('Projects & Builder'), tag_definitions: __('Tags definitions'),
+    const labels = {projects: __('ERP Projects'), builder_profiles: __('Builder profiles'),
+        builder_contacts: __('Builder contacts'), project_builder_links: __('Project → Builder assignments'), tag_definitions: __('Tags definitions'),
         tag_upl_links: __('Tags to UPL'), material_upl_links: __('Item to UPL'), builder_defaults: __('Builder defaults')};
-    const fieldLabels = {project: 'ERP Project', po: 'PO / Agreement', alias: 'Builder alias', family: 'Project family',
-        stream: 'Project stream', template: 'Word template key', internal_pm: 'Internal SIG PM', tawal_contact: 'TAWAL contact',
+    const fieldLabels = {project: 'ERP Project', profile: 'Builder profile', po: 'PO / Agreement', alias: 'Builder alias', family: 'Project family',
+        stream: 'Project stream', stream_alias: 'Stream alias', template: 'Word template key', internal_pm: 'Internal SIG PM', tawal_contact: 'TAWAL contact',
         contact_name: 'Contact name', contact_phone: 'Phone', contact_email: 'Email', upl_revision: 'UPL revision', enabled: 'Enabled',
         item: 'Tags item', rule: 'Matching rule', priority: 'Match priority', tag_item: 'Tags item', cuc: 'UPL CUC',
         description: 'UPL description', tag_matcher: 'Tags description qualifier', builder_rule: 'Tags normalization rule',
         item_code: 'ERP item code', source_uom: 'ERP unit', target_uom: 'Mapping unit', treatment: 'Treatment',
-        quantity_basis: 'Reviewed quantity basis', kind: 'Setting type', key: 'Match value', value: 'Output value', value2: 'Additional value'};
+        quantity_basis: 'Reviewed quantity basis', origin: 'Imported source', kind: 'Setting type', key: 'Match value', value: 'Output value', value2: 'Additional value'};
     const optionLabels = {purpose_reason: 'TCN purpose and reason', csv_remarks: 'TCN CSV wording', tms_implementer: 'TMS implementer'};
     const referenceFields = {
-        projects: {project: 'projects', tawal_contact: 'contacts', stream: 'streams'},
+        projects: {project: 'projects'},
+        builder_contacts: {profile: 'profiles', tawal_contact: 'contacts'},
+        project_builder_links: {project: 'projects', profile: 'profiles', stream: 'streams'},
         material_upl_links: {item_code: 'items', target_uom: 'uoms'}
     };
     const referenceLabel = (type, row) => {
@@ -22,13 +25,19 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         if (type === 'contacts') return [row.full_name, row.name].filter(Boolean).join(' · ');
         if (type === 'items') return [row.item_name, row.name, row.stock_uom].filter(Boolean).join(' · ');
         if (type === 'streams') return [row.alias, row.name].filter(Boolean).join(' · ');
+        if (type === 'profiles') return row.alias;
         return row.name || '';
     };
+    const choices = type => type === 'profiles'
+        ? state.datasets.builder_profiles.filter(row => row.enabled).map(row => ({...row, name: row.id}))
+        : state.references[type] || [];
+    const displayValue = (type, value) => type === 'profiles'
+        ? ((choices(type).find(row => row.name === value) || {}).alias || value) : value;
     const referenceCell = (type, value, rowIndex, field) => '<div class="es-lookup" data-ref-type="' + type + '" data-row="' + rowIndex + '" data-field="' + field + '">' +
-        '<input class="form-control es-lookup-input" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" value="' + esc(value) + '" placeholder="' + esc(__('Search ERP records')) + '">' +
+        '<input class="form-control es-lookup-input" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" value="' + esc(displayValue(type, value)) + '" placeholder="' + esc(__('Search ERP records')) + '">' +
         '<div class="es-lookup-menu" role="listbox" hidden></div></div>';
     const referenceOptions = (type, query, rowIndex) => {
-        let rows = state.references[type] || [];
+        let rows = choices(type);
         if (type === 'streams') {
             const project = state.datasets[selected][rowIndex].project;
             rows = project ? rows.filter(row => row.project === project) : [];
@@ -41,29 +50,35 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         const box = input.closest('.es-lookup');
         const menu = box.querySelector('.es-lookup-menu');
         const field = box.dataset.field;
-        const canClear = (selected === 'projects' && ['tawal_contact', 'stream'].includes(field)) || (selected === 'material_upl_links' && field === 'target_uom');
+        const canClear = (selected === 'builder_contacts' && field === 'tawal_contact') ||
+            (selected === 'project_builder_links' && field === 'stream') || (selected === 'material_upl_links' && field === 'target_uom');
         menu.innerHTML = (canClear ? '<button type="button" class="es-lookup-option es-lookup-clear" role="option" data-value="">' + esc(__('Clear selection')) + '</button>' : '') + referenceOptions(box.dataset.refType, input.value, Number(box.dataset.row));
         menu.hidden = !menu.childElementCount;
         input.setAttribute('aria-expanded', String(!menu.hidden));
     };
     const commitLookup = (box, value) => {
         const row = state.datasets[selected][Number(box.dataset.row)], field = box.dataset.field, type = box.dataset.refType;
-        if (!value && ((selected === 'projects' && ['tawal_contact', 'stream'].includes(field)) || (selected === 'material_upl_links' && field === 'target_uom'))) {
+        if (!value && ((selected === 'builder_contacts' && field === 'tawal_contact') ||
+                (selected === 'project_builder_links' && field === 'stream') || (selected === 'material_upl_links' && field === 'target_uom'))) {
             row[field] = '';
-            if (selected === 'projects' && field === 'tawal_contact') { row.contact_name = ''; row.contact_phone = ''; row.contact_email = ''; }
+            if (selected === 'builder_contacts' && field === 'tawal_contact') { row.contact_name = ''; row.contact_phone = ''; row.contact_email = ''; }
+            if (selected === 'project_builder_links' && field === 'stream') row.stream_alias = '';
             dirty = true;
             render();
             return;
         }
-        const source = (state.references[type] || []).find(candidate => candidate.name === value);
+        const source = choices(type).find(candidate => candidate.name === value);
         if (!source) return;
         row[field] = source.name;
         dirty = true;
         if (selected === 'projects' && field === 'project') {
             row.po = source.custom_agreement_no || source.custom_tawal_ba || source.custom_po_number || (/^\d+$/.test(source.name) ? source.name : '');
             row.family = source.custom_project_family || source.custom_family || '';
-            if (row.stream && !(state.references.streams || []).some(stream => stream.name === row.stream && stream.project === source.name)) row.stream = '';
-        } else if (selected === 'projects' && field === 'tawal_contact') {
+        } else if (selected === 'project_builder_links' && field === 'project') {
+            if (row.stream && !(state.references.streams || []).some(stream => stream.name === row.stream && stream.project === source.name)) { row.stream = ''; row.stream_alias = ''; }
+        } else if (selected === 'project_builder_links' && field === 'stream') {
+            row.stream_alias = source.alias || '';
+        } else if (selected === 'builder_contacts' && field === 'tawal_contact') {
             row.contact_name = source.full_name || '';
             row.contact_phone = source.mobile || '';
             row.contact_email = source.email || '';
@@ -80,9 +95,13 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         root.attr('dir', frappe.boot.lang === 'ar' ? 'rtl' : 'ltr');
         const rows = state.datasets[selected];
         const fields = state.fields[selected].filter(f => f !== 'id');
-        const note = selected === 'projects'
-            ? __('Builder aliases are reusable local keys and may link to multiple ERP Projects. Choose the canonical ERP Project; PO / BA may remain blank until available.')
-            : __('Blank PO and UPL revision mean a shared rule. Disable obsolete rows; keep their IDs.');
+        const notes = {
+            projects: __('Canonical ERP Projects and UPL scope only. PO / BA may remain blank. Builder profiles are maintained in their own list.'),
+            builder_profiles: __('Reusable Excel aliases, templates and internal PM defaults. A profile can exist before any Project or PO is assigned.'),
+            builder_contacts: __('Choose a Builder profile and an existing TAWAL directory contact. The operator selects the active contact in Excel. This list does not change native Project PM assignments.'),
+            project_builder_links: __('Explicit links only. The same Builder profile can link to several Projects. No link is inferred from worksheet row order, Project name or family.')
+        };
+        const note = notes[selected] || __('Blank PO and UPL revision mean a shared rule. Disable obsolete rows; keep their IDs.');
         root.html('<div class="es-summary"><b>' + __('Published revision') + ': ' + esc(state.revision) + '</b><span>' +
             esc(state.published_at || __('Not published')) + '</span><span>' + __('Excel import status unknown') + '</span></div>' +
             '<div class="es-tools"><label>' + __('Setup list') + ' <select class="form-control es-dataset">' +
@@ -91,6 +110,8 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
             '<button class="btn btn-default es-add">' + __('Add row') + '</button>' +
             '<button class="btn btn-default es-import">' + __('Import existing setup') + '</button>' +
             '<button class="btn btn-default es-history">' + __('Revision history') + '</button></div>' +
+            (state.migration_pending ? '<p class="text-warning">' + esc(__('Review and publish the separated lists. Previous combined associations remain in revision history; re-import Builder profiles from their independent source block.')) + '</p>' : '') +
+            (state.pending_builder_contacts ? '<p class="text-warning">' + esc(__('{0} enabled Builder contacts need a directory link. Select an existing contact or disable obsolete rows. RV80 will retain its current Builder until these are resolved.', [state.pending_builder_contacts])) + '</p>' : '') +
             '<p class="text-muted">' + esc(note) + '</p>' +
             '<div class="es-scroll"><table class="table table-bordered"><thead><tr>' + fields.map(f => '<th>' + esc(__(fieldLabels[f] || f)) + '</th>').join('') +
             '</tr></thead><tbody>' + rows.map((row, i) => '<tr>' + fields.map(f => '<td>' +
@@ -99,7 +120,10 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
                     state.options[selected + '.' + f].map(value => '<option value="' + esc(value) + '" ' + (row[f] === value ? 'selected' : '') + '>' + esc(__(optionLabels[value] || value)) + '</option>').join('') + '</select>' :
                 referenceFields[selected] && referenceFields[selected][f] ? referenceCell(referenceFields[selected][f], row[f], i, f) :
                 '<input class="form-control" data-row="' + i + '" data-field="' + f + '" value="' + esc(row[f]) + '" ' +
-                    (f === 'id' || (selected === 'projects' && ['po','family','contact_name','contact_phone','contact_email'].includes(f)) || (selected === 'material_upl_links' && f === 'source_uom') ? 'readonly ' : '') + '>') + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>');
+                    (f === 'id' || (selected === 'projects' && ['po','family'].includes(f)) ||
+                        (selected === 'builder_contacts' && ['contact_name','contact_phone','contact_email','origin'].includes(f)) ||
+                        (selected === 'project_builder_links' && f === 'stream_alias') ||
+                        (selected === 'material_upl_links' && f === 'source_uom') ? 'readonly ' : '') + '>') + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>');
     };
     const load = async () => { state = await call('get_page_state'); dirty = false; render(); };
     root.on('change', '.es-dataset', function () { selected = this.value; render(); });
@@ -123,7 +147,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
     root.on('blur', '.es-lookup-input', function () {
         const box = this.closest('.es-lookup'), row = state.datasets[selected][Number(box.dataset.row)];
         const menu = box.querySelector('.es-lookup-menu');
-        window.setTimeout(() => { if (!box.isConnected) return; this.value = row[box.dataset.field] || ''; menu.hidden = true; this.setAttribute('aria-expanded', 'false'); }, 120);
+        window.setTimeout(() => { if (!box.isConnected) return; this.value = displayValue(box.dataset.refType, row[box.dataset.field] || ''); menu.hidden = true; this.setAttribute('aria-expanded', 'false'); }, 120);
     });
     root.on('click', '.es-add', () => {
         const row = Object.fromEntries(state.fields[selected].map(f => [f, f === 'enabled' ? true : '']));
