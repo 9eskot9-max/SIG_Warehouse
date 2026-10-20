@@ -11,7 +11,7 @@ import frappe
 from frappe.utils import get_datetime, now_datetime
 
 from .pc_clearance_rules import CATEGORY_ACCOUNTS, journal_lines, legacy_cycle_period, money, request_digest, source_key
-from .pc_review_routing import phone_index, phone_key
+from .pc_review_routing import load_matrix, phone_index, phone_key
 
 
 TRANSACTION = "SIG PC Transaction"
@@ -105,6 +105,59 @@ def transaction_permission(doc, user=None, permission_type=None):
     return None  # scope restricts; it never supplies a missing native ptype
 
 
+def journal_entry_query_conditions(user=None):
+    """Limit PC Clearance JE lists to receipts in that reviewer's employee scope."""
+    context = _context(user)
+    roles = context["roles"]
+    # Preserve existing broad finance and audit read audiences. The specialized
+    # PC report still uses the per-transaction route for all reviewer audiences.
+    if roles.intersection(FINANCE | {"SIG Finance Viewer", "Auditor"}):
+        return ""
+    if "SIG PC Clearance" not in roles:
+        return ""
+    senders = frappe.get_all(TRANSACTION, fields=["employee_name"],
+                             group_by="employee_name", limit_page_length=0)
+    allowed = [row.employee_name for row in senders
+               if _in_scope(_resolve(row.employee_name, context), context)]
+    if not allowed:
+        return "1=0"
+    sender_sql = ",".join(frappe.db.escape(value) for value in allowed)
+    return ("`tabJournal Entry`.`custom_pc_receipt` in "
+            "(select `tabSIG PC Transaction`.`name` from `tabSIG PC Transaction` "
+            "where `tabSIG PC Transaction`.`employee_name` in (" + sender_sql + "))")
+
+
+def journal_entry_permission(doc, user=None, permission_type=None):
+    """Deny SIG PC Clearance access outside linked, assigned PC receipts.
+
+    Frappe v15 controller hooks can deny a DocPerm but cannot grant one. Creation
+    therefore still requires the native create ptype and an in-scope receipt link;
+    the request-local flag additionally limits creation to confirm_receipt().
+    """
+    context = _context(user)
+    roles = context["roles"]
+    if "SIG PC Clearance" not in roles:
+        return None
+    if roles.intersection(FINANCE):
+        return None  # preserve the user's separate, existing finance permissions
+    if permission_type == "read" and roles.intersection({"SIG Finance Viewer", "Auditor"}):
+        return None  # preserve their separate, existing broad read access
+    if not doc:
+        return False if permission_type == "create" else None
+
+    receipt_name = doc.get("custom_pc_receipt")
+    if not receipt_name:
+        return False
+    employee_name = frappe.db.get_value(TRANSACTION, receipt_name, "employee_name")
+    if not _in_scope(_resolve(employee_name, context), context):
+        return False
+    if permission_type == "create":
+        allowed_create = getattr(frappe.flags, "sig_pc_journal_create_receipt", None)
+        if allowed_create != receipt_name:
+            return False
+    return None  # retain the native ptype after the scoped controller check
+
+
 @frappe.whitelist(methods=["POST"])
 def pending_receipts():
     context = _context()
@@ -113,6 +166,101 @@ def pending_receipts():
     return frappe.get_list(TRANSACTION, fields=FIELDS,
                            filters={"closure_status": ["in", ["Draft", "Needs Review"]]},
                            order_by="employee_name asc, transaction_date asc", limit_page_length=0)
+
+
+@frappe.whitelist(methods=["POST"])
+def transaction_status_report(employee=None, from_date=None, to_date=None):
+    """Return scoped petty-cash transactions with status from their own linked JE only.
+
+    This deliberately does not grant native Journal Entry read access. The PC review
+    employee scope is applied by frappe.get_list's SIG PC Transaction query hook;
+    the specialised report then reads only docstatus for a JE whose origin link points
+    back to that same visible transaction.
+    """
+    context = _context()
+    if not context["roles"].intersection(REVIEWERS):
+        _deny("You need an authorised petty-cash reviewer role.")
+    routing = load_matrix()
+    if from_date and to_date and str(from_date) > str(to_date):
+        frappe.throw("The report start date must be before its end date.")
+
+    filters = {}
+    if from_date:
+        filters["transaction_date"] = [">=", from_date]
+    if to_date:
+        if "transaction_date" in filters:
+            filters["transaction_date"] = ["between", [from_date, to_date]]
+        else:
+            filters["transaction_date"] = ["<=", to_date]
+
+    rows = frappe.get_list(
+        TRANSACTION,
+        fields=["name", "employee_name", "transaction_date", "amount",
+                "transaction_category", "closure_status", "reviewed_by", "reviewed_at",
+                "journal_entry"],
+        filters=filters,
+        order_by="employee_name asc, transaction_date asc, name asc",
+        limit_page_length=0,
+    )
+    result = []
+    assignments = {item["employee"]: item for item in routing.get("employees", [])}
+    review_groups = routing.get("review_groups", {})
+    for row in rows:
+        resolved_employee = _resolve(row.get("employee_name"), context)
+        if employee and (resolved_employee.name if resolved_employee else row.get("employee_name")) != employee:
+            continue
+        entry = row.get("journal_entry")
+        docstatus = None
+        link_valid = False
+        if entry:
+            linked = frappe.db.get_value(
+                "Journal Entry",
+                {"name": entry, "custom_pc_receipt": row.name},
+                ["docstatus"],
+                as_dict=True,
+            )
+            if linked:
+                docstatus = int(linked.docstatus)
+                link_valid = True
+        journal_status = ({0: "Draft", 1: "Submitted", 2: "Cancelled"}.get(docstatus)
+                          if link_valid else ("Link mismatch" if entry else "No linked Journal Entry"))
+        reviewer = row.get("reviewed_by")
+        reviewer_name = frappe.db.get_value("User", reviewer, "full_name") if reviewer else None
+        assignment = assignments.get(resolved_employee.name) if resolved_employee else None
+        group_key = assignment.get("pc_review_group") if assignment else None
+        review_group = review_groups.get(group_key) if group_key in review_groups else None
+        closure_status = row.get("closure_status") or "Unknown"
+        if closure_status == "Closed" and journal_status == "Draft":
+            finance_status = "Pending Finance"
+        elif closure_status == "Closed" and journal_status == "Submitted":
+            finance_status = "Posted"
+        elif closure_status == "Closed" and journal_status == "Cancelled":
+            finance_status = "Journal Cancelled"
+        elif closure_status == "Rejected":
+            finance_status = "Rejected"
+        elif journal_status == "Link mismatch":
+            finance_status = "Journal link mismatch"
+        elif not entry and closure_status == "Closed":
+            finance_status = "No linked Journal Entry"
+        else:
+            finance_status = "Pending Review" if closure_status in ("Draft", "Needs Review") else closure_status
+        result.append({
+            "name": row.name,
+            "employee_key": resolved_employee.name if resolved_employee else row.employee_name,
+            "employee_name": resolved_employee.employee_name if resolved_employee else row.employee_name,
+            "transaction_date": row.transaction_date,
+            "amount": row.amount,
+            "transaction_category": row.transaction_category,
+            "review_status": closure_status,
+            "finance_status": finance_status,
+            "journal_entry": entry if link_valid else None,
+            "journal_status": journal_status,
+            "reviewed_by": reviewer_name,
+            "reviewed_at": row.reviewed_at,
+            "review_group": review_group.get("label") if review_group else "Unassigned",
+            "review_group_lead": review_group.get("lead") if review_group else None,
+        })
+    return result
 
 
 def _locked_receipt(transaction_id):
@@ -243,7 +391,22 @@ def confirm_receipt(transaction_id, expected_modified=None, transaction_category
                         + "\nGross expense; Finance assesses VAT before submission.\n" + values["details"]),
         "accounts": journal_lines(values["amount"], expense, custody, cost_center),
     })
-    journal.insert()  # native create, User Permissions, links and validation; never submit
+    # The scoped has_permission hook allows this one native create after all
+    # receipt, employee and accounting checks above. Keep the ordinary insert
+    # permission path and restore the request-local marker even on validation failure.
+    flags = frappe.flags
+    previous_receipt = getattr(flags, "sig_pc_journal_create_receipt", None)
+    flags.sig_pc_journal_create_receipt = doc.name
+    try:
+        journal.insert()  # native create, User Permissions, links and validation; never submit
+    finally:
+        if previous_receipt is None:
+            try:
+                delattr(flags, "sig_pc_journal_create_receipt")
+            except AttributeError:
+                pass
+        else:
+            flags.sig_pc_journal_create_receipt = previous_receipt
     for field, value in values.items():
         doc.set(field, float(value) if field == "amount" else value)
     doc.vat_amount = round(float(values["amount"]) * 15 / 115, 2) if values["has_vat"] else 0
