@@ -17,7 +17,8 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
     root.html(`<header class="sig-pc-status-head">
         <div><div class="sig-pc-status-eyebrow">${__('Accounts')}</div><h1>${__('Petty Cash Status')}</h1>
         <p>${__('Transaction review and linked Journal Entry status')}</p></div>
-        <div class="sig-pc-status-actions"><button class="btn btn-default" data-refresh>${__('Refresh')}</button>
+        <div class="sig-pc-status-actions"><button class="btn btn-default" data-review>${__('Open PC Review')}</button>
+        <button class="btn btn-default" data-refresh>${__('Refresh')}</button>
         <button class="btn btn-primary" data-print>${__('Print report')}</button></div>
     </header>
     <section class="sig-pc-status-filters">
@@ -90,19 +91,74 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
             <td>${esc(row.transaction_category || '—')}</td>
             <td class="sig-pc-status-money">${esc(money(row.amount))}</td><td>${badge(row.finance_status)}</td>
             <td>${esc(row.reviewed_by || '—')}</td><td>${esc(row.journal_status || '—')}</td>
-        </tr>`).join('') : `<tr><td colspan="9" class="sig-pc-status-empty">${__('No transactions match this selection.')}</td></tr>`;
+            <td><a href="#pc-status-receipt-${index + 1}">${__('View')}</a></td>
+        </tr>`).join('') : `<tr><td colspan="10" class="sig-pc-status-empty">${__('No transactions match this selection.')}</td></tr>`;
+        const receipts = rows.map((row, index) => {
+            const file = String(row.source_media_url || '');
+            const isPdf = /\.pdf(?:[?#]|$)/i.test(file) || /[?&]\w*=pdf(?:&|$)/i.test(file);
+            const alt = __('Receipt for {0}', [row.employee_name || row.name]);
+            const evidence = file
+                ? (isPdf
+                    ? `<iframe class="sig-pc-status-receipt-pdf" src="${esc(file)}" title="${esc(alt)}" loading="lazy"></iframe>`
+                    : `<img class="sig-pc-status-receipt-image" src="${esc(file)}" alt="${esc(alt)}" loading="lazy">`)
+                : `<div class="sig-pc-status-no-receipt">${__('No receipt image is attached to this transaction.')}</div>`;
+            return `<article class="sig-pc-status-receipt" id="pc-status-receipt-${index + 1}">
+                <div class="sig-pc-status-receipt-info"><div class="sig-pc-status-receipt-count">${__('Transaction {0} of {1}', [index + 1, rows.length])}</div>
+                    <h3>${esc(row.employee_name || '—')}</h3><dl>
+                        <div><dt>${__('Date')}</dt><dd>${esc(date(row.transaction_date))}</dd></div>
+                        <div><dt>${__('Category')}</dt><dd>${esc(row.transaction_category || '—')}</dd></div>
+                        <div><dt>${__('Amount (SAR)')}</dt><dd>${esc(money(row.amount))}</dd></div>
+                        <div><dt>${__('Review status')}</dt><dd>${badge(row.finance_status)}</dd></div>
+                        <div><dt>${__('Approved by')}</dt><dd>${esc(row.reviewed_by || '—')}</dd></div>
+                        <div><dt>${__('Journal Entry')}</dt><dd>${esc(row.journal_status || '—')}</dd></div>
+                        <div><dt>${__('PC review delegation')}</dt><dd>${esc(row.review_group || __('Unassigned'))}${row.review_group_lead ? `<small>${__('Lead')}: ${esc(row.review_group_lead)}</small>` : ''}</dd></div>
+                    </dl>${file ? `<a class="sig-pc-status-open-receipt" href="${esc(file)}" target="_blank" rel="noopener">${__('Open original receipt')}</a>` : ''}
+                </div><div class="sig-pc-status-receipt-media">${evidence}</div>
+            </article>`;
+        }).join('');
         q('.sig-pc-printdoc').innerHTML = `<div class="sig-pc-status-brand"><div class="sig-pc-status-brand-mark">SIG</div><div><strong>${__('SIG')}</strong><span>${__('Petty Cash')}</span></div><div class="sig-pc-status-document-title"><h2>${__('Petty Cash Transaction Status')}</h2><p>${__('Review approval and accounting status')}</p></div></div>
             <div class="sig-pc-status-meta"><div><small>${__('Employee')}</small><strong>${esc(employee || __('All assigned employees'))}</strong></div>
             <div><small>${__('Period')}</small><strong>${esc(period)}</strong></div><div><small>${__('Generated')}</small><strong>${esc(generated)}</strong></div></div>
-            <table class="sig-pc-status-table"><thead><tr><th>#</th><th>${__('Date')}</th><th>${__('Employee')}</th><th>${__('PC review delegation')}</th><th>${__('Category')}</th><th>${__('Amount (SAR)')}</th><th>${__('Status')}</th><th>${__('Approved by')}</th><th>${__('Journal Entry status')}</th></tr></thead>
-            <tbody>${body}</tbody><tfoot><tr><th colspan="5">${__('Total')}</th><th class="sig-pc-status-money">${esc(money(total))}</th><td colspan="3">${__('{0} transactions', [rows.length])}</td></tr></tfoot></table>
+            <table class="sig-pc-status-table"><thead><tr><th>#</th><th>${__('Date')}</th><th>${__('Employee')}</th><th>${__('PC review delegation')}</th><th>${__('Category')}</th><th>${__('Amount (SAR)')}</th><th>${__('Status')}</th><th>${__('Approved by')}</th><th>${__('Journal Entry status')}</th><th>${__('Receipt')}</th></tr></thead>
+            <tbody>${body}</tbody><tfoot><tr><th colspan="5">${__('Total')}</th><th class="sig-pc-status-money">${esc(money(total))}</th><td colspan="4">${__('{0} transactions', [rows.length])}</td></tr></tfoot></table>
+            <section class="sig-pc-status-receipts"><h2>${__('Transaction receipts')}</h2><p>${__('Each receipt is shown with its transaction details, in the same order as the table.')}</p>${receipts}</section>
             <footer class="sig-pc-status-foot"><span>${__('Journal Entry status is read from the linked Journal Entry. Draft means pending Finance review; Submitted means posted.')}</span><span>${__('Page generated from ERPNext')}</span></footer>`;
+        q('.sig-pc-status-receipts').querySelectorAll('img').forEach((image) => image.addEventListener('error', () => {
+            const unavailable = document.createElement('div');
+            unavailable.className = 'sig-pc-status-no-receipt';
+            unavailable.textContent = __('Receipt image could not be loaded. Use Open original receipt to check its source.');
+            image.replaceWith(unavailable);
+        }, {once: true}));
+        q('.sig-pc-status-receipts').querySelectorAll('iframe').forEach((frame) => frame.addEventListener('load', () => { frame.dataset.loaded = 'true'; }, {once: true}));
     }
 
     q('[data-scope]').addEventListener('change', updateScopeControls);
     q('[data-apply]').addEventListener('click', load);
     q('[data-refresh]').addEventListener('click', load);
-    q('[data-print]').addEventListener('click', () => window.print());
+    q('[data-print]').addEventListener('click', async () => {
+        const button = q('[data-print]');
+        button.disabled = true;
+        button.textContent = __('Preparing receipts…');
+        const media = [...el.querySelectorAll('.sig-pc-status-receipt-image, .sig-pc-status-receipt-pdf')];
+        media.forEach((item) => { item.loading = 'eager'; });
+        await Promise.all(media.map((item) => {
+            if (item.tagName === 'IMG' && !item.complete) return new Promise((resolve) => {
+                item.addEventListener('load', resolve, {once: true});
+                item.addEventListener('error', resolve, {once: true});
+                setTimeout(resolve, 30000);
+            });
+            if (item.tagName === 'IFRAME' && item.dataset.loaded !== 'true') return new Promise((resolve) => {
+                item.addEventListener('load', resolve, {once: true});
+                item.addEventListener('error', resolve, {once: true});
+                setTimeout(resolve, 30000);
+            });
+            return Promise.resolve();
+        }));
+        button.disabled = false;
+        button.textContent = __('Print report');
+        window.print();
+    });
+    q('[data-review]').addEventListener('click', () => frappe.set_route('pc-invoice-review'));
     q('[data-employee]').addEventListener('change', load);
     if (!roles.some((role) => frappe.user.has_role(role)) || !frappe.model.can_read('SIG PC Transaction')) {
         q('.sig-pc-printdoc').innerHTML = `<div class="sig-pc-status-empty">${__('Your ERP role cannot view petty-cash transactions.')}</div>`;

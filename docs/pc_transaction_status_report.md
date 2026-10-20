@@ -15,14 +15,16 @@ The `pc-transaction-status` Desk Page is a read-only report for petty-cash trans
 ## Report behavior
 
 - All transactions and date-range filters are supported.
+- The status page links back to the PC Review workbench; PC Review retains its direct link to the status page. The overview table has an in-report receipt link for each transaction.
+- Below the overview, each transaction appears in table order with its original receipt image (or PDF viewer), date, employee, category, amount, review status, approver, delegation and Journal Entry status. Print prepares the source media before opening the browser print dialog, so the receipt pages follow the table order.
 - Cycle selection remains disabled until ERP has an authoritative Employee advance/payment source. A receipt or expense JE is not evidence of when cash was funded, so using those records as cycle boundaries would be misleading. When the funding source is integrated, each payment/advance to the employee can start a cycle as previously agreed.
-- The page's Print Report action prints the report document (A4 landscape), with transaction date, employee, category, gross SAR amount, review/accounting status, approver and totals.
+- The page's Print Report action prints the overview table followed by one receipt and transaction detail card per row, on A4 landscape pages.
 
 ## Release acceptance record
 
 This source change introduces a new Page for the existing PC Review role audience and a read-only whitelist method, and narrows the `SIG PC Clearance` JE custom row. Before deployment, compare the full before/after permission state including Page roles, full standard and custom matrices, user roles/profiles, User Permissions, field permlevels and the active hook/scope source. Test the app migration on staging twice, then run fresh-session checks as each registered audience. Operations User/Manager must see assigned employees only, fail to open unassigned employees and self-review, and see only the linked JE status from assigned transactions. The SIG PC Clearance role must be unable to list/open unrelated JEs, create a JE from the normal form, edit, export, submit or cancel; the existing confirmation must still create one draft. Accounts roles must exercise the same report against their approved existing broader scope. Test the page from the normal Desk menu after reload and verify the print output. Do not treat Administrator or API checks as role acceptance.
 
-Current state for this change: source-only; production deployment, staging repeatability, permission snapshot diff, and actual-user acceptance are NOT TESTED. The available site is production-only, so migration and role acceptance remain deployment blockers.
+The initial status-report release is live as of 2026-10-20 at revision `41d185f5`. This receipt-detail update adds only `source_media_url` to the scoped transaction query and display, plus a return link to PC Review. Test it in production after the release; reviewers should verify original image and PDF loading and the print sequence. An expired source URL is reported as unavailable; the report uses the same source URL as PC Review and does not relocate media.
 
 ## Follow-up setup ownership
 
