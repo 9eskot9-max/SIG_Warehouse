@@ -10,7 +10,7 @@ before_install = "sig_warehouse.sig_operations.excel_setup.prepare_roles"
 after_install = "sig_warehouse.sig_warehouse.patches.v1_0.add_excel_setup.execute"
 
 # Capture the effective date at the migration that first deploys the 10-day policy.
-after_migrate = "sig_warehouse.sig_warehouse.return_closure.initialize_return_policy_start"
+after_migrate = "sig_warehouse.after_migrate.run"
 
 # 2026-09-22: doctype_js used to ALSO register stock_entry.js here, while
 # app_include_js (below) already loads the exact same file on every desk
