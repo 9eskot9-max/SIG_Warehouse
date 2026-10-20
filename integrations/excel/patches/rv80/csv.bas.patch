@@ -1,0 +1,63 @@
+--- a/deployed/csv.bas
++++ b/deployed/csv.bas
+@@ -190,6 +190,7 @@
+     Dim errText As String
+ 
+     On Error GoTo fail
++    ES_RequireReady
+     projects = Array("ti5g", "ticpx", "tiinc")
+     For Each p In projects
+         Tags_ImportGoogleProject CStr(p), imported, skipped, initialized, errText
+@@ -3369,24 +3370,8 @@
+ End Sub
+ 
+ Private Function Tags_BuilderTryLoadRules_V2(ByRef vAr As Variant, ByRef vAs As Variant) As Boolean
+-    Dim wsB As Worksheet
+-    Dim lastB As Long
+-    
+-    Tags_BuilderTryLoadRules_V2 = False
+-    Set wsB = Nothing
+-    On Error Resume Next
+-    Set wsB = ThisWorkbook.Worksheets("Builder")
+-    On Error GoTo 0
+-    If wsB Is Nothing Then Exit Function
+-    
+-    lastB = Application.WorksheetFunction.Max( _
+-              wsB.cells(wsB.rows.count, BUILDER_COL_AS).End(xlUp).row, _
+-              wsB.cells(wsB.rows.count, BUILDER_COL_AR).End(xlUp).row)
+-    If lastB < 2 Then Exit Function
+-    
+-    vAr = wsB.Range(wsB.cells(2, BUILDER_COL_AR), wsB.cells(lastB, BUILDER_COL_AR)).value2
+-    vAs = wsB.Range(wsB.cells(2, BUILDER_COL_AS), wsB.cells(lastB, BUILDER_COL_AS)).value2
+-    Tags_BuilderTryLoadRules_V2 = True
++    ES_RequireReady
++    Tags_BuilderTryLoadRules_V2 = ESHost_TagRuleArrays("", vAr, vAs)
+ End Function
+ 
+ Private Function Tags_BuilderRuleCount_V2(ByVal vAr As Variant, ByVal vAs As Variant) As Long
+@@ -3459,12 +3444,8 @@
+     On Error GoTo RenameFail
+     If wsB Is Nothing Then Exit Sub
+     
+-    If Not Tags_BuilderTryLoadRules_V2(vAr, vAs) Then Exit Sub
+-    If Tags_BuilderRuleCount_V2(vAr, vAs) = 0 Then
+-        DebugN.DebugLog "Tags_ApplyBuilderItemRename_V2: SKIP - Builder AR:AS has no complete mapping rules"
+-        Exit Sub
+-    End If
+-    
++    ES_RequireReady
++
+     prevScr = Application.ScreenUpdating
+     prevEv = Application.EnableEvents
+     prevCalc = Application.Calculation
+@@ -3478,6 +3459,10 @@
+         itemD = Trim$(CStr(tagsWs.cells(r, TAGS2_COL_DESC).value2))
+         If Len(itemD) = 0 Then itemD = Trim$(CStr(tagsWs.cells(r, TAGS2_COL_ITEM).value2))
+         If Len(itemD) = 0 Then GoTo ContR
++        If Not ESHost_TagRuleArrays(Trim$(CStr(tagsWs.Cells(r, "A").Value2)), vAr, vAs) Then
++            DebugN.DebugLog "No ERP Tags definition for this row's PO; item was preserved."
++            GoTo ContR
++        End If
+         matchedAs = vbNullString
+         matchedAr = vbNullString
+         newD = itemD

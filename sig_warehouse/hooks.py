@@ -5,6 +5,10 @@ app_description = "ERP-native warehouse workbench: dispatch, returns and custody
 app_email = "it@sigtele.com"
 app_license = "mit"
 
+before_migrate = "sig_warehouse.sig_operations.excel_setup.prepare_roles"
+before_install = "sig_warehouse.sig_operations.excel_setup.prepare_roles"
+after_install = "sig_warehouse.sig_warehouse.patches.v1_0.add_excel_setup.execute"
+
 # Capture the effective date at the migration that first deploys the 10-day policy.
 after_migrate = "sig_warehouse.sig_warehouse.return_closure.initialize_return_policy_start"
 

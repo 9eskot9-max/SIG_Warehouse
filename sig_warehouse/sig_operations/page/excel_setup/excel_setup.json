@@ -1,0 +1,25 @@
+{
+  "doctype": "Page",
+  "name": "excel-setup",
+  "page_name": "excel-setup",
+  "title": "Excel Setup",
+  "module": "SIG Operations",
+  "standard": "Yes",
+  "roles": [
+    {
+      "role": "System Manager"
+    },
+    {
+      "role": "Operations Manager"
+    },
+    {
+      "role": "Operations User"
+    },
+    {
+      "role": "Projects Manager"
+    },
+    {
+      "role": "SIG Excel Setup Editor"
+    }
+  ]
+}

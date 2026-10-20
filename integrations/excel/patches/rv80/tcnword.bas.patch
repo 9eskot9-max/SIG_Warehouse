@@ -1,0 +1,602 @@
+--- a/deployed/tcnword.bas
++++ b/deployed/tcnword.bas
+@@ -219,6 +219,7 @@
+ 
+     ' Operator sign-in (once per Excel session) so TCN evidence posts to ERP under the operator's key.
+     If Not ACN.AC_RequireSession() Then Exit Sub
++    ES_RequireReady
+ 
+     Set batches = CreateObject("Scripting.Dictionary")
+     batches.CompareMode = vbTextCompare
+@@ -869,104 +870,7 @@
+ End Sub
+ 
+ Public Sub SetBuilderOurPmForProject()
+-    On Error GoTo fail
+-
+-    Dim wsB As Worksheet
+-    Set wsB = GetSheetIfExists("Builder")
+-    If wsB Is Nothing Then
+-        MsgBox "The Builder sheet was not found.", vbExclamation, "Our PM"
+-        Exit Sub
+-    End If
+-
+-    Dim r As Long
+-    Dim lastR As Long
+-    Dim rv As String
+-    Dim k As String
+-    Dim seen As Object
+-    Dim projOrder() As String
+-    Dim projDisplay() As String
+-    Dim nProj As Long
+-    Dim listText As String
+-    Dim i As Long
+-    Dim head As String
+-    Dim foot As String
+-    Dim ans As String
+-    Dim projPick As Long
+-    Dim selKey As String
+-    Dim sigPm As String
+-    Dim nUpdated As Long
+-
+-    Set seen = CreateObject("Scripting.Dictionary")
+-    nProj = 0
+-
+-    lastR = wsB.cells(wsB.rows.count, "R").End(xlUp).row
+-    If lastR < 2 Then
+-        MsgBox "No projects were found on Builder.", vbExclamation, "Our PM"
+-        Exit Sub
+-    End If
+-
+-    For r = 2 To lastR
+-        rv = Trim$(NzStr(wsB.cells(r, "R").value))
+-        If Len(rv) = 0 Then GoTo NextListRow
+-        k = LCase$(rv)
+-        If Not seen.exists(k) Then
+-            seen.Add k, True
+-            nProj = nProj + 1
+-            ReDim Preserve projOrder(1 To nProj)
+-            ReDim Preserve projDisplay(1 To nProj)
+-            projOrder(nProj) = k
+-            projDisplay(nProj) = rv
+-        End If
+-NextListRow:
+-    Next r
+-
+-    If nProj = 0 Then
+-        MsgBox "No projects were found on Builder.", vbExclamation, "Our PM"
+-        Exit Sub
+-    End If
+-
+-    Const MAX_PROMPT As Long = 950
+-    For i = 1 To nProj
+-        listText = listText & i & ") " & projDisplay(i) & vbCrLf
+-    Next i
+-    head = "Which project?" & vbCrLf & vbCrLf
+-    foot = vbCrLf & "Type its number (1-" & nProj & "), or press Cancel."
+-    If Len(head & listText & foot) > MAX_PROMPT Then
+-        Debug.Print listText
+-        listText = left$(listText, MAX_PROMPT - Len(head) - Len(foot) - 40) & vbCrLf & _
+-            "(List is long; full list printed to Immediate window in the VBA editor.)" & vbCrLf
+-    End If
+-    ans = Trim$(InputBox(head & listText & foot, "Our PM", ""))
+-    If Len(ans) = 0 Then Exit Sub
+-    If Not IsNumeric(ans) Then MsgBox "Please type a whole number.", vbExclamation, "Our PM": Exit Sub
+-    projPick = CLng(ans)
+-    If projPick < 1 Or projPick > nProj Then MsgBox "That number is not in the list.", vbExclamation, "Our PM": Exit Sub
+-
+-    selKey = projOrder(projPick)
+-    sigPm = Trim$(InputBox("Our PM name for " & projDisplay(projPick) & " (applies to all rows for this project):" & vbCrLf & _
+-        "Default from project setup or stream:", "Our PM", Builder_SuggestOurPmForProject(projDisplay(projPick))))
+-    If Len(sigPm) = 0 Then Exit Sub
+-
+-    Dim empIdx As String
+-    empIdx = Builder_GetOurPmEmpIndexForProject(projDisplay(projPick))
+-    If Len(empIdx) = 0 Then empIdx = Builder_GuessDefaultPmEmpNoFromProject(projDisplay(projPick))
+-
+-    For r = 2 To lastR
+-        rv = Trim$(NzStr(wsB.cells(r, "R").value))
+-        If Len(rv) = 0 Then GoTo NextPatchRow
+-        If LCase$(rv) = selKey Then
+-            wsB.cells(r, "Y").value = sigPm
+-            If Len(empIdx) > 0 Then wsB.cells(r, BUILDER_COL_PM_EMPIDX).value = empIdx
+-            nUpdated = nUpdated + 1
+-        End If
+-NextPatchRow:
+-    Next r
+-
+-    MsgBox "Saved our PM """ & sigPm & """ for project " & projDisplay(projPick) & _
+-        " (" & CStr(nUpdated) & " row(s) updated).", vbInformation, "Our PM"
+-    Exit Sub
+-fail:
+-    MsgBox "Something went wrong: " & Err.description, vbExclamation, "Our PM"
++    ES_OpenSetup
+ End Sub
+ 
+ Private Function BuilderFirstBlankRRow_Contiguous(wsB As Worksheet) As Long
+@@ -1147,246 +1051,27 @@
+ End Function
+ 
+ Public Sub AddBuilderProjectRow()
+-    On Error GoTo fail
+-    Dim wsB As Worksheet
+-    Set wsB = GetSheetIfExists("Builder")
+-    If wsB Is Nothing Then MsgBox "The Builder sheet was not found.", vbExclamation, "Add project": Exit Sub
+-    Dim br As Long
+-    br = BuilderFirstBlankRRow_Contiguous(wsB)
+-    If br = 0 Then MsgBox "There is no free row in the project list on Builder. Add a row under the last project, or remove a gap in the list.", vbExclamation, "Add project": Exit Sub
+-    Dim newProj As String
+-    newProj = Trim$(InputBox("Project code (spell it the same as on the TCN-MDT sheet, for example WBB):", "Add project", ""))
+-    If Len(newProj) = 0 Then Exit Sub
+-    Dim r As Long, rv As String, k As String
+-    For r = 2 To br - 1
+-        If LCase$(Trim$(NzStr(wsB.cells(r, "R").value))) = LCase$(newProj) Then
+-            MsgBox "That project is already on the list.", vbExclamation, "Add project"
+-            Exit Sub
+-        End If
+-    Next r
+-    
+-    Dim effTok As String, hint As String
+-    hint = ""
+-    For r = 2 To br - 1
+-        rv = Trim$(NzStr(wsB.cells(r, "R").value))
+-        If Len(rv) = 0 Then Exit For
+-        effTok = BuilderEffectiveWordTemplateToken(wsB, r)
+-        If LCase$(effTok) = LCase$(newProj) And LCase$(rv) <> LCase$(newProj) Then
+-            If InStr(1, hint, rv & ",", vbTextCompare) = 0 And InStr(1, hint, rv & " ", vbTextCompare) = 0 Then
+-                If Len(hint) > 0 Then hint = hint & ", "
+-                hint = hint & rv
+-            End If
+-        End If
+-    Next r
+-    If Len(hint) > 0 Then
+-        MsgBox "This name matches how Word templates are set up for: " & hint & "." & vbCrLf & vbCrLf & _
+-               "If you are adding a related child project, choose that line in the next step.", vbInformation, "Add project"
+-    End If
+-    
+-    Const MAX_PROMPT As Long = 950
+-    Dim nProj As Long: nProj = 0
+-    Dim projOrder() As String, projDisplay() As String
+-    Dim repRow() As Long
+-    Dim keyToIdx As Object: Set keyToIdx = CreateObject("Scripting.Dictionary")
+-    For r = 2 To br - 1
+-        rv = Trim$(NzStr(wsB.cells(r, "R").value))
+-        If Len(rv) = 0 Then Exit For
+-        k = LCase$(rv)
+-        If Not keyToIdx.exists(k) Then
+-            nProj = nProj + 1
+-            ReDim Preserve projOrder(1 To nProj)
+-            ReDim Preserve projDisplay(1 To nProj)
+-            ReDim Preserve repRow(1 To nProj)
+-            projOrder(nProj) = k
+-            projDisplay(nProj) = rv
+-            repRow(nProj) = r
+-            keyToIdx.Add k, nProj
+-        End If
+-    Next r
+-    
+-    Dim vTok As String, sn As String, st As String, su As String, sigPm As String
+-    Dim listText As String, i As Long, head As String, foot As String, ans As String
+-    Dim linkPick As Long, linked As Boolean
+-    linked = False
+-    vTok = ""
+-    
+-    If nProj > 0 Then
+-        Dim eff As String
+-        For i = 1 To nProj
+-            eff = BuilderEffectiveWordTemplateToken(wsB, repRow(i))
+-            listText = listText & i & ") " & projDisplay(i) & "   (Word templates like: " & eff & ")" & vbCrLf
+-        Next i
+-        head = "New project: " & newProj & vbCrLf & vbCrLf & "Projects already on Builder:" & vbCrLf & vbCrLf
+-        foot = vbCrLf & "If this new project should follow the same Word templates as one of them, type that line's number." & vbCrLf & _
+-               "Leave blank if it is not tied to any of them."
+-        If Len(head & listText & foot) > MAX_PROMPT Then
+-            Debug.Print listText
+-            listText = left$(listText, MAX_PROMPT - Len(head) - Len(foot) - 50) & vbCrLf & "(List truncated; see Builder sheet or Immediate window.)" & vbCrLf
+-        End If
+-        ans = Trim$(InputBox(head & listText & foot, "Add project", ""))
+-        If Len(ans) > 0 Then
+-            If Not IsNumeric(ans) Then
+-                MsgBox "Leave blank, or type only a whole number from the list.", vbExclamation, "Add project"
+-                Exit Sub
+-            End If
+-            linkPick = CLng(ans)
+-            If linkPick < 1 Or linkPick > nProj Then
+-                MsgBox "That number is not in the list.", vbExclamation, "Add project"
+-                Exit Sub
+-            End If
+-            vTok = BuilderEffectiveWordTemplateToken(wsB, repRow(linkPick))
+-            linked = True
+-        End If
+-    End If
+-    
+-    If Not linked Then
+-        ans = Trim$(InputBox("If Word should use a specific template group that you did not link above (example: 5g), type it here. Otherwise leave blank.", "Add project", ""))
+-        If Len(ans) > 0 Then vTok = ans
+-    End If
+-    
+-    If Len(vTok) > 0 And LCase$(vTok) = LCase$(newProj) Then
+-        vTok = ""
+-    End If
+-
+-    sigPm = Trim$(InputBox("Our PM name (SIG / internal ? one per project):" & vbCrLf & _
+-        "Default from existing setup or stream (Colocation, Capex, Incident):", _
+-        "Add project", Builder_SuggestOurPmForProject(newProj)))
+-    If Len(sigPm) = 0 Then
+-        MsgBox "Our PM name is required.", vbExclamation, "Add project"
+-        Exit Sub
+-    End If
+-
+-    Dim empIdx As String
+-    empIdx = Builder_GetOurPmEmpIndexForProject(newProj)
+-    If Len(empIdx) = 0 Then empIdx = Builder_GuessDefaultPmEmpNoFromProject(newProj)
+-
+-    sn = Trim$(InputBox("Tawal PM contact name:", "Add project", ""))
+-    st = Trim$(InputBox("Tawal PM contact phone:", "Add project", ""))
+-    su = Trim$(InputBox("Tawal PM contact email:", "Add project", ""))
+-    wsB.cells(br, "Q").value = "1"
+-    wsB.cells(br, "R").value = newProj
+-    wsB.cells(br, "Y").value = sigPm
+-    If Len(empIdx) > 0 Then wsB.cells(br, BUILDER_COL_PM_EMPIDX).value = empIdx Else wsB.cells(br, BUILDER_COL_PM_EMPIDX).ClearContents
+-    If Len(vTok) > 0 Then wsB.cells(br, "V").value = vTok Else wsB.cells(br, "V").ClearContents
+-    wsB.cells(br, "S").value = sn
+-    SetBuilderPhoneCell wsB.cells(br, "T"), st
+-    wsB.cells(br, "U").value = su
+-    MsgBox "Saved project " & newProj & "." & vbCrLf & "Our PM: " & sigPm & vbCrLf & "Active Tawal contact: " & sn, vbInformation, "Add project"
+-    Exit Sub
+-fail:
+-    MsgBox "Something went wrong: " & Err.description, vbExclamation, "Add project"
++    ES_OpenSetup
+ End Sub
+ 
+ Public Sub AddBuilderPMRowForProject()
+-    On Error GoTo fail
+-    Dim wsB As Worksheet
+-    Set wsB = GetSheetIfExists("Builder")
+-    If wsB Is Nothing Then MsgBox "The Builder sheet was not found.", vbExclamation, "Add Tawal contact": Exit Sub
+-    Dim br As Long
+-    br = BuilderFirstBlankRRow_Contiguous(wsB)
+-    If br = 0 Then MsgBox "There is no free row in the project list on Builder.", vbExclamation, "Add Tawal contact": Exit Sub
+-    Dim seen As Object: Set seen = CreateObject("Scripting.Dictionary")
+-    Dim projOrder() As String, projDisplay() As String
+-    Dim nProj As Long: nProj = 0
+-    Dim r As Long, rv As String, k As String
+-    r = 2
+-    Do While r < br
+-        rv = Trim$(NzStr(wsB.cells(r, "R").value))
+-        If Len(rv) = 0 Then Exit Do
+-        k = LCase$(rv)
+-        If Not seen.exists(k) Then
+-            seen.Add k, True
+-            nProj = nProj + 1
+-            ReDim Preserve projOrder(1 To nProj)
+-            ReDim Preserve projDisplay(1 To nProj)
+-            projOrder(nProj) = k
+-            projDisplay(nProj) = rv
+-        End If
+-        r = r + 1
+-    Loop
+-    If nProj = 0 Then MsgBox "No projects were found on Builder.", vbExclamation, "Add Tawal contact": Exit Sub
+-    Const MAX_PROMPT As Long = 950
+-    Dim listText As String, i As Long
+-    Dim head As String, foot As String, ans As String
+-    For i = 1 To nProj
+-        listText = listText & i & ") " & projDisplay(i) & vbCrLf
+-    Next i
+-    head = "Which project needs another Tawal contact?" & vbCrLf & vbCrLf
+-    foot = vbCrLf & "Type its number (1-" & nProj & "), or press Cancel."
+-    If Len(head & listText & foot) > MAX_PROMPT Then
+-        Debug.Print listText
+-        listText = left$(listText, MAX_PROMPT - Len(head) - Len(foot) - 40) & vbCrLf & "(List truncated; full list in Immediate window.)" & vbCrLf
+-    End If
+-    ans = Trim$(InputBox(head & listText & foot, "Add Tawal contact", ""))
+-    If Len(ans) = 0 Then Exit Sub
+-    If Not IsNumeric(ans) Then MsgBox "Please type a whole number.", vbExclamation, "Add Tawal contact": Exit Sub
+-    Dim projPick As Long: projPick = CLng(ans)
+-    If projPick < 1 Or projPick > nProj Then MsgBox "That number is not in the list.", vbExclamation, "Add Tawal contact": Exit Sub
+-    Dim selKey As String: selKey = projOrder(projPick)
+-    Dim attachKey As String: attachKey = selKey
+-    Dim attachDisplay As String: attachDisplay = projDisplay(projPick)
+-    Dim lastR As Long: lastR = 0
+-    For r = 2 To br - 1
+-        If LCase$(Trim$(NzStr(wsB.cells(r, "R").value))) = attachKey Then lastR = r
+-    Next r
+-    If lastR = 0 Then MsgBox "That project was not found.", vbExclamation, "Add Tawal contact": Exit Sub
+-    Dim nr As Long: nr = lastR + 1
+-    If nr <> br Then
+-        If Len(Trim$(NzStr(wsB.cells(nr, "R").value))) > 0 Then
+-            nr = br
+-        End If
+-    End If
+-    Dim vTok As String, sn As String, st As String, su As String, sigPm As String, empIdx As String
+-    vTok = Trim$(InputBox("Optional Word template group for this project (example: 5g). Leave blank to keep the existing default.", "Add Tawal contact", ""))
+-    sn = Trim$(InputBox("Tawal PM contact name:", "Add Tawal contact", ""))
+-    st = Trim$(InputBox("Tawal PM contact phone:", "Add Tawal contact", ""))
+-    su = Trim$(InputBox("Tawal PM contact email:", "Add Tawal contact", ""))
+-    sigPm = Builder_GetOurPmForProject(attachDisplay)
+-    empIdx = Builder_GetOurPmEmpIndexForProject(attachDisplay)
+-    wsB.cells(nr, "Q").ClearContents
+-    wsB.cells(nr, "R").value = attachDisplay
+-    If Len(sigPm) > 0 Then wsB.cells(nr, "Y").value = sigPm Else wsB.cells(nr, "Y").ClearContents
+-    If Len(empIdx) > 0 Then wsB.cells(nr, BUILDER_COL_PM_EMPIDX).value = empIdx
+-    If Len(vTok) > 0 Then wsB.cells(nr, "V").value = vTok Else wsB.cells(nr, "V").ClearContents
+-    wsB.cells(nr, "S").value = sn
+-    SetBuilderPhoneCell wsB.cells(nr, "T"), st
+-    wsB.cells(nr, "U").value = su
+-    MsgBox "Tawal contact added for " & attachDisplay & "." & vbCrLf & _
+-        IIf(Len(sigPm) > 0, "Our PM: " & sigPm, "Warning: no our PM set yet ? use menu option 3.") & vbCrLf & vbCrLf & _
+-        "This person is not active for exports yet. Use menu option 1 to switch the active TAWAL contact.", _
+-        vbInformation, "Add Tawal contact"
+-    Exit Sub
+-fail:
+-    MsgBox "Something went wrong: " & Err.description, vbExclamation, "Add Tawal contact"
++    ES_OpenSetup
+ End Sub
+ 
+ Public Sub BuilderPMMaster()
+-    Dim c As String
+-    c = Trim$(InputBox("What do you want to do? Type a number:" & vbCrLf & vbCrLf & _
+-                      "1 = Switch the active TAWAL contact for exports" & vbCrLf & _
+-                      "2 = Add another TAWAL contact" & vbCrLf & _
+-                      "3 = Set or change the SIG PM for a project" & vbCrLf & _
+-                      "4 = Create a new project setup" & vbCrLf & _
+-                      "5 = Create a new project version from an existing project" & vbCrLf & _
+-                      "6 = Refresh SitesDB from the latest export_sites file" & vbCrLf & vbCrLf & _
+-                      "Leave blank to cancel.", "Project Setup & Contacts", ""))
+-    If Len(c) = 0 Then Exit Sub
+-    Select Case c
+-        Case "1"
+-            SwitchBuilderActivePM
+-        Case "2"
+-            AddBuilderPMRowForProject
+-        Case "3"
+-            SetBuilderOurPmForProject
+-        Case "4"
+-            AddBuilderProjectRow
+-        Case "5"
+-            Project_CloneVersionPrompt
+-        Case "6"
+-            ' SiteDbImport: refreshes SitesDB from the newest export_sites*.xlsx in Downloads.
+-            SiteDb_RunImportFromExport
+-        Case Else
+-            MsgBox "Please type 1, 2, 3, 4, 5, or 6.", vbExclamation, "Project Setup & Contacts"
++    Dim choice As String
++    If Not ACN.AC_RequireSession() Then Exit Sub
++    choice = Trim$(InputBox("Project Setup & Contacts" & vbCrLf & _
++        "1 = Switch local active TAWAL contact" & vbCrLf & _
++        "2 = Refresh Excel Setup from ERP" & vbCrLf & _
++        "3 = Open ERP Excel Setup (Operations editing)" & vbCrLf & _
++        "4 = Refresh SitesDB from export" & vbCrLf & "5 = Show setup revision", "Project Setup"))
++    Select Case choice
++    Case "1": ES_RequireReady: SwitchBuilderActivePM
++    Case "2": ExcelSetup_RefreshFromERP
++    Case "3": ES_OpenSetup
++    Case "4": SiteDb_RunImportFromExport
++    Case "5": ES_Status
+     End Select
+ End Sub
+ 
+@@ -1397,162 +1082,12 @@
+ ' span versions.
+ 
+ Public Sub Project_CloneVersionPrompt()
+-    On Error GoTo fail
+-
+-    Dim wsB As Worksheet
+-    Set wsB = GetSheetIfExists("Builder")
+-    If wsB Is Nothing Then
+-        MsgBox "The Builder sheet was not found.", vbExclamation, "Clone project version"
+-        Exit Sub
+-    End If
+-
+-    Const MAX_PROMPT As Long = 950
+-    Dim seen As Object: Set seen = CreateObject("Scripting.Dictionary")
+-    Dim projDisp() As String
+-    Dim nProj As Long: nProj = 0
+-    Dim r As Long, rv As String, k As String
+-    r = 2
+-    Do While r <= 1000
+-        rv = Trim$(NzStr(wsB.cells(r, "R").value))
+-        If Len(rv) = 0 Then Exit Do
+-        k = LCase$(rv)
+-        If Not seen.exists(k) Then
+-            seen.Add k, True
+-            nProj = nProj + 1
+-            ReDim Preserve projDisp(1 To nProj)
+-            projDisp(nProj) = rv
+-        End If
+-        r = r + 1
+-    Loop
+-    If nProj = 0 Then MsgBox "No projects were found on Builder.", vbExclamation, "Clone project version": Exit Sub
+-
+-    Dim listText As String, i As Long
+-    Dim head As String, foot As String, ans As String
+-    For i = 1 To nProj
+-        listText = listText & i & ") " & projDisp(i) & vbCrLf
+-    Next i
+-    head = "Which project do you want to clone?" & vbCrLf & vbCrLf
+-    foot = vbCrLf & "Type its number (1-" & nProj & "), or press Cancel."
+-    If Len(head & listText & foot) > MAX_PROMPT Then
+-        Debug.Print listText
+-        listText = left$(listText, MAX_PROMPT - Len(head) - Len(foot) - 40) & vbCrLf & "(List truncated; full list in Immediate window.)" & vbCrLf
+-    End If
+-    ans = Trim$(InputBox(head & listText & foot, "Clone project version", ""))
+-    If Len(ans) = 0 Then Exit Sub
+-    If Not IsNumeric(ans) Then MsgBox "Please type a whole number.", vbExclamation, "Clone project version": Exit Sub
+-    Dim projPick As Long: projPick = CLng(ans)
+-    If projPick < 1 Or projPick > nProj Then MsgBox "That number is not in the list.", vbExclamation, "Clone project version": Exit Sub
+-
+-    Dim dst As String
+-    dst = Trim$(InputBox("New project name (spell it the same as it will appear on the TCN-MDT and Tags rows):", _
+-                         "Clone project version", ""))
+-    If Len(dst) = 0 Then Exit Sub
+-
+-    Project_CloneVersion projDisp(projPick), dst
+-    Exit Sub
+-fail:
+-    MsgBox "Something went wrong: " & Err.description, vbExclamation, "Clone project version"
++    MsgBox "Create the shared project setup/version in ERP Excel Setup, then refresh this workbook. Template files remain in the existing template folder workflow.", vbInformation
++    ES_OpenSetup
+ End Sub
+ 
+ Public Sub Project_CloneVersion(ByVal srcProject As String, ByVal newProject As String)
+-    On Error GoTo fail
+-
+-    Dim wsB As Worksheet
+-    Dim r As Long, br As Long, i As Long, nr As Long, sr As Long
+-    Dim rv As String
+-    Dim srcKey As String, dstKey As String
+-    Dim srcRows() As Long
+-    Dim nSrc As Long
+-    Dim nRows As Long, nFiles As Long, nSkipped As Long
+-
+-    srcProject = Trim$(srcProject)
+-    newProject = Trim$(newProject)
+-    srcKey = LCase$(srcProject)
+-    dstKey = LCase$(newProject)
+-    If Len(srcKey) = 0 Or Len(dstKey) = 0 Then
+-        MsgBox "Both the source and the new project name are required.", vbExclamation, "Clone project version"
+-        Exit Sub
+-    End If
+-    If srcKey = dstKey Then
+-        MsgBox "Source and new project name are the same.", vbExclamation, "Clone project version"
+-        Exit Sub
+-    End If
+-
+-    Set wsB = GetSheetIfExists("Builder")
+-    If wsB Is Nothing Then
+-        MsgBox "The Builder sheet was not found.", vbExclamation, "Clone project version"
+-        Exit Sub
+-    End If
+-
+-    br = BuilderFirstBlankRRow_Contiguous(wsB)
+-    If br = 0 Then
+-        MsgBox "There is no free row in the project list on Builder.", vbExclamation, "Clone project version"
+-        Exit Sub
+-    End If
+-
+-    ' Collect source rows; idempotency: refuse when the new project already exists.
+-    nSrc = 0
+-    For r = 2 To br - 1
+-        rv = LCase$(Trim$(NzStr(wsB.cells(r, "R").value)))
+-        If rv = dstKey Then
+-            MsgBox newProject & " already has Builder rows ? nothing cloned." & vbCrLf & _
+-                   "Delete those rows first if you meant to re-clone.", vbExclamation, "Clone project version"
+-            Exit Sub
+-        End If
+-        If rv = srcKey Then
+-            nSrc = nSrc + 1
+-            ReDim Preserve srcRows(1 To nSrc)
+-            srcRows(nSrc) = r
+-        End If
+-    Next r
+-    If nSrc = 0 Then
+-        MsgBox "No Builder rows found for " & srcProject & ".", vbExclamation, "Clone project version"
+-        Exit Sub
+-    End If
+-
+-    ' Verify target rows are free BEFORE writing anything (no partial clone).
+-    For i = 0 To nSrc - 1
+-        If Len(Trim$(NzStr(wsB.cells(br + i, "R").value))) > 0 Then
+-            MsgBox "Builder needs " & nSrc & " free row(s) starting at row " & br & _
+-                   ", but row " & (br + i) & " is not empty. Nothing cloned.", vbExclamation, "Clone project version"
+-            Exit Sub
+-        End If
+-    Next i
+-
+-    ' 1) Builder rows ? Q (active flag), Tawal S/T/U, V template group, Y our PM, BD emp index.
+-    For i = 1 To nSrc
+-        sr = srcRows(i)
+-        nr = br + i - 1
+-        wsB.cells(nr, "R").value = newProject
+-        wsB.cells(nr, "Q").value = wsB.cells(sr, "Q").value
+-        wsB.cells(nr, "S").value = wsB.cells(sr, "S").value
+-        SetBuilderPhoneCell wsB.cells(nr, "T"), wsB.cells(sr, "T").value
+-        wsB.cells(nr, "U").value = wsB.cells(sr, "U").value
+-        wsB.cells(nr, "V").value = wsB.cells(sr, "V").value
+-        wsB.cells(nr, "Y").value = wsB.cells(sr, "Y").value
+-        wsB.cells(nr, BUILDER_COL_PM_EMPIDX).value = wsB.cells(sr, BUILDER_COL_PM_EMPIDX).value
+-        nRows = nRows + 1
+-    Next i
+-
+-    ' 2) MOP files are shared by the three canonical families. Do not create
+-    ' per-project copies when cloning a Builder setup; that would reintroduce
+-    ' Capex7/8/10 or ITC-specific templates.
+-    nFiles = 0
+-    nSkipped = 0
+-
+-    ' 3) Report ? warn loudly on any empty category.
+-    Dim msg As String
+-    msg = "Cloned " & srcProject & " -> " & newProject & ":" & vbCrLf & vbCrLf & _
+-          nRows & " Builder row(s)" & vbCrLf & _
+-          nFiles & " template file(s) copied" & IIf(nSkipped > 0, "  (" & nSkipped & " already existed)", "")
+-    If nFiles = 0 And nSkipped = 0 Then
+-        msg = msg & vbCrLf & vbCrLf & "WARNING: no template files matched '" & srcTok & "' in " & tplDir & "."
+-    End If
+-    msg = msg & vbCrLf & vbCrLf & "MOP files are shared by the canonical 5G, Capex, and Incident families; no per-project template copies were created."
+-    MsgBox msg, vbInformation, "Clone project version"
+-    Exit Sub
+-fail:
+-    MsgBox "Clone failed: " & Err.description & " (#" & Err.Number & ")", vbCritical, "Clone project version"
++    Err.Raise vbObjectError + 2860, , "Shared project versions are maintained in ERP Excel Setup. Refresh after publishing."
+ End Sub
+ 
+ ' Case-insensitive token replace that refuses digit run-on matches:
+@@ -5003,27 +4538,7 @@
+ End Function
+ 
+ Private Function RegisterBuilderPurposeReasonMapping(wsB As Worksheet, remarksKey As String, purposeReason As String) As Boolean
+-    On Error GoTo fail
+-    Dim k As String: k = UCase$(Trim$(remarksKey))
+-    Dim ax As String: ax = Trim$(purposeReason)
+-    If Len(k) = 0 Or Len(ax) = 0 Then Exit Function
+-    Dim r As Long, awVal As String
+-    For r = 2 To 1000
+-        awVal = Trim$(CStr(wsB.cells(r, BUILDER_COL_AW).value))
+-        If Len(awVal) = 0 Then Exit For
+-        If UCase$(awVal) = k Then
+-            wsB.cells(r, BUILDER_COL_AX).value = ax
+-            RegisterBuilderPurposeReasonMapping = True
+-            Exit Function
+-        End If
+-    Next r
+-    r = BuilderFirstBlankAWRow_Contiguous(wsB)
+-    If r = 0 Then Exit Function
+-    wsB.cells(r, BUILDER_COL_AW).value = k
+-    wsB.cells(r, BUILDER_COL_AX).value = ax
+-    RegisterBuilderPurposeReasonMapping = True
+-    Exit Function
+-fail:
++    MsgBox "Shared wording is maintained in ERP Excel Setup. Publish it there and refresh this workbook.", vbExclamation
+     RegisterBuilderPurposeReasonMapping = False
+ End Function
+ 
+@@ -5088,27 +4603,7 @@
+ End Function
+ 
+ Private Function RegisterBuilderCsvRemarksMapping(wsB As Worksheet, remarksKey As String, csvRemarksText As String) As Boolean
+-    On Error GoTo fail
+-    Dim k As String: k = UCase$(Trim$(remarksKey))
+-    Dim az As String: az = Trim$(csvRemarksText)
+-    If Len(k) = 0 Or Len(az) = 0 Then Exit Function
+-    Dim r As Long, ayVal As String
+-    For r = 2 To 1000
+-        ayVal = Trim$(CStr(wsB.cells(r, BUILDER_COL_AY).value))
+-        If Len(ayVal) = 0 Then Exit For
+-        If UCase$(ayVal) = k Then
+-            wsB.cells(r, BUILDER_COL_AZ).value = az
+-            RegisterBuilderCsvRemarksMapping = True
+-            Exit Function
+-        End If
+-    Next r
+-    r = BuilderFirstBlankAYRow_Contiguous(wsB)
+-    If r = 0 Then Exit Function
+-    wsB.cells(r, BUILDER_COL_AY).value = k
+-    wsB.cells(r, BUILDER_COL_AZ).value = az
+-    RegisterBuilderCsvRemarksMapping = True
+-    Exit Function
+-fail:
++    MsgBox "Shared wording is maintained in ERP Excel Setup. Publish it there and refresh this workbook.", vbExclamation
+     RegisterBuilderCsvRemarksMapping = False
+ End Function
+ 

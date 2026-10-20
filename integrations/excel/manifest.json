@@ -1,0 +1,66 @@
+{
+  "release": "excel-setup-20261020",
+  "status": "source only; deployment and Excel import pending",
+  "files": [
+    {
+      "workbook": "rv80",
+      "file": "ACN.bas",
+      "before_sha256": "a6f74795f190d6d32301151723dc2a03f64d2dd109ce0d8d0e2b01670fa184b0",
+      "after_sha256": "90fd72aab891382dd7ef0ecb51386baffd575e1516886a530b9cf8347913a078"
+    },
+    {
+      "workbook": "rv80",
+      "file": "csv.bas",
+      "before_sha256": "12e8ac29ece8819ebed5244082044368f794dd146a2838511e520b24090f0227",
+      "after_sha256": "62ed8867ada58d71c332a6e156e1b25a31a29b17b8353ffacc1a2e8bf1a67ed1"
+    },
+    {
+      "workbook": "rv80",
+      "file": "tcnword.bas",
+      "before_sha256": "0b1ee34a3944a851e0e45d3f430adee365843f8a5008cef8dcfd1c8cdb761c77",
+      "after_sha256": "231ab57e7263ac233ab14b6058935cfe48247541e019889da32a09397243702e"
+    },
+    {
+      "workbook": "sigpc",
+      "file": "ACN.bas",
+      "before_sha256": "bd8c24dd1f116a45e9f039996a0f5afdd6b8332b0d375cb42f5e333f0c766949",
+      "after_sha256": "8c48cbfd73f5daff35f5a57eff72684f729725cd7c1eef0760a471b85f0dba4c"
+    },
+    {
+      "workbook": "sigpc",
+      "file": "AsBuiltCycle.bas",
+      "before_sha256": "0358b2fa182fe1c7a98ffd311db231ec06863d1641c0b146a9cce91b09e29d4f",
+      "after_sha256": "29f0ca93156bf3c25757e71c1720a90b163a1c8afba118ae291570c4940aa141"
+    },
+    {
+      "workbook": "sigpc",
+      "file": "MappingPipeline.bas",
+      "before_sha256": "9502604f44d50c02950c3f60303a0c4d4167f0552aaff739620c6739cd9906e5",
+      "after_sha256": "60dcca8fa5a41f92e276c6cf13202607e3a067403b613f9dcbbd417547ce82d5"
+    },
+    {
+      "workbook": "rv80",
+      "file": "ExcelSetupSync.bas",
+      "before_sha256": null,
+      "after_sha256": "efeb24989578f030b01fc3680821f407b7d383556756f2c6106321fe4429fdda"
+    },
+    {
+      "workbook": "rv80",
+      "file": "ExcelSetupRV80.bas",
+      "before_sha256": null,
+      "after_sha256": "47c385a58d1f68a6acaa55a35c0d2dedeb8e79b6ee4780247bf2301d30e18a8e"
+    },
+    {
+      "workbook": "sigpc",
+      "file": "ExcelSetupSync.bas",
+      "before_sha256": null,
+      "after_sha256": "efeb24989578f030b01fc3680821f407b7d383556756f2c6106321fe4429fdda"
+    },
+    {
+      "workbook": "sigpc",
+      "file": "ExcelSetupSIGPC.bas",
+      "before_sha256": null,
+      "after_sha256": "88770d84d065a465ae2923b6aa52b6bcfbb68129f38fc40b116da10b7b02e5a4"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+[
+  {
+    "doctype": "Role",
+    "name": "SIG Excel Setup Editor",
+    "role_name": "SIG Excel Setup Editor",
+    "desk_access": 1
+  },
+  {
+    "doctype": "Role",
+    "name": "SIG Excel Setup Reader",
+    "role_name": "SIG Excel Setup Reader",
+    "desk_access": 0
+  }
+]
