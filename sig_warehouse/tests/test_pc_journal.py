@@ -109,6 +109,7 @@ def app(monkeypatch):
     fake.db = types.SimpleNamespace(sql=sql, exists=lambda *args: False,
                                     escape=lambda value: "'" + value.replace("'", "''") + "'")
     monkeypatch.setattr(module, "_context", lambda user=None: context)
+    monkeypatch.setattr(module, "_cycles", lambda employee, context: [])
     monkeypatch.setattr(module, "_accounts", lambda *args: ("SIG", "EXPENSE", "CUSTODY", "Main"))
     return module, fake, receipt, context
 
@@ -256,6 +257,32 @@ def test_confirm_requires_original_evidence(app):
     with pytest.raises(RuntimeError, match="original receipt"):
         confirm(app)
     assert not app[1].journals
+
+
+def test_cycle_membership_uses_only_the_employee_funding_interval(app):
+    cycle_membership = importlib.import_module("sig_warehouse.sig_warehouse.pc_funding").cycle_membership
+    cycles = [
+        {"cycle_key": "FUND-1", "funding_date": "2026-10-03", "end_date": "2026-10-16",
+         "same_day_ambiguous": False},
+        {"cycle_key": "FUND-2", "funding_date": "2026-10-17", "end_date": None,
+         "same_day_ambiguous": False},
+    ]
+    assert cycle_membership({"transaction_date": "2026-10-16"}, cycles)["cycle_key"] == "FUND-1"
+    assert cycle_membership({"transaction_date": "2026-10-17"}, cycles)["cycle_key"] == "FUND-2"
+    assert cycle_membership({"transaction_date": "2026-10-02"}, cycles)["cycle_allocation_status"] == "Before first funding"
+
+
+def test_date_only_receipt_on_same_day_as_multiple_fundings_waits_for_allocation(app):
+    cycle_membership = importlib.import_module("sig_warehouse.sig_warehouse.pc_funding").cycle_membership
+    cycles = [
+        {"cycle_key": "FUND-1", "funding_date": "2026-10-17", "end_date": "2026-10-16",
+         "same_day_ambiguous": True},
+        {"cycle_key": "FUND-2", "funding_date": "2026-10-17", "end_date": None,
+         "same_day_ambiguous": True},
+    ]
+    result = cycle_membership({"transaction_date": "2026-10-17"}, cycles)
+    assert result["cycle_key"] is None
+    assert result["cycle_allocation_status"] == "Awaiting allocation"
 
 
 @pytest.mark.parametrize("case", ["unmatched", "ambiguous", "inactive", "unassigned", "self", "no_role"])

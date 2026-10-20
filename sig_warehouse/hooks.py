@@ -122,6 +122,8 @@ override_doctype_dashboards = {
 doc_events = {
     "Journal Entry": {
         "before_insert": "sig_warehouse.sig_warehouse.pc_journal.guard_legacy_cycle",
+        "validate": "sig_warehouse.sig_warehouse.pc_funding.validate_journal_entry",
+        "on_update_after_submit": "sig_warehouse.sig_warehouse.pc_funding.prevent_funding_edits_after_submit",
     },
     "Stock Entry": {
         # Child-line custom_site is the authoritative allocation.  A

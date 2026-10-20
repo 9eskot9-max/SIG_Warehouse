@@ -12,6 +12,7 @@ from frappe.utils import get_datetime, now_datetime
 
 from .pc_clearance_rules import CATEGORY_ACCOUNTS, journal_lines, legacy_cycle_period, money, request_digest, source_key
 from .pc_review_routing import load_matrix, phone_index, phone_key
+from .pc_funding import _cycles, _employee_for_report, cycle_membership
 
 
 TRANSACTION = "SIG PC Transaction"
@@ -171,7 +172,7 @@ def pending_receipts():
 
 
 @frappe.whitelist(methods=["POST"])
-def transaction_status_report(employee=None, from_date=None, to_date=None):
+def transaction_status_report(employee=None, from_date=None, to_date=None, cycle_key=None):
     """Return scoped petty-cash transactions with status from their own linked JE only.
 
     This deliberately does not grant native Journal Entry read access. The PC review
@@ -189,6 +190,17 @@ def transaction_status_report(employee=None, from_date=None, to_date=None):
     effective_from = max(str(from_date)[:10], PAGE_DISPLAY_CUTOFF) if from_date else PAGE_DISPLAY_CUTOFF
     if to_date and str(to_date)[:10] < PAGE_DISPLAY_CUTOFF:
         return []
+    selected_cycle = None
+    if cycle_key:
+        if not employee:
+            frappe.throw("Select an Employee before choosing a petty-cash cycle.")
+        employee_doc = _employee_for_report(employee, context)
+        cycles = _cycles(employee_doc, context)
+        selected_cycle = next((cycle for cycle in cycles if cycle["cycle_key"] == cycle_key), None)
+        if not selected_cycle:
+            _deny("The selected funding cycle is not available for this Employee.")
+        effective_from = max(str(selected_cycle["funding_date"]), PAGE_DISPLAY_CUTOFF)
+        to_date = selected_cycle["end_date"]
     filters = {}
     if to_date:
         filters["transaction_date"] = ["between", [effective_from, to_date]]
@@ -204,6 +216,11 @@ def transaction_status_report(employee=None, from_date=None, to_date=None):
         order_by="employee_name asc, transaction_date asc, name asc",
         limit_page_length=0,
     )
+    cycle_map = {}
+    for row in rows:
+        resolved = _resolve(row.get("employee_name"), context)
+        if resolved and resolved.name not in cycle_map:
+            cycle_map[resolved.name] = _cycles(resolved, context)
     result = []
     assignments = {item["employee"]: item for item in routing.get("employees", [])}
     review_groups = routing.get("review_groups", {})
@@ -211,6 +228,14 @@ def transaction_status_report(employee=None, from_date=None, to_date=None):
         resolved_employee = _resolve(row.get("employee_name"), context)
         if employee and (resolved_employee.name if resolved_employee else row.get("employee_name")) != employee:
             continue
+        cycle_info = cycle_membership(row, cycle_map.get(resolved_employee.name, []) if resolved_employee else [])
+        if selected_cycle:
+            tx_date = str(row.get("transaction_date") or "")[:10]
+            in_period = (tx_date >= selected_cycle["funding_date"]
+                         and (not selected_cycle["end_date"] or tx_date <= selected_cycle["end_date"]))
+            same_day_review = selected_cycle["same_day_ambiguous"] and tx_date == selected_cycle["funding_date"]
+            if not in_period and not same_day_review:
+                continue
         entry = row.get("journal_entry")
         docstatus = None
         link_valid = False
@@ -262,6 +287,9 @@ def transaction_status_report(employee=None, from_date=None, to_date=None):
             "source_media_url": row.source_media_url,
             "review_group": review_group.get("label") if review_group else "Unassigned",
             "review_group_lead": review_group.get("lead") if review_group else None,
+            "cycle_key": cycle_info["cycle_key"],
+            "cycle_label": cycle_info["cycle_label"],
+            "cycle_allocation_status": cycle_info["cycle_allocation_status"],
         })
     return result
 

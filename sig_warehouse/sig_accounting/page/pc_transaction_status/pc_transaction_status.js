@@ -12,7 +12,7 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
     const isPdf = (url) => /\.pdf(?:[?#]|$)/i.test(url) || /[?&]\w*=pdf(?:&|$)/i.test(url);
     const status = (row) => row.finance_status === 'Pending Review' ? __('Pending Manager') : __(row.finance_status || 'Unknown');
     const total = (rows) => rows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
-    const state = {rows: [], employees: new Map(), employee: '', selected: '', search: '', status: '', applied: {scope: 'all'}, request: 0, loading: false};
+    const state = {rows: [], employees: new Map(), employee: '', selected: '', search: '', status: '', cycles: [], cycleKey: '', applied: {scope: 'all'}, request: 0, loading: false};
     const view = {s: 1, x: 0, y: 0, r: 0, mode: 'page'};
 
     root.html('<header class="sig-pc-status-head">' +
@@ -28,8 +28,9 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
         '<article class="sig-pc-status-selected" aria-label="' + __('Selected transaction') + '"><div class="sig-pc-status-empty">' + __('Loading transactions…') + '</div></article></section>' +
         '<section class="sig-pc-status-report-section"><h2>' + __('Transaction register') + '</h2><p>' + __('Select a period for this employee. Select a row to inspect its receipt above.') + '</p>' +
         '<section class="sig-pc-status-filters"><label>' + __('Transactions') + '<select data-scope><option value="all">' + __('All transactions') + '</option><option value="cycle">' + __('Cycle') + '</option><option value="range">' + __('Date range') + '</option></select></label>' +
+        '<label data-cycle-wrap hidden>' + __('Petty Cash cycle') + '<select data-cycle><option value="">' + __('Select a cycle…') + '</option></select></label>' +
         '<label data-from-wrap hidden>' + __('From') + '<input type="date" data-from></label><label data-to-wrap hidden>' + __('To') + '<input type="date" data-to></label><button class="btn btn-default" data-apply>' + __('Apply') + '</button></section>' +
-        '<div class="sig-pc-status-cycle-note" data-cycle-note hidden>' + __('Cycle selection will be available when employee payments/advances are connected. Each payment to the employee will start a new cycle.') + '</div>' +
+        '<div class="sig-pc-status-cycle-note" data-cycle-note hidden>' + __('Cycles start only from a Finance-designated employee funding Journal Entry. Bank statement drafts show Pending Finance; date-only receipts on a day with multiple top-ups need allocation.') + '</div>' +
         '<div class="sig-pc-status-message" role="status" hidden></div><section class="sig-pc-printdoc"></section></section>');
 
     function employeeRows() { return state.rows.filter((row) => row.employee_key === state.employee); }
@@ -48,16 +49,20 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
         const scope = q('[data-scope]').value;
         q('[data-from-wrap]').hidden = scope !== 'range';
         q('[data-to-wrap]').hidden = scope !== 'range';
+        q('[data-cycle-wrap]').hidden = scope !== 'cycle';
         q('[data-cycle-note]').hidden = scope !== 'cycle';
-        q('[data-apply]').disabled = scope === 'cycle' || state.loading;
-        q('[data-employee]').disabled = scope === 'cycle' || state.loading;
-        q('[data-print]').disabled = scope === 'cycle' || state.loading || !visibleRows().length;
+        q('[data-apply]').disabled = state.loading || (scope === 'cycle' && !q('[data-cycle]').value);
+        q('[data-employee]').disabled = state.loading;
+        q('[data-cycle]').disabled = state.loading || !state.employee;
+        q('[data-print]').disabled = state.loading || !visibleRows().length;
     }
     async function load() {
-        if (q('[data-scope]').value === 'cycle') return;
         const scope = q('[data-scope]').value;
         const args = {};
         if (state.employee) args.employee = state.employee;
+        if (scope === 'cycle' && !state.employee) {
+            message(__('Select an Employee before choosing a cycle.')); return;
+        }
         if (scope === 'range') {
             args.from_date = q('[data-from]').value || null;
             args.to_date = q('[data-to]').value || null;
@@ -70,12 +75,35 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
         q('[data-employee]').disabled = true;
         q('.sig-pc-status-selected').setAttribute('aria-busy', 'true');
         try {
+            if (scope === 'cycle') {
+                state.cycles = await frappe.call({method: 'sig_warehouse.sig_warehouse.pc_funding.get_funding_cycles', type: 'POST', args: {employee: state.employee}})
+                    .then((response) => response.message || []);
+                const cycleSelect = q('[data-cycle]');
+                const options = state.cycles.map((cycle) => ({
+                    value: cycle.cycle_key,
+                    label: date(cycle.funding_date) + ' · ' + money(cycle.principal) + ' SAR · ' + __(cycle.journal_status) +
+                        (cycle.end_date ? ' · ' + __('through {0}', [date(cycle.end_date)]) : ' · ' + __('Current')) +
+                        (cycle.same_day_ambiguous ? ' · ' + __('Same-day allocation review') : '')
+                }));
+                const preferred = state.cycleKey || cycleSelect.value;
+                cycleSelect.innerHTML = '<option value="">' + (options.length ? __('Select a cycle…') : __('No recorded funding cycles')) + '</option>' +
+                    options.map((item) => '<option value="' + esc(item.value) + '">' + esc(item.label) + '</option>').join('');
+                state.cycleKey = options.some((item) => item.value === preferred) ? preferred : (options[options.length - 1]?.value || '');
+                cycleSelect.value = state.cycleKey;
+                if (!state.cycleKey) {
+                    state.rows = []; state.selected = '';
+                    state.applied = {scope, cycleKey: ''}; render();
+                    message(__('No Finance-designated funding Journal Entry is recorded for this Employee yet.'));
+                    return;
+                }
+                args.cycle_key = state.cycleKey;
+            }
             const rows = await frappe.call({method: 'sig_warehouse.sig_warehouse.pc_journal.transaction_status_report', type: 'POST', args}).then((response) => response.message || []);
             if (request !== state.request) return;
             rows.forEach((row) => { if (row.employee_key) state.employees.set(row.employee_key, row.employee_name); });
             state.rows = rows;
             if (!state.employee) state.employee = [...state.employees.keys()][0] || '';
-            state.applied = {scope, from: args.from_date, to: args.to_date};
+            state.applied = {scope, from: args.from_date, to: args.to_date, cycleKey: args.cycle_key || ''};
             state.selected = ''; state.search = ''; state.status = '';
             q('[data-search]').value = '';
             q('[data-employee]').innerHTML = [...state.employees].sort((a, b) => String(a[1]).localeCompare(String(b[1])))
@@ -122,6 +150,7 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
             [__('Approved by'), esc(row.reviewed_by || '—')],
             [__('Reviewed on'), esc(date(row.reviewed_at))],
             [__('Journal Entry status'), esc(row.journal_status || '—')],
+            [__('Petty Cash cycle'), esc(row.cycle_label || '—') + (row.cycle_allocation_status === 'Awaiting allocation' ? '<small>' + __('Finance allocation required') + '</small>' : '')],
             [__('PC review delegation'), esc(row.review_group || __('Unassigned')) + (row.review_group_lead ? '<small>' + __('Lead') + ': ' + esc(row.review_group_lead) + '</small>' : '')],
         ].map(([label, value]) => '<div><dt>' + label + '</dt><dd>' + value + '</dd></div>').join('') + '</dl>';
     }
@@ -157,14 +186,16 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
         if (row) select(row.name, false);
     }
     function renderDocument(rows) {
-        const period = state.applied.scope === 'range' ? date(state.applied.from) + ' — ' + date(state.applied.to) : __('All dates');
+        const selectedCycle = state.cycles.find((cycle) => cycle.cycle_key === state.applied.cycleKey);
+        const period = selectedCycle ? date(selectedCycle.funding_date) + (selectedCycle.end_date ? ' — ' + date(selectedCycle.end_date) : ' — ' + __('Current')) :
+            state.applied.scope === 'range' ? date(state.applied.from) + ' — ' + date(state.applied.to) : __('All dates');
         q('.sig-pc-printdoc').innerHTML = '<div class="sig-pc-status-brand"><div class="sig-pc-status-brand-mark">SIG</div><div><strong>SIG</strong><span>' + __('Petty Cash') + '</span></div><div class="sig-pc-status-document-title"><h2>' + __('Petty Cash Transaction Status') + '</h2></div></div>' +
-            '<div class="sig-pc-status-meta"><div><small>' + __('Employee') + '</small><strong>' + esc(state.employees.get(state.employee) || '—') + '</strong></div><div><small>' + __('Period') + '</small><strong>' + esc(period) + '</strong></div><div><small>' + __('Generated') + '</small><strong>' + esc(date(frappe.datetime.get_today())) + '</strong></div></div>' +
+            '<div class="sig-pc-status-meta"><div><small>' + __('Employee') + '</small><strong>' + esc(state.employees.get(state.employee) || '—') + '</strong></div><div><small>' + (selectedCycle ? __('Petty Cash cycle') : __('Period')) + '</small><strong>' + esc(period) + '</strong>' + (selectedCycle ? '<small>' + __('Funding') + ': ' + money(selectedCycle.principal) + ' SAR · ' + __(selectedCycle.journal_status) + '</small>' : '') + '</div><div><small>' + __('Generated') + '</small><strong>' + esc(date(frappe.datetime.get_today())) + '</strong></div></div>' +
             '<p class="sig-pc-status-selection-note">' + esc([state.status ? status({finance_status: state.status}) : __('All statuses'), state.search ? __('Search: {0}', [state.search]) : ''].filter(Boolean).join(' · ')) + '</p>' +
-            '<div class="sig-pc-status-table-wrap"><table class="sig-pc-status-table"><thead><tr><th>#</th><th>' + __('Date') + '</th><th>' + __('Category') + '</th><th>' + __('Amount (incl. VAT)') + '</th><th>' + __('Status') + '</th><th>' + __('Approved by') + '</th><th>' + __('Journal Entry status') + '</th><th class="sig-pc-status-screen-only">' + __('Receipt') + '</th></tr></thead><tbody>' +
-            (rows.map((row, index) => '<tr data-row="' + esc(row.name) + '"><td>' + (index + 1) + '</td><td>' + esc(date(row.transaction_date)) + '</td><td>' + esc(row.transaction_category || '—') + '</td><td class="sig-pc-status-money">' + esc(money(row.amount)) + '</td><td>' + badge(status(row)) + '</td><td>' + esc(row.reviewed_by || '—') + '</td><td>' + esc(row.journal_status || '—') + '</td><td class="sig-pc-status-screen-only"><button data-select="' + esc(row.name) + '" data-jump class="sig-pc-status-view-receipt">' + __('View') + '</button></td></tr>').join('') ||
-            '<tr><td colspan="8" class="sig-pc-status-empty">' + __('No transactions match this selection.') + '</td></tr>') +
-            '</tbody><tfoot><tr><th colspan="3">' + __('Total (SAR)') + '</th><th class="sig-pc-status-money">' + esc(money(total(rows))) + '</th><td colspan="3">' + __('{0} transactions', [rows.length]) + '</td><td class="sig-pc-status-screen-only"></td></tr></tfoot></table></div><section class="sig-pc-status-receipts"></section>' +
+            '<div class="sig-pc-status-table-wrap"><table class="sig-pc-status-table"><thead><tr><th>#</th><th>' + __('Date') + '</th><th>' + __('Category') + '</th><th>' + __('Amount (incl. VAT)') + '</th><th>' + __('Status') + '</th><th>' + __('Approved by') + '</th><th>' + __('Journal Entry status') + '</th><th>' + __('Petty Cash cycle') + '</th><th class="sig-pc-status-screen-only">' + __('Receipt') + '</th></tr></thead><tbody>' +
+            (rows.map((row, index) => '<tr data-row="' + esc(row.name) + '"><td>' + (index + 1) + '</td><td>' + esc(date(row.transaction_date)) + '</td><td>' + esc(row.transaction_category || '—') + '</td><td class="sig-pc-status-money">' + esc(money(row.amount)) + '</td><td>' + badge(status(row)) + '</td><td>' + esc(row.reviewed_by || '—') + '</td><td>' + esc(row.journal_status || '—') + '</td><td>' + esc(row.cycle_label || '—') + '</td><td class="sig-pc-status-screen-only"><button data-select="' + esc(row.name) + '" data-jump class="sig-pc-status-view-receipt">' + __('View') + '</button></td></tr>').join('') ||
+            '<tr><td colspan="9" class="sig-pc-status-empty">' + __('No transactions match this selection.') + '</td></tr>') +
+            '</tbody><tfoot><tr><th colspan="3">' + __('Total (SAR)') + '</th><th class="sig-pc-status-money">' + esc(money(total(rows))) + '</th><td colspan="4">' + __('{0} transactions', [rows.length]) + '</td><td class="sig-pc-status-screen-only"></td></tr></tfoot></table></div><section class="sig-pc-status-receipts"></section>' +
             '<footer class="sig-pc-status-foot">' + __('Draft Journal Entries are pending Finance review; Submitted means posted.') + '</footer>';
     }
 
@@ -237,10 +268,11 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
     let resizeTimer;
     window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (vstage()) layout(true); }, 120); });
 
-    q('[data-scope]').addEventListener('change', updateScopeControls);
+    q('[data-scope]').addEventListener('change', () => { state.cycleKey = ''; updateScopeControls(); });
     q('[data-apply]').addEventListener('click', load);
     q('[data-refresh]').addEventListener('click', load);
-    q('[data-employee]').addEventListener('change', (event) => { state.employee = event.target.value; load(); });
+    q('[data-employee]').addEventListener('change', (event) => { state.employee = event.target.value; state.cycleKey = ''; load(); });
+    q('[data-cycle]').addEventListener('change', (event) => { state.cycleKey = event.target.value; updateScopeControls(); if (state.cycleKey) load(); });
     q('[data-search]').addEventListener('input', (event) => { state.search = event.target.value; render(); });
     q('[data-status]').addEventListener('change', (event) => { state.status = event.target.value; render(); });
     q('[data-review]').addEventListener('click', () => frappe.set_route('pc-invoice-review'));
