@@ -19,6 +19,9 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         root.attr('dir', frappe.boot.lang === 'ar' ? 'rtl' : 'ltr');
         const rows = state.datasets[selected];
         const fields = state.fields[selected].filter(f => f !== 'id');
+        const note = selected === 'projects'
+            ? __('Builder aliases are reusable local keys and may link to multiple ERP Projects. Choose the canonical ERP Project; PO / BA may remain blank until available.')
+            : __('Blank PO and UPL revision mean a shared rule. Disable obsolete rows; keep their IDs.');
         root.html('<div class="es-summary"><b>' + __('Published revision') + ': ' + esc(state.revision) + '</b><span>' +
             esc(state.published_at || __('Not published')) + '</span><span>' + __('Excel import status unknown') + '</span></div>' +
             '<div class="es-tools"><label>' + __('Setup list') + ' <select class="form-control es-dataset">' +
@@ -27,7 +30,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
             '<button class="btn btn-default es-add">' + __('Add row') + '</button>' +
             '<button class="btn btn-default es-import">' + __('Import existing setup') + '</button>' +
             '<button class="btn btn-default es-history">' + __('Revision history') + '</button></div>' +
-            '<p class="text-muted">' + __('Blank PO and UPL revision mean a shared rule. Disable obsolete rows; keep their IDs.') + '</p>' +
+            '<p class="text-muted">' + esc(note) + '</p>' +
             '<div class="es-scroll"><table class="table table-bordered"><thead><tr>' + fields.map(f => '<th>' + esc(__(fieldLabels[f] || f)) + '</th>').join('') +
             '</tr></thead><tbody>' + rows.map((row, i) => '<tr>' + fields.map(f => '<td>' +
                 (f === 'enabled' ? '<input type="checkbox" data-row="' + i + '" data-field="enabled" ' + (row.enabled ? 'checked' : '') + '>' :
