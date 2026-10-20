@@ -135,7 +135,8 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
     q('[data-scope]').addEventListener('change', updateScopeControls);
     q('[data-apply]').addEventListener('click', load);
     q('[data-refresh]').addEventListener('click', load);
-    q('.sig-pc-status-table').addEventListener('click', (event) => {
+    el.addEventListener('click', (event) => {
+        if (!event.target.closest('.sig-pc-status-table')) return;
         const button = event.target.closest('[data-receipt-target]');
         if (!button) return;
         const receipt = document.getElementById(button.dataset.receiptTarget);
