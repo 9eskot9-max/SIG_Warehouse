@@ -29,7 +29,7 @@ def _signature(row):
 def execute():
     rows = frappe.get_all(
         "Custom DocPerm",
-        filters={"parent": "Journal Entry", "parenttype": "DocType"},
+        filters={"parent": "Journal Entry"},
         fields=["name", "role", *PERM_FIELDS],
         limit_page_length=0,
     )
