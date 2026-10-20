@@ -1,5 +1,16 @@
 # Petty Cash Transaction Status report
 
+Funding/cycle target structure is finalized in
+[Petty cash funding and cycle structure](../../docs/petty_cash_funding_cycle_structure_20261020.md)
+(2026-10-20, ERP implementation staged; deployment and audience acceptance pending). It supersedes the
+provisional “every payment to employee” rule below: each explicitly designated
+petty cash top-up starts a cycle. The transfer request registry records beneficiary-
+agnostic **Txn ID + category** without an Employee lookup or mapping requirement;
+Employee allocation is a downstream ERP step for PC cycles. The existing bank
+importer remains the accounting writer, and
+Finance can designate an eligible imported Journal Entry manually. Cycles are
+derived from those funding movements without a second ledger or cycle DocType.
+
 The `pc-transaction-status` Desk Page is a read-only report for petty-cash transactions. It shares the existing PC Review audience and transaction scope. It narrows the existing `SIG PC Clearance` Journal Entry custom permission row to read/create only and applies the current employee-scope mapping to that role's JE access.
 
 ## Permission model
@@ -37,9 +48,16 @@ local revision adopts that workbench structure.
   every included receipt in the same order, with transaction details on each
   receipt page. Off-screen print media is created on demand and removed after
   printing. Browsing no longer creates all receipt image/PDF frames.
-- Cycle selection remains unavailable until the authoritative employee payment/
-  advance source is connected. Every payment to the employee will start a cycle;
-  receipt dates and expense journals cannot establish those funding boundaries.
+- All transactions, Cycle and Date range now use the same employee-scoped
+  transaction viewer and register. Cycle options come only from Finance-designated
+  Journal Entries; transfer payments, receipt expense journals and employee names
+  cannot infer a funding boundary.
+- The Journal Entry Petty Cash Funding section provides a Finance-only top-up
+  checkbox, Employee, funding date/source and bank references. A statement-backed
+  draft starts a Pending Finance cycle; a manual designation starts a cycle only
+  after the Journal Entry is submitted. Cancelled journals are excluded.
+- Date-only receipts on a day with multiple top-ups are shown as Awaiting cycle
+  allocation. No receipt date is guessed from confirmation time.
 - The existing two-way PC Review / Status navigation remains in place.
 
 Local interface preview: docs/pc_status_review_layout_preview.html.
@@ -48,9 +66,35 @@ Both use explicitly simulated transactions and receipt media.
 
 ## Release acceptance record
 
-This source change introduces a new Page for the existing PC Review role audience and a read-only whitelist method, and narrows the `SIG PC Clearance` JE custom row. Before deployment, compare the full before/after permission state including Page roles, full standard and custom matrices, user roles/profiles, User Permissions, field permlevels and the active hook/scope source. Test the app migration on staging twice, then run fresh-session checks as each registered audience. Operations User/Manager must see assigned employees only, fail to open unassigned employees and self-review, and see only the linked JE status from assigned transactions. The SIG PC Clearance role must be unable to list/open unrelated JEs, create a JE from the normal form, edit, export, submit or cancel; the existing confirmation must still create one draft. Accounts roles must exercise the same report against their approved existing broader scope. Test the page from the normal Desk menu after reload and verify the print output. Do not treat Administrator or API checks as role acceptance.
+This release adds app-owned Journal Entry fields and a cycle projection to the existing Page and hook scope; it does not add or remove roles, permission ptypes, Page audiences or Employee scopes. It also sends the existing SNB statement idempotency key on imported Journal Entry payloads so Finance can identify the statement-backed movement. Before deployment, compare the full before/after permission state including Page roles, full standard and custom matrices, user roles/profiles, User Permissions, field permlevels and the active hook/scope source. Run the migration twice on staging, then use fresh authenticated sessions for each registered audience. Operations User/Manager must see assigned employees only, fail to open unassigned employees and self-review, and see only cycle summaries for permitted employees. `SIG PC Clearance` must not be able to set funding fields or access unrelated JEs. Finance must designate a valid employee custody transfer and verify duplicate, wrong-company, expense-clearance, cancelled, manual-draft and same-day cases. Test the page from the normal Desk menu after reload and verify the print output. Administrator/API checks alone are not role acceptance.
 
 The initial status-report release is live as of 2026-10-20 at revision `41d185f5`. This receipt-detail update adds only `source_media_url` to the scoped transaction query and display, plus a return link to PC Review. Test it in production after the release; reviewers should verify original image and PDF loading and the print sequence. An expired source URL is reported as unavailable; the report uses the same source URL as PC Review and does not relocate media.
+
+### ERP funding release gate — 2026-10-20
+
+**Not deployed.** Current production is Active on bench `neoweb`; Cloud shows
+`9eskot9-max/SIG_Warehouse:main` at `771f248` and the latest bench deploy succeeded.
+The production API preflight authenticated as `9eskot9@gmail.com`. A before-change
+permission snapshot is recorded at
+`ERPNext/backups/permission_release_pc_funding_20261020/before.json`; it covers
+the Journal Entry, Journal Entry Account, Employee, Account and SIG PC Transaction
+metadata plus Page/Workspace roles, custom permission rows, user permissions,
+role profiles and enabled-user roles. No permission records were changed.
+
+- Offline petty-cash suite: **PASS**, 45 tests. Python/JavaScript syntax and
+  whitespace checks: **PASS**.
+- Full app test collection: **BLOCKED**; the run stopped while collecting
+  unrelated modules because this workspace lacks `frappe` and `RestrictedPython`.
+- Staging migration twice: **NOT TESTED**; the Cloud account lists only the
+  production site.
+- Fresh-session acceptance as Accounts User/Manager, Operations User/Manager
+  and SIG PC Clearance: **NOT TESTED**. API Administrator checks do not satisfy it.
+- Post-migration permission diff, live route/print verification and funding
+  classification workflow: **NOT TESTED**.
+
+The checked-in production source has not been updated, and no ERP migration or
+business record write has been run. The release gate remains open until a staging
+site and actual representative role sessions are available.
 
 ## Follow-up setup ownership
 
