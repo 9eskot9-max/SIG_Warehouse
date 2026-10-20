@@ -1,0 +1,4 @@
+# Keep distributed common/adapter module bytes stable across Windows checkouts.
+integrations/excel/**/*.bas text eol=lf
+# Unified diffs contain significant blank context/removal lines; they are data.
+integrations/excel/**/*.patch text eol=lf -whitespace

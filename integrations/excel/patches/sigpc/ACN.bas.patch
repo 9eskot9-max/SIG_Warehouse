@@ -1,0 +1,13 @@
+--- a/deployed/ACN.bas
++++ b/deployed/ACN.bas
+@@ -3581,3 +3581,10 @@
+     If Not AC_RequireLoginForUpload() Then Exit Function
+     AC_RequireSIGExtractAccess = True
+ End Function
++
++' Published Excel Setup uses the same protected ACN read-anchor mechanism.
++' Any valid passcode session may refresh; this does not authorize setup edits.
++Public Function AC_GetErpExcelSetupReadKey() As String
++    If Not AC_IsLoggedIn() Then Exit Function
++    AC_GetErpExcelSetupReadKey = AC_GetErpStockSnapshotAnchorKey()
++End Function

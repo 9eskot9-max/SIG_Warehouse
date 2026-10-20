@@ -1,0 +1,416 @@
+--- a/deployed/MappingPipeline.bas
++++ b/deployed/MappingPipeline.bas
+@@ -1,5 +1,6 @@
+ 
+ Option Explicit
++Private mESRunPo As String
+ 
+ ' ---------------------------------------------------------------------------
+ ' WIN32 DECLARES — cross-process Excel window enumeration.
+@@ -68,7 +69,7 @@
+ '   Target WO (all doc kinds incl. BOQ): WO-Select col A.
+ '     Batch export: A2 = 1, A3+ empty → all Mapping rows with Work order = 1.
+ '     WO list export: A2 (+ A3+) = real WOs, no 1 below A2 → rows matching those WOs.
+-'   Run_FromTargetWoMapping — central menu: pick GCL/FIS/MGCL/BOQ/As-Built BOQ (+ format for 1–4), Generate Mapping in Master (6), Export Mapping Sheet (7), PATC/PAC/FAC (8 → pacfac.PACFACPATC_Export_Run_Main), or Import As-Built From Transaction Report (9).
++'   Run_FromTargetWoMapping — central menu: pick GCL/FIS/MGCL/BOQ/As-Built BOQ (+ format for 1–4), Generate Mapping in Master (6), Export Mapping Sheet (7), PATC/PAC/FAC (8 → pacfac.PACFACPATC_Export_Run_Main), or Import As-Built Proposal from ERP (9).
+ '   Run_FromTargetWoMapping_CustomName — same Target WO UI + operator-chosen file suffix (all doc kinds).
+ '   Run_FromMapping / Run_FromMapping_CustomName — same hub for any Mapping workbook (Partial/Full + format).
+ '   Run_Mapping_DryRun, Run_Mapping_Probe.
+@@ -5558,7 +5559,7 @@
+         Exit Sub
+     End If
+     If docKind = 9 Then
+-        MP_Trace "Target WO hub doc=Import As-Built From Transaction Report -> AsBuiltCycle_ImportSummaryToDraft"
++        MP_Trace "Target WO hub doc=Import As-Built Proposal from ERP -> AsBuiltCycle_ImportSummaryToDraft"
+         AsBuiltCycle_ImportSummaryToDraft
+         Exit Sub
+     End If
+@@ -5606,7 +5607,7 @@
+          "6) Generate Mapping in Master" & vbCrLf & _
+          "7) Export Mapping Sheet" & vbCrLf & _
+          "8) PATC / PAC / FAC (legacy sites)" & vbCrLf & _
+-         "9) Import As-Built From Transaction Report"
++         "9) Import As-Built Proposal from ERP"
+     MP_PromptTargetWoDocKind = MP_InputPickIndexWithList(sb, "Target WO Export", 9, _
+         "Which action?" & vbCrLf & "Enter number (1–9):")
+ End Function
+@@ -5621,7 +5622,7 @@
+         Case 6: MP_ExportDocKindLabel = "Generate Mapping in Master"
+         Case 7: MP_ExportDocKindLabel = "Export Mapping Sheet"
+         Case 8: MP_ExportDocKindLabel = "PATC/PAC/FAC"
+-        Case 9: MP_ExportDocKindLabel = "Import As-Built From Transaction Report"
++        Case 9: MP_ExportDocKindLabel = "Import As-Built Proposal from ERP"
+         Case Else: MP_ExportDocKindLabel = "Export"
+     End Select
+ End Function
+@@ -6185,6 +6186,7 @@
+ 
+     If Not ACN.AC_RequireGclFisExportAccess() Then GoTo CleanExit
+     If Not MP_SetupForRun(ctx, False, True, phaseLabel, targetWo:=True) Then GoTo CleanExit
++    If MsgBox("Confirm the PM reviewed final quantities, including any blank AB values that use design quantities. Export the final As-Built BOQ?", vbYesNo + vbQuestion, "Review final quantities") <> vbYes Then GoTo CleanExit
+     If Not MP_MergeTagsForExport(ctx, phaseLabel) Then GoTo CleanExit
+ 
+     nLines = 0
+@@ -6671,43 +6673,7 @@
+ End Sub
+ 
+ Private Function MP_LoadConfigureCucToItemMap() As Object
+-    Dim ws As Worksheet
+-    Dim lo As ListObject
+-    Dim d As Object
+-    Dim r As Long, lastR As Long
+-    Dim cuc As String, itm As String
+-
+-    Set d = CreateObject("Scripting.Dictionary")
+-    d.CompareMode = vbTextCompare
+-    Set ws = MP_GetSheetLoose(ThisWorkbook, MP_CFG_SHEET)
+-    If ws Is Nothing Then
+-        Set MP_LoadConfigureCucToItemMap = d
+-        Exit Function
+-    End If
+-
+-    On Error Resume Next
+-    Set lo = ws.ListObjects(MP_CFG_TABLE)
+-    On Error GoTo 0
+-    If Not lo Is Nothing Then
+-        lastR = lo.ListRows.count
+-        For r = 1 To lastR
+-            cuc = Trim$(CStr(lo.ListColumns(1).DataBodyRange.Cells(r, 1).Value2))
+-            itm = Trim$(CStr(lo.ListColumns(3).DataBodyRange.Cells(r, 1).Value2))
+-            If Len(cuc) > 0 And Len(itm) > 0 Then
+-                If Not d.Exists(cuc) Then d.Add cuc, itm Else d(cuc) = itm
+-            End If
+-        Next r
+-    Else
+-        lastR = ws.Cells(ws.rows.count, MP_CFG_COL_CUC).End(xlUp).row
+-        For r = MP_CFG_FIRST_DATA_ROW To lastR
+-            cuc = Trim$(CStr(ws.Cells(r, MP_CFG_COL_CUC).Value2))
+-            itm = Trim$(CStr(ws.Cells(r, MP_CFG_COL_ITEM).Value2))
+-            If Len(cuc) > 0 And Len(itm) > 0 Then
+-                If Not d.Exists(cuc) Then d.Add cuc, itm Else d(cuc) = itm
+-            End If
+-        Next r
+-    End If
+-    Set MP_LoadConfigureCucToItemMap = d
++    Set MP_LoadConfigureCucToItemMap = ESHost_CucMap(mESRunPo, False)
+ End Function
+ 
+ Private Function MP_ConfigureItemForCuc(ByVal cucMap As Object, ByVal cuc As String) As String
+@@ -6718,43 +6684,7 @@
+ 
+ ' Configure AD: Tags Description (E) stored per UPL when operator assigns variant.
+ Private Function MP_LoadConfigureCucTagDescMap() As Object
+-    Dim ws As Worksheet
+-    Dim lo As ListObject
+-    Dim d As Object
+-    Dim r As Long, lastR As Long
+-    Dim cuc As String, tagDesc As String
+-
+-    Set d = CreateObject("Scripting.Dictionary")
+-    d.CompareMode = vbTextCompare
+-    Set ws = MP_GetSheetLoose(ThisWorkbook, MP_CFG_SHEET)
+-    If ws Is Nothing Then
+-        Set MP_LoadConfigureCucTagDescMap = d
+-        Exit Function
+-    End If
+-
+-    On Error Resume Next
+-    Set lo = ws.ListObjects(MP_CFG_TABLE)
+-    On Error GoTo 0
+-    If Not lo Is Nothing Then
+-        lastR = lo.ListRows.count
+-        For r = 1 To lastR
+-            cuc = Trim$(CStr(lo.ListColumns(1).DataBodyRange.Cells(r, 1).Value2))
+-            tagDesc = Trim$(CStr(ws.Cells(lo.ListRows(r).Range.row, MP_CFG_COL_TAGS_DESC).Value2))
+-            If Len(cuc) > 0 And Len(tagDesc) > 0 Then
+-                If Not d.Exists(cuc) Then d.Add cuc, tagDesc Else d(cuc) = tagDesc
+-            End If
+-        Next r
+-    Else
+-        lastR = ws.Cells(ws.rows.count, MP_CFG_COL_CUC).End(xlUp).row
+-        For r = MP_CFG_FIRST_DATA_ROW To lastR
+-            cuc = Trim$(CStr(ws.Cells(r, MP_CFG_COL_CUC).Value2))
+-            tagDesc = Trim$(CStr(ws.Cells(r, MP_CFG_COL_TAGS_DESC).Value2))
+-            If Len(cuc) > 0 And Len(tagDesc) > 0 Then
+-                If Not d.Exists(cuc) Then d.Add cuc, tagDesc Else d(cuc) = tagDesc
+-            End If
+-        Next r
+-    End If
+-    Set MP_LoadConfigureCucTagDescMap = d
++    Set MP_LoadConfigureCucTagDescMap = ESHost_CucMap(mESRunPo, True)
+ End Function
+ 
+ Private Function MP_ConfigureTagDescForCuc(ByVal cucTagDescMap As Object, ByVal cuc As String) As String
+@@ -6867,40 +6797,12 @@
+ End Function
+ 
+ Private Function MP_LoadConfigureLinkRows() As Collection
+-    Dim ws As Worksheet
+-    Dim lo As ListObject
+-    Dim c As New Collection
+-    Dim r As Long, lastR As Long
+-    Dim cuc As String, desc As String, itm As String
+-
+-    Set ws = MP_GetSheetLoose(ThisWorkbook, MP_CFG_SHEET)
+-    If ws Is Nothing Then
+-        Set MP_LoadConfigureLinkRows = c
+-        Exit Function
+-    End If
+-
+-    On Error Resume Next
+-    Set lo = ws.ListObjects(MP_CFG_TABLE)
+-    On Error GoTo 0
+-    If Not lo Is Nothing Then
+-        For r = 1 To lo.ListRows.count
+-            cuc = Trim$(CStr(lo.ListColumns(1).DataBodyRange.Cells(r, 1).Value2))
+-            desc = Trim$(CStr(lo.ListColumns(2).DataBodyRange.Cells(r, 1).Value2))
+-            itm = Trim$(CStr(lo.ListColumns(3).DataBodyRange.Cells(r, 1).Value2))
+-            If Len(cuc) > 0 Or Len(itm) > 0 Then
+-                c.Add Array(cuc, desc, itm, lo.ListColumns(1).DataBodyRange.Cells(r, 1).row)
+-            End If
+-        Next r
+-    Else
+-        lastR = ws.Cells(ws.rows.count, MP_CFG_COL_CUC).End(xlUp).row
+-        For r = MP_CFG_FIRST_DATA_ROW To lastR
+-            cuc = Trim$(CStr(ws.Cells(r, MP_CFG_COL_CUC).Value2))
+-            desc = Trim$(CStr(ws.Cells(r, MP_CFG_COL_DESC).Value2))
+-            itm = Trim$(CStr(ws.Cells(r, MP_CFG_COL_ITEM).Value2))
+-            If Len(cuc) > 0 Or Len(itm) > 0 Then c.Add Array(cuc, desc, itm, r)
+-        Next r
+-    End If
+-    Set MP_LoadConfigureLinkRows = c
++    Dim result As New Collection, item As Object, n As Long
++    For Each item In ES_Rows("tag_upl_links", mESRunPo)
++        n = n + 1
++        result.Add Array(CStr(item("cuc")), CStr(item("description")), CStr(item("tag_item")), n)
++    Next item
++    Set MP_LoadConfigureLinkRows = result
+ End Function
+ 
+ Private Function MP_ConfigureUniqueAcItems(ByVal rows As Collection) As Collection
+@@ -7283,120 +7185,41 @@
+ End Function
+ 
+ Private Sub Configure_MasterAddItem()
+-    Dim wsConfigure As Worksheet
+-    Dim wbRv80 As Workbook
+-    Dim itemName As String, builderRule As String
+-    Dim code As String, desc As String, tagDesc As String
+-    Dim links As Collection
+-    Dim link As Variant
+-    Dim cucMap As Object
+-    Dim existing As String
+-    Dim written As Long
+-    Dim r As Long
+-
+-    If Not MP_PickChecklistWorkbook(wbRv80) Then Exit Sub
+-    Set wsConfigure = MP_GetSheetLoose(ThisWorkbook, MP_CFG_SHEET)
+-    If wsConfigure Is Nothing Then
+-        MsgBox "SIGPC is missing the '" & MP_CFG_SHEET & "' sheet; no Tags setup was written.", _
+-            vbExclamation, "Tags master"
+-        Exit Sub
+-    End If
+-
+-    itemName = Trim$(InputBox("Canonical Tags Item Name (Builder AR / Tags D / Configure AC):", _
+-        "Tags master — add item"))
+-    If Len(itemName) = 0 Then Exit Sub
+-    builderRule = Trim$(InputBox("Builder matching rule (Builder AS; matched against raw Tags Description E):", _
+-        "Tags master — add item"))
+-    If Len(builderRule) = 0 Then Exit Sub
+-
+-    Set links = New Collection
+-    Do
+-        code = Trim$(InputBox("UPL/Contract code to link to '" & itemName & "':" & vbCrLf & _
+-            "Enter another code to add another link; leave blank when finished.", _
+-            "Tags master — UPL links"))
+-        If Len(code) = 0 Then Exit Do
+-        desc = Trim$(InputBox("Optional UPL description for " & code & ":", _
+-            "Tags master — UPL description", ""))
+-        tagDesc = Trim$(InputBox("Optional Tags Description E matcher for " & code & ":", _
+-            "Tags master — Tags matcher", ""))
+-        links.Add Array(code, desc, tagDesc)
+-    Loop
+-
+-    If links.count = 0 Then
+-        MsgBox "Add at least one UPL/Contract code before saving the item.", _
+-            vbExclamation, "Tags master"
+-        Exit Sub
+-    End If
+-
+-    Set cucMap = MP_LoadConfigureCucToItemMap()
+-    For Each link In links
+-        code = Trim$(CStr(link(0)))
+-        If cucMap.Exists(code) Then
+-            existing = Trim$(CStr(cucMap(code)))
+-            If Len(existing) > 0 And MP_ItemNameKey(existing) <> MP_ItemNameKey(itemName) Then
+-                If MsgBox("UPL code '" & code & "' is already linked to '" & existing & "'." & vbCrLf & _
+-                          "Replace it with '" & itemName & "'?", vbQuestion + vbYesNo, _
+-                          "Tags master — conflict") <> vbYes Then Exit Sub
+-            End If
+-        End If
+-    Next link
+-
+-    If Not MP_BuilderEnsureRule(wbRv80, itemName, builderRule) Then Exit Sub
+-
+-    For Each link In links
+-        code = Trim$(CStr(link(0)))
+-        desc = Trim$(CStr(link(1)))
+-        tagDesc = Trim$(CStr(link(2)))
+-        r = MP_ConfigureUpsertRow(code, itemName, desc, builderRule)
+-        If r < 1 Then
+-            MsgBox "Could not write Configure for UPL code '" & code & "'.", _
+-                vbExclamation, "Tags master"
+-            Exit Sub
+-        End If
+-        If Len(tagDesc) > 0 Then
+-            Set cucMap = MP_LoadConfigureCucTagDescMap()
+-            MP_ConfigureSetTagDescForCuc code, tagDesc, cucMap
+-        End If
+-        written = written + 1
+-    Next link
+-
+-    MP_RefreshRv80TagsFromBuilder wbRv80
+-    MsgBox "Tags item saved:" & vbCrLf & itemName & vbCrLf & vbCrLf & _
+-        "Builder AR:AS synchronized." & vbCrLf & _
+-        CStr(written) & " UPL link(s) written to Configure AA:AE.", _
+-        vbInformation, "Tags master"
++    Dim choice As String
++    If Not ACN.AC_RequireSession() Then Exit Sub
++    choice = Trim$(InputBox("Excel Setup" & vbCrLf & "1 = Refresh published setup" & vbCrLf & _
++        "2 = Open ERP Excel Setup" & vbCrLf & "3 = Show local revision", "Excel Setup", "1"))
++    Select Case choice
++    Case "1": ExcelSetup_RefreshFromERP
++    Case "2": ES_OpenSetup
++    Case "3": ES_Status
++    End Select
+ End Sub
+ 
+ ' Public: master Tags setup. RV80 must be open as SIG Documentation - Task Checklist 2.0.
+ Public Sub Configure_UplTagLinksMenu()
+     Dim choice As String
+-    Dim wbRv80 As Workbook
+-
+-    choice = Trim$(InputBox("Tags master (SIGPC -> open RV80):" & vbCrLf & vbCrLf & _
+-        "1 = Add item + Builder AR:AS rule + multiple UPL links" & vbCrLf & _
+-        "2 = List existing item/UPL links" & vbCrLf & _
+-        "3 = Refresh Tags column D from open RV80 Builder" & vbCrLf & _
+-        "4 = Debug dump all Configure links" & vbCrLf & vbCrLf & _
+-        "Required open workbook: " & MP_CHECKLIST_WB_NAME_BASE & vbCrLf & _
+-        "Enter 1, 2, 3, or 4:", "Tags master", "1"))
+-    If Len(choice) = 0 Then Exit Sub
++    If Not ACN.AC_RequireSession() Then Exit Sub
++    choice = Trim$(InputBox("Excel Setup" & vbCrLf & "1 = Refresh published setup" & vbCrLf & _
++        "2 = Open ERP Excel Setup" & vbCrLf & "3 = Show local revision", "Excel Setup", "1"))
+     Select Case choice
+-    Case "1"
+-        Configure_MasterAddItem
+-    Case "2"
+-        Configure_ListUplItemMappings
+-    Case "3"
+-        If MP_PickChecklistWorkbook(wbRv80) Then MP_RefreshRv80TagsFromBuilder wbRv80
+-    Case "4"
+-        Configure_DebugDumpAllUplLinks
+-    Case Else
+-        MsgBox "Enter 1, 2, 3, or 4.", vbExclamation, "Tags master"
++    Case "1": ExcelSetup_RefreshFromERP
++    Case "2": ES_OpenSetup
++    Case "3": ES_Status
+     End Select
+ End Sub
+ 
+ ' Public: register Contract Unit Code (AA) -> Tags item name (AC) on Configure / Table1011.
+ Public Sub Configure_LinkUplItemMapping()
+-    Configure_MasterAddItem
++    Dim choice As String
++    If Not ACN.AC_RequireSession() Then Exit Sub
++    choice = Trim$(InputBox("Excel Setup" & vbCrLf & "1 = Refresh published setup" & vbCrLf & _
++        "2 = Open ERP Excel Setup" & vbCrLf & "3 = Show local revision", "Excel Setup", "1"))
++    Select Case choice
++    Case "1": ExcelSetup_RefreshFromERP
++    Case "2": ES_OpenSetup
++    Case "3": ES_Status
++    End Select
+ End Sub
+ 
+ Private Function MP_FindMappingRowByCuc(ByVal sd As Object, ByVal cuc As String) As Long
+@@ -7859,13 +7682,7 @@
+ Private Function MP_RegisterConfigureLinkInteractive(ByVal siteLabel As String, ByVal tagItem As String, _
+                                                       ByVal sd As Object, ByRef cucMap As Object, _
+                                                       Optional ByRef batchSkippedItems As Object = Nothing) As Long
+-    ' Configuration is now created only by Configure_UplTagLinksMenu. Export
+-    ' must not silently become a second setup interface.
+-    MP_Trace "tags setup missing site=" & siteLabel & " item=" & tagItem
+-    MsgBox "Tags setup is missing for item '" & tagItem & "' at site '" & siteLabel & "'." & vbCrLf & vbCrLf & _
+-        "Run Configure_UplTagLinksMenu from SIGPC with the open RV80 workbook '" & _
+-        MP_CHECKLIST_WB_NAME_BASE & "', add the Builder AR:AS rule and UPL link, then rerun export.", _
+-        vbExclamation, MP_STEP_2_5 & " Tags setup required"
++    MsgBox "Tags setup is missing for '" & tagItem & "'. Add the definition/link in ERP Excel Setup, publish and refresh both workbooks.", vbExclamation
+     MP_RegisterConfigureLinkInteractive = MP_CFGLINK_ABORT
+ End Function
+ 
+@@ -8325,6 +8142,7 @@
+     End If
+ 
+     For r = MP_CFG_FIRST_DATA_ROW To lastR
++        If Not MP_ErpTagsRowInScope(ws, r, ctx) Then GoTo NextR
+         siteV = Trim$(CStr(ws.Cells(r, MP_TAGS_COL_SITE).Value2))
+         itemV = Trim$(CStr(ws.Cells(r, MP_TAGS_COL_ITEM).Value2))
+         descV = Trim$(CStr(ws.Cells(r, MP_TAGS_COL_DESC).Value2))
+@@ -8439,6 +8257,7 @@
+     If lastR < MP_CFG_FIRST_DATA_ROW Then Exit Sub
+ 
+     For r = MP_CFG_FIRST_DATA_ROW To lastR
++        If Not MP_ErpTagsRowInScope(ws, r, ctx) Then GoTo NextLinkR
+         siteV = Trim$(CStr(ws.Cells(r, MP_TAGS_COL_SITE).Value2))
+         itemV = Trim$(CStr(ws.Cells(r, MP_TAGS_COL_ITEM).Value2))
+         descV = Trim$(CStr(ws.Cells(r, MP_TAGS_COL_DESC).Value2))
+@@ -8527,6 +8346,12 @@
+         Exit Function
+     End If
+ 
++    ES_RequireReady
++    mESRunPo = Trim$(CStr(ctx("canonicalPO")))
++    If Len(mESRunPo) = 0 Then Err.Raise vbObjectError + 2861, , "A PO is required for the ERP setup scope."
++    Dim esOtherRevision As Long
++    esOtherRevision = CLng(wbCk.Application.Run("'" & Replace(wbCk.Name, "'", "''") & "'!ExcelSetupSync.ES_Revision"))
++    If esOtherRevision <> ES_Revision() Then Err.Raise vbObjectError + 2862, , "Refresh Excel Setup in both workbooks to the same published revision."
+     mergeStage = "read Tags groups"
+     Set tagGroups = MP_ReadTagsGroupsFromWorkbook(wbCk, ctx)
+     MP_Trace phaseLabel & " tags scan groups=" & tagGroups.count
+@@ -13892,3 +13717,36 @@
+ Public Function MP_PublicNormalizeSiteKey(ByVal s As String) As String
+     MP_PublicNormalizeSiteKey = MP_NormalizeSiteKey(s)
+ End Function
++
++' PO and WO scope guard shared by the Tags reader and its P/Q writer.
++Private Function MP_ErpTagsRowInScope(ByVal ws As Worksheet, ByVal sourceRow As Long, ByVal ctx As Object) As Boolean
++    Dim raw As Variant, i As Long, site As String, po As String, wo As String, candidates As Object
++    Dim wt As String, requireWt As Boolean, item As String
++    item = Trim$(CStr(ws.Cells(sourceRow, "D").Value2))
++    If Len(item) = 0 Or StrComp(item, "x", vbTextCompare) = 0 Then Exit Function
++    If Len(Trim$(CStr(ws.Cells(sourceRow, "G").Value2))) = 0 And Len(Trim$(CStr(ws.Cells(sourceRow, "I").Value2))) = 0 Then Exit Function
++    po = Trim$(CStr(ws.Cells(sourceRow, "A").Value2))
++    If Len(po) = 0 Or StrComp(po, Trim$(CStr(ctx("canonicalPO"))), vbTextCompare) <> 0 Then Exit Function
++    site = Trim$(CStr(ws.Cells(sourceRow, "C").Value2))
++    wo = Trim$(CStr(ws.Cells(sourceRow, "Q").Value2))
++    requireWt = MP_TagsWorkTypeRequired(ctx)
++    wt = Trim$(CStr(ws.Cells(sourceRow, "L").Value2))
++    If requireWt And Len(wt) = 0 Then Exit Function
++    Set candidates = CreateObject("Scripting.Dictionary"): candidates.CompareMode = vbTextCompare
++    raw = ctx("inputData")
++    For i = LBound(raw, 1) + 1 To UBound(raw, 1)
++        If MP_SiteKeysMatch(CStr(raw(i, 6)), site) And StrComp(Trim$(CStr(raw(i, 8))), po, vbTextCompare) = 0 Then
++            If requireWt Then
++                If UBound(raw, 2) < 26 Then Err.Raise vbObjectError + 2865, , "Mapping context has no Work Type column."
++                If StrComp(Trim$(CStr(raw(i, 26))), wt, vbTextCompare) <> 0 Then GoTo NextCandidate
++            End If
++            If Len(Trim$(CStr(raw(i, 4)))) > 0 Then candidates(Trim$(CStr(raw(i, 4)))) = True
++        End If
++NextCandidate:
++    Next i
++    If candidates.Count = 0 Then Exit Function
++    If InStr(1, wo, "MISSING", vbTextCompare) > 0 Then Err.Raise vbObjectError + 2863, , "Resolve the Tags WO MISSING marker for selected site " & site & " before export."
++    If candidates.Count > 1 Then Err.Raise vbObjectError + 2864, , "Tags need an explicit scope allocation: multiple WOs at site " & site
++    If Len(wo) > 0 And Not candidates.Exists(wo) Then Exit Function
++    MP_ErpTagsRowInScope = True
++End Function

@@ -335,3 +335,59 @@ Supplier,المورد
 suggested,مقترح
 Suggested,مقترح
 "Suggested from the receipt source. Check it, then confirm.",مقترح من مصدر الإيصال. راجعه ثم أكّد.
+Excel Setup,إعدادات إكسل
+Published revision,الإصدار المنشور
+Not published,لم يتم النشر
+Excel import status unknown,حالة الاستيراد إلى إكسل غير معروفة
+Setup list,قائمة الإعدادات
+Projects & Builder,المشاريع وإعدادات النموذج
+Tags definitions,تعريفات الوسوم
+Tags to UPL,ربط الوسوم ببنود العقد
+Item to UPL,ربط الأصناف ببنود العقد
+Builder defaults,القيم الافتراضية للنموذج
+Add row,إضافة صف
+Import existing setup,استيراد الإعدادات الحالية
+Revision history,سجل الإصدارات
+Save and publish,حفظ ونشر
+Reload,إعادة تحميل
+Excel setup published,تم نشر إعدادات إكسل
+Discard unsaved edits?,تجاهل التعديلات غير المحفوظة؟
+Publish or reload your edits before importing.,انشر تعديلاتك أو أعد التحميل قبل الاستيراد.
+Import is too large.,ملف الاستيراد كبير جدًا.
+Blank PO and UPL revision mean a shared rule. Disable obsolete rows; keep their IDs.,ترك أمر الشراء وإصدار بنود العقد فارغين يعني قاعدة مشتركة. عطّل الصفوف القديمة مع الحفاظ على معرفاتها.
+ERP Project,مشروع ERP
+PO / Agreement,أمر الشراء / الاتفاقية
+Builder alias,اسم المشروع في النموذج
+Project family,عائلة المشروع
+Project stream,مسار المشروع
+Word template key,رمز قالب وورد
+Internal SIG PM,مدير المشروع الداخلي
+TAWAL contact,مسؤول تواصل توال
+Contact name,اسم مسؤول التواصل
+Phone,الهاتف
+Email,البريد الإلكتروني
+UPL revision,إصدار قائمة بنود العقد
+Enabled,مفعّل
+Tags item,صنف الوسم
+Matching rule,قاعدة المطابقة
+Match priority,أولوية المطابقة
+UPL CUC,رمز البند التعاقدي
+UPL description,وصف البند التعاقدي
+Tags description qualifier,شرط وصف الوسم
+Tags normalization rule,قاعدة توحيد اسم الوسم
+ERP item code,رمز صنف ERP
+ERP unit,وحدة ERP
+Mapping unit,وحدة المابينج
+Treatment,طريقة المعالجة
+Reviewed quantity basis,أساس الكمية المعتمد
+Setting type,نوع الإعداد
+Match value,قيمة المطابقة
+Output value,قيمة المخرجات
+Additional value,قيمة إضافية
+TCN purpose and reason,غرض وسبب طلب الزيارة
+TCN CSV wording,نص ملف طلب الزيارة
+TMS implementer,المنفذ في نظام إدارة المهام
+Direct 1:1,ربط مباشر بنسبة واحد لواحد
+Excluded,مستبعد
+Manual,مراجعة يدوية
+"Import preview: {0} additions, {1} changes, {2} unchanged. Import and publish?",معاينة الاستيراد: {0} إضافات، {1} تغييرات، {2} دون تغيير. هل تريد الاستيراد والنشر؟

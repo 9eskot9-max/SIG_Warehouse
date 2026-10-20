@@ -1,0 +1,60 @@
+--- a/deployed/AsBuiltCycle.bas
++++ b/deployed/AsBuiltCycle.bas
+@@ -66,24 +66,14 @@
+         GoTo CleanExit
+     End If
+ 
+-    Set cfgHdr = Nothing
+-    cfgHdrRow = AB_FindConfigureHeaderRow(ThisWorkbook, cfgHdr)
+-    If cfgHdrRow = 0 Then
+-        MsgBox "Configure must contain headers 'whupl' and 'whcd'." & vbCrLf & vbCrLf & _
+-               "whupl is the UPL CUC or X; whcd is the exact WH item code.", _
+-               vbExclamation, "As-Built: Configure contract"
+-        GoTo CleanExit
+-    End If
+-
+-    Set linksByWhCode = CreateObject("Scripting.Dictionary"): linksByWhCode.CompareMode = vbTextCompare
+-    Set excludedWhCodes = CreateObject("Scripting.Dictionary"): excludedWhCodes.CompareMode = vbTextCompare
+-    Set configConflicts = CreateObject("Scripting.Dictionary"): configConflicts.CompareMode = vbTextCompare
+-    AB_LoadConfigureLinks ThisWorkbook.Worksheets(AB_CONFIGURE_SHEET), cfgHdrRow, cfgHdr, _
+-                          linksByWhCode, excludedWhCodes, configConflicts
+-    If linksByWhCode.Count = 0 Then
+-        MsgBox "Configure contains no usable WH-to-UPL links yet.", vbExclamation, "As-Built: Configure contract"
+-        GoTo CleanExit
+-    End If
++    ES_RequireReady
++    If ES_AllRows("material_upl_links").Count = 0 Then
++        MsgBox "ERP Excel Setup has no material-UPL links. Publish reviewed links and refresh SIGPC first.", vbExclamation
++        GoTo CleanExit
++    End If
++    Set linksByWhCode = CreateObject("Scripting.Dictionary")
++    Set excludedWhCodes = CreateObject("Scripting.Dictionary")
++    Set configConflicts = CreateObject("Scripting.Dictionary")
+ 
+     mapLastRow = AB_LastDataRow(wsMap, mapHdrRow)
+     If mapLastRow <= mapHdrRow Then
+@@ -224,20 +214,21 @@
+             GoTo NextSourceRow
+         End If
+ 
++        ESHost_MaterialLinks sourcePo, sourceUnit, linksByWhCode, excludedWhCodes, configConflicts
+         If configConflicts.Exists(AB_KeyText(sourceCode)) Then
+             AB_AddIssue issues, "Configure conflict", sourceSite, sourcePo, sourceCode, sourceDesc, sourceUnit, sourceQty, sourceDn, "", _
+-                        "The same WH code has both a UPL link and X in Configure. Resolve it before import."
++                        "ERP Excel Setup marks this code manual, conflicting or incompatible in UOM. Resolve it before import."
+             blockingIssues = blockingIssues + 1
+             GoTo NextSourceRow
+         End If
+         If excludedWhCodes.Exists(AB_KeyText(sourceCode)) Then
+             AB_AddIssue issues, "Reviewed no-link", sourceSite, sourcePo, sourceCode, sourceDesc, sourceUnit, sourceQty, sourceDn, "X", _
+-                        "Configure whupl is X; no ABDraft value was proposed."
++                        "ERP Excel Setup marks this item excluded; no ABDraft value was proposed."
+             GoTo NextSourceRow
+         End If
+         If Not linksByWhCode.Exists(AB_KeyText(sourceCode)) Then
+             AB_AddIssue issues, "No Configure link", sourceSite, sourcePo, sourceCode, sourceDesc, sourceUnit, sourceQty, sourceDn, "", _
+-                        "No whcd -> whupl pair exists in Configure."
++                        "No applicable ERP material-UPL link exists for this PO and UPL revision."
+             blockingIssues = blockingIssues + 1
+             GoTo NextSourceRow
+         End If

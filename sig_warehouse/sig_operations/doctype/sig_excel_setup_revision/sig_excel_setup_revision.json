@@ -1,0 +1,94 @@
+{
+  "doctype": "DocType",
+  "name": "SIG Excel Setup Revision",
+  "module": "SIG Operations",
+  "custom": 0,
+  "issingle": 0,
+  "track_changes": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "revision",
+    "configuration_json",
+    "published_hash",
+    "published_at",
+    "published_by",
+    "content_hash",
+    "import_batch_id",
+    "import_batch_hash"
+  ],
+  "fields": [
+    {
+      "fieldname": "revision",
+      "fieldtype": "Int",
+      "label": "Revision",
+      "read_only": 1
+    },
+    {
+      "fieldname": "configuration_json",
+      "fieldtype": "Code",
+      "label": "Configuration Json",
+      "read_only": 1,
+      "options": "JSON"
+    },
+    {
+      "fieldname": "published_hash",
+      "fieldtype": "Data",
+      "label": "Published Hash",
+      "read_only": 1
+    },
+    {
+      "fieldname": "published_at",
+      "fieldtype": "Datetime",
+      "label": "Published At",
+      "read_only": 1
+    },
+    {
+      "fieldname": "published_by",
+      "fieldtype": "Data",
+      "label": "Published By",
+      "read_only": 1
+    },
+    {
+      "fieldname": "content_hash",
+      "fieldtype": "Data",
+      "label": "Content Hash",
+      "read_only": 1
+    },
+    {
+      "fieldname": "import_batch_id",
+      "fieldtype": "Data",
+      "label": "Import Batch Id",
+      "read_only": 1,
+      "unique": 1
+    },
+    {
+      "fieldname": "import_batch_hash",
+      "fieldtype": "Data",
+      "label": "Import Batch Hash",
+      "read_only": 1
+    }
+  ],
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1
+    },
+    {
+      "role": "Operations Manager",
+      "read": 1
+    },
+    {
+      "role": "Operations User",
+      "read": 1
+    },
+    {
+      "role": "Projects Manager",
+      "read": 1
+    },
+    {
+      "role": "SIG Excel Setup Editor",
+      "read": 1
+    }
+  ],
+  "autoname": "field:revision"
+}
