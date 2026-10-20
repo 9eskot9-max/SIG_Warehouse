@@ -36,6 +36,25 @@ def test_normalization_preserves_ids_po_zeroes_and_disabled_rows():
     assert result["projects"][0]["upl_revision"] == ""
 
 
+def test_builder_alias_may_link_multiple_projects_and_po_may_be_pending():
+    value = data()
+    value["projects"].append({
+        "id": "p2", "project": "ERP-P2", "po": "", "alias": "Capex", "enabled": True
+    })
+    result = contract.validate(value)
+    assert [(row["project"], row["alias"], row["po"]) for row in result["projects"]] == [
+        ("ERP-P", "Capex", "001"), ("ERP-P2", "Capex", "")
+    ]
+
+
+def test_project_id_remains_required_when_po_is_pending():
+    value = data()
+    value["projects"][0]["po"] = ""
+    value["projects"][0]["project"] = ""
+    with pytest.raises(ValueError, match="project is required"):
+        contract.validate(value)
+
+
 @pytest.mark.parametrize("mutate,expected", [
     (lambda d: d.update(UserPasswords=[]), "Unknown"),
     (lambda d: d["projects"][0].update(api_secret="bad"), "unknown fields"),

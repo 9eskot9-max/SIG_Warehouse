@@ -11,27 +11,21 @@ Public Sub ExcelSetup_ForceRefresh()
 End Sub
 
 Public Sub ESHost_Validate(ByVal datasets As Object)
-    Dim required As Variant, row As Object, seen As Object, registry As Worksheet, r As Long, matched As Boolean
+    Dim required As Variant, row As Object, registry As Worksheet, r As Long, matched As Boolean
     For Each required In Array("projects", "tag_definitions", "builder_defaults")
         If Not datasets.Exists(CStr(required)) Then Err.Raise vbObjectError + 2820, , "Missing RV80 dataset: " & required
     Next required
     If datasets("projects").Count = 0 Or datasets("tag_definitions").Count = 0 Then Err.Raise vbObjectError + 2821, , "RV80 needs Project setup and Tags definitions before replacement."
     If datasets("projects").Count > 999 Then Err.Raise vbObjectError + 2822, , "Builder's current consumers support 999 contact rows."
-    Set seen = CreateObject("Scripting.Dictionary"): seen.CompareMode = vbTextCompare
     Set registry = ThisWorkbook.Worksheets("ERPProjects")
     For Each row In datasets("projects")
         If Not CBool(row("enabled")) Then GoTo NextProject
         matched = False
         For r = 2 To registry.Cells(registry.Rows.Count, 1).End(xlUp).Row
             If StrComp(CStr(registry.Cells(r, 1).Value2), CStr(row("project")), vbTextCompare) = 0 And _
-               StrComp(CStr(registry.Cells(r, 2).Value2), CStr(row("po")), vbTextCompare) = 0 Then matched = True: Exit For
+               (Len(Trim$(CStr(row("po")))) = 0 Or StrComp(CStr(registry.Cells(r, 2).Value2), CStr(row("po")), vbTextCompare) = 0) Then matched = True: Exit For
         Next r
         If Not matched Then Err.Raise vbObjectError + 2827, , "Refresh the existing Items + Projects from ERP catalogue first. Setup Project/PO is absent: " & row("project")
-        If seen.Exists(CStr(row("alias"))) Then
-            If seen(CStr(row("alias"))) <> CStr(row("project")) Then Err.Raise vbObjectError + 2823, , "Builder alias points to multiple Projects: " & row("alias")
-        Else
-            seen.Add CStr(row("alias")), CStr(row("project"))
-        End If
 NextProject:
     Next row
 End Sub
@@ -160,33 +154,25 @@ Public Sub ExcelSetup_ExportSeed()
 End Sub
 
 Private Function ESHost_ExportBuilderProjects(ByVal builder As Worksheet) As Collection
-    Dim result As New Collection, setup As Worksheet, header As Range, aliases As Object
-    Dim r As Long, k As Long, po As String, alias As String, row As Object, skipped As Long
-    Set aliases = CreateObject("Scripting.Dictionary"): aliases.CompareMode = vbTextCompare
+    Dim result As New Collection, setup As Worksheet, header As Range
+    Dim r As Long, k As Long, lastSetup As Long, po As String, alias As String, row As Object, skipped As Long
     On Error Resume Next
     Set setup = ThisWorkbook.Worksheets("ERP Setup")
     On Error GoTo 0
     If setup Is Nothing Then Err.Raise vbObjectError + 2828, , "The existing ERP Setup import is required for Project/PO seed references."
     Set header = setup.Cells.Find(What:="PO / Agreement", LookIn:=xlValues, LookAt:=xlWhole)
     If header Is Nothing Then Err.Raise vbObjectError + 2829, , "ERP Setup headers do not match SIG_PROJECT_SETUP_V1. Refresh its existing importer."
+    lastSetup = setup.Cells(setup.Rows.Count, header.Column).End(xlUp).Row
     For r = 2 To builder.Cells(builder.Rows.Count, "R").End(xlUp).Row
         alias = Trim$(CStr(builder.Cells(r, "R").Value2))
         If Len(alias) = 0 Then GoTo NextBuilder
-        If Not aliases.Exists(alias) Then
-            ' One-time migration association, deliberately explicit. Do not infer
-            ' a canonical PO from a template alias or similar Project name.
-            po = Trim$(InputBox("One-time seed review: enter the canonical PO for Builder alias '" & alias & "'." & vbCrLf & _
-                "Use the existing ERP Setup registry. Leave blank to omit this alias for later review.", "Confirm Project/PO association"))
-            aliases.Add alias, po
-        End If
-        po = CStr(aliases(alias))
+        po = Trim$(CStr(builder.Cells(r, "AC").Value2))
         If Len(po) = 0 Then skipped = skipped + 1: GoTo NextBuilder
         k = header.Row + 1
-        Do While Len(Trim$(CStr(setup.Cells(k, header.Column).Value2))) > 0
-            If StrComp(Trim$(CStr(setup.Cells(k, header.Column).Value2)), po, vbTextCompare) = 0 Then Exit Do
+        Do While k <= lastSetup And StrComp(Trim$(CStr(setup.Cells(k, header.Column).Value2)), po, vbTextCompare) <> 0
             k = k + 1
         Loop
-        If Len(Trim$(CStr(setup.Cells(k, header.Column).Value2))) = 0 Then Err.Raise vbObjectError + 2840, , "PO is absent from existing ERP Setup: " & po
+        If k > lastSetup Then Err.Raise vbObjectError + 2840, , "Builder PO is absent from ERP Setup: " & po
         Set row = CreateObject("Scripting.Dictionary")
         row.Add "id", "rv80-project-" & r: row.Add "project", CStr(setup.Cells(k, header.Column + 1).Value2)
         row.Add "po", po: row.Add "alias", alias: row.Add "family", CStr(setup.Cells(k, header.Column + 4).Value2)
@@ -196,6 +182,6 @@ Private Function ESHost_ExportBuilderProjects(ByVal builder As Worksheet) As Col
         row.Add "upl_revision", "": row.Add "enabled", True: result.Add row
 NextBuilder:
     Next r
-    If skipped > 0 Then MsgBox skipped & " Builder contact rows were omitted because their canonical PO was not confirmed. Reconcile this before replacing Builder.", vbExclamation
+    If skipped > 0 Then MsgBox skipped & " Builder rows have no BA/PO, so their ERP Project cannot be identified from this row. They were omitted; link the alias to a selected canonical Project in ERP Excel Setup (PO may remain blank).", vbExclamation
     Set ESHost_ExportBuilderProjects = result
 End Function

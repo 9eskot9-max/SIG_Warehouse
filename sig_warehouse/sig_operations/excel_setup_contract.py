@@ -14,7 +14,7 @@ FIELDS = {
     "builder_defaults": ("id", "kind", "key", "value", "value2", "po", "enabled"),
 }
 REQUIRED = {
-    "projects": ("id", "project", "po", "alias"),
+    "projects": ("id", "project", "alias"),
     "tag_definitions": ("id", "item", "rule"),
     "tag_upl_links": ("id", "tag_item", "cuc"),
     "material_upl_links": ("id", "item_code", "treatment"),
@@ -106,16 +106,13 @@ def validate(datasets):
             definitions.setdefault(row["item"].casefold(), set()).add(row["po"].casefold())
     if sum(row["enabled"] for row in result["projects"]) > 999:
         raise ValueError("Current RV80 Builder consumers support at most 999 enabled contact rows")
-    aliases, revisions = {}, {}
+    revisions = {}
     for row in result["projects"]:
         if not row["enabled"]:
             continue
-        alias = row["alias"].casefold()
-        if alias in aliases and aliases[alias] != row["project"]:
-            raise ValueError("One Builder alias cannot select multiple canonical Projects")
-        aliases[alias] = row["project"]
         if row["upl_revision"]:
-            revisions.setdefault(row["po"], set()).add(row["upl_revision"].casefold())
+            scope = row["po"].casefold() or ("project:" + row["project"].casefold())
+            revisions.setdefault(scope, set()).add(row["upl_revision"].casefold())
     if any(len(values) > 1 for values in revisions.values()):
         raise ValueError("Conflicting UPL revisions for one PO")
     for row in result["tag_upl_links"]:

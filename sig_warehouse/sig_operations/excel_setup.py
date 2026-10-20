@@ -65,7 +65,7 @@ def _linked_masters(datasets):
             meta = frappe.get_meta("Project")
             fields = [field for field in ("custom_po_number", "custom_agreement_no", "custom_tawal_ba", "name") if meta.has_field(field) or field == "name"]
             project = frappe.db.get_value("Project", row["project"], fields, as_dict=True)
-            if row["po"] not in {str(v or "").strip() for v in project.values()}:
+            if row["po"] and row["po"] not in {str(v or "").strip() for v in project.values()}:
                 frappe.throw(f"PO does not match canonical Project {row['project']}")
             row["project"] = project["name"]
             family_field = next((key for key in ("custom_project_family", "custom_family") if meta.has_field(key)), None)
