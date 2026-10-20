@@ -31,6 +31,7 @@ class Record(dict):
 
     def insert(self, **kwargs):
         assert kwargs == {}, "Accounting insertion must use native permissions"
+        assert getattr(self.fake.flags, "sig_pc_journal_create_receipt", None) == self.custom_pc_receipt
         if self.fake.deny_insert:
             raise Denied("Native Journal Entry create denied")
         self["name"], self["docstatus"] = "JE-PC-1", 0
@@ -51,6 +52,7 @@ def app(monkeypatch):
     fake.whitelist = lambda **kwargs: lambda fn: fn
     fake.PermissionError = Denied
     fake.session = types.SimpleNamespace(user="reviewer@example.com")
+    fake.flags = types.SimpleNamespace()
     fake.deny_insert, fake.journals, fake.trace, fake.legacy = False, {}, [], []
 
     def throw(message, exc=None):
@@ -143,6 +145,7 @@ def test_native_journal_permission_denial_does_not_confirm_receipt(app):
     assert receipt.closure_status == "Needs Review" and not receipt.journal_entry
     assert not fake.journals
     assert not any(t[0] == "save" for t in fake.trace)
+    assert not hasattr(fake.flags, "sig_pc_journal_create_receipt")
 
 
 def test_exact_retry_returns_same_journal(app):
@@ -176,6 +179,47 @@ def test_stale_receipt_is_rejected_before_accounting(app):
     with pytest.raises(RuntimeError, match="changed after"):
         confirm(app)
     assert not app[1].journals
+
+
+def test_status_report_reads_only_docstatus_of_the_matching_linked_journal(app, monkeypatch):
+    module, fake, _, _ = app
+    tx = Record(name="RECEIPT-1", employee_name="966598366060", transaction_date="2026-10-19",
+                amount=250, transaction_category="Hotel Rent", closure_status="Closed",
+                reviewed_by="manager@example.com", reviewed_at="2026-10-19 13:05:00",
+                journal_entry="JE-1")
+    seen = []
+    monkeypatch.setattr(fake, "get_list", lambda doctype, **kwargs: (seen.append((doctype, kwargs)) or [tx]), raising=False)
+    monkeypatch.setattr(module, "load_matrix", lambda: {
+        "employees": [{"employee": "HR-EMP-00019", "pc_review_group": "colocation"}],
+        "review_groups": {"colocation": {"label": "Colocation", "lead": "PM lead"}},
+    })
+    fake.db.get_value = lambda doctype, filters, fields, **kwargs: (
+        Record(docstatus=1) if doctype == "Journal Entry" and filters == {
+            "name": "JE-1", "custom_pc_receipt": "RECEIPT-1"} else "Manager Name"
+    )
+    result = module.transaction_status_report(employee="HR-EMP-00019", from_date="2026-10-01", to_date="2026-10-31")
+    assert result[0]["journal_status"] == "Submitted"
+    assert result[0]["finance_status"] == "Posted"
+    assert result[0]["reviewed_by"] == "Manager Name"
+    assert result[0]["employee_name"] == "Asif Nawaz Muhammad Nawaz"
+    assert result[0]["review_group"] == "Colocation"
+    assert result[0]["review_group_lead"] == "PM lead"
+    assert seen[0][0] == "SIG PC Transaction"
+    assert seen[0][1]["filters"] == {
+        "transaction_date": ["between", ["2026-10-01", "2026-10-31"]]}
+
+
+def test_status_report_does_not_trust_a_mismatched_journal_link(app, monkeypatch):
+    module, fake, _, _ = app
+    tx = Record(name="RECEIPT-1", employee_name="Asif", transaction_date="2026-10-19",
+                amount=250, transaction_category="Hotel Rent", closure_status="Closed",
+                reviewed_by=None, reviewed_at=None, journal_entry="JE-OTHER")
+    monkeypatch.setattr(fake, "get_list", lambda doctype, **kwargs: [tx], raising=False)
+    fake.db.get_value = lambda doctype, filters, fields, **kwargs: None
+    result = module.transaction_status_report()
+    assert result[0]["journal_status"] == "Link mismatch"
+    assert result[0]["journal_entry"] is None
+    assert result[0]["finance_status"] == "Journal link mismatch"
 
 
 def test_confirm_requires_original_evidence(app):
@@ -263,6 +307,31 @@ def test_native_finance_access_is_preserved(app):
     assert module.transaction_permission(receipt) is None
 
 
+def test_pc_clearance_journal_access_is_receipt_scoped_and_create_is_endpoint_only(app):
+    module, fake, receipt, context = app
+    fake.get_all = lambda *args, **kwargs: [Record(employee_name=receipt.employee_name),
+                                            Record(employee_name="966500000000")]
+    condition = module.journal_entry_query_conditions()
+    assert "custom_pc_receipt" in condition and "966598366060" in condition
+    assert "966500000000" not in condition
+    fake.db.get_value = lambda doctype, name, field: (
+        receipt.employee_name if doctype == "SIG PC Transaction" and name == receipt.name else None)
+    linked = Record(custom_pc_receipt=receipt.name)
+    assert module.journal_entry_permission(linked, permission_type="read") is None
+    assert module.journal_entry_permission(Record(custom_pc_receipt="OTHER"), permission_type="read") is False
+    assert module.journal_entry_permission(Record(custom_pc_receipt=receipt.name), permission_type="create") is False
+    fake.flags.sig_pc_journal_create_receipt = receipt.name
+    assert module.journal_entry_permission(linked, permission_type="create") is None
+    assert module.journal_entry_permission(Record(custom_pc_receipt=receipt.name), permission_type="write") is None
+    context["actor"].name = "HR-EMP-00013"
+    assert module.journal_entry_permission(linked, permission_type="read") is False
+
+
+def test_pc_clearance_create_without_document_is_denied(app):
+    module, _, _, _ = app
+    assert module.journal_entry_permission(None, permission_type="create") is False
+
+
 def test_legacy_cycle_writer_detects_receipt_path_overlap(app):
     module, fake, _, _ = app
     original_sql = fake.db.sql
@@ -339,5 +408,49 @@ def test_migration_refuses_conflicting_unique_origin_contract(migration):
     records[("Custom Field", "Journal Entry-custom_pc_receipt")] = Record(
         fieldtype="Data", unique=0, read_only=0)
     with pytest.raises(RuntimeError, match="contract differs"):
+        module.execute()
+    assert writes == []
+
+
+def test_pc_je_permission_patch_updates_only_clearance_row_and_is_repeatable(monkeypatch, app):
+    module = importlib.import_module(
+        "sig_warehouse.sig_warehouse.patches.v1_0.scope_pc_clearance_journal_entry_permissions")
+    rows = [Record(name="perm-" + role, role=role,
+                   **dict(zip(module.PERM_FIELDS, values)))
+            for role, values in module.CUSTOM_BASELINE.items()]
+    by_name = {row.name: row for row in rows}
+    writes, clears = [], []
+
+    fake = app[1]
+    fake.get_all = lambda *args, **kwargs: rows
+    fake.get_doc = lambda doctype, name: by_name[name]
+    fake.clear_cache = lambda **kwargs: clears.append(kwargs)
+    for row in rows:
+        row.save = lambda **kwargs: (writes.append(row.role)
+                                     if kwargs == {"ignore_permissions": True}
+                                     else (_ for _ in ()).throw(AssertionError(kwargs)))
+    monkeypatch.setattr(module, "frappe", fake)
+    module.execute()
+    assert writes == ["SIG PC Clearance"]
+    assert by_name["perm-SIG PC Clearance"].write == 0
+    assert by_name["perm-SIG PC Clearance"].export == 0
+    assert by_name["perm-Accounts User"].write == 1
+    module.execute()
+    assert writes == ["SIG PC Clearance"]
+
+
+def test_pc_je_permission_patch_fails_closed_on_matrix_drift(monkeypatch, app):
+    module = importlib.import_module(
+        "sig_warehouse.sig_warehouse.patches.v1_0.scope_pc_clearance_journal_entry_permissions")
+    rows = [Record(name="perm-" + role, role=role,
+                   **dict(zip(module.PERM_FIELDS, values)))
+            for role, values in module.CUSTOM_BASELINE.items()]
+    rows[0]["submit"] = 0
+    writes = []
+    fake = app[1]
+    fake.get_all = lambda *args, **kwargs: rows
+    fake.get_doc = lambda *args: writes.append("get_doc")
+    monkeypatch.setattr(module, "frappe", fake)
+    with pytest.raises(RuntimeError, match="matrix changed"):
         module.execute()
     assert writes == []

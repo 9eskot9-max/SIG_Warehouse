@@ -1,0 +1,46 @@
+.sig-pc-status { --sig-deep:#061634; --sig-navy:#081C44; --sig-blue:#1E7FFC; --sig-cyan:#22C7EE; --sig-pale:#EEF7FC; max-width:1500px; margin:0 auto; padding:16px 22px 36px; }
+.sig-pc-status-head { display:flex; align-items:center; justify-content:space-between; gap:18px; flex-wrap:wrap; padding:18px 24px; border-radius:12px; color:#fff; background:linear-gradient(135deg,var(--sig-deep),var(--sig-navy)); border-bottom:4px solid var(--sig-cyan); }
+.sig-pc-status-head h1 { margin:3px 0; color:#fff; font-size:22px; }
+.sig-pc-status-head p { margin:0; color:#d2deec; }
+.sig-pc-status-eyebrow { color:#74d8f4; font-size:11px; letter-spacing:.08em; text-transform:uppercase; }
+.sig-pc-status-actions { display:flex; gap:8px; }
+.sig-pc-status-filters { display:flex; align-items:end; flex-wrap:wrap; gap:12px; margin:14px 0; padding:14px; border:1px solid var(--border-color); border-radius:10px; background:var(--card-bg); }
+.sig-pc-status-filters label { display:grid; gap:5px; min-width:180px; color:var(--text-muted); font-size:12px; }
+.sig-pc-status-filters select,.sig-pc-status-filters input { min-height:34px; padding:5px 8px; border:1px solid var(--border-color); border-radius:5px; background:var(--control-bg); color:var(--text-color); }
+.sig-pc-status-cycle-note { margin:10px 0; padding:10px 12px; border-inline-start:4px solid #e1a500; background:#fff8e1; color:#745900; }
+.sig-pc-printdoc { padding:24px; border:1px solid var(--border-color); border-radius:10px; background:#fff; color:#1f2937; }
+.sig-pc-status-brand { display:flex; align-items:center; gap:12px; padding-bottom:16px; border-bottom:2px solid #102950; }
+.sig-pc-status-brand-mark { display:grid; width:48px; height:48px; place-items:center; border-radius:9px; color:#fff; background:#102950; font-weight:800; letter-spacing:.08em; }
+.sig-pc-status-brand>div:nth-child(2) { display:grid; color:#102950; line-height:1.2; }
+.sig-pc-status-brand>div:nth-child(2) span { color:#697586; font-size:12px; }
+.sig-pc-status-document-title { margin-inline-start:auto; text-align:end; }
+.sig-pc-status-document-title h2 { margin:0; color:#102950; font-size:20px; }
+.sig-pc-status-document-title p { margin:4px 0 0; color:#697586; font-size:12px; }
+.sig-pc-status-meta { display:grid; grid-template-columns:2fr 1fr 1fr; gap:10px; margin:18px 0; }
+.sig-pc-status-meta>div { display:grid; gap:4px; padding:9px 12px; border:1px solid #d9e1eb; border-radius:6px; }
+.sig-pc-status-meta small { color:#697586; font-size:10px; text-transform:uppercase; letter-spacing:.04em; }
+.sig-pc-status-meta strong { color:#102950; font-size:13px; }
+.sig-pc-status-table { width:100%; border-collapse:collapse; font-size:11px; }
+.sig-pc-status-table th { padding:8px 7px; border:1px solid #cfd8e3; color:#102950; background:#edf4fa; text-align:start; }
+.sig-pc-status-table td { padding:7px; border:1px solid #d9e1eb; vertical-align:middle; }
+.sig-pc-status-table tbody tr:nth-child(even) { background:#f8fafc; }
+.sig-pc-status-table tfoot th,.sig-pc-status-table tfoot td { background:#eef7fc; font-weight:700; }
+.sig-pc-status-num,.sig-pc-status-money { font-variant-numeric:tabular-nums; white-space:nowrap; }
+.sig-pc-status-money { text-align:end!important; }
+.sig-pc-status-badge { display:inline-block; padding:3px 7px; border-radius:20px; font-size:10px; font-weight:700; white-space:nowrap; }
+.sig-pc-status-badge.is-ok { color:#126137; background:#e6f6ed; }
+.sig-pc-status-badge.is-pending { color:#775800; background:#fff4cc; }
+.sig-pc-status-badge.is-bad { color:#9b2723; background:#fde8e7; }
+.sig-pc-status-foot { display:flex; justify-content:space-between; gap:16px; margin-top:15px; padding-top:9px; border-top:1px solid #d9e1eb; color:#697586; font-size:10px; }
+.sig-pc-status-empty { padding:28px; color:#697586; text-align:center; }
+@media (max-width:900px) { .sig-pc-status-meta { grid-template-columns:1fr; } .sig-pc-printdoc { overflow-x:auto; padding:14px; } .sig-pc-status-table { min-width:900px; } }
+@media print {
+    body * { visibility:hidden!important; }
+    .sig-pc-printdoc,.sig-pc-printdoc * { visibility:visible!important; }
+    .sig-pc-printdoc { position:absolute; inset:0; width:100%; margin:0; padding:0; border:0; border-radius:0; overflow:visible; }
+    .sig-pc-status { max-width:none; margin:0; padding:0; }
+    .sig-pc-status-table { font-size:9px; }
+    .sig-pc-status-table thead { display:table-header-group; }
+    .sig-pc-status-table tr { break-inside:avoid; }
+    @page { size:A4 landscape; margin:12mm; }
+}

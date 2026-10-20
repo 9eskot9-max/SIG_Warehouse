@@ -31,9 +31,11 @@ override_whitelisted_methods = {
 }
 permission_query_conditions = {
     "SIG PC Transaction": "sig_warehouse.sig_warehouse.pc_journal.transaction_query_conditions",
+    "Journal Entry": "sig_warehouse.sig_warehouse.pc_journal.journal_entry_query_conditions",
 }
 has_permission = {
     "SIG PC Transaction": "sig_warehouse.sig_warehouse.pc_journal.transaction_permission",
+    "Journal Entry": "sig_warehouse.sig_warehouse.pc_journal.journal_entry_permission",
 }
 
 # Root cause of the 2026-09-18 freeze found and fixed (isolated offline

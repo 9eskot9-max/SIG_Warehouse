@@ -135,6 +135,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
         return !item.doctype || frappe.model.can_read(item.doctype);
     }
     const NAV = [
+        {title: __('Petty Cash Status'), icon: 'list-alt', roleAny: REVIEWERS, route: ['pc-transaction-status']},
         {title: __('Finance workbench'), icon: 'line-chart', roleAny: FINANCE, route: ['finance-workbench']}
     ];
     const LINKS = [
