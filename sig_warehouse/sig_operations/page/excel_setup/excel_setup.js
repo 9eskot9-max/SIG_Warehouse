@@ -13,6 +13,67 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         item_code: 'ERP item code', source_uom: 'ERP unit', target_uom: 'Mapping unit', treatment: 'Treatment',
         quantity_basis: 'Reviewed quantity basis', kind: 'Setting type', key: 'Match value', value: 'Output value', value2: 'Additional value'};
     const optionLabels = {purpose_reason: 'TCN purpose and reason', csv_remarks: 'TCN CSV wording', tms_implementer: 'TMS implementer'};
+    const referenceFields = {
+        projects: {project: 'projects', tawal_contact: 'contacts', stream: 'streams'},
+        material_upl_links: {item_code: 'items', target_uom: 'uoms'}
+    };
+    const referenceLabel = (type, row) => {
+        if (type === 'projects') return [row.project_name, row.name].filter(Boolean).join(' · ');
+        if (type === 'contacts') return [row.full_name, row.name].filter(Boolean).join(' · ');
+        if (type === 'items') return [row.item_name, row.name, row.stock_uom].filter(Boolean).join(' · ');
+        if (type === 'streams') return [row.alias, row.name].filter(Boolean).join(' · ');
+        return row.name || '';
+    };
+    const referenceCell = (type, value, rowIndex, field) => '<div class="es-lookup" data-ref-type="' + type + '" data-row="' + rowIndex + '" data-field="' + field + '">' +
+        '<input class="form-control es-lookup-input" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" value="' + esc(value) + '" placeholder="' + esc(__('Search ERP records')) + '">' +
+        '<div class="es-lookup-menu" role="listbox" hidden></div></div>';
+    const referenceOptions = (type, query, rowIndex) => {
+        let rows = state.references[type] || [];
+        if (type === 'streams') {
+            const project = state.datasets[selected][rowIndex].project;
+            rows = project ? rows.filter(row => row.project === project) : [];
+        }
+        const needle = String(query || '').trim().toLocaleLowerCase();
+        return rows.filter(row => !needle || referenceLabel(type, row).toLocaleLowerCase().includes(needle))
+            .slice(0, 40).map(row => '<button type="button" class="es-lookup-option" role="option" data-value="' + esc(row.name) + '">' + esc(referenceLabel(type, row)) + '</button>').join('');
+    };
+    const openLookup = input => {
+        const box = input.closest('.es-lookup');
+        const menu = box.querySelector('.es-lookup-menu');
+        const field = box.dataset.field;
+        const canClear = (selected === 'projects' && ['tawal_contact', 'stream'].includes(field)) || (selected === 'material_upl_links' && field === 'target_uom');
+        menu.innerHTML = (canClear ? '<button type="button" class="es-lookup-option es-lookup-clear" role="option" data-value="">' + esc(__('Clear selection')) + '</button>' : '') + referenceOptions(box.dataset.refType, input.value, Number(box.dataset.row));
+        menu.hidden = !menu.childElementCount;
+        input.setAttribute('aria-expanded', String(!menu.hidden));
+    };
+    const commitLookup = (box, value) => {
+        const row = state.datasets[selected][Number(box.dataset.row)], field = box.dataset.field, type = box.dataset.refType;
+        if (!value && ((selected === 'projects' && ['tawal_contact', 'stream'].includes(field)) || (selected === 'material_upl_links' && field === 'target_uom'))) {
+            row[field] = '';
+            if (selected === 'projects' && field === 'tawal_contact') { row.contact_name = ''; row.contact_phone = ''; row.contact_email = ''; }
+            dirty = true;
+            render();
+            return;
+        }
+        const source = (state.references[type] || []).find(candidate => candidate.name === value);
+        if (!source) return;
+        row[field] = source.name;
+        dirty = true;
+        if (selected === 'projects' && field === 'project') {
+            row.po = source.custom_agreement_no || source.custom_tawal_ba || source.custom_po_number || (/^\d+$/.test(source.name) ? source.name : '');
+            row.family = source.custom_project_family || source.custom_family || '';
+            if (row.stream && !(state.references.streams || []).some(stream => stream.name === row.stream && stream.project === source.name)) row.stream = '';
+        } else if (selected === 'projects' && field === 'tawal_contact') {
+            row.contact_name = source.full_name || '';
+            row.contact_phone = source.mobile || '';
+            row.contact_email = source.email || '';
+        } else if (selected === 'material_upl_links' && field === 'item_code') {
+            const priorSourceUom = row.source_uom || '';
+            row.source_uom = source.stock_uom || '';
+            if (!row.target_uom || row.target_uom === priorSourceUom) row.target_uom = source.stock_uom || '';
+        }
+        render();
+    };
     const esc = v => frappe.utils.escape_html(String(v == null ? '' : v)).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     const call = async (name, args={}) => (await frappe.call({method: method + name, args, freeze: true})).message;
     const render = () => {
@@ -36,38 +97,33 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
                 (f === 'enabled' ? '<input type="checkbox" data-row="' + i + '" data-field="enabled" ' + (row.enabled ? 'checked' : '') + '>' :
                 state.options[selected + '.' + f] ? '<select class="form-control" data-row="' + i + '" data-field="' + f + '"><option value=""></option>' +
                     state.options[selected + '.' + f].map(value => '<option value="' + esc(value) + '" ' + (row[f] === value ? 'selected' : '') + '>' + esc(__(optionLabels[value] || value)) + '</option>').join('') + '</select>' :
+                referenceFields[selected] && referenceFields[selected][f] ? referenceCell(referenceFields[selected][f], row[f], i, f) :
                 '<input class="form-control" data-row="' + i + '" data-field="' + f + '" value="' + esc(row[f]) + '" ' +
-                    (f === 'id' || (selected === 'projects' && ['family','contact_name','contact_phone','contact_email'].includes(f)) ? 'readonly ' : '') +
-                    (selected === 'projects' && f === 'project' ? 'list="es-ref-projects"' : selected === 'projects' && f === 'tawal_contact' ? 'list="es-ref-contacts"' : selected === 'projects' && f === 'stream' ? 'list="es-ref-streams"' : selected === 'material_upl_links' && f === 'item_code' ? 'list="es-ref-items"' : '') + '>') + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>');
-        for (const [type, rows] of Object.entries(state.references)) {
-            const list = $('<datalist></datalist>').attr('id', 'es-ref-' + type);
-            rows.forEach(row => $('<option></option>').attr('value', row.name).text(row.project_name || row.full_name || row.item_name || row.name).appendTo(list));
-            list.appendTo(root);
-        }
+                    (f === 'id' || (selected === 'projects' && ['po','family','contact_name','contact_phone','contact_email'].includes(f)) || (selected === 'material_upl_links' && f === 'source_uom') ? 'readonly ' : '') + '>') + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>');
     };
     const load = async () => { state = await call('get_page_state'); dirty = false; render(); };
     root.on('change', '.es-dataset', function () { selected = this.value; render(); });
-    root.on('input change', '[data-field]', function (event) {
+    root.on('input change', '[data-field]:not(.es-lookup)', function (event) {
         const row = state.datasets[selected][Number(this.dataset.row)], field = this.dataset.field;
         row[field] = this.type === 'checkbox' ? this.checked : this.value;
         dirty = true;
-        if (event.type === 'change' && selected === 'projects' && field === 'project') {
-            const source = state.references.projects.find(p => p.name === this.value);
-            if (source) {
-                row.po = source.custom_agreement_no || source.custom_tawal_ba || source.custom_po_number || (/^\d+$/.test(source.name) ? source.name : '');
-                row.family = source.custom_project_family || source.custom_family || '';
-                render();
-            }
-        } else if (event.type === 'change' && selected === 'projects' && field === 'tawal_contact') {
-            const source = state.references.contacts.find(p => p.name === this.value);
-            row.contact_name = source ? source.full_name || '' : '';
-            row.contact_phone = source ? source.mobile || '' : '';
-            row.contact_email = source ? source.email || '' : '';
-            render();
-        } else if (event.type === 'change' && selected === 'material_upl_links' && field === 'item_code') {
-            const source = state.references.items.find(p => p.name === this.value);
-            if (source) { row.source_uom = source.stock_uom; if (!row.target_uom) row.target_uom = source.stock_uom; render(); }
-        }
+    });
+    root.on('focus', '.es-lookup-input', function () { openLookup(this); });
+    root.on('input', '.es-lookup-input', function () { openLookup(this); });
+    root.on('keydown', '.es-lookup-input', function (event) {
+        const menu = this.closest('.es-lookup').querySelector('.es-lookup-menu');
+        const options = Array.from(menu.querySelectorAll('.es-lookup-option'));
+        let index = options.indexOf(menu.querySelector('.es-lookup-option.active'));
+        if (event.key === 'ArrowDown' && options.length) { event.preventDefault(); index = (index + 1) % options.length; options.forEach(option => option.classList.remove('active')); options[index].classList.add('active'); }
+        else if (event.key === 'ArrowUp' && options.length) { event.preventDefault(); index = index <= 0 ? options.length - 1 : index - 1; options.forEach(option => option.classList.remove('active')); options[index].classList.add('active'); }
+        else if (event.key === 'Enter' && index >= 0) { event.preventDefault(); commitLookup(this.closest('.es-lookup'), options[index].dataset.value); }
+        else if (event.key === 'Escape') { menu.hidden = true; this.setAttribute('aria-expanded', 'false'); }
+    });
+    root.on('mousedown', '.es-lookup-option', function (event) { event.preventDefault(); commitLookup(this.closest('.es-lookup'), this.dataset.value); });
+    root.on('blur', '.es-lookup-input', function () {
+        const box = this.closest('.es-lookup'), row = state.datasets[selected][Number(box.dataset.row)];
+        const menu = box.querySelector('.es-lookup-menu');
+        window.setTimeout(() => { if (!box.isConnected) return; this.value = row[box.dataset.field] || ''; menu.hidden = true; this.setAttribute('aria-expanded', 'false'); }, 120);
     });
     root.on('click', '.es-add', () => {
         const row = Object.fromEntries(state.fields[selected].map(f => [f, f === 'enabled' ? true : '']));

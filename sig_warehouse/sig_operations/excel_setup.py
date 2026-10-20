@@ -85,6 +85,8 @@ def _linked_masters(datasets):
             unit = frappe.db.get_value("Item", row["item_code"], "stock_uom")
             if str(unit).casefold() != row["source_uom"].casefold():
                 frappe.throw(f"Source UOM does not match Item {row['item_code']}")
+        if row["enabled"] and row["target_uom"] and not frappe.db.exists("UOM", row["target_uom"]):
+            frappe.throw(f"Mapping UOM {row['target_uom']} does not exist in ERP")
 
 
 def _resolve_contact(row):
@@ -175,8 +177,9 @@ def _reference_choices():
     projects = frappe.get_all("Project", filters=filters, fields=fields, order_by="project_name asc", limit_page_length=10000)
     contacts = frappe.get_all("SIG TAWAL Contact", fields=["name", "full_name", "mobile", "email"], limit_page_length=10000) if frappe.db.exists("DocType", "SIG TAWAL Contact") else []
     items = frappe.get_all("Item", filters={"disabled": 0, "is_stock_item": 1}, fields=["name", "item_name", "stock_uom"], limit_page_length=10000)
+    uoms = frappe.get_all("UOM", fields=["name"], order_by="name asc", limit_page_length=10000)
     streams = frappe.get_all("SIG Project Stream", fields=["name", "alias", "project"], limit_page_length=10000) if frappe.db.exists("DocType", "SIG Project Stream") else []
-    return {"projects": projects, "contacts": contacts, "items": items, "streams": streams}
+    return {"projects": projects, "contacts": contacts, "items": items, "streams": streams, "uoms": uoms}
 
 
 @frappe.whitelist(methods=["POST"])

@@ -190,6 +190,24 @@ def test_stale_editor_write_rejected_before_any_mutation(api, monkeypatch):
         module.save_and_publish(data(), 2)
 
 
+def test_enabled_material_link_rejects_mapping_unit_not_in_erp(api):
+    module, stub = api
+    class DB:
+        @staticmethod
+        def exists(doctype, name):
+            return (doctype, name) in {("Item", "E-Lit-MT-150"), ("UOM", "Nos")}
+        @staticmethod
+        def get_value(doctype, name, field):
+            assert (doctype, name, field) == ("Item", "E-Lit-MT-150", "stock_uom")
+            return "Nos"
+    stub.db = DB()
+    row = {"enabled": True, "item_code": "E-Lit-MT-150", "source_uom": "Nos", "target_uom": "Bogus UOM"}
+    with pytest.raises(ValueError, match="does not exist in ERP"):
+        module._linked_masters({"projects": [], "material_upl_links": [row]})
+    row["target_uom"] = "Nos"
+    module._linked_masters({"projects": [], "material_upl_links": [row]})
+
+
 def test_operations_roles_and_new_matrices_are_narrow():
     for slug in ("sig_excel_setup", "sig_excel_setup_revision"):
         value = json.loads((ROOT / f"sig_operations/doctype/{slug}/{slug}.json").read_text())
