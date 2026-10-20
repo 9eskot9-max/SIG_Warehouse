@@ -106,7 +106,7 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
         const scoped = (state.data.kpi_cycles || []).filter((cycle) =>
             (!state.family || cycle.family === state.family) && (!state.project || cycle.project_id === state.project));
         const completed = scoped.filter((cycle) => cycle.completion_in_period);
-        const durations = completed.map((cycle) => Number(cycle.elapsed_days)).filter(Number.isFinite);
+        const durations = completed.map((cycle) => cycle.elapsed_days).filter((value) => value !== null && value !== undefined && value !== '').map(Number).filter(Number.isFinite);
         const average = durations.length ? `${(durations.reduce((sum, value) => sum + value, 0) / durations.length).toFixed(1)} d` : '—';
         const start = state.data.period_start;
         const end = state.data.period_end;
@@ -149,7 +149,7 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
         const stages = stageDefs.map(([stage, caption, tone]) => {
             const count = scoped.filter((cycle) => cycle.stage === stage).length;
             const movements = kpiCycles.flatMap((cycle) => (cycle.stage_exits_in_period || []).filter((item) => item.stage === stage));
-            const durations = movements.map((item) => Number(item.days)).filter(Number.isFinite);
+            const durations = movements.map((item) => item.days).filter((value) => value !== null && value !== undefined && value !== '').map(Number).filter(Number.isFinite);
             const average = durations.length ? `${(durations.reduce((sum, value) => sum + value, 0) / durations.length).toFixed(1)} d` : '—';
             return `<button type="button" data-stage="${esc(stage)}" data-tone="${tone}" class="${state.stage === stage ? 'active' : ''}"><strong>${count}</strong><span>${esc(stage)}</span><small>${esc(caption)}</small><div class="sig-cycles-stage-kpis"><small><span>${__('Completed /{0}d', [state.periodDays])}</span><b title="${esc(__('Stage movement count from accepted evidence.'))}">${movements.length}</b></small><small><span>${__('Average stage')}</span><b title="n=${durations.length}; ${__('reconstructed from recorded evidence')}">${esc(average)}</b></small></div></button>`;
         }).join('');
