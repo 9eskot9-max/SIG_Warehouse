@@ -422,7 +422,11 @@ def test_pc_je_permission_patch_updates_only_clearance_row_and_is_repeatable(mon
     writes, clears = [], []
 
     fake = app[1]
-    fake.get_all = lambda *args, **kwargs: rows
+    def get_permissions(*args, **kwargs):
+        assert kwargs["filters"] == {"parent": "Journal Entry"}
+        assert "parenttype" not in kwargs["filters"]
+        return rows
+    fake.get_all = get_permissions
     fake.get_doc = lambda doctype, name: by_name[name]
     fake.clear_cache = lambda **kwargs: clears.append(kwargs)
     for row in rows:
