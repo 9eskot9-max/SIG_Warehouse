@@ -12,13 +12,39 @@ The `pc-transaction-status` Desk Page is a read-only report for petty-cash trans
 - The transaction's `closure_status` remains the review status. The linked JE's current `docstatus` is the accounting status: Draft (pending Finance), Submitted (posted), or Cancelled. This avoids relying on the stale stored `journal_status` field.
 - `reviewed_by` is displayed as the approving user's full name. Employee scope, User Permissions and Role Profiles are unchanged. One existing Custom DocPerm row is narrowed as described above; the other JE role rows remain unchanged.
 
-## Report behavior
+## Local layout revision — 2026-10-20, not deployed
 
-- All transactions and date-range filters are supported.
-- The status page links back to the PC Review workbench; PC Review retains its direct link to the status page. The overview table has an in-report receipt link for each transaction.
-- Below the overview, each transaction appears in table order with its original receipt image (or PDF viewer), date, employee, category, amount, review status, approver, delegation and Journal Entry status. Print prepares the source media before opening the browser print dialog, so the receipt pages follow the table order.
-- Cycle selection remains disabled until ERP has an authoritative Employee advance/payment source. A receipt or expense JE is not evidence of when cash was funded, so using those records as cycle boundaries would be misleading. When the funding source is integrated, each payment/advance to the employee can start a cycle as previously agreed.
-- The page's Print Report action prints the overview table followed by one receipt and transaction detail card per row, on A4 landscape pages.
+The production Status page was observed alongside PC Review under an authenticated
+Administrator session. Status opens a long table before its receipt sections; View
+scrolls to a report card. PC Review instead opens an employee selector, date-grouped
+receipt queue, one image viewer and transaction details with Previous/Next. The
+local revision adopts that workbench structure.
+
+- The interactive screen displays one employee at a time, chosen from the caller's
+  existing permitted transaction roster. Employee options remain available after
+  changing a period. The initial roster comes from the existing scoped endpoint.
+- A date-grouped queue, receipt search and individual status filter synchronize
+  the current transaction, its image, approver and register. Pending Review is
+  labelled Pending Manager on this page; stored statuses are unchanged.
+- The original image opens fitted to the page with PC Review's zoom, fit width,
+  actual size, rotate and drag behavior. PDF receipts use the browser PDF viewer.
+- The range selector and transaction table sit below the workbench. View or a row
+  selection brings that transaction into the viewer above. Previous/Next changes
+  selection only.
+- The register and print include category, amount including VAT, individual
+  status, recorded approver and current linked Journal Entry status.
+- Print report creates a document containing the filtered register followed by
+  every included receipt in the same order, with transaction details on each
+  receipt page. Off-screen print media is created on demand and removed after
+  printing. Browsing no longer creates all receipt image/PDF frames.
+- Cycle selection remains unavailable until the authoritative employee payment/
+  advance source is connected. Every payment to the employee will start a cycle;
+  receipt dates and expense journals cannot establish those funding boundaries.
+- The existing two-way PC Review / Status navigation remains in place.
+
+Local interface preview: docs/pc_status_review_layout_preview.html.
+Standalone print document sample: docs/pc_status_print_document_preview.html.
+Both use explicitly simulated transactions and receipt media.
 
 ## Release acceptance record
 
