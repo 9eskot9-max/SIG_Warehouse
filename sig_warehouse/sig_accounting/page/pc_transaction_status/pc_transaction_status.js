@@ -91,7 +91,7 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
             <td>${esc(row.transaction_category || '—')}</td>
             <td class="sig-pc-status-money">${esc(money(row.amount))}</td><td>${badge(row.finance_status)}</td>
             <td>${esc(row.reviewed_by || '—')}</td><td>${esc(row.journal_status || '—')}</td>
-            <td><a href="#pc-status-receipt-${index + 1}">${__('View')}</a></td>
+            <td><button type="button" class="sig-pc-status-view-receipt" data-receipt-target="pc-status-receipt-${index + 1}">${__('View')}</button></td>
         </tr>`).join('') : `<tr><td colspan="10" class="sig-pc-status-empty">${__('No transactions match this selection.')}</td></tr>`;
         const receipts = rows.map((row, index) => {
             const file = String(row.source_media_url || '');
@@ -135,6 +135,12 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
     q('[data-scope]').addEventListener('change', updateScopeControls);
     q('[data-apply]').addEventListener('click', load);
     q('[data-refresh]').addEventListener('click', load);
+    q('.sig-pc-status-table').addEventListener('click', (event) => {
+        const button = event.target.closest('[data-receipt-target]');
+        if (!button) return;
+        const receipt = document.getElementById(button.dataset.receiptTarget);
+        if (receipt) receipt.scrollIntoView({behavior: 'smooth', block: 'start'});
+    });
     q('[data-print]').addEventListener('click', async () => {
         const button = q('[data-print]');
         button.disabled = true;
