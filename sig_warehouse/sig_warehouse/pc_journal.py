@@ -15,6 +15,7 @@ from .pc_review_routing import load_matrix, phone_index, phone_key
 
 
 TRANSACTION = "SIG PC Transaction"
+PAGE_DISPLAY_CUTOFF = "2026-10-01"
 FINANCE = {"System Manager", "Accounts User", "Accounts Manager"}
 REVIEWERS = FINANCE | {"Operations User", "Operations Manager", "SIG PC Clearance"}
 EDIT_FIELDS = ("amount", "has_vat", "merchant", "supplier_vat_number", "invoice_number", "details")
@@ -164,7 +165,8 @@ def pending_receipts():
     if not context["roles"].intersection(REVIEWERS):
         _deny("You need an authorised petty-cash reviewer role.")
     return frappe.get_list(TRANSACTION, fields=FIELDS,
-                           filters={"closure_status": ["in", ["Draft", "Needs Review"]]},
+                           filters={"closure_status": ["in", ["Draft", "Needs Review"]],
+                                    "transaction_date": [">=", PAGE_DISPLAY_CUTOFF]},
                            order_by="employee_name asc, transaction_date asc", limit_page_length=0)
 
 
@@ -184,14 +186,14 @@ def transaction_status_report(employee=None, from_date=None, to_date=None):
     if from_date and to_date and str(from_date) > str(to_date):
         frappe.throw("The report start date must be before its end date.")
 
+    effective_from = max(str(from_date)[:10], PAGE_DISPLAY_CUTOFF) if from_date else PAGE_DISPLAY_CUTOFF
+    if to_date and str(to_date)[:10] < PAGE_DISPLAY_CUTOFF:
+        return []
     filters = {}
-    if from_date:
-        filters["transaction_date"] = [">=", from_date]
     if to_date:
-        if "transaction_date" in filters:
-            filters["transaction_date"] = ["between", [from_date, to_date]]
-        else:
-            filters["transaction_date"] = ["<=", to_date]
+        filters["transaction_date"] = ["between", [effective_from, to_date]]
+    else:
+        filters["transaction_date"] = [">=", effective_from]
 
     rows = frappe.get_list(
         TRANSACTION,
