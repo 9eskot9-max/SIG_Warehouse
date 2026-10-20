@@ -23,6 +23,7 @@
 .sig-pc-status-table { width:100%; border-collapse:collapse; font-size:11px; }
 .sig-pc-status-table th { padding:8px 7px; border:1px solid #cfd8e3; color:#102950; background:#edf4fa; text-align:start; }
 .sig-pc-status-table td { padding:7px; border:1px solid #d9e1eb; vertical-align:middle; }
+.sig-pc-status-view-receipt { border:0; padding:0; color:#1e5ca8; background:none; font:inherit; text-decoration:underline; cursor:pointer; }
 .sig-pc-status-table tbody tr:nth-child(even) { background:#f8fafc; }
 .sig-pc-status-table tfoot th,.sig-pc-status-table tfoot td { background:#eef7fc; font-weight:700; }
 .sig-pc-status-num,.sig-pc-status-money { font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -66,6 +67,7 @@
     .sig-pc-status-receipt-image { width:auto; max-width:100%; max-height:170mm; }
     .sig-pc-status-receipt-pdf { height:170mm; }
     .sig-pc-status-open-receipt { display:none; }
+    .sig-pc-status-view-receipt { display:none; }
     .sig-pc-status-table { min-width:0; }
     @page { size:A4 landscape; margin:10mm; }
 }
