@@ -141,3 +141,13 @@ doc_events = {
         "on_update_after_submit": "sig_warehouse.sig_warehouse.rollup.on_material_request_update_after_submit",
     },
 }
+
+# Verification QR (sig_verify): register the app-owned submit hook for configured doctypes.
+from sig_warehouse.sig_verify.registry import VERIFIABLE as _SIG_VERIFIABLE  # noqa: E402
+
+for _doctype in _SIG_VERIFIABLE:
+    _events = doc_events.setdefault(_doctype, {})
+    _handlers = _events.get('on_submit', [])
+    if isinstance(_handlers, str):
+        _handlers = [_handlers]
+    _events['on_submit'] = [*_handlers, 'sig_warehouse.sig_verify.events.on_submit']

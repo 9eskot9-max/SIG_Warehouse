@@ -1,0 +1,30 @@
+{
+  "doctype": "DocType",
+  "name": "SIG Mapping Master Revision",
+  "module": "SIG Operations",
+  "custom": 0,
+  "issingle": 0,
+  "track_changes": 0,
+  "engine": "InnoDB",
+  "field_order": ["master_key", "fingerprint", "source_workbook", "source_sheet", "row_count", "site_count", "recorded_at", "recorded_by"],
+  "fields": [
+    {"fieldname": "master_key", "fieldtype": "Data", "label": "Master Key", "read_only": 1, "in_list_view": 1, "reqd": 1, "length": 140},
+    {"fieldname": "fingerprint", "fieldtype": "Data", "label": "Fingerprint", "read_only": 1, "in_list_view": 1, "reqd": 1, "length": 64},
+    {"fieldname": "source_workbook", "fieldtype": "Data", "label": "Source Workbook", "read_only": 1, "length": 140},
+    {"fieldname": "source_sheet", "fieldtype": "Data", "label": "Source Sheet", "read_only": 1, "length": 140},
+    {"fieldname": "row_count", "fieldtype": "Int", "label": "Mapping Rows", "read_only": 1, "in_list_view": 1},
+    {"fieldname": "site_count", "fieldtype": "Int", "label": "Distinct Sites", "read_only": 1, "in_list_view": 1},
+    {"fieldname": "recorded_at", "fieldtype": "Datetime", "label": "Recorded At", "read_only": 1, "in_list_view": 1},
+    {"fieldname": "recorded_by", "fieldtype": "Data", "label": "Recorded By", "read_only": 1}
+  ],
+  "permissions": [
+    {"role": "System Manager", "read": 1, "report": 1, "export": 1},
+    {"role": "Operations Manager", "read": 1, "report": 1, "export": 1},
+    {"role": "Operations User", "read": 1},
+    {"role": "Projects Manager", "read": 1, "report": 1, "export": 1},
+    {"role": "SIG Excel Setup Editor", "read": 1}
+  ],
+  "autoname": "hash",
+  "sort_field": "recorded_at",
+  "sort_order": "DESC"
+}
