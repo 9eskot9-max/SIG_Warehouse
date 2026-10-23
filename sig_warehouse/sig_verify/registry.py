@@ -17,8 +17,10 @@ VERIFIABLE = {
         "currency_field": "currency",
         "insert_after": "naming_series",
     },
-    # Later (letters, warranty): add the doctype here, e.g.
-    # "SIG Letter": {"date_field": "date", "company_field": "company"},
+    "SIG Letter": {
+        "date_field": "letter_date",
+        "company_field": "company",
+    },
 }
 
 

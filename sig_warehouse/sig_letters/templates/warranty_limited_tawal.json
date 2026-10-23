@@ -1,0 +1,121 @@
+{
+ "template_name": "Warranty - Limited (TAWAL)",
+ "letter_type": "Warranty",
+ "language": "English",
+ "default_addressee": "Telecommunication Towers Company (TAWAL)",
+ "subject": "Warranty letter - {{ product }}",
+ "greeting": "",
+ "variables": [
+  {
+   "key": "site_id",
+   "label": "Tawal Site ID"
+  },
+  {
+   "key": "project",
+   "label": "Project"
+  },
+  {
+   "key": "product",
+   "label": "Product(s)"
+  },
+  {
+   "key": "product_description",
+   "label": "Item Description"
+  },
+  {
+   "key": "warranty_years",
+   "label": "Warranty period (year)"
+  },
+  {
+   "key": "manufacturing_date",
+   "label": "Manufacturing date"
+  },
+  {
+   "key": "serial_number",
+   "label": "Serial Number"
+  }
+ ],
+ "blocks": [
+  {
+   "type": "p",
+   "text": "We, Salah Ibrahim Algain Cont. Co. (SIG), C.R. 1010354384, headquartered at Olaya Street - Building 9073 - Olaya District, Riyadh, hereinafter referred to as the Guarantor, shall guarantee material or goods. Quality and proper functioning of the purchased product and solution, if used in the manner appropriate for the purpose therefore and in accordance with the operation manual, and hence provide warranty services subject to the following conditions."
+  },
+  {
+   "type": "table",
+   "head": [
+    "Detail",
+    "Value"
+   ],
+   "rows": [
+    [
+     "Tawal Site ID",
+     "{{ site_id }}"
+    ],
+    [
+     "Project",
+     "{{ project }}"
+    ],
+    [
+     "Product(s)",
+     "{{ product }}"
+    ]
+   ]
+  },
+  {
+   "type": "h",
+   "text": "Limited Warranty conditions:"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "The warranty covers the material mentioned in the below from the date of civil PAT as per terms.",
+    "The device is considered defective if it fails to perform the functional as per technical specifications and the failure is due to internal device characteristics.",
+    "The warranty does not cover consumables or part of limited regular functionality due to their natural wear and tear.",
+    "This warranty shall not cover or be held responsible for the loss and restoration of any software or data.",
+    "This warranty shall not extend to any force majeure incident, abuse, accident or improper installation, connection, adjustment or use otherwise than the material standard instruction issued by SIG Telecom company."
+   ]
+  },
+  {
+   "type": "h",
+   "text": "The Warranty does not cover:"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Damages caused by natural disasters, inappropriate voltage, and other external factors.",
+    "The device that has been tempered with by the warranty beneficiary or any other person in the way, including reconfiguration, repair, willful constructional variations, modifications, and adjustments.",
+    "Damages due to the user’s fault or lack of knowledge.",
+    "Mechanical or electrical damage resulting from incorrect installation, configuration, usage, or other activities inconsistent with the operation manual or contradictory to technical specifications attached to the device."
+   ]
+  },
+  {
+   "type": "h",
+   "text": "Warranty Replacements"
+  },
+  {
+   "type": "p",
+   "text": "The Guarantor reserves the right to replace the defective device or its component with a free of defects equivalent thereof, provided that such equivalent ensures efficiency and functionality equal to or higher than the original device or component. The replacement of defective devices or components shall become the property of the Guarantor."
+  },
+  {
+   "type": "table",
+   "head": [
+    "Item Description",
+    "Warranty period (year)",
+    "Manufacturing date",
+    "Serial Number"
+   ],
+   "rows": [
+    [
+     "{{ product_description }}",
+     "{{ warranty_years }}",
+     "{{ manufacturing_date }}",
+     "{{ serial_number }}"
+    ]
+   ]
+  },
+  {
+   "type": "note",
+   "text": "Note: This warranty only effective with respect to finalized agreement or PO for same subject project"
+  }
+ ]
+}

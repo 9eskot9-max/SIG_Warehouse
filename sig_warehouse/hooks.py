@@ -151,3 +151,13 @@ for _doctype in _SIG_VERIFIABLE:
     if isinstance(_handlers, str):
         _handlers = [_handlers]
     _events['on_submit'] = [*_handlers, 'sig_warehouse.sig_verify.events.on_submit']
+
+# SIG Letters: helpers used by the app-owned infographic print format.
+jinja = {
+    "methods": [
+        "sig_warehouse.sig_letters.render.table_data",
+        "sig_warehouse.sig_letters.render.items_list",
+        "sig_warehouse.sig_letters.render.heading_parts",
+        "sig_warehouse.sig_letters.render.inline_html",
+    ]
+}

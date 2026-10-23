@@ -1,0 +1,25 @@
+{
+ "template_name": "Authorization - Delegate (AR)",
+ "letter_type": "Authorisation",
+ "language": "Arabic",
+ "default_addressee": "السادة / وكلاء الشحن المحترمين",
+ "subject": "تفويض باستلام أذونات التسليم واسترجاع مبالغ تأمين الحاويات",
+ "greeting": "السلام عليكم ورحمة الله وبركاته وبعد",
+ "closing": "شاكرين ومقدرين حسن تعاونكم معنا",
+ "variables": [
+  {
+   "key": "delegate",
+   "label": "Delegate company (مندوبنا)"
+  },
+  {
+   "key": "license_no",
+   "label": "Licence no."
+  }
+ ],
+ "blocks": [
+  {
+   "type": "p",
+   "text": "فوضنا نحن شركة صلاح إبراهيم القين للمقاولات مندوبنا {{ delegate }} رخصة رقم {{ license_no }} باستلام اذونات التسليم واسترجاع مبالغ تامين الحاويات ويسري هذا التفويض لمدة عام ميلادي من تاريخه"
+  }
+ ]
+}

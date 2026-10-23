@@ -1,0 +1,179 @@
+{
+ "template_name": "Technical Proposal - Power Supply Works",
+ "letter_type": "Technical Proposal",
+ "language": "English",
+ "default_addressee": "",
+ "subject": "Technical Proposal - {{ scope }}",
+ "greeting": "Dear {{ contact }},",
+ "closing": "Please contact us for any clarification.",
+ "variables": [
+  {
+   "key": "scope",
+   "label": "Scope / project"
+  },
+  {
+   "key": "contact",
+   "label": "Contact name"
+  },
+  {
+   "key": "rfq_date",
+   "label": "RFQ date"
+  },
+  {
+   "key": "quotation_no",
+   "label": "Quotation no."
+  }
+ ],
+ "blocks": [
+  {
+   "type": "note",
+   "text": "<b>Subject to site survey and specifications as per your emails.</b>"
+  },
+  {
+   "type": "p",
+   "text": "Further to your RFQ dated {{ rfq_date }}, below is our technical proposal with the product brands. Prices are in quotation {{ quotation_no }}."
+  },
+  {
+   "type": "h",
+   "text": "1. Design basis"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Load per screen: <b>16.24 kW</b> max (approx. <b>26 A</b>), <b>4.87 kW</b> average",
+    "Supply: <b>400 V</b>, 3-phase, TN-S, one dedicated feeder per screen"
+   ]
+  },
+  {
+   "type": "table",
+   "head": [
+    "Screen",
+    "Location",
+    "Source",
+    "Route",
+    "Feeder cable"
+   ],
+   "rows": [
+    [
+     "Screen-1",
+     "Near Crown Plaza",
+     "SS-2",
+     "~350 m (~100 m outdoor)",
+     "<b>4C × 25 mm²</b>"
+    ],
+    [
+     "Screen-2",
+     "Near RD-03",
+     "RD-03, B1 MDB Room",
+     "~100 m",
+     "<b>4C × 16 mm²</b>"
+    ],
+    [
+     "Screen-3",
+     "Near TE-01",
+     "SS-1",
+     "~150 m",
+     "<b>4C × 16 mm²</b>"
+    ],
+    [
+     "Screen-4",
+     "Near STC (DC-2)",
+     "WH-14, B1 MDB Room",
+     "~150 m",
+     "<b>4C × 16 mm²</b>"
+    ]
+   ]
+  },
+  {
+   "type": "h",
+   "text": "2. Source end"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "<b>ABB Tmax XT MCCB</b>, lugs and connection at each source board, sized to the feeder",
+    "Earth-fault protection on the Screen-1 feeder",
+    "Labelling and termination at each source board"
+   ]
+  },
+  {
+   "type": "h",
+   "text": "3. Cables and routes"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "<b>Riyadh Cables</b> XLPE <b>0.6/1 kV</b>, IEC 60502-1: <b>4C × 25 mm²</b> (Screen-1), <b>4C × 16 mm²</b> (Screens 2–4) [1]",
+    "Separate <b>1C × 16 mm²</b> earth conductor with each feeder",
+    "Outdoor: <b>110 mm</b> uPVC duct at <b>0.8 m</b> depth on sand bed, warning tape, pull pits at bends",
+    "Screen-1: ~100 m outdoor trench, balance (~250 m) in the in-building raceway",
+    "Risers: rigid <b>GI</b> conduit where cables leave the ground at source and screen ends",
+    "Indoor: galvanised cable tray or rigid steel conduit in B1 MDB rooms",
+    "Excavation, backfill, asphalt and tile reinstatement"
+   ]
+  },
+  {
+   "type": "h",
+   "text": "4. Screen panel (typical, ×4)"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "<b>IP65</b> lockable outdoor enclosure on plinth",
+    "<b>ABB 200 A 3P MCCB</b> incomer",
+    "<b>ABB Type 2</b> surge arrester [3][4]",
+    "<b>ABB MCB</b> (screen circuit) and <b>ABB 30 mA RCBO</b> (sockets) [2]",
+    "Copper earth busbar bonded to earth conductor, enclosure, screen structure and earth rod"
+   ]
+  },
+  {
+   "type": "h",
+   "text": "5. Brands"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Power cables: <b>Riyadh Cables</b>",
+    "MCCB, MCB, RCBO, surge protection: <b>ABB</b>",
+    "Others: Generic"
+   ]
+  },
+  {
+   "type": "h",
+   "text": "6. Testing and handover"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Insulation resistance, continuity, polarity and phase checks",
+    "Earth resistance at each rod: <b>5 Ohm</b> or less",
+    "RCD trip test, energisation with Digital City",
+    "As-built drawings and completion report"
+   ]
+  },
+  {
+   "type": "h",
+   "text": "7. Notes"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Spare outgoing way at each source board; otherwise sub-board quoted separately",
+    "Work permits and Digital City coordination included"
+   ]
+  },
+  {
+   "type": "h",
+   "text": "8. References (attached)"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "[1] Riyadh Cables – LV Power Cables catalogue",
+    "[2] ABB – RCBO DS201 data sheet",
+    "[3] ABB – Electrical installation solutions for buildings, Protection and safety (B05)",
+    "[4] ABB – Surge protective devices (SPDs) catalogue"
+   ]
+  }
+ ]
+}

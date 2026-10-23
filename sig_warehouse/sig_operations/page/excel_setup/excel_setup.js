@@ -1,6 +1,7 @@
 frappe.pages['excel-setup'].on_page_load = function (wrapper) {
     const page = frappe.ui.make_app_page({parent: wrapper, title: __('Excel Setup'), single_column: true});
     const method = 'sig_warehouse.sig_operations.excel_setup.';
+    const poSetupMethod = 'sig_warehouse.sig_operations.excel_setup_v3.';
     const root = $('<div class="sig-excel-setup"></div>').appendTo(page.main);
     let state, selected = 'projects', dirty = false;
     const labels = {projects: __('ERP Projects'), builder_profiles: __('Builder profiles'),
@@ -91,6 +92,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
     };
     const esc = v => frappe.utils.escape_html(String(v == null ? '' : v)).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     const call = async (name, args={}) => (await frappe.call({method: method + name, args, freeze: true})).message;
+    const callPoSetup = async (name, args={}) => (await frappe.call({method: poSetupMethod + name, args, freeze: true})).message;
     const render = () => {
         root.attr('dir', frappe.boot.lang === 'ar' ? 'rtl' : 'ltr');
         const rows = state.datasets[selected];
@@ -103,7 +105,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         };
         const note = notes[selected] || __('Blank PO and UPL revision mean a shared rule. Disable obsolete rows; keep their IDs.');
         root.html('<div class="es-summary"><b>' + __('Published revision') + ': ' + esc(state.revision) + '</b><span>' +
-            esc(state.published_at || __('Not published')) + '</span><span>' + __('Excel import status unknown') + '</span></div>' +
+            esc(state.published_at || __('Not published')) + '</span><span>' + __('Excel workbooks refresh from this ERP setup') + '</span></div>' +
             '<div class="es-tools"><label>' + __('Setup list') + ' <select class="form-control es-dataset">' +
             Object.keys(labels).map(k => '<option value="' + k + '" ' + (k === selected ? 'selected' : '') + '>' + esc(labels[k]) +
                 ' (' + state.datasets[k].length + ')</option>').join('') + '</select></label>' +
@@ -181,5 +183,49 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         frappe.show_alert({message: __('Excel setup published'), indicator: 'green'});
     });
     page.add_inner_button(__('Reload'), () => { if (dirty) frappe.confirm(__('Discard unsaved edits?'), load); else load(); });
+    page.add_inner_button(__('PO defaults and CSV labels'), async () => {
+        if (dirty) { frappe.msgprint(__('Publish or reload your setup edits before changing PO defaults.')); return; }
+        try {
+            const poState = await callPoSetup('get_po_setup_state');
+            const contacts = poState.contacts || [];
+            const rowsHtml = (poState.projects || []).map((row, index) => '<tr data-index="' + index + '">' +
+                '<td>' + esc(row.po) + '</td><td>' + esc(row.project_name || row.project) +
+                '<div class="text-muted">' + esc(row.family) + '</div></td>' +
+                '<td><input class="form-control" data-field="csv_alias" maxlength="140" value="' + esc(row.csv_alias) + '"></td>' +
+                '<td><select class="form-control" data-field="default_contact"><option value="">' + esc(__('No default')) + '</option>' +
+                (row.default_contact && !contacts.some(contact => contact.id === row.default_contact) ?
+                    '<option value="' + esc(row.default_contact) + '" selected>' + esc(__('Inactive or unavailable default')) + ' · ' + esc(row.default_contact) + '</option>' : '') +
+                contacts.map(contact => '<option value="' + esc(contact.id) + '" ' +
+                    (contact.id === row.default_contact ? 'selected' : '') + '>' +
+                    esc([contact.serial, contact.full_name].filter(Boolean).join(' · ')) + '</option>').join('') +
+                '</select></td></tr>').join('');
+            const dialog = new frappe.ui.Dialog({title: __('PO defaults and CSV labels'), fields: [{fieldname: 'settings', fieldtype: 'HTML'}]});
+            dialog.fields_dict.settings.$wrapper.html('<div class="es-scroll"><table class="table table-bordered"><thead><tr>' +
+                '<th>' + esc(__('PO / Agreement')) + '</th><th>' + esc(__('ERP Project / Family')) + '</th>' +
+                '<th>' + esc(__('Optional Excel CSV label')) + '</th><th>' + esc(__('Default TAWAL PM')) +
+                '</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>' +
+                '<button type="button" class="btn btn-default btn-sm es-manage-contacts">' +
+                esc(__('Manage TAWAL contact directory')) + '</button>' +
+                '<p class="text-muted small" style="margin-top:8px">' +
+                esc(__('The ERP contact serial is the stable choice key. Contacts can be reused on any PO; this selection only sets a PO default.')) + '</p>');
+            dialog.fields_dict.settings.$wrapper.find('.es-manage-contacts').on('click', () => {
+                dialog.hide();
+                frappe.set_route('List', 'SIG TAWAL Contact');
+            });
+            dialog.set_primary_action(__('Save PO settings'), async () => {
+                try {
+                    const rows = Array.from(dialog.fields_dict.settings.$wrapper[0].querySelectorAll('tbody tr')).map(tr => ({
+                        project: poState.projects[Number(tr.dataset.index)].project,
+                        csv_alias: tr.querySelector('[data-field="csv_alias"]').value,
+                        default_contact: tr.querySelector('[data-field="default_contact"]').value
+                    }));
+                    await callPoSetup('save_po_setup', {rows: JSON.stringify(rows), base_revision: poState.revision, base_hash: poState.hash});
+                    dialog.hide(); await load();
+                    frappe.show_alert({message: __('PO settings saved. Excel workbooks will receive them on Sync From ERP.'), indicator: 'green'});
+                } catch (error) { frappe.msgprint(esc(error.message)); }
+            });
+            dialog.show();
+        } catch (error) { frappe.msgprint(esc(error.message)); }
+    });
     load();
 };

@@ -1,0 +1,120 @@
+{#- SIG Letter (Infographic) - one print format for every SIG letter. Staged locally, not deployed.
+    Built for ERP's wkhtmltopdf: tables for layout (no flex/grid/CSS variables), absolute font URLs, page numbers
+    only inside #footer-html. Palette = SIG_Company_Profile_Handover design system (design/tokens.json).
+    Jinja methods used (hooks.py -> jinja.methods): table_data, items_list, heading_parts, inline_html. -#}
+{%- set _c = {"navy": "#081C44", "blue": "#1E7FFC", "cyan": "#22C7EE", "slate": "#53657D", "pale": "#EEF7FC", "border": "#D5E3F0", "muted": "#6B7F92"} -%}
+{%- set _d = frappe.get_doc(doc.doctype, doc.name) -%}
+{%- set _company = frappe.db.get_value("Company", _d.company, ["tax_id"], as_dict=True) or {} -%}
+{%- set _rtl = (_d.language == "Arabic") -%}
+{%- set _date = frappe.utils.formatdate(_d.letter_date, "dd MMM yyyy") if _d.letter_date else "" -%}
+{%- set _sub = frappe.get_all("Version", filters={"ref_doctype": "SIG Letter", "docname": _d.name, "data": ["like", '%["docstatus",0,1]%']}, fields=["owner"], order_by="creation desc", limit=1) -%}
+{%- set _submitter = frappe.db.get_value("User", _sub[0].owner, "full_name") if _sub else (frappe.db.get_value("User", _d.modified_by, "full_name") if _d.docstatus == 1 else "") -%}
+{%- set _signer = (frappe.db.get_value("User", _d.signer, "full_name") if _d.signer else "") or _submitter or "" -%}
+{%- set _vqr = frappe.get_all("File", filters={"attached_to_doctype": _d.doctype, "attached_to_name": _d.name, "file_name": ["like", "verify_qr_%"]}, fields=["file_url"], order_by="creation desc", limit_page_length=1) -%}
+
+<style>
+@font-face { font-family:SIGLatin; src:url('{{ frappe.utils.get_url() }}/assets/zatca_integration/fonts/Helvetica.ttf') format('truetype'); font-weight:400; }
+@font-face { font-family:SIGLatin; src:url('{{ frappe.utils.get_url() }}/assets/zatca_integration/fonts/Helvetica-Bold.ttf') format('truetype'); font-weight:700; }
+@font-face { font-family:SIGBoutros; src:url('{{ frappe.utils.get_url() }}/files/BoutrosMBCDinkum-Medium.ttf') format('truetype'); }
+.sigl { color:{{ _c.navy }}; font-family:SIGLatin,Arial,Helvetica,sans-serif; font-size:9.5pt; line-height:1.5; width:100%; }
+.sigl table { width:100%; border-collapse:collapse; }
+.sigl td, .sigl th { padding:0; vertical-align:top; }
+.sigl .ar { font-family:SIGBoutros,Tahoma,Arial,sans-serif; direction:rtl; unicode-bidi:embed; color:{{ _c.slate }}; }
+.sigl .top td { vertical-align:middle; }
+.sigl img.logo { width:51mm; display:block; }
+.sigl .title { text-align:right; color:{{ _c.navy }}; font-size:17pt; line-height:1.4; white-space:nowrap; }
+.sigl .title .ar { font-size:12pt; margin-left:2mm; }
+.sigl .ids { text-align:right; color:{{ _c.slate }}; font-size:8pt; margin-top:1.5mm; }
+.sigl .dateline { text-align:right; color:{{ _c.slate }}; font-size:8pt; margin-top:1mm; }
+.sigl .sea { height:.8mm; background:{{ _c.blue }}; background:-webkit-linear-gradient(left,#167CF4,#1DACEB 52%,#22C7EE); background:linear-gradient(90deg,#167CF4,#1DACEB 52%,#22C7EE); margin:3mm 0; }
+.sigl .tocard { margin-top:3mm; padding:2.6mm 4mm 2.8mm; background:{{ _c.pale }}; border-top:.6mm solid {{ _c.navy }}; }
+.sigl .lbl { color:{{ _c.muted }}; font-size:7pt; letter-spacing:.055em; text-transform:uppercase; }
+.sigl .lbl .ar { float:right; font-size:7.5pt; letter-spacing:0; text-transform:none; }
+.sigl .tocard .name { font-size:11.5pt; margin-top:1.2mm; }
+.sigl .tocard .att { color:{{ _c.slate }}; font-size:8.5pt; margin-top:.8mm; }
+.sigl .subbar { margin-top:3.4mm; padding:2.6mm 4mm; background:{{ _c.pale }}; border-left:.9mm solid {{ _c.blue }}; font-size:10.5pt; }
+.sigl .subbar .ar { float:right; font-size:8pt; margin-left:4mm; white-space:nowrap; }
+.sigl .body { margin-top:4mm; text-align:{{ 'right' if _rtl else 'justify' }}; }
+.sigl .body p { margin:0 0 2.4mm; }
+.sigl .callout { margin:2mm 0 3mm; padding:2mm 3.5mm; background:{{ _c.pale }}; border-left:.9mm solid {{ _c.cyan }}; }
+.sigl .h { margin:4mm 0 1.4mm; color:{{ _c.navy }}; border-bottom:1px solid {{ _c.border }}; padding-bottom:.8mm; }
+.sigl .num { display:inline-block; width:5.2mm; height:5.2mm; border-radius:50%; background:{{ _c.navy }}; color:#fff; text-align:center; line-height:5.2mm; font-size:7.5pt; margin:0 2.2mm; }
+.sigl ul { margin:.6mm 0 2mm {{ '0' if _rtl else '5mm' }}; padding:0 {{ '5mm' if _rtl else '0' }} 0 0; page-break-inside:avoid; }
+.sigl li { margin:.6mm 0; }
+.sigl .ctl { border:1px solid {{ _c.border }}; border-radius:3mm; overflow:hidden; margin:1.5mm 0 2.5mm; page-break-inside:avoid; }
+.sigl .ctl table { font-size:8.8pt; }
+.sigl .ctl th { background:{{ _c.pale }}; color:{{ _c.navy }}; text-align:{{ 'right' if _rtl else 'left' }}; padding:1.8mm 2.4mm; font-size:7.8pt; font-weight:700; border-bottom:1px solid {{ _c.border }}; }
+.sigl .ctl td { padding:1.7mm 2.4mm; border-bottom:1px solid #EAF1F8; }
+.sigl .ctl tr:last-child td { border-bottom:0; }
+.sigl .sigs { margin-top:6mm; page-break-inside:avoid; }
+.sigl .sigs > tbody > tr > td { vertical-align:top; }
+.sigl .card { border:1px solid {{ _c.border }}; border-top:.6mm solid {{ _c.navy }}; background:#F7FAFD; padding:2.5mm 3mm 2mm; min-height:32mm; }
+.sigl .card.stamp { border-top-color:{{ _c.cyan }}; }
+.sigl .ctitle { color:{{ _c.navy }}; font-size:8pt; letter-spacing:.03em; text-transform:uppercase; }
+.sigl .ctitle .ar { float:right; font-size:7.7pt; letter-spacing:0; text-transform:none; }
+.sigl .cname { font-size:9pt; margin-top:1.5mm; min-height:5mm; }
+.sigl .cline { border-bottom:1px solid #7E93A8; height:12mm; }
+.sigl .ccap { color:{{ _c.slate }}; font-size:6.8pt; margin-top:1mm; }
+.sigl .ccap .ar { float:right; font-size:7pt; }
+.sigl .vqr td { vertical-align:middle; }
+.sigl .vqr img { width:25mm; display:block; }
+.sigl .vqr .k { color:{{ _c.slate }}; font-size:7pt; }
+.sigl .vqr .s { font-size:8pt; margin-top:.8mm; }
+.sig-pdffoot { color:{{ _c.slate }}; font-family:SIGLatin,Arial,sans-serif; font-size:7pt; border-top:1px solid {{ _c.border }}; padding-top:1.8mm; }
+.sig-pdffoot .ar { font-family:SIGBoutros,Tahoma,Arial,sans-serif; direction:rtl; }
+.sig-pdffoot table { width:100%; border-collapse:collapse; }
+.sig-pdffoot td { padding:0; font-size:7pt; vertical-align:middle; }
+.sig-pageno { text-align:center; margin-bottom:1.2mm; }
+#footer-html { display:none; }
+@media screen { .sigl #footer-html { display:block; margin-top:8mm; } }
+</style>
+
+<div class="sigl">
+  <table class="top" role="presentation"><tr>
+    <td><img class="logo" src="{{ frappe.utils.get_url() }}/files/sig_invoice_logo_cropped.png" alt="SIG"></td>
+    <td>
+      <div class="title">Letter <span class="ar">خطاب</span></div>
+      <div class="ids">CR # 7002814189 &nbsp;|&nbsp; VAT # {{ _company.tax_id or "—" }}</div>
+      <div class="dateline">Date · <span class="ar">التاريخ</span> &nbsp; <span dir="ltr" style="unicode-bidi:embed">{{ _date }}</span></div>
+    </td>
+  </tr></table>
+  <div class="sea"></div>
+
+  <div class="tocard">
+    <div class="lbl">To <span class="ar">إلى</span></div>
+    <div class="name" dir="auto">{{ _d.addressee }}</div>
+    {% if _d.attn %}<div class="att">Attn: {{ _d.attn }}</div>{% endif %}
+  </div>
+  {%- if _rtl %}<div class="subbar" dir="rtl"><span style="color:{{ _c.navy }}">الموضوع:</span> {{ _d.subject }}</div>
+  {%- else %}<div class="subbar"><span class="ar">الموضوع</span><span style="color:{{ _c.navy }}">Subject:</span> <span dir="auto">{{ _d.subject }}</span></div>{%- endif %}
+
+  <div class="body" {% if _rtl %}dir="rtl"{% endif %}>
+    {% if _d.greeting %}<p>{{ _d.greeting }}</p>{% endif %}
+    {%- for row in _d.blocks %}
+      {%- if row.block_type == "Paragraph" %}<p>{{ inline_html(row.content) | safe }}</p>
+      {%- elif row.block_type == "Note" %}<div class="callout">{{ inline_html(row.content) | safe }}</div>
+      {%- elif row.block_type == "Heading" %}{% set hp = heading_parts(row.content) %}<div class="h">{% if hp[0] %}<span class="num">{{ hp[0] }}</span>{{ hp[1] }}{% else %}{{ row.content }}{% endif %}</div>
+      {%- elif row.block_type == "Bullets" %}<ul>{% for item in items_list(row.bullets) %}<li>{{ inline_html(item) | safe }}</li>{% endfor %}</ul>
+      {%- elif row.block_type == "Table" %}{% set tb = table_data(row.table_json) %}<div class="ctl"><table><thead><tr>{% for cell in tb.head %}<th>{{ inline_html(cell) | safe }}</th>{% endfor %}</tr></thead><tbody>{% for r in tb.rows %}<tr>{% for cell in r %}<td>{{ inline_html(cell | string) | safe }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div>
+      {%- endif %}
+    {%- endfor %}
+    {% if _d.closing %}<p style="margin-top:3mm">{{ inline_html(_d.closing) | safe }}</p>{% endif %}
+    <p>{{ "وتفضلوا بقبول فائق الاحترام والتقدير،" if _rtl else "Yours sincerely," }}</p>
+  </div>
+
+  <table class="sigs" role="presentation"><tr>
+    <td style="width:30%; padding-right:3mm">{% if _vqr %}<table class="vqr" role="presentation"><tr><td style="width:27mm"><img src="{{ frappe.utils.get_url() }}{{ _vqr[0].file_url }}" alt="QR"></td><td><div class="k">Scan to verify <span class="ar">امسح للتحقق</span></div><div class="s">{{ _d.name }}</div></td></tr></table>{% endif %}</td>
+    <td style="width:37%; padding:0 3mm"><div class="card">
+      <div class="ctitle">For Salah Ibrahim Algain Cont. Co. <span class="ar">عن الشركة</span></div>
+      <div class="cname">{{ _signer }}{% if _d.signer_title %}<br><span style="color:{{ _c.slate }};font-size:8pt">{{ _d.signer_title }}</span>{% endif %}</div>
+      <div class="cline"></div>
+      <div class="ccap">Signature &amp; date &mdash; {{ _date }} <span class="ar">التوقيع والتاريخ</span></div>
+    </div></td>
+    <td style="width:33%; padding-left:3mm"><div class="card stamp"><div class="ctitle">Official stamp <span class="ar">الختم الرسمي</span></div></div></td>
+  </tr></table>
+
+  <div id="footer-html"><div class="sig-pdffoot">
+    <div class="sig-pageno">Ref {{ _d.name }} &nbsp;·&nbsp; Page <span class="page"></span> of <span class="topage"></span> &nbsp;·&nbsp; <span class="ar">صفحة <span class="page"></span> من <span class="topage"></span></span></div>
+    <table role="presentation"><tr><td>9073 Olaya St., Olaya Dist., Riyadh</td><td style="text-align:center">info@sigtele.com</td><td class="ar" style="text-align:right">9073، شارع العليا، حي العليا، الرياض</td></tr></table>
+  </div></div>
+</div>

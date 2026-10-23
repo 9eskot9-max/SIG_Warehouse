@@ -1,0 +1,139 @@
+{
+ "creation": "2026-10-23 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "modified": "2026-10-23 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "SIG Letters",
+ "name": "SIG Letter Template",
+ "owner": "Administrator",
+ "autoname": "field:template_name",
+ "naming_rule": "By fieldname",
+ "allow_rename": 1,
+ "field_order": [
+  "template_name",
+  "letter_type",
+  "language",
+  "disabled",
+  "print_format",
+  "default_addressee",
+  "default_attn",
+  "section_content",
+  "subject",
+  "greeting",
+  "blocks",
+  "closing",
+  "section_vars",
+  "variables"
+ ],
+ "fields": [
+  {
+   "fieldname": "template_name",
+   "fieldtype": "Data",
+   "label": "Template Name",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "letter_type",
+   "fieldtype": "Select",
+   "label": "Letter Type",
+   "options": "Technical Proposal\nWarranty\nAuthorisation\nPrice Clarification\nGeneral",
+   "default": "General",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "language",
+   "fieldtype": "Select",
+   "label": "Language",
+   "options": "English\nArabic\nBilingual",
+   "default": "English",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "disabled",
+   "fieldtype": "Check",
+   "label": "Disabled"
+  },
+  {
+   "fieldname": "print_format",
+   "fieldtype": "Link",
+   "label": "Print Format",
+   "options": "Print Format",
+   "default": "SIG Letter (Infographic)"
+  },
+  {
+   "fieldname": "default_addressee",
+   "fieldtype": "Data",
+   "label": "Default Addressee"
+  },
+  {
+   "fieldname": "default_attn",
+   "fieldtype": "Data",
+   "label": "Default Attn"
+  },
+  {
+   "fieldname": "section_content",
+   "fieldtype": "Section Break",
+   "label": "Content"
+  },
+  {
+   "fieldname": "subject",
+   "fieldtype": "Data",
+   "label": "Subject",
+   "description": "Jinja allowed, e.g. Warranty - {{ product }}"
+  },
+  {
+   "fieldname": "greeting",
+   "fieldtype": "Data",
+   "label": "Greeting"
+  },
+  {
+   "fieldname": "blocks",
+   "fieldtype": "Table",
+   "label": "Blocks",
+   "options": "SIG Letter Block"
+  },
+  {
+   "fieldname": "closing",
+   "fieldtype": "Small Text",
+   "label": "Closing"
+  },
+  {
+   "fieldname": "section_vars",
+   "fieldtype": "Section Break",
+   "label": "Variables",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "variables",
+   "fieldtype": "Code",
+   "label": "Variables (JSON)",
+   "options": "JSON",
+   "description": "[{\"key\": \"site_id\", \"label\": \"Site ID\", \"default\": \"\"}] - values the template's {{ jinja }} placeholders expect."
+  }
+ ],
+ "links": [],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "print": 1,
+   "email": 1,
+   "export": 1,
+   "report": 1,
+   "share": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "template_name",
+ "track_changes": 1,
+ "index_web_pages_for_search": 1
+}

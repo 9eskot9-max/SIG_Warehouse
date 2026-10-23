@@ -1,7 +1,7 @@
 # No schema patches required for the initial (Stage 1 hooks-only) release.
 
 [pre_model_sync]
-# No pre-model-sync patches are required yet.
+sig_warehouse.sig_warehouse.patches.v1_0.add_sig_letters_module
 
 [post_model_sync]
 sig_warehouse.sig_warehouse.patches.v1_0.add_sig_accounting_module_and_reclassify_page
@@ -26,3 +26,6 @@ sig_warehouse.sig_warehouse.patches.v1_0.add_excel_setup
 sig_warehouse.sig_warehouse.patches.v1_0.split_excel_setup_structure
 sig_warehouse.sig_warehouse.patches.v1_0.add_verify_token_fields
 sig_warehouse.sig_warehouse.patches.v1_0.repoint_verify_page_to_app_method
+sig_warehouse.sig_warehouse.patches.v1_0.add_excel_csv_alias
+sig_warehouse.sig_warehouse.patches.v1_0.align_site_po_wo_evidence
+sig_warehouse.sig_warehouse.patches.v1_0.install_sig_letters

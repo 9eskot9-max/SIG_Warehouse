@@ -1,0 +1,59 @@
+{
+ "creation": "2026-10-23 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "modified": "2026-10-23 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "SIG Letters",
+ "name": "SIG Letter Block",
+ "owner": "Administrator",
+ "istable": 1,
+ "editable_grid": 1,
+ "field_order": [
+  "block_type",
+  "content",
+  "bullets",
+  "table_json"
+ ],
+ "fields": [
+  {
+   "fieldname": "block_type",
+   "fieldtype": "Select",
+   "label": "Block",
+   "options": "Paragraph\nHeading\nBullets\nTable\nNote",
+   "default": "Paragraph",
+   "in_list_view": 1,
+   "reqd": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "content",
+   "fieldtype": "Small Text",
+   "label": "Text",
+   "in_list_view": 1,
+   "columns": 6,
+   "depends_on": "eval:[\"Paragraph\",\"Heading\",\"Note\"].includes(doc.block_type)",
+   "description": "Plain text; <b>, <i>, <u>, <br> allowed. A Heading starting with \"3. \" gets the numbered marker."
+  },
+  {
+   "fieldname": "bullets",
+   "fieldtype": "Small Text",
+   "label": "Bullets",
+   "depends_on": "eval:doc.block_type==\"Bullets\"",
+   "description": "One bullet per line."
+  },
+  {
+   "fieldname": "table_json",
+   "fieldtype": "Code",
+   "label": "Table (JSON)",
+   "options": "JSON",
+   "depends_on": "eval:doc.block_type==\"Table\"",
+   "description": "{\"head\": [\"A\", \"B\"], \"rows\": [[\"1\", \"2\"]]}"
+  }
+ ],
+ "links": [],
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

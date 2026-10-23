@@ -151,7 +151,7 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
                 <h5>${__('Notes')}</h5><div class="sig-sv-block">${commentsHtml}</div>
                 <textarea class="form-control sig-sv-note-text" rows="2" placeholder="${__('Add a note...')}"></textarea>
                 <button type="button" class="btn btn-default btn-sm sig-sv-add-note" style="margin-top:6px">${__('Add note')}</button>`);
-            renderActions(row, name);
+            renderActions(row, name, d.cycle_candidates || []);
             panel.find('.sig-sv-add-note').on('click', async () => {
                 const content = panel.find('.sig-sv-note-text').val().trim();
                 if (!content) return;
@@ -163,14 +163,38 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
 
     let lastPayload = {rows: []};
 
-    function renderActions(row, name) {
+    function renderActions(row, name, cycleCandidates) {
         const box = root.find('.sig-sv-detail .sig-sv-actions');
         if (row.posted) { box.html(`<span class="text-muted small">${__('Already posted - corrections go through an amendment on the Field Visit itself.')}</span>`); return; }
         const btn = (label, cls) => `<button type="button" class="btn btn-default btn-xs ${cls}" style="margin:2px">${label}</button>`;
         const pairBtn = row.status !== 'COMPLETED' ? btn(__('Pair a lonely End'), 'sig-sv-act-pair') : '';
-        const confirmBtn = row.is_review ? btn(__('Confirm as-is'), 'sig-sv-act-confirm') : '';
-        box.html(btn(__('Set type / scope'), 'sig-sv-act-type') + btn(__('Fix site'), 'sig-sv-act-site')
+        const attributionReview = (row.diagnostics || []).includes('CYCLE_ATTRIBUTION_EXCEPTION');
+        const confirmBtn = row.is_review && !attributionReview ? btn(__('Confirm as-is'), 'sig-sv-act-confirm') : '';
+        const cycleBtn = attributionReview && row.status === 'COMPLETED' ? btn(__('Select cycle and post'), 'sig-sv-act-cycle') : '';
+        box.html(cycleBtn + btn(__('Set type / scope'), 'sig-sv-act-type') + btn(__('Fix site'), 'sig-sv-act-site')
             + btn(__('Assign person'), 'sig-sv-act-assign') + pairBtn + confirmBtn + btn(__('Void'), 'sig-sv-act-void'));
+        if (cycleBtn) box.find('.sig-sv-act-cycle').on('click', () => {
+            if (!cycleCandidates.length) {
+                frappe.msgprint({title: __('No open cycle'), message: __('This site has no open cycle to attach the visit to.')});
+                return;
+            }
+            const opts = cycleCandidates.map((c) => ({
+                label: `${c.project || c.erp_project || __('Project unavailable')} · ${c.po || __('No PO')} · ${c.wo || __('No WO')} · ${c.stage || ''}`,
+                value: c.name,
+            }));
+            const d2 = new frappe.ui.Dialog({title: __('Select the Correct Open Cycle'), fields: [
+                {fieldtype: 'Select', fieldname: 'cycle_name', label: __('Site / PO / WO cycle'),
+                 options: opts.map((o) => o.value).join('\n'), reqd: 1}],
+                primary_action_label: __('Post to Cycle'), primary_action: async (v) => {
+                    const res = await call('post_to_cycle', {session_key: name, cycle_name: v.cycle_name}, __('Posting visit...'));
+                    if (reportResult(res, __('Visit posted to the selected cycle.'))) {
+                        d2.hide(); load(); showDetail(name);
+                    }
+                }});
+            d2.show();
+            const $sel = d2.fields_dict.cycle_name.$input;
+            opts.forEach((o, i) => $sel.find('option').eq(i).text(o.label));
+        });
         if (confirmBtn) box.find('.sig-sv-act-confirm').on('click', () => {
             frappe.prompt({fieldtype: 'Small Text', fieldname: 'note', label: __('Note (optional)')}, async (v) => {
                 const res = await call('confirm', {session_key: name, note: v.note});

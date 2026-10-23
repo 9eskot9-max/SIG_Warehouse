@@ -105,10 +105,15 @@ def _upsert_sessions(sessions, trusted_from, sites, emp_by_phone):
             "disposition": disposition, "start_msg": s["start_msg"], "end_msg": s["end_msg"],
         }
         if frappe.db.exists("SIG Field Session", s["session_key"]):
-            existing = frappe.db.get_value("SIG Field Session", s["session_key"], ["posted", "corrected_by"], as_dict=True)
+            existing = frappe.db.get_value("SIG Field Session", s["session_key"],
+                                           ["posted", "corrected_by", "diagnostics"], as_dict=True)
             if existing.posted or existing.corrected_by:
                 continue  # posted or PM-corrected (site_visits.py) sessions are immutable here;
                           # a re-run from raw messages must not silently undo a human fix
+            if "CYCLE_ATTRIBUTION_EXCEPTION" in (existing.diagnostics or ""):
+                if "CYCLE_ATTRIBUTION_EXCEPTION" not in values["diagnostics"]:
+                    values["diagnostics"] = (values["diagnostics"] + ",CYCLE_ATTRIBUTION_EXCEPTION").strip(",")
+                values["disposition"] = "REVIEW"
             frappe.db.set_value("SIG Field Session", s["session_key"], values, update_modified=False)
         else:
             frappe.get_doc(dict(doctype="SIG Field Session", session_key=s["session_key"], **values)).insert(
@@ -142,7 +147,7 @@ def _ensure_site(site):
     return True
 
 
-def post_session(name, force=False):
+def post_session(name, force=False, cycle_hint=None):
     """Post one PENDING/COMPLETED SIG Field Session. Returns a small result dict.
 
     force=True skips the status/disposition eligibility gate - used only for a named,
@@ -155,7 +160,9 @@ def post_session(name, force=False):
     s = frappe.get_doc("SIG Field Session", name)
     if s.posted:
         return {"result": "already_posted"}
-    if not force and (s.status != "COMPLETED" or s.disposition != "PENDING"):
+    attribution_review = bool(cycle_hint and s.disposition == "REVIEW" and
+                              "CYCLE_ATTRIBUTION_EXCEPTION" in (s.diagnostics or ""))
+    if not force and (s.status != "COMPLETED" or (s.disposition != "PENDING" and not attribution_review)):
         return {"result": "not_eligible", "status": s.status, "disposition": s.disposition}
     if s.stream == "ticpx2":
         _check_capex2_scope(s.site_key)
@@ -174,10 +181,20 @@ def post_session(name, force=False):
         "reporter_name": who or s.reporter_name, "activity_code": s.activity_code or "UNSPECIFIED",
         "photo_count": s.photo_count or 0, "visit_ordinal": 0, "diagnostic": s.diagnostics or "",
     }
+    if cycle_hint:
+        payload["cycle_hint"] = str(cycle_hint)
     res = _call_evidence(payload)
     ok = res.get("result") in ("created", "duplicate") or bool(
         frappe.db.exists("SIG Evidence Event", event_id) and frappe.db.exists("SIG Field Visit", s.name))
     if not ok:
+        reason = str(res.get("reason") or "")
+        if res.get("result") == "exception" and reason.startswith("CYCLE_ATTRIBUTION:"):
+            diagnostics = [item for item in (s.diagnostics or "").split(",") if item and item != "CYCLE_ATTRIBUTION_EXCEPTION"]
+            diagnostics.append("CYCLE_ATTRIBUTION_EXCEPTION")
+            frappe.db.set_value("SIG Field Session", s.name, {
+                "diagnostics": ",".join(diagnostics), "disposition": "REVIEW"}, update_modified=False)
+            frappe.db.commit()
+            return {"result": "review", "detail": res}
         note = "POST_FAILED:" + str(res.get("reason") or res)[:80]
         frappe.db.set_value("SIG Field Session", s.name, "diagnostics",
                             ((s.diagnostics or "") + "," + note).strip(","), update_modified=False)
@@ -207,7 +224,7 @@ def _check_capex2_scope(site):
 def _post_pending(limit=POST_BATCH):
     names = frappe.get_all("SIG Field Session", filters={"disposition": "PENDING", "status": "COMPLETED", "posted": 0},
                            order_by="start_at asc", pluck="name", limit_page_length=limit)
-    done = failed = new_sites = 0
+    done = failed = new_sites = review = 0
     for name in names:
         try:
             r = post_session(name)
@@ -225,9 +242,11 @@ def _post_pending(limit=POST_BATCH):
         if r.get("result") in ("created", "duplicate"):
             done += 1
             new_sites += 1 if r.get("site_created") else 0
+        elif r.get("result") == "review":
+            review += 1
         else:
             failed += 1
-    return {"posted": done, "failed": failed, "sites_created": new_sites}
+    return {"posted": done, "failed": failed, "sites_created": new_sites, "review": review}
 
 
 # ------------------------------------------------------------------ health
@@ -294,7 +313,7 @@ def run_feed(rebuild=False):
             if e["at"] >= trusted_from and frappe.db.exists("SIG Field Message", e["msg_key"]):
                 frappe.db.set_value("SIG Field Message", e["msg_key"], "diagnostic", e["code"], update_modified=False)
 
-        posted = {"posted": 0, "failed": 0, "sites_created": 0}
+        posted = {"posted": 0, "failed": 0, "sites_created": 0, "review": 0}
         if mode == "Live" and caught_up:
             frappe.db.commit()
             posted = _post_pending()
@@ -307,8 +326,8 @@ def run_feed(rebuild=False):
         stale_h = (now - fs.parse_ts(str(inbox_at))).total_seconds() / 3600.0 if inbox_at else 0
         status = "OK (%s)%s: +%d messages, %d sessions" % (mode, "" if caught_up else " backfilling", stored, touched)
         if mode == "Live":
-            status += ", posted %d (%d failed, %d sites created)" % (
-                posted["posted"], posted["failed"], posted["sites_created"])
+            status += ", posted %d (%d need cycle review, %d failed, %d sites created)" % (
+                posted["posted"], posted["review"], posted["failed"], posted["sites_created"])
         if stale_h > STALE_HOURS:
             status = "STALE: no Inbox rows for %d h" % stale_h
             _alert(st, "SIG-FEED-STALE", "The WhatsApp group feed has had no new sheet rows for %d hours (last row %s). "

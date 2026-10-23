@@ -105,7 +105,8 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
     for r in rows:
         diags = [d for d in (r.diagnostics or '').split(',') if d]
         is_review = r.disposition == 'REVIEW' or bool({'AMBIGUOUS_SESSION_OWNER', 'END_REPORTER_DIFFERENT',
-                                                        'NO_EMPLOYEE_FOR_PHONE', 'UNRESOLVED_SITE'} & set(diags))
+                                                        'NO_EMPLOYEE_FOR_PHONE', 'UNRESOLVED_SITE',
+                                                        'CYCLE_ATTRIBUTION_EXCEPTION'} & set(diags))
         record = {
             'name': r.name, 'stream': r.stream, 'stream_label': STREAM_LABEL.get(r.stream, r.stream),
             'pm': STREAM_PM.get(r.stream, ''), 'group': r.group, 'site': r.site_key, 'site_linked': bool(r.site),
@@ -195,6 +196,13 @@ def get_visit(session_key):
     cycle = frappe.db.get_value('SIG Site Cycle', {'site_key': s.site_key},
                                 ['name', 'project', 'erp_project', 'wo', 'stage', 'first_visit_at', 'last_visit_at',
                                  'sessions_completed'], as_dict=True, order_by='modified desc')
+    cycle_candidates = []
+    if ({'System Manager', 'Projects Manager'} & set(frappe.get_roles()) and
+            frappe.has_permission('SIG Site Cycle', 'read')):
+        cycle_candidates = frappe.get_list('SIG Site Cycle',
+            filters={'site_key': s.site_key, 'terminal': 0},
+            fields=['name', 'project', 'erp_project', 'po', 'wo', 'stage'],
+            order_by='creation asc, name asc', limit_page_length=100)
     prior = frappe.db.sql(
         "SELECT name, start_at, reporter_name, employee, status FROM `tabSIG Field Session` "
         "WHERE site_key = %s AND name != %s ORDER BY start_at DESC LIMIT 5", (s.site_key, session_key), as_dict=True)
@@ -210,7 +218,7 @@ def get_visit(session_key):
     # it shows exactly what the sender's phone displayed, not an ERP-resolved identity.
     return {'result': 'ok', 'timeline': [{'at': str(m.occurred_at), 'who': m.reporter_name, 'kind': m.kind,
                                           'text': m.text} for m in timeline],
-            'cycle': cycle, 'prior_visits': prior,
+            'cycle': cycle, 'cycle_candidates': cycle_candidates, 'prior_visits': prior,
             'comments': [{'content': c.content, 'by': c.owner, 'at': str(c.creation)} for c in comments]}
 
 
@@ -274,6 +282,54 @@ def fix_site(session_key, site, create=0):
     doc.corrected_by = frappe.session.user
     doc.save(ignore_permissions=True)
     return {'result': 'ok', 'disposition': doc.disposition}
+
+
+def _family_key(value):
+    value = text_value(value).strip().lower()
+    if 'incident' in value:
+        return 'incident'
+    if 'capex' in value:
+        return 'capex'
+    if '5g' in value or 'colo' in value:
+        return '5g'
+    return ''
+
+
+@frappe.whitelist()
+def post_to_cycle(session_key, cycle_name):
+    """Resolve a completed visit attribution exception to one open cycle, then post once."""
+    _require_pm()
+    doc = _session(text_value(session_key))
+    if doc.status != 'COMPLETED' or doc.disposition != 'REVIEW' or \
+            'CYCLE_ATTRIBUTION_EXCEPTION' not in (doc.diagnostics or ''):
+        return {'result': 'exception', 'reason': 'SESSION_NOT_WAITING_FOR_CYCLE_SELECTION'}
+    allowed_cycles = frappe.get_list('SIG Site Cycle',
+        filters={'name': text_value(cycle_name), 'site_key': doc.site_key, 'terminal': 0},
+        fields=['name', 'site_key', 'project', 'erp_project', 'wo', 'terminal'], limit_page_length=1)
+    cycle = allowed_cycles[0] if allowed_cycles else None
+    if not cycle:
+        return {'result': 'exception', 'reason': 'SELECT_AN_OPEN_CYCLE_FOR_THIS_SITE'}
+    expected = _family_key(field_feed.STREAM_PROJECT.get(doc.stream, doc.stream))
+    actual_value = cycle.project
+    if cycle.erp_project:
+        project_meta = frappe.get_meta('Project')
+        for family_field in ('custom_project_family', 'custom_family'):
+            if project_meta.has_field(family_field):
+                family_value = frappe.db.get_value('Project', cycle.erp_project, family_field)
+                if family_value:
+                    actual_value = family_value
+                    break
+    actual = _family_key(actual_value)
+    if expected and actual and expected != actual:
+        return {'result': 'exception', 'reason': 'CYCLE_FAMILY_DOES_NOT_MATCH_VISIT_GROUP'}
+    result = field_feed.post_session(doc.name, cycle_hint=cycle.name)
+    if result.get('result') not in ('created', 'duplicate'):
+        return {'result': result.get('result'), 'reason': result.get('detail') or result.get('reason'), 'post': result}
+    frappe.db.set_value('SIG Field Session', doc.name, 'corrected_by', frappe.session.user, update_modified=False)
+    frappe.get_doc({'doctype': 'Comment', 'comment_type': 'Comment',
+                    'reference_doctype': 'SIG Field Session', 'reference_name': doc.name,
+                    'content': 'Cycle attribution selected: %s' % cycle.name}).insert(ignore_permissions=True)
+    return {'result': result.get('result'), 'cycle': cycle.name, 'post': result}
 
 
 @frappe.whitelist()
