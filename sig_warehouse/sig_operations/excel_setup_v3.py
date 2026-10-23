@@ -12,11 +12,9 @@ from sig_warehouse.sig_operations.excel_setup import (
     EDIT_ROLES,
     READ_ROLES,
     SETUP,
-    is_legacy,
     _state,
-    _validated,
 )
-from sig_warehouse.sig_operations.excel_setup_contract import canonical, digest
+from sig_warehouse.sig_operations.excel_setup_contract import canonical, digest, validate
 
 
 CONTRACT = "SIG_EXCEL_SETUP_V3"
@@ -145,17 +143,31 @@ def _v3_datasets(datasets, workbook_type):
     return result
 
 
+def _validated_v3(datasets, workbook_type):
+    """Validate only the published datasets consumed by this workbook.
+
+    Builder profiles and profile-linked contacts/assignments remain in the
+    V2 archive for compatibility. They must not be a prerequisite for the
+    PO-first V3 sync.
+    """
+    names = ("projects", "tag_definitions", "builder_defaults") if workbook_type == "RV80" else (
+        "projects", "tag_definitions", "tag_upl_links", "material_upl_links")
+    payload = {name: datasets.get(name, []) for name in names}
+    try:
+        return validate(payload)
+    except ValueError as exc:
+        frappe.throw(str(exc))
+
+
 @frappe.whitelist()
 def get_setup_bundle(workbook_type, adapter_version=0, last_revision=0, last_hash=""):
     _require()
     if int(adapter_version) != ADAPTER_VERSION:
         frappe.throw("Excel Setup v3 requires the matching BAS release.")
     doc, datasets = _state()
-    if is_legacy(datasets):
-        frappe.throw("Publish the separated v2 Excel Setup lists before syncing v3.")
     if not datasets.get("projects"):
         frappe.throw("Publish the existing Excel Project setup before syncing v3.")
-    datasets = _validated(datasets)
+    datasets = _validated_v3(datasets, workbook_type)
     projected = _v3_datasets(datasets, workbook_type)
     current = int(doc.revision or 0)
     content_hash = digest(projected)
@@ -194,9 +206,8 @@ def _po_setup_state(datasets):
 def get_po_setup_state():
     _require(editor=True)
     doc, datasets = _state()
-    if is_legacy(datasets):
-        frappe.throw("Publish the separated v2 Excel Setup lists before configuring PO defaults.")
-    return {"revision": int(doc.revision or 0), **_po_setup_state(_validated(datasets))}
+    datasets = _validated_v3(datasets, "RV80")
+    return {"revision": int(doc.revision or 0), **_po_setup_state(datasets)}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -212,11 +223,10 @@ def save_po_setup(rows, base_revision, base_hash):
         frappe.throw("PO setup must be a list")
 
     setup_doc, datasets = _state(lock=True)
-    if is_legacy(datasets):
-        frappe.throw("Publish the separated v2 Excel Setup lists before changing PO defaults.")
     if int(base_revision) != int(setup_doc.revision or 0):
         frappe.throw("Excel Setup changed in another session. Reload before saving PO defaults.")
-    current = _po_setup_state(_validated(datasets))
+    datasets = _validated_v3(datasets, "RV80")
+    current = _po_setup_state(datasets)
     if str(base_hash or "") != current["hash"]:
         frappe.throw("PO defaults or contact directory changed in another session. Reload before saving.")
 
@@ -276,4 +286,4 @@ def save_po_setup(rows, base_revision, base_hash):
             if values:
                 frappe.db.set_value("SIG Project PM Assignment", assignment.name, values)
         # Newly inserted row is already the sole active default.
-    return {"result": "saved", **_po_setup_state(_validated(datasets))}
+    return {"result": "saved", **_po_setup_state(datasets)}

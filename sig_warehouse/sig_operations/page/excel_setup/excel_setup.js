@@ -4,9 +4,10 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
     const poSetupMethod = 'sig_warehouse.sig_operations.excel_setup_v3.';
     const root = $('<div class="sig-excel-setup"></div>').appendTo(page.main);
     let state, selected = 'projects', dirty = false;
-    const labels = {projects: __('ERP Projects'), builder_profiles: __('Builder profiles'),
-        builder_contacts: __('Builder contacts'), project_builder_links: __('Project → Builder assignments'), tag_definitions: __('Tags definitions'),
-        tag_upl_links: __('Tags to UPL'), material_upl_links: __('Item to UPL'), builder_defaults: __('Builder defaults')};
+    const labels = {projects: __('Projects / PO scope'), builder_profiles: __('Builder profiles (legacy)'),
+        builder_contacts: __('Profile-linked contacts (legacy)'), project_builder_links: __('Project → Builder assignments (legacy)'), tag_definitions: __('Tags definitions'),
+        tag_upl_links: __('Tags to UPL'), material_upl_links: __('Item to UPL'), builder_defaults: __('TCN wording and defaults')};
+    const legacyDatasets = new Set(['builder_profiles', 'builder_contacts', 'project_builder_links']);
     const fieldLabels = {project: 'ERP Project', profile: 'Builder profile', po: 'PO / Agreement', alias: 'Builder alias', family: 'Project family',
         stream: 'Project stream', stream_alias: 'Stream alias', template: 'Word template key', internal_pm: 'Internal SIG PM', tawal_contact: 'TAWAL contact',
         contact_name: 'Contact name', contact_phone: 'Phone', contact_email: 'Email', upl_revision: 'UPL revision', enabled: 'Enabled',
@@ -98,22 +99,26 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         const rows = state.datasets[selected];
         const fields = state.fields[selected].filter(f => f !== 'id');
         const notes = {
-            projects: __('Canonical ERP Projects and UPL scope only. PO / BA may remain blank. Builder profiles are maintained in their own list.'),
-            builder_profiles: __('Reusable Excel aliases, templates and internal PM defaults. A profile can exist before any Project or PO is assigned.'),
-            builder_contacts: __('Choose a Builder profile and an existing TAWAL directory contact. The operator selects the active contact in Excel. This list does not change native Project PM assignments.'),
-            project_builder_links: __('Explicit links only. The same Builder profile can link to several Projects. No link is inferred from worksheet row order, Project name or family.')
+            projects: __('Canonical ERP Projects and PO scope used by Excel. Family and the usual TAWAL PM are maintained on the Project / PO setup.'),
+            builder_profiles: __('Historical compatibility data. These aliases no longer determine PO family, TAWAL contact or MOP template selection.'),
+            builder_contacts: __('Historical profile-linked contact rows. The current TAWAL directory has one record per person; PO defaults reference those records directly.'),
+            project_builder_links: __('Historical Builder profile assignments. Kept for old workbook revisions and audit; not required by V3 Sync From ERP.'),
+            builder_defaults: __('Shared TCN purpose, CSV wording and implementer defaults consumed by RV80.')
         };
         const note = notes[selected] || __('Blank PO and UPL revision mean a shared rule. Disable obsolete rows; keep their IDs.');
         root.html('<div class="es-summary"><b>' + __('Published revision') + ': ' + esc(state.revision) + '</b><span>' +
             esc(state.published_at || __('Not published')) + '</span><span>' + __('Excel workbooks refresh from this ERP setup') + '</span></div>' +
             '<div class="es-tools"><label>' + __('Setup list') + ' <select class="form-control es-dataset">' +
-            Object.keys(labels).map(k => '<option value="' + k + '" ' + (k === selected ? 'selected' : '') + '>' + esc(labels[k]) +
-                ' (' + state.datasets[k].length + ')</option>').join('') + '</select></label>' +
+            Object.keys(labels).filter(k => !legacyDatasets.has(k)).map(k => '<option value="' + k + '" ' + (k === selected ? 'selected' : '') + '>' + esc(labels[k]) +
+                ' (' + state.datasets[k].length + ')</option>').join('') +
+            '<optgroup label="' + esc(__('Legacy maintenance · retained for compatibility')) + '">' +
+            Object.keys(labels).filter(k => legacyDatasets.has(k)).map(k => '<option value="' + k + '" ' + (k === selected ? 'selected' : '') + '>' + esc(labels[k]) +
+                ' (' + state.datasets[k].length + ')</option>').join('') + '</optgroup></select></label>' +
             '<button class="btn btn-default es-add">' + __('Add row') + '</button>' +
             '<button class="btn btn-default es-import">' + __('Import existing setup') + '</button>' +
             '<button class="btn btn-default es-history">' + __('Revision history') + '</button></div>' +
-            (state.migration_pending ? '<p class="text-warning">' + esc(__('Review and publish the separated lists. Previous combined associations remain in revision history; re-import Builder profiles from their independent source block.')) + '</p>' : '') +
-            (state.pending_builder_contacts ? '<p class="text-warning">' + esc(__('{0} enabled Builder contacts need a directory link. Select an existing contact or disable obsolete rows. RV80 will retain its current Builder until these are resolved.', [state.pending_builder_contacts])) + '</p>' : '') +
+            (legacyDatasets.has(selected) ? '<p class="text-muted">' + esc(__('Legacy records are preserved. V3 workbook sync and PO configuration no longer depend on these profile associations.')) + '</p>' : '') +
+            (selected === 'builder_contacts' && state.pending_builder_contacts ? '<p class="text-warning">' + esc(__('{0} legacy contact rows do not resolve to the person directory. This does not block V3 Sync From ERP.', [state.pending_builder_contacts])) + '</p>' : '') +
             '<p class="text-muted">' + esc(note) + '</p>' +
             '<div class="es-scroll"><table class="table table-bordered"><thead><tr>' + fields.map(f => '<th>' + esc(__(fieldLabels[f] || f)) + '</th>').join('') +
             '</tr></thead><tbody>' + rows.map((row, i) => '<tr>' + fields.map(f => '<td>' +
@@ -183,7 +188,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         frappe.show_alert({message: __('Excel setup published'), indicator: 'green'});
     });
     page.add_inner_button(__('Reload'), () => { if (dirty) frappe.confirm(__('Discard unsaved edits?'), load); else load(); });
-    page.add_inner_button(__('PO defaults and CSV labels'), async () => {
+    page.add_inner_button(__('Projects / PO setup'), async () => {
         if (dirty) { frappe.msgprint(__('Publish or reload your setup edits before changing PO defaults.')); return; }
         try {
             const poState = await callPoSetup('get_po_setup_state');
@@ -199,7 +204,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
                     (contact.id === row.default_contact ? 'selected' : '') + '>' +
                     esc([contact.serial, contact.full_name].filter(Boolean).join(' · ')) + '</option>').join('') +
                 '</select></td></tr>').join('');
-            const dialog = new frappe.ui.Dialog({title: __('PO defaults and CSV labels'), fields: [{fieldname: 'settings', fieldtype: 'HTML'}]});
+            const dialog = new frappe.ui.Dialog({title: __('Projects / PO setup'), fields: [{fieldname: 'settings', fieldtype: 'HTML'}]});
             dialog.fields_dict.settings.$wrapper.html('<div class="es-scroll"><table class="table table-bordered"><thead><tr>' +
                 '<th>' + esc(__('PO / Agreement')) + '</th><th>' + esc(__('ERP Project / Family')) + '</th>' +
                 '<th>' + esc(__('Optional Excel CSV label')) + '</th><th>' + esc(__('Default TAWAL PM')) +
