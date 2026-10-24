@@ -70,12 +70,12 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
                                "age": str(cycle.last_event_at or "")[:10]})
 
     coords = {}
-    if _has_field("SIG Site", "latitude") and _has_field("SIG Site", "longitude") and candidates:
+    if _has_field("SIG Site", "site_latitude") and _has_field("SIG Site", "site_longitude") and candidates:
         wanted = sorted({item["site"] for item in candidates})
-        for row in frappe.get_list("SIG Site", filters={"name": ["in", wanted]}, fields=["name", "latitude", "longitude"],
+        for row in frappe.get_list("SIG Site", filters={"name": ["in", wanted]}, fields=["name", "site_latitude", "site_longitude"],
                                    limit_page_length=0):
-            if row.latitude and row.longitude:
-                coords[(row.name or "").upper()] = (float(row.latitude), float(row.longitude))
+            if row.site_latitude and row.site_longitude:
+                coords[(row.name or "").upper()] = (float(row.site_latitude), float(row.site_longitude))
 
     plan = planner.plan_week(candidates, coords, start, overrides)
     return _present(plan, coords)

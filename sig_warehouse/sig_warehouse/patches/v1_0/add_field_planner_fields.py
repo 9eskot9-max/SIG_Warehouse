@@ -1,6 +1,8 @@
 """Add the fields the weekly field planner reads.
 
-SIG Site gets coordinates (one-way copy of SitesDB, which stays the master) and SIG Site Cycle gets
+SIG Site gets coordinates as `site_latitude`/`site_longitude` (one-way copy of SitesDB, which stays the master;
+the names avoid the orphan `latitude`/`longitude` columns left in tabSIG Site by the 2026-09 import,
+whose old values cannot be converted to Float) and SIG Site Cycle gets
 a PM hold/visited mark. No permission, role or Page setting changes.
 """
 import frappe
@@ -8,13 +10,13 @@ import frappe
 FIELDS = [
     {"dt": "SIG Site", "fieldname": "geo_section", "label": "Location", "fieldtype": "Section Break",
      "insert_after": "default_warehouse", "collapsible": 1},
-    {"dt": "SIG Site", "fieldname": "latitude", "label": "Latitude", "fieldtype": "Float", "precision": "6",
+    {"dt": "SIG Site", "fieldname": "site_latitude", "label": "Latitude", "fieldtype": "Float", "precision": "6",
      "read_only": 1, "insert_after": "geo_section",
      "description": "Copied from SitesDB by the planner geo import. Edit SitesDB, not this field."},
-    {"dt": "SIG Site", "fieldname": "longitude", "label": "Longitude", "fieldtype": "Float", "precision": "6",
-     "read_only": 1, "insert_after": "latitude"},
+    {"dt": "SIG Site", "fieldname": "site_longitude", "label": "Longitude", "fieldtype": "Float", "precision": "6",
+     "read_only": 1, "insert_after": "site_latitude"},
     {"dt": "SIG Site", "fieldname": "geo_source", "label": "Location Source", "fieldtype": "Data", "read_only": 1,
-     "insert_after": "longitude"},
+     "insert_after": "site_longitude"},
     {"dt": "SIG Site Cycle", "fieldname": "plan_hold", "label": "Planner Mark", "fieldtype": "Select",
      "options": "\nHold\nVisited", "insert_after": "delay_note",
      "description": "Hold keeps the cycle out of the weekly field plan; Visited records a visit that was not reported."},

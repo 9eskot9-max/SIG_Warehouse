@@ -45,12 +45,12 @@ def load_api(roles, can_read=True):
     def get_list(doctype, **kwargs):
         calls.append(("get_list", doctype, tuple(kwargs.get("fields", ()))))
         if doctype == "SIG Site":
-            return [Row(name="Z1", latitude=24.7, longitude=46.7)]
+            return [Row(name="Z1", site_latitude=24.7, site_longitude=46.7)]
         return store.get(doctype, [])
 
     def get_all(doctype, **kwargs):
         calls.append(("get_all", doctype, tuple(kwargs.get("fields", ()))))
-        return [Row(name="Z1", latitude=24.7, longitude=46.7)]
+        return [Row(name="Z1", site_latitude=24.7, site_longitude=46.7)]
 
     frappe.get_list, frappe.get_all = get_list, get_all
     sys.modules["frappe"] = frappe
@@ -90,7 +90,7 @@ class FieldPlannerApiTests(unittest.TestCase):
         self.assertEqual("Committed", result["trips"][0]["kind"])
         self.assertEqual("2026-10-26", result["trips"][0]["anchor"])
         self.assertEqual((24.7, 46.7), (result["trips"][0]["stops"][0]["lat"], result["trips"][0]["stops"][0]["lon"]))
-        self.assertEqual([("get_list", "SIG Site", ("name", "latitude", "longitude"))], [c for c in calls if c[1] == "SIG Site"])
+        self.assertEqual([("get_list", "SIG Site", ("name", "site_latitude", "site_longitude"))], [c for c in calls if c[1] == "SIG Site"])
         self.assertFalse([c for c in calls if c[0] == "get_all"])
 
     def test_no_write_calls_exist_in_the_api_module(self):
