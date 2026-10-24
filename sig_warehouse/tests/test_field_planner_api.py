@@ -89,6 +89,7 @@ class FieldPlannerApiTests(unittest.TestCase):
         self.assertEqual(1, result["summary"]["committed_sites"])
         self.assertEqual("Committed", result["trips"][0]["kind"])
         self.assertEqual("2026-10-26", result["trips"][0]["anchor"])
+        self.assertEqual((24.7, 46.7), (result["trips"][0]["stops"][0]["lat"], result["trips"][0]["stops"][0]["lon"]))
         self.assertEqual([("get_list", "SIG Site", ("name", "latitude", "longitude"))], [c for c in calls if c[1] == "SIG Site"])
         self.assertFalse([c for c in calls if c[0] == "get_all"])
 

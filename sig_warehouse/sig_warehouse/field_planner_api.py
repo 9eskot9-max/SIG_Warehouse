@@ -78,16 +78,16 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
                 coords[(row.name or "").upper()] = (float(row.latitude), float(row.longitude))
 
     plan = planner.plan_week(candidates, coords, start, overrides)
-    return _present(plan, bool(coords))
+    return _present(plan, coords)
 
 
-def _present(plan, has_coordinates):
+def _present(plan, coords):
     trips = []
     for cluster in plan["clusters"]:
         trips.append({"id": cluster["id"], "kind": cluster["kind"], "anchor": str(cluster["anchor"] or ""),
                       "diameter_km": cluster["diameter_km"], "hours": cluster["hours"], "team_days": cluster["team_days"],
                       "best_tier": cluster["best_tier"], "loaded": cluster["loaded"],
-                      "stops": [{"order": s["order"], "site": s["site"], "cycle": s["cycle"], "project": s["project"],
+                      "stops": [{"order": s["order"], "site": s["site"], "lat": coords[s["site"]][0], "lon": coords[s["site"]][1], "cycle": s["cycle"], "project": s["project"],
                                  "tier": s["tier"], "kind": s.get("kind") or cluster["kind"], "window": s.get("window"),
                                  "reason": s["reason"], "leg_km": s["leg_km"] if s["order"] > 1 else None}
                                 for s in cluster["stops"]]})
@@ -95,4 +95,4 @@ def _present(plan, has_coordinates):
               "kind": s.get("kind") or "Committed later", "window": s.get("window"), "reason": s["reason"]}
              for s in plan["later"] + plan["unplaced"]]
     return {"summary": plan["summary"], "params": plan["params"], "trips": trips, "other": extra,
-            "tiers": planner.TIER_LABEL, "has_coordinates": has_coordinates}
+            "tiers": planner.TIER_LABEL, "has_coordinates": bool(coords)}

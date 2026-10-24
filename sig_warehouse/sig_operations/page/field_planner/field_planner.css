@@ -21,3 +21,8 @@
 .sig-planner-pill.sig-planner-T3 { background: #eafaf0; color: #1a7a3d; }
 .sig-planner-note { background: #fdecec; color: #a4211f; padding: 8px 12px; border-radius: 6px; margin-bottom: 10px; }
 .sig-planner-foot { color: #53657d; font-size: 12px; margin-top: 12px; }
+.sig-planner-map { background: #fff; border: 1px solid #dfe6ee; border-radius: 6px; padding: 8px; margin-bottom: 12px; }
+.sig-planner-svg { width: 100%; height: 520px; cursor: grab; background: #f7fafc; border-radius: 4px; }
+.sig-planner-maptools { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+.sig-planner-legend { display: flex; gap: 10px; flex-wrap: wrap; margin-inline-start: 10px; font-size: 11px; color: #53657d; }
+.sig-planner-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-inline-end: 4px; }
