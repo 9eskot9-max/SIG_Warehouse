@@ -1,0 +1,15 @@
+{
+ "content": null,
+ "doctype": "Page",
+ "module": "SIG Operations",
+ "name": "field-planner",
+ "page_name": "field-planner",
+ "roles": [
+  {"role": "System Manager"},
+  {"role": "Projects Manager"},
+  {"role": "Projects User"},
+  {"role": "SIG Field Ops"}
+ ],
+ "standard": "Yes",
+ "title": "Field Planner"
+}

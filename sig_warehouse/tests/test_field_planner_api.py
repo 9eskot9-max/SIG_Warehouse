@@ -1,0 +1,102 @@
+import importlib.util
+import sys
+import unittest
+from datetime import date
+from pathlib import Path
+from types import ModuleType, SimpleNamespace
+
+APP_ROOT = Path(__file__).resolve().parents[2]
+if str(APP_ROOT) not in sys.path:
+    sys.path.insert(0, str(APP_ROOT))
+
+
+class Row(dict):
+    __getattr__ = dict.get
+
+
+def load_api(roles, can_read=True):
+    calls = []
+    frappe = ModuleType("frappe")
+    frappe.whitelist = lambda: lambda function: function
+    frappe.session = SimpleNamespace(user="pm@example.com")
+    frappe.PermissionError = PermissionError
+    frappe.get_roles = lambda user: roles
+    frappe.has_permission = lambda doctype, ptype: can_read
+
+    def throw(message, exc=None):
+        raise (exc or RuntimeError)(message)
+
+    frappe.throw = throw
+    frappe.utils = SimpleNamespace(nowdate=lambda: "2026-10-24", getdate=lambda v: v if isinstance(v, date) else date.fromisoformat(str(v)[:10]))
+
+    class Meta:
+        def get_field(self, fieldname):
+            return True
+
+    frappe.get_meta = lambda doctype: Meta()
+    cycle = Row(name="Z1|NA|1", site="Z1", site_id="Z1", project="P", stage="2 - Plan", terminal=0,
+                tcn_at="2026-10-20 10:00:00", mir_at="2026-10-21 10:00:00", first_visit_at=None, impl_visits=0,
+                tags_at=None, planned_start=None, last_event_at="2026-10-21 10:00:00", plan_hold="")
+    store = {"SIG Site Cycle": [cycle],
+             "SIG Evidence Event": [Row(cycle="Z1|NA|1", event_code="TCN_GENERATED",
+                                        occurred_at="2026-10-26 00:00:00", recorded_at="2026-10-22 10:00:00")],
+             "SIG Field Visit": []}
+
+    def get_list(doctype, **kwargs):
+        calls.append(("get_list", doctype, tuple(kwargs.get("fields", ()))))
+        if doctype == "SIG Site":
+            return [Row(name="Z1", latitude=24.7, longitude=46.7)]
+        return store.get(doctype, [])
+
+    def get_all(doctype, **kwargs):
+        calls.append(("get_all", doctype, tuple(kwargs.get("fields", ()))))
+        return [Row(name="Z1", latitude=24.7, longitude=46.7)]
+
+    frappe.get_list, frappe.get_all = get_list, get_all
+    sys.modules["frappe"] = frappe
+    pkg = ModuleType("sig_warehouse")
+    sub = ModuleType("sig_warehouse.sig_warehouse")
+    sys.modules.setdefault("sig_warehouse", pkg)
+    sys.modules.setdefault("sig_warehouse.sig_warehouse", sub)
+    for name in ("field_planner",):
+        spec = importlib.util.spec_from_file_location("sig_warehouse.sig_warehouse." + name,
+                                                      APP_ROOT / "sig_warehouse" / "sig_warehouse" / (name + ".py"))
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["sig_warehouse.sig_warehouse." + name] = module
+        spec.loader.exec_module(module)
+        setattr(sub, name, module)
+    spec = importlib.util.spec_from_file_location("field_planner_api_under_test",
+                                                  APP_ROOT / "sig_warehouse" / "sig_warehouse" / "field_planner_api.py")
+    api = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(api)
+    return api, calls
+
+
+class FieldPlannerApiTests(unittest.TestCase):
+    def test_roles_outside_the_page_audience_are_refused(self):
+        api, _ = load_api(["Employee"])
+        with self.assertRaises(PermissionError):
+            api.get_field_plan()
+
+    def test_page_role_without_cycle_read_is_refused(self):
+        api, _ = load_api(["SIG Field Ops"], can_read=False)
+        with self.assertRaises(PermissionError):
+            api.get_field_plan()
+
+    def test_authorised_user_gets_a_committed_trip_and_site_coordinates_use_normal_permissions(self):
+        api, calls = load_api(["SIG Field Ops"])
+        result = api.get_field_plan(week_start="2026-10-25", teams="4")
+        self.assertEqual(1, result["summary"]["committed_sites"])
+        self.assertEqual("Committed", result["trips"][0]["kind"])
+        self.assertEqual("2026-10-26", result["trips"][0]["anchor"])
+        self.assertEqual([("get_list", "SIG Site", ("name", "latitude", "longitude"))], [c for c in calls if c[1] == "SIG Site"])
+        self.assertFalse([c for c in calls if c[0] == "get_all"])
+
+    def test_no_write_calls_exist_in_the_api_module(self):
+        source = (APP_ROOT / "sig_warehouse" / "sig_warehouse" / "field_planner_api.py").read_text(encoding="utf-8")
+        for forbidden in ("set_value", ".insert(", ".save(", "db.sql", "delete_doc", "ignore_permissions"):
+            self.assertNotIn(forbidden, source)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,23 @@
+.sig-planner-page { padding: 12px 0; }
+.sig-planner-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.sig-planner-card { background: #fff; border: 1px solid #dfe6ee; border-inline-start: 4px solid #53657d; border-radius: 6px; padding: 10px 12px; }
+.sig-planner-card .num { font-size: 22px; font-weight: 600; color: #081c44; }
+.sig-planner-card .lbl { font-size: 12px; color: #53657d; }
+.sig-planner-blue { border-inline-start-color: #1e7fff; }
+.sig-planner-red { border-inline-start-color: #a4211f; }
+.sig-planner-amber { border-inline-start-color: #8a6d00; }
+.sig-planner-green { border-inline-start-color: #1a7a3d; }
+.sig-planner-trip { background: #fff; border: 1px solid #dfe6ee; border-radius: 6px; margin-bottom: 10px; overflow-x: auto; }
+.sig-planner-trip header { display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; background: #eef7fc; flex-wrap: wrap; }
+.sig-planner-trip header span { color: #53657d; font-size: 12px; }
+.sig-planner-backlog { opacity: .72; }
+.sig-planner-trip table { width: 100%; font-size: 12px; border-collapse: collapse; }
+.sig-planner-trip th, .sig-planner-trip td { padding: 5px 10px; border-top: 1px solid #edf1f5; text-align: start; }
+.sig-planner-trip td.num { text-align: end; }
+.sig-planner-pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; background: #eef2f6; color: #53657d; }
+.sig-planner-pill.sig-planner-T0 { background: #e6f0ff; color: #0b4fb3; }
+.sig-planner-pill.sig-planner-T1 { background: #fdecec; color: #a4211f; }
+.sig-planner-pill.sig-planner-T2 { background: #fff8e1; color: #8a6d00; }
+.sig-planner-pill.sig-planner-T3 { background: #eafaf0; color: #1a7a3d; }
+.sig-planner-note { background: #fdecec; color: #a4211f; padding: 8px 12px; border-radius: 6px; margin-bottom: 10px; }
+.sig-planner-foot { color: #53657d; font-size: 12px; margin-top: 12px; }
