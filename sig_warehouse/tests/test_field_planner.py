@@ -67,10 +67,28 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual("T1", tier)
 
     def test_visit_inside_tolerance_clears_the_window(self):
-        tier, reason = fp.classify(cycle(first_visit_at="2026-10-11 09:00:00", impl_visits=1),
-                                   self.window("2026-10-10", "2026-10-12"), [date(2026, 10, 11)], TODAY, PARAMS)
-        self.assertEqual("T2", tier)          # visited, MIR+TCN present, Tags missing
+        # a visit without HO documents is held for 30 days, so an old visit is what sends the cycle back to T2
+        tier, reason = fp.classify(cycle(first_visit_at="2026-09-01 09:00:00", impl_visits=1),
+                                   self.window("2026-09-01", "2026-09-03"), [date(2026, 9, 1)], TODAY, PARAMS)
+        self.assertEqual("T2", tier)          # visited 24 days ago, MIR+TCN present, Tags missing
         self.assertIn("Tags", reason)
+
+    def test_a_recent_visit_without_ho_docs_is_held_for_thirty_days(self):
+        tier, reason = fp.classify(cycle(first_visit_at="2026-10-11 09:00:00", impl_visits=1, tcn_at="2026-10-01 10:00:00"),
+                                   None, [date(2026, 10, 11)], TODAY, PARAMS)
+        self.assertIsNone(tier)
+        self.assertIn("Held", reason)
+
+    def test_a_new_tcn_after_the_visit_overrides_the_hold(self):
+        tier, _ = fp.classify(cycle(first_visit_at="2026-10-11 09:00:00", impl_visits=1, tcn_at="2026-10-20 10:00:00"),
+                              self.window("2026-10-26", "2026-10-27"), [date(2026, 10, 11)], TODAY, PARAMS)
+        self.assertEqual("T0", tier)
+
+    def test_handover_documents_end_the_hold_at_once(self):
+        tier, reason = fp.classify(cycle(first_visit_at="2026-10-11 09:00:00", impl_visits=1, ho_at="2026-10-20 10:00:00",
+                                         stage="4 - Invoicing"), None, [date(2026, 10, 11)], TODAY, PARAMS)
+        self.assertIsNone(tier)
+        self.assertNotIn("Held", reason)
 
     def test_old_overdue_with_no_recent_evidence_is_parked_not_overdue(self):
         old = cycle(last_event_at="2026-07-01 10:00:00")

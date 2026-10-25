@@ -130,9 +130,11 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                 const ring = !scheduled ? (stop.must ? '#a4211f' : DARK) : '#ffffff';
                 const ringWidth = !scheduled ? (stop.must ? 2.5 : (trip.status === 'Waiting' ? 2 : 1)) : 1.5;
                 const tip = `<title>${esc(stop.site)} · ${esc(data.tiers[stop.tier])} · ${esc(trip.id)} #${stop.order}\n${esc(stop.reason)}</title>`;
+                const size = scheduled ? 5 : 3.5;
+                const op = scheduled ? 1 : 0.5;
                 const shape = stop.kind === 'Committed'
-                    ? `<rect x="-5" y="-5" width="10" height="10" fill="${fill}" stroke="${ring}" stroke-width="${ringWidth}">${tip}</rect>`
-                    : `<circle r="5" fill="${fill}" stroke="${ring}" stroke-width="${ringWidth}">${tip}</circle>`;
+                    ? `<rect x="-${size}" y="-${size}" width="${size * 2}" height="${size * 2}" fill="${fill}" fill-opacity="${op}" stroke="${ring}" stroke-width="${ringWidth}">${tip}</rect>`
+                    : `<circle r="${size}" fill="${fill}" fill-opacity="${op}" stroke="${ring}" stroke-width="${ringWidth}">${tip}</circle>`;
                 const label = scheduled ? `<text y="2.5" text-anchor="middle" font-size="7" fill="#fff" pointer-events="none">${stop.order}</text>` : '';
                 dots += `<g class="sig-planner-mk" data-mk data-site="${esc(stop.site)}" data-cx="${x}" data-cy="${y}">${shape}${label}</g>`;
             });
@@ -143,7 +145,12 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             const [x, y] = project(o.lon, o.lat);
             return `<g class="sig-planner-mk" data-mk data-site="${esc(o.site)}" data-cx="${x}" data-cy="${y}"><circle r="4" fill="${DARK}" fill-opacity="0.45" stroke="#fff" stroke-width="1"><title>${esc(o.site)} · ${esc(o.reason)}</title></circle></g>`;
         }).join('');
-        if (!street) { data.trips.forEach((trip) => { const n = tripNode(trip); lines += n.line; dots += n.dots; labels += n.labels; }); dots += extraDots; }
+        // Unplanned sites are drawn first, underneath, so the planned teams stay on top and clickable.
+        if (!street) {
+            const ordered = [...data.trips].sort((a, b) => (a.status === 'Scheduled') - (b.status === 'Scheduled'));
+            dots += extraDots;
+            ordered.forEach((trip) => { const n = tripNode(trip); lines += n.line; dots += n.dots; labels += n.labels; });
+        }
         const outline = KSA.map(([lon, lat]) => project(lon, lat).join(',')).join(' ');
         const townDots = (view.towns && view.townList) ? view.townList.map((t) => {
             const [x, y] = project(t.lon, t.lat);

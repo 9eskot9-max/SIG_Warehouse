@@ -23,6 +23,7 @@ DEFAULTS = {
     "tolerance_before": 1,    # a visit this many days before the window start still counts
     "tolerance_after": 2,     # grace after the window end before a TCN is overdue
     "park_days": 60,          # no evidence for this long: parked for review
+    "visit_hold_days": 30,    # a visit without HO/GCL is held this long, then comes back (a new TCN returns it sooner)
     # Civil work is not planned here. A cycle is left out when the text of its project (label, PO, and the ERP
     # Project it resolves to: name, family) contains one of these.
     "exclude_projects": ("incident",),
@@ -146,6 +147,13 @@ def classify(cycle, window, visit_days, today, params, mark=""):
     if window is None and cycle.get("planned_start"):
         planned = _date(cycle["planned_start"])
         window = {"start": planned, "end": planned, "anchor": planned}
+
+    # A visit without handover documents is held for 30 days; a TCN issued after that visit overrides the hold.
+    last_visit = max(visits) if visits else _date(cycle.get("last_visit_at"))
+    tcn_day = _date(cycle.get("tcn_at"))
+    if last_visit and not cycle.get("ho_at") and (today - last_visit).days < params["visit_hold_days"]             and not (tcn_day and tcn_day > last_visit):
+        return None, "Held: visited %s, waiting for HO docs (returns %s)" % (
+            last_visit, last_visit + timedelta(days=params["visit_hold_days"]))
 
     if stage.startswith("3"):
         if has_tags:
