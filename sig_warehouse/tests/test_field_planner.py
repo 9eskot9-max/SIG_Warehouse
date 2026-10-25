@@ -97,6 +97,34 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual("Marked visited by PM", fp.classify(cycle(), None, [], TODAY, PARAMS, mark="Visited")[1])
 
 
+class IncidentAndScheduleTests(unittest.TestCase):
+    def test_incident_cycles_are_not_planned_by_label_or_by_po(self):
+        for project, po in (("Incident", ""), ("incident", "10001134"), ("10001134", ""), ("Capex9", "10001134")):
+            tier, reason = fp.classify(cycle(project=project, po=po), None, [], TODAY, PARAMS)
+            self.assertIsNone(tier, (project, po))
+            self.assertIn("Incident", reason)
+        self.assertEqual("T3", fp.classify(cycle(project="Capex9", po="10001274", tcn_at=None), None, [], TODAY, PARAMS)[0])
+
+    def test_schedule_pins_committed_trips_to_their_day_and_fills_free_team_days(self):
+        coords = {"R1": RIYADH, "R2": NEAR_RIYADH, "J1": JEDDAH, "D1": DAMMAM}
+        items = [item("R1", "T0", date(2026, 10, 27)), item("J1", "T1"), item("D1", "T1")]
+        plan = fp.plan_week(items, coords, WEEK, {"teams": 2})
+        placed = {p["trip"]: p for p in fp.schedule_week(plan, WEEK, teams=2)}
+        committed = next(c["id"] for c in plan["clusters"] if c["kind"] == "Committed")
+        self.assertEqual(date(2026, 10, 27), placed[committed]["start"])
+        self.assertTrue(all(p["status"] == "Scheduled" and p["team"] in (1, 2) for p in placed.values()))
+        slots = [(p["team"], d) for p in placed.values() for d in p["days"]]
+        self.assertEqual(len(slots), len(set(slots)), "no team is double booked")
+
+    def test_schedule_marks_trips_that_do_not_fit_the_week(self):
+        coords = {"R1": RIYADH, "J1": JEDDAH, "D1": DAMMAM}
+        items = [item("R1", "T1"), item("J1", "T1"), item("D1", "T1")]
+        plan = fp.plan_week(items, coords, WEEK, {"teams": 1, "work_days": 5, "load_target": 5})
+        placed = fp.schedule_week(plan, WEEK, teams=1, work_days=2)
+        self.assertEqual(2, sum(1 for p in placed if p["status"] == "Scheduled"))
+        self.assertEqual(1, sum(1 for p in placed if p["status"] == "No free slot"))
+
+
 def item(site, tier, anchor=None, age="2026-10-01"):
     return {"site": site, "cycle": site + "|NA", "tier": tier, "anchor": anchor, "age": age,
             "reason": "x", "project": "P", "window": ""}
@@ -152,6 +180,12 @@ class PlanWeekTests(unittest.TestCase):
         result = self.plan([item("R1", "T0", date(2026, 11, 3))])
         self.assertEqual(1, len(result["later"]))
         self.assertEqual([], result["clusters"])
+
+    def test_a_window_that_just_ended_is_due_on_the_first_day_of_the_week(self):
+        result = self.plan([item("R1", "T0", date(2026, 10, 24))])
+        trip = result["clusters"][0]
+        self.assertEqual(("Committed", date(2026, 10, 25)), (trip["kind"], trip["anchor"]))
+        self.assertEqual(0, len(result["later"]))
 
     def test_workload_uses_scope_hours_and_travel_and_days_round_up(self):
         result = self.plan([item("R1", "T1"), item("R2", "T1"), item("R3", "T1"), item("R4", "T1")], scope_hours=2)

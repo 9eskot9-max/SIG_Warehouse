@@ -7,7 +7,7 @@ import frappe
 from sig_warehouse.sig_warehouse import field_planner as planner
 
 PLANNER_ROLES = {"System Manager", "Projects Manager", "Projects User", "SIG Field Ops"}
-CYCLE_FIELDS = ["name", "site", "site_id", "project", "stage", "terminal", "tcn_at", "mir_at", "first_visit_at",
+CYCLE_FIELDS = ["name", "site", "site_id", "project", "po", "stage", "terminal", "tcn_at", "mir_at", "first_visit_at",
                 "impl_visits", "tags_at", "planned_start", "last_event_at"]
 
 

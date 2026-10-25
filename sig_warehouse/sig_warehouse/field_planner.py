@@ -23,6 +23,9 @@ DEFAULTS = {
     "tolerance_before": 1,    # a visit this many days before the window start still counts
     "tolerance_after": 2,     # grace after the window end before a TCN is overdue
     "park_days": 60,          # no evidence for this long: parked for review
+    # Civil work is not planned here. A cycle whose project label or PO contains one of these is left out.
+    # 10001134 is the Incident PO.
+    "exclude_projects": ("incident", "10001134"),
 }
 
 TIER_ORDER = {"T0": 0, "T1": 1, "T2": 2, "T3": 3, "T4": 4}
@@ -99,6 +102,9 @@ def classify(cycle, window, visit_days, today, params, mark=""):
     stage = str(cycle.get("stage") or "")
     if cycle.get("terminal") in (1, True, "1") or stage.startswith("5"):
         return None, "Closed"
+    labels = (str(cycle.get("project") or "") + "|" + str(cycle.get("po") or "")).lower()
+    if any(key and key in labels for key in params.get("exclude_projects") or ()):
+        return None, "Not planned: Incident (civil work)"
     if mark == "Hold":
         return None, "Held by PM"
     if mark == "Visited":
@@ -215,7 +221,8 @@ def plan_week(candidates, coords, week_start, overrides=None):
     for item in unplaced:
         item["kind"] = "No coordinates"
 
-    committed_now = [i for i in placeable if i["tier"] == "T0" and i.get("anchor") and week_start <= i["anchor"] <= week_end]
+    # a TCN window that just ended (still inside its grace days) is due now, so it joins the first day of the week
+    committed_now = [i for i in placeable if i["tier"] == "T0" and i.get("anchor") and i["anchor"] <= week_end]
     later = [i for i in placeable if i["tier"] == "T0" and i not in committed_now]
     pool = [i for i in placeable if i["tier"] != "T0"]
     clusters = []
@@ -231,8 +238,8 @@ def plan_week(candidates, coords, week_start, overrides=None):
         return clusters[-1]
 
     # 1. committed TCN sites, one trip set per anchor day
-    for day in sorted({i["anchor"] for i in committed_now}):
-        left = [i for i in committed_now if i["anchor"] == day]
+    for day in sorted({max(i["anchor"], week_start) for i in committed_now}):
+        left = [i for i in committed_now if max(i["anchor"], week_start) == day]
         while left:
             seed = left.pop(0)
             more = _grow(coords, seed, left, params, params["cluster_size"])
@@ -313,3 +320,53 @@ def plan_week(candidates, coords, week_start, overrides=None):
         "over_capacity": load > capacity,
     }
     return {"clusters": ordered, "later": later, "unplaced": unplaced, "summary": summary, "params": params}
+
+
+def schedule_week(plan, week_start, teams=None, work_days=None):
+    """Place the loaded trips of plan_week() on team slots (Team 1..N, Sunday to Thursday).
+
+    Committed trips are pinned to their anchor day; the other loaded trips take the earliest slot where a
+    team is free for all the trip's team-days. Returns a list of placements:
+    {"trip", "team", "start", "days": [dates], "status"} where status is Scheduled, Over capacity
+    (committed but no team free that day) or No free slot (loaded but the week is full).
+    """
+    params = plan["params"]
+    teams = int(teams or params["teams"])
+    work_days = int(work_days or params["work_days"])
+    week_start = _date(week_start)
+    days = [week_start + timedelta(days=i) for i in range(work_days)]
+    busy = {(t, d): None for t in range(1, teams + 1) for d in days}
+    placements = []
+
+    def free_team(day_index, length):
+        for t in range(1, teams + 1):
+            if day_index + length <= len(days) and all(busy[(t, days[day_index + k])] is None for k in range(length)):
+                return t
+        return None
+
+    ordered = [c for c in plan["clusters"] if c["kind"] == "Committed"] +               [c for c in plan["clusters"] if c["kind"] != "Committed" and c["loaded"]]
+    for trip in ordered:
+        length = trip["team_days"]
+        if trip["kind"] == "Committed" and trip["anchor"] and trip["anchor"] in days:
+            first, last = days.index(trip["anchor"]), days.index(trip["anchor"])
+            team = free_team(first, length)
+            status = "Scheduled"
+            if team is None:
+                # no team free on the anchor day: keep the anchor, add a team beyond the pool
+                team, status = teams + 1 + sum(1 for p in placements if p["status"] == "Over capacity"), "Over capacity"
+                busy.update({(team, days[first + k]): trip["id"] for k in range(min(length, len(days) - first))})
+            else:
+                for k in range(length):
+                    busy[(team, days[first + k])] = trip["id"]
+            placements.append({"trip": trip["id"], "team": team, "start": days[first],
+                               "days": days[first:first + length], "status": status})
+            continue
+        slot = next(((i, free_team(i, length)) for i in range(len(days)) if free_team(i, length)), None)
+        if slot is None:
+            placements.append({"trip": trip["id"], "team": None, "start": None, "days": [], "status": "No free slot"})
+            continue
+        i, team = slot
+        for k in range(length):
+            busy[(team, days[i + k])] = trip["id"]
+        placements.append({"trip": trip["id"], "team": team, "start": days[i], "days": days[i:i + length], "status": "Scheduled"})
+    return placements
