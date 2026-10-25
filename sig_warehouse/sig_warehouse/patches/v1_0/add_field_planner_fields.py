@@ -18,8 +18,8 @@ FIELDS = [
     {"dt": "SIG Site", "fieldname": "geo_source", "label": "Location Source", "fieldtype": "Data", "read_only": 1,
      "in_standard_filter": 1, "insert_after": "site_longitude"},
     {"dt": "SIG Site Cycle", "fieldname": "plan_hold", "label": "Planner Mark", "fieldtype": "Select",
-     "options": "\nHold\nVisited", "insert_after": "delay_note",
-     "description": "Hold keeps the cycle out of the weekly field plan; Visited records a visit that was not reported."},
+     "options": "\nHold\nVisited\nMust", "insert_after": "delay_note",
+     "description": "Hold keeps the cycle out of the weekly field plan; Visited records a visit that was not reported; Must puts the cycle first in the weekly plan."},
     {"dt": "SIG Site Cycle", "fieldname": "plan_hold_note", "label": "Planner Mark Note", "fieldtype": "Data",
      "insert_after": "plan_hold"},
 ]

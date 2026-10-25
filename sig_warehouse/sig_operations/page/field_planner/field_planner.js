@@ -1,7 +1,9 @@
 frappe.pages['field-planner'].on_page_load = function (wrapper) {
     const page = frappe.ui.make_app_page({parent: wrapper, title: __('Field Planner'), single_column: true});
     const root = $('<main class="sig-planner-page"></main>').appendTo(page.main);
-    const esc = (value) => frappe.utils.escape_html(value == null ? '' : String(value));
+    const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const fmtDates = (text) => text.replace(/(\d{4})-(\d{2})-(\d{2})/g, (m, y, mo, d) => `${d}-${MON[Number(mo) - 1]}`);
+    const esc = (value) => frappe.utils.escape_html(fmtDates(value == null ? '' : String(value)));
     const filters = {};
 
     const field = (fieldname, label, fieldtype, def) => page.add_field({
@@ -15,14 +17,16 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
     page.set_primary_action(__('Refresh'), load);
     filters.teams = 4; filters.scope_hours = 2; filters.diameter_km = 150;
 
-    // Schematic Saudi Arabia outline (lon, lat), built from the SitesDB coordinates and the coastline; not a survey boundary.
-    const KSA = [[34.53,28.11],[35.0,28.0],[36.2,26.5],[37.0,25.2],[38.1,24.1],[39.1,21.5],[40.7,18.5],[42.6,16.9],[41.87,16.68],[42.03,16.59],[42.83,16.36],[42.87,16.35],[47.05,16.91],[54.02,19.66],[55.02,20.07],[55.58,22.19],[51.6,24.2],[50.8,24.8],[50.3,25.9],[50.3,26.8],[50.0,27.2],[49.6,27.6],[48.6,28.4],[49.75,28.48],[40.39,31.97],[40.24,32.01],[39.88,32.09],[39.67,32.12],[39.28,32.19],[39.12,32.16],[37.17,31.59],[37.07,31.56],[34.9,29.37],[34.88,29.31]];
+    // Saudi Arabia outline (lon, lat): Natural Earth 1:110m countries (public domain, via world-atlas); simplified, not a survey boundary.
+    const KSA = [[34.95,29.36],[36.07,29.2],[36.5,29.51],[36.74,29.87],[37.5,30.0],[37.67,30.34],[38.0,30.51],[37.0,31.51],[39.0,32.01],[39.2,32.16],[40.4,31.89],[41.89,31.19],[44.71,29.18],[46.57,29.1],[47.46,29.0],[47.71,28.53],[48.42,28.55],[48.81,27.69],[49.3,27.46],[49.47,27.11],[50.15,26.69],[50.21,26.28],[50.11,25.94],[50.24,25.61],[50.53,25.33],[50.66,25.0],[50.81,24.75],[51.11,24.56],[51.39,24.63],[51.58,24.24],[51.62,24.01],[52.0,23.0],[55.01,22.5],[55.21,22.71],[55.67,22.0],[55.0,20.0],[52.0,19.0],[49.12,18.62],[48.18,18.17],[47.47,17.12],[47.0,16.95],[46.75,17.28],[46.37,17.23],[45.4,17.33],[45.22,17.43],[44.06,17.41],[43.79,17.32],[43.38,17.58],[43.12,17.09],[43.22,16.67],[42.78,16.35],[42.65,16.77],[42.35,17.08],[42.27,17.47],[41.76,17.83],[41.22,18.67],[40.94,19.49],[40.25,20.17],[39.8,20.34],[39.14,21.29],[39.02,21.99],[39.07,22.58],[38.49,23.69],[38.03,24.08],[37.49,24.29],[37.15,24.86],[37.21,25.08],[36.93,25.6],[36.64,25.83],[36.25,26.57],[35.64,27.38],[35.13,28.06],[34.63,28.06],[34.79,28.61],[34.83,28.96],[34.95,29.36]];
     const TRIP_COLORS = ['#1e7fff', '#e8590c', '#2b9348', '#9c36b5', '#d6336c', '#0b7285', '#a67c00', '#495057'];
+    const TEAM_COLORS = ['#1e7fff', '#e8590c', '#2b9348', '#9c36b5', '#d6336c'];
+    const DARK = '#2f3640';
     const TIER_COLORS = {T0: '#1e7fff', T1: '#a4211f', T2: '#c27c00', T3: '#1a7a3d', T4: '#868e96'};
     const ZONE_COLORS = {Riyadh: '#fbe3c4', Qassim: '#dcefc9', Hail: '#e4dcf2', Madinah: '#f9d7d7', Makkah: '#d3e7f7',
         Asir: '#fbf0b8', Jizan: '#cdeeea', Najran: '#f3d9e6', East: '#d9e1f2', North: '#e6e8d2'};
     const BOX0 = [20, 35, 830, 700];
-    const view = {mode: 'trip', base: 'drawing', zones: true, towns: true, box: null, leaflet: null, townList: null, zoneCells: null};
+    const view = {mode: 'team', base: 'drawing', zones: false, towns: true, box: null, leaflet: null, townList: null, zoneCells: null};
 
     function project(lon, lat) { return [(lon - 33) * 0.91 * 40, (34 - lat) * 40]; }
 
@@ -66,7 +70,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
 
     // Keep markers and text a readable size whatever the zoom.
     function applyZoom(svg) {
-        const scale = BOX0[2] / view.box[2], k = 1 / Math.sqrt(scale);
+        const scale = BOX0[2] / view.box[2], k = Math.max(0.35, Math.pow(scale, -0.8));
         svg.setAttribute('viewBox', view.box.join(' '));
         svg.classList.toggle('sig-planner-zoomed', scale >= 2.2);
         svg.querySelectorAll('[data-r]').forEach((e) => e.setAttribute('r', e.dataset.r * k));
@@ -91,10 +95,10 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         L.tileLayer(frappe.utils.map_defaults.tiles, frappe.utils.map_defaults.options).addTo(map);
         const bounds = [];
         data.trips.forEach((trip, index) => {
-            const color = TRIP_COLORS[index % TRIP_COLORS.length], pts = trip.stops.map((s) => [s.lat, s.lon]);
+            const color = trip.status === 'Scheduled' ? TEAM_COLORS[((trip.team || 1) - 1) % TEAM_COLORS.length] : DARK, pts = trip.stops.map((s) => [s.lat, s.lon]);
             if (pts.length > 1) L.polyline(pts, {color, weight: 3, opacity: trip.loaded ? 0.9 : 0.4, dashArray: trip.loaded ? null : '6 6'}).addTo(map);
             trip.stops.forEach((s) => {
-                const fill = view.mode === 'trip' ? color : TIER_COLORS[s.tier];
+                const fill = view.mode === 'tier' ? TIER_COLORS[s.tier] : color;
                 L.marker([s.lat, s.lon], {icon: L.divIcon({className: 'sig-planner-pin-wrap', iconSize: [18, 18],
                     html: `<div class="sig-planner-pin" style="background:${fill};opacity:${trip.loaded ? 1 : 0.55}">${s.order}</div>`})})
                     .bindTooltip(`${s.site} · ${data.tiers[s.tier]} · ${trip.id} #${s.order}`).on('click', () => showCard(s.site)).addTo(map);
@@ -111,43 +115,53 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         if (view.leaflet) { view.leaflet.remove(); view.leaflet = null; }
         view.box = view.box || BOX0.slice();
         const street = view.base === 'street' && typeof L !== 'undefined';
-        const tripNode = (trip, index) => {
-            const color = TRIP_COLORS[index % TRIP_COLORS.length];
+        const tripNode = (trip) => {
+            const scheduled = trip.status === 'Scheduled';
+            const teamColor = TEAM_COLORS[((trip.team || 1) - 1) % TEAM_COLORS.length];
             const pts = trip.stops.map((stop) => project(stop.lon, stop.lat));
             let line = '', dots = '', labels = '';
-            if (pts.length > 1) {
-                line = `<polyline points="${pts.map((q) => q.join(',')).join(' ')}" fill="none" stroke="${color}" data-w="2"
-                    stroke-width="2" stroke-opacity="${trip.loaded ? 0.9 : 0.35}" ${trip.loaded ? '' : 'stroke-dasharray="5 4"'}/>`;
+            if (pts.length > 1 && scheduled) {
+                line = `<polyline points="${pts.map((q) => q.join(',')).join(' ')}" fill="none" stroke="${teamColor}" stroke-width="2" stroke-opacity="0.85" data-w="2"/>`;
             }
             trip.stops.forEach((stop, i) => {
-                const [x, y] = pts[i], fill = view.mode === 'trip' ? color : TIER_COLORS[stop.tier], op = trip.loaded ? 1 : 0.5;
+                const [x, y] = pts[i];
+                const fill = !scheduled ? (trip.status === 'Waiting' ? '#ffffff' : DARK)
+                    : (view.mode === 'tier' ? TIER_COLORS[stop.tier] : teamColor);
+                const ring = !scheduled ? (stop.must ? '#a4211f' : DARK) : '#ffffff';
+                const ringWidth = !scheduled ? (stop.must ? 2.5 : (trip.status === 'Waiting' ? 2 : 1)) : 1.5;
                 const tip = `<title>${esc(stop.site)} · ${esc(data.tiers[stop.tier])} · ${esc(trip.id)} #${stop.order}\n${esc(stop.reason)}</title>`;
                 const shape = stop.kind === 'Committed'
-                    ? `<rect x="-6" y="-6" width="12" height="12" fill="${fill}" fill-opacity="${op}" stroke="#fff" stroke-width="1.5">${tip}</rect>`
-                    : `<circle r="6.5" fill="${fill}" fill-opacity="${op}" stroke="#fff" stroke-width="1.5">${tip}</circle>`;
-                dots += `<g class="sig-planner-mk" data-mk data-site="${esc(stop.site)}" data-cx="${x}" data-cy="${y}">${shape}` +
-                    `<text y="3" text-anchor="middle" font-size="8" fill="#fff" pointer-events="none">${stop.order}</text></g>`;
+                    ? `<rect x="-5" y="-5" width="10" height="10" fill="${fill}" stroke="${ring}" stroke-width="${ringWidth}">${tip}</rect>`
+                    : `<circle r="5" fill="${fill}" stroke="${ring}" stroke-width="${ringWidth}">${tip}</circle>`;
+                const label = scheduled ? `<text y="2.5" text-anchor="middle" font-size="7" fill="#fff" pointer-events="none">${stop.order}</text>` : '';
+                dots += `<g class="sig-planner-mk" data-mk data-site="${esc(stop.site)}" data-cx="${x}" data-cy="${y}">${shape}${label}</g>`;
             });
             return {line, dots, labels};
         };
         let lines = '', dots = '', labels = '';
-        if (!street) data.trips.forEach((trip, index) => { const n = tripNode(trip, index); lines += n.line; dots += n.dots; labels += n.labels; });
+        const extraDots = data.other.filter((o) => o.lat != null).map((o) => {
+            const [x, y] = project(o.lon, o.lat);
+            return `<g class="sig-planner-mk" data-mk data-site="${esc(o.site)}" data-cx="${x}" data-cy="${y}"><circle r="4" fill="${DARK}" fill-opacity="0.45" stroke="#fff" stroke-width="1"><title>${esc(o.site)} · ${esc(o.reason)}</title></circle></g>`;
+        }).join('');
+        if (!street) { data.trips.forEach((trip) => { const n = tripNode(trip); lines += n.line; dots += n.dots; labels += n.labels; }); dots += extraDots; }
         const outline = KSA.map(([lon, lat]) => project(lon, lat).join(',')).join(' ');
         const townDots = (view.towns && view.townList) ? view.townList.map((t) => {
             const [x, y] = project(t.lon, t.lat);
-            return `<circle data-r="2.2" cx="${x}" cy="${y}" r="2.2" fill="#6b7785" fill-opacity="0.75"><title>${esc(t.name)} · ${esc(t.zone)}</title></circle>` +
+            return `<circle class="sig-planner-town-dot" data-r="2.2" cx="${x}" cy="${y}" r="2.2" fill="#6b7785" fill-opacity="0.75"><title>${esc(t.name)} · ${esc(t.zone)}</title></circle>` +
                 `<text class="sig-planner-town" data-f="6.5" x="${x + 3}" y="${y - 3}" font-size="6.5" fill="#53657d" pointer-events="none">${esc(t.name)}</text>`;
         }).join('') : '';
         const zones = view.zones && view.townList ? `<g clip-path="url(#sigksa)">${zoneCells()}</g>` : '';
-        const legend = view.mode === 'trip'
-            ? data.trips.slice(0, 8).map((trip, i) => `<span><i style="background:${TRIP_COLORS[i % 8]}"></i>${esc(trip.id)}</span>`).join('')
-            : Object.keys(TIER_COLORS).map((tier) => `<span><i style="background:${TIER_COLORS[tier]}"></i>${esc(data.tiers[tier])}</span>`).join('');
+        const teamsUsed = [...new Set(data.trips.filter((t) => t.status === 'Scheduled').map((t) => t.team))].sort((x, y) => x - y);
+        const legend = view.mode === 'tier'
+            ? Object.keys(TIER_COLORS).map((tier) => `<span><i style="background:${TIER_COLORS[tier]}"></i>${esc(data.tiers[tier])}</span>`).join('')
+            : teamsUsed.map((t) => `<span><i style="background:${TEAM_COLORS[(t - 1) % TEAM_COLORS.length]}"></i>${__('Team')} ${t}</span>`).join('')
+              + `<span><i style="background:${DARK}"></i>${__('Not planned')}</span>`;
         const zoneLegend = (!street && view.zones && view.townList)
             ? Object.keys(ZONE_COLORS).map((z) => `<span><i class="sq" style="background:${ZONE_COLORS[z]}"></i>${esc(z)}</span>`).join('') : '';
         const btn = (attr, label, on) => `<button class="btn btn-xs ${on ? 'btn-primary' : 'btn-default'}" ${attr}>${label}</button>`;
         mount.html(`<div class="sig-planner-maptools">
             ${btn('data-base="drawing"', __('Drawing'), !street)}${btn('data-base="street"', __('Street map'), street)}
-            ${btn('data-mode="trip"', __('Colour by trip'), view.mode === 'trip')}${btn('data-mode="tier"', __('Colour by priority'), view.mode === 'tier')}
+            ${btn('data-mode="team"', __('By team'), view.mode === 'team')}${btn('data-mode="tier"', __('By priority'), view.mode === 'tier')}
             ${btn('data-toggle="towns"', __('Towns'), view.towns)}${street ? '' : btn('data-toggle="zones"', __('Zones'), view.zones)}
             ${street ? '' : `<span class="sig-planner-zoom"><button class="btn btn-xs btn-default" data-zoom="in">+</button>
                 <button class="btn btn-xs btn-default" data-zoom="out">&minus;</button>
@@ -161,7 +175,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                 <polygon points="${outline}" fill="none" stroke="#9db4c9" stroke-width="1.5" data-w="1.5"/>${townDots}${lines}${dots}${labels}</svg>`}
             <div class="sig-planner-foot">${street
                 ? __('Street map tiles come from OpenStreetMap and need internet. Pins show visiting order.')
-                : __('Squares are committed TCN sites, circles are the rest; dashed, faded trips are backlog. Zones follow the nearest reference town; outline is schematic. Ctrl + scroll or pinch to zoom, drag to pan, double-click to zoom in.')}</div>`);
+                : __('Colour = team that visits; dark = not planned this week; click a site for details. Zones follow the nearest reference town; outline is schematic. Ctrl + scroll or pinch to zoom, drag to pan, double-click to zoom in.')}</div>`);
         mount.find('[data-base]').on('click', (e) => { view.base = $(e.currentTarget).data('base'); drawMap(data, mount); });
         mount.find('[data-mode]').on('click', (e) => { view.mode = $(e.currentTarget).data('mode'); drawMap(data, mount); });
         mount.find('[data-toggle]').on('click', (e) => { const k = $(e.currentTarget).data('toggle'); view[k] = !view[k]; drawMap(data, mount); });
@@ -206,13 +220,28 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         return idx;
     }
 
-    function cardHtml(site, project, rows, must) {
+    function cardHtml(site, project, rows, must, cycle) {
         return `<div class="sig-planner-sitecard">
-            <div class="sig-planner-sitecard-head"><b>${esc(site)}</b>${must ? ' <span class="sig-planner-pill sig-planner-must">Must</span>' : ''}
+            <div class="sig-planner-sitecard-head"><b>${cycle ? `<a href="/app/sig-site-cycle/${encodeURIComponent(cycle)}">${esc(site)}</a>` : esc(site)}</b>${must ? ' <span class="sig-planner-pill sig-planner-must">Must</span>' : ''}
             <button type="button" class="btn btn-xs btn-default sig-planner-close" aria-label="${esc(__('Close'))}">&times;</button></div>
             <div class="sig-planner-sitecard-sub">${esc(project || '')}</div>
             <dl>${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('')}</dl>
             <div class="sig-planner-sitecard-links"><a href="/app/sig-site/${encodeURIComponent(site)}">${__('Open site record')}</a></div></div>`;
+    }
+
+    // Team nearest to an unplanned site: the closest stop of a scheduled trip.
+    function nearestTeam(site, data) {
+        const me = view.index[site];
+        if (!me || !me.stop || me.stop.lat == null) return null;
+        let best = null;
+        data.trips.forEach((t) => {
+            if (t.status !== 'Scheduled') return;
+            t.stops.forEach((st) => {
+                const d = km([me.stop.lat, me.stop.lon], [st.lat, st.lon]);
+                if (!best || d < best.km) best = {km: d, team: t.team, day: t.first_day};
+            });
+        });
+        return best;
     }
 
     // Small card for one site. Shown only after a search, a map pin or a table row is clicked.
@@ -220,33 +249,34 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         const hit = view.index[site];
         if (!hit) return '';
         const d = hit.data;
-        const cycleLink = (c) => `<a href="/app/sig-site-cycle/${encodeURIComponent(c)}">${esc(c)}</a>`;
         if (hit.other) {
             const o = hit.other;
             return cardHtml(site, o.project, [
                 [__('Priority'), esc(d.tiers[o.tier])],
-                [__('Plan'), esc(__('Not in this week\'s plan'))],
-                [__('Why'), esc(o.reason)],
+                [__('Plan'), esc(o.kind === 'Committed later' ? __('Later week') : __('Not planned'))],
                 [__('TCN window'), esc(o.window || '—')],
-                [__('Cycle'), cycleLink(o.cycle)],
-            ]);
+                [__('Reason'), esc(o.reason)],
+            ], o.must, o.cycle);
         }
         const {stop, trip} = hit;
+        const scheduled = trip.status === 'Scheduled';
         const when = trip.first_day === trip.last_day ? trip.first_day : `${trip.first_day} → ${trip.last_day}`;
-        const plan = trip.status === 'Scheduled' ? `${__('Team')} ${trip.team} · ${when}`
-            : trip.status === 'Lapsed' ? __('Lapsed: no team-day left') : __('Waiting for nearby sites');
-        const value = stop.value ? `${Math.round(stop.value).toLocaleString()} SAR · ${stop.value_source || ''}` : '—';
-        const stopText = `${stop.order} / ${trip.stops.length}` +
-            (stop.leg_km == null ? '' : ` · ${stop.leg_km} km ${__('from previous')}`);
-        return cardHtml(site, stop.project, [
+        const planText = scheduled ? `${__('Team')} ${trip.team} · ${when}` : (trip.status === 'Lapsed' ? __('Lapsed') : __('Waiting'));
+        const value = stop.value ? `${Math.round(stop.value).toLocaleString()} SAR${stop.value_source === 'ERP' ? '' : ' (est.)'}` : '—';
+        const rows = [
             [__('Priority'), esc(`${stop.class || ''} · ${d.tiers[stop.tier]}`)],
-            [__('Plan'), esc(`${trip.id} · ${plan}`)],
-            [__('Stop'), esc(stopText)],
+            [__('Plan'), esc(planText)],
             [__('TCN window'), esc(stop.window || __('none this week'))],
             [__('Value'), esc(value)],
-            [__('Why'), esc(stop.reason)],
-            [__('Cycle'), cycleLink(stop.cycle)],
-        ], stop.must || stop.class === 'Must');
+        ];
+        if (scheduled && trip.stops.length > 1) {
+            rows.push([__('Stop'), esc(`${stop.order} of ${trip.stops.length}${stop.leg_km == null ? '' : ' · ' + stop.leg_km + ' km'}`)]);
+        }
+        if (!scheduled) {
+            const n = nearestTeam(site, d);
+            if (n) rows.push([__('Nearest team'), esc(`${__('Team')} ${n.team} · ${Math.round(n.km)} km · ${n.day}`)]);
+        }
+        return cardHtml(site, stop.project, rows, stop.must || stop.class === 'Must', stop.cycle);
     }
 
     function showCard(site) {

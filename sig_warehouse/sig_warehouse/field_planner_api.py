@@ -108,7 +108,10 @@ def _present(plan, coords):
                                  "class": planner.CLASS_LABEL[planner.priority_class(s)], "must": bool(s.get("must"))}
                                 for s in cluster["stops"] if s["site"] in coords]})
     extra = [{"site": s["site"], "cycle": s["cycle"], "project": s["project"], "tier": s["tier"],
-              "kind": s.get("kind") or "Committed later", "window": s.get("window"), "reason": s["reason"]}
+              "kind": s.get("kind") or "Committed later", "window": s.get("window"), "reason": s["reason"],
+              "lat": coords[s["site"]][0] if s["site"] in coords else None,
+              "lon": coords[s["site"]][1] if s["site"] in coords else None,
+              "must": bool(s.get("must"))}
              for s in plan["later"] + plan["unplaced"]]
     return {"summary": plan["summary"], "params": plan["params"], "trips": trips, "other": extra,
             "tiers": planner.TIER_LABEL, "has_coordinates": bool(coords)}

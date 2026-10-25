@@ -31,8 +31,8 @@
 .sig-planner-legend i.sq { border-radius: 2px; }
 .sig-planner-zones { margin: 0 0 6px; }
 .sig-planner-zoom { display: inline-flex; gap: 4px; margin-inline-start: 6px; }
-.sig-planner-town { display: none; }
-.sig-planner-zoomed .sig-planner-town { display: block; }
+.sig-planner-town-dot, .sig-planner-town { display: none; }
+.sig-planner-zoomed .sig-planner-town-dot, .sig-planner-zoomed .sig-planner-town { display: block; }
 .sig-planner-searchbar { margin: 4px 0 8px; }
 .sig-planner-search { width: 100%; max-width: 360px; height: 32px; padding: 4px 10px; border: 1px solid #c9d4e0; border-radius: 6px; font-size: 13px; }
 .sig-planner-sitebox:empty { display: none; }
