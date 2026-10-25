@@ -14,23 +14,26 @@ class Row(dict):
     __getattr__ = dict.get
 
 
-def load_api(roles, can_read=True, setup_json="{}", visits=()):
+def load_api(roles, can_read=True, setup_json="{}", visits=(), sessions=(), positions=()):
     calls = []
     frappe = ModuleType("frappe")
     frappe.whitelist = lambda *args, **kwargs: (lambda function: function)
     frappe.session = SimpleNamespace(user="pm@example.com")
     frappe.PermissionError = PermissionError
     frappe.get_roles = lambda user: roles
-    frappe.has_permission = lambda doctype, ptype: can_read
+    frappe.has_permission = lambda doctype, ptype, *args: can_read
 
     def throw(message, exc=None):
         raise (exc or RuntimeError)(message)
 
     frappe.throw = throw
-    frappe.utils = SimpleNamespace(nowdate=lambda: "2026-10-24", getdate=lambda v: v if isinstance(v, date) else date.fromisoformat(str(v)[:10]),
+    frappe.utils = SimpleNamespace(nowdate=lambda: "2026-10-24", now_datetime=lambda: "2026-10-26 08:00:00",
+                                   getdate=lambda v: v if isinstance(v, date) else date.fromisoformat(str(v)[:10]),
                                    add_days=lambda d, n: d + __import__("datetime").timedelta(days=n))
     frappe.DoesNotExistError = LookupError
-    frappe.db = SimpleNamespace(get_single_value=lambda doctype, field: setup_json)
+    frappe.db = SimpleNamespace(get_single_value=lambda doctype, field: setup_json,
+                                exists=lambda doctype, name: doctype == "SIG Site" and name == "Z1",
+                                get_value=lambda doctype, name, fields, as_dict=False: Row(site_latitude=24.7, site_longitude=46.7))
 
     class Meta:
         def get_field(self, fieldname):
@@ -43,7 +46,9 @@ def load_api(roles, can_read=True, setup_json="{}", visits=()):
     store = {"SIG Site Cycle": [cycle],
              "SIG Evidence Event": [Row(cycle="Z1|NA|1", event_code="TCN_GENERATED",
                                         occurred_at="2026-10-26 00:00:00", recorded_at="2026-10-22 10:00:00")],
-             "SIG Field Visit": [Row(v) for v in visits]}
+             "SIG Field Visit": [Row(v) for v in visits],
+             "SIG Field Session": [Row(v) for v in sessions],
+             "SIG Planner Position": [Row(v) for v in positions]}
 
     def get_list(doctype, **kwargs):
         calls.append(("get_list", doctype, tuple(kwargs.get("fields", ()))))
@@ -56,6 +61,10 @@ def load_api(roles, can_read=True, setup_json="{}", visits=()):
         return [Row(name="Z1", site_latitude=24.7, site_longitude=46.7)]
 
     frappe.get_list, frappe.get_all = get_list, get_all
+    def get_doc(data):
+        calls.append(("insert", data["doctype"], data.get("team_leader"), data.get("site")))
+        return SimpleNamespace(name="TP-00001", updated_at=data["updated_at"], insert=lambda: None)
+    frappe.get_doc = get_doc
     sys.modules["frappe"] = frappe
     pkg = ModuleType("sig_warehouse")
     sub = ModuleType("sig_warehouse.sig_warehouse")
@@ -112,6 +121,42 @@ class FieldPlannerApiTests(unittest.TestCase):
         self.assertEqual({"Waqas": "Current", "Asif": "Unknown", "Incident crew": "Incident"}, states)
         self.assertEqual({"Waqas", "Asif"}, {t["leader"] for t in result["teams"]} | {"Waqas", "Asif"})
 
+    def test_latest_reported_session_updates_the_team_start_when_not_yet_posted_as_a_visit(self):
+        import json
+        setup = json.dumps({"teams": [{"leader": "E1", "team": "Yawar Raza Sibtain Ali", "enabled": True}]})
+        session = dict(employee="E1", site="Z1", site_key="Z1", start_at="2026-10-25 02:37:36",
+                       end_at="2026-10-25 02:39:55", status="AUTO_CLOSED", disposition="PENDING")
+        api, _ = load_api(["Projects Manager"], setup_json=setup, sessions=[session])
+        result = api.get_field_plan(week_start="2026-10-25")
+        position = result["team_positions"][0]
+        self.assertEqual(("Z1", "2026-10-25 02:39:55", "WhatsApp report", "Current"),
+                         (position["site"], position["seen_at"], position["source"], position["state"]))
+
+    def test_newer_pm_position_update_wins_but_older_update_does_not_overwrite_a_visit(self):
+        api, _ = load_api(["Projects Manager"])
+        today = date(2026, 10, 26)
+        position = {"leader": "E1", "site": "Z1", "seen_at": "2026-10-25 10:00:00", "state": "Current"}
+        api._set_manual_position(position, {"site": "Z2", "updated_at": "2026-10-26 08:00:00", "updated_by": "pm"},
+                                 {"Z2": (25.0, 45.0)}, today)
+        self.assertEqual(("Z2", "PM update", "pm", (25.0, 45.0)),
+                         (position["site"], position["source"], position["updated_by"], (position["lat"], position["lon"])))
+        prior = {"leader": "E1", "site": "Z1", "seen_at": "2026-10-25 10:00:00", "state": "Current"}
+        api._set_manual_position(prior, {"site": "Z2", "updated_at": "2026-10-24 08:00:00"}, {"Z2": (25.0, 45.0)}, today)
+        self.assertEqual(("Z1", "2026-10-25 10:00:00"), (prior["site"], prior["seen_at"]))
+
+    def test_only_project_managers_can_append_an_enabled_team_site_position(self):
+        import json
+        setup = json.dumps({"teams": [{"leader": "E1", "team": "Yawar Raza Sibtain Ali", "enabled": True}]})
+        api, calls = load_api(["Projects Manager"], setup_json=setup)
+        result = api.update_team_position("E1", "Z1")
+        self.assertEqual({"team_leader": "E1", "team": "Yawar Raza Sibtain Ali", "site": "Z1"},
+                         {k: result[k] for k in ("team_leader", "team", "site")})
+        self.assertIn(("insert", "SIG Planner Position", "E1", "Z1"), calls)
+        api, calls = load_api(["Projects User"], setup_json=setup)
+        with self.assertRaises(PermissionError):
+            api.update_team_position("E1", "Z1")
+        self.assertFalse([call for call in calls if call[0] == "insert"])
+
     def test_reference_towns_need_access_and_load_the_bundled_file(self):
         api, _ = load_api(["Employee"])
         with self.assertRaises(PermissionError):
@@ -123,10 +168,10 @@ class FieldPlannerApiTests(unittest.TestCase):
 
     def test_no_write_calls_exist_in_the_api_module(self):
         source = (APP_ROOT / "sig_warehouse" / "sig_warehouse" / "field_planner_api.py").read_text(encoding="utf-8")
-        # the only write is the logged PM decision; it must be the sole insert and set_value in the module
+        # Writes are limited to the append-only PM decision and position logs plus decision projection.
         for forbidden in (".save(", "db.sql", "delete_doc", "ignore_permissions"):
             self.assertNotIn(forbidden, source)
-        self.assertEqual(1, source.count(".insert("))
+        self.assertEqual(2, source.count(".insert("))
         self.assertEqual(1, source.count("set_value("))
 
 

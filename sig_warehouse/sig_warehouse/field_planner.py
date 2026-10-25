@@ -57,6 +57,7 @@ def team_positions(leaders, visits, coords, today, max_age_days=14):
     leaders: [{"leader", "team", "phone"}]; visits: rows with employee, site, start_at, end_at, status.
     A position counts for the plan only while it is at most max_age_days old and the site has coordinates.
     state: Current (used as the team's starting point), Stale (too old), or Unknown (no visit or no coordinates).
+    Incident teams are not passed in; the API lists them as state "Incident" without a position.
     """
     latest = {}
     for visit in visits:
@@ -64,7 +65,10 @@ def team_positions(leaders, visits, coords, today, max_age_days=14):
         if not seen or not visit.get("employee"):
             continue
         stamp = str(seen)[:19]
-        if visit["employee"] not in latest or stamp > latest[visit["employee"]][0]:
+        current = latest.get(visit["employee"])
+        is_posted_visit = (visit.get("source") or "") == "Posted visit"
+        current_is_posted_visit = bool(current and (current[1].get("source") or "") == "Posted visit")
+        if current is None or stamp > current[0] or (stamp == current[0] and is_posted_visit and not current_is_posted_visit):
             latest[visit["employee"]] = (stamp, visit)
     rows = []
     for item in leaders:
@@ -72,7 +76,8 @@ def team_positions(leaders, visits, coords, today, max_age_days=14):
         site = (visit.get("site") or "").upper() if visit else ""
         row = {"leader": item["leader"], "team": item["team"], "phone": item.get("phone", ""), "site": site,
                "seen_at": stamp or "", "on_site": bool(visit and not visit.get("end_at")), "age_days": None,
-               "state": "Unknown", "lat": None, "lon": None}
+               "state": "Unknown", "lat": None, "lon": None,
+               "source": (visit.get("source") or "Posted visit") if visit else ""}
         if stamp:
             row["age_days"] = (today - _date(stamp)).days
             if site in coords:

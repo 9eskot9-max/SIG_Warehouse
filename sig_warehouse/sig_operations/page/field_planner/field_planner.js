@@ -7,6 +7,30 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
     const fmtDates = (text) => text.replace(/(\d{4})-(\d{2})-(\d{2})/g, (m, y, mo, d) => `${d}-${MON[Number(mo) - 1]}`);
     const esc = (value) => frappe.utils.escape_html(fmtDates(value == null ? '' : String(value)));
     const filters = {};
+    let positionSiteField = null;
+    root.on('click', '.sig-planner-position-update', () => {
+        const button = root.find('.sig-planner-position-update');
+        const teamLeader = root.find('.sig-planner-position-team').val();
+        const site = positionSiteField && positionSiteField.get_value();
+        if (!teamLeader || !site) {
+            frappe.show_alert({message: __('Select a team and a site first.'), indicator: 'orange'}, 4);
+            return;
+        }
+        button.prop('disabled', true);
+        frappe.call({
+            method: 'sig_warehouse.sig_warehouse.field_planner_api.update_team_position',
+            args: {team_leader: teamLeader, site: site},
+            callback: (r) => {
+                frappe.show_alert({message: __('Position updated for {0}.', [r.message.team]), indicator: 'green'}, 4);
+                if (positionSiteField) positionSiteField.set_value('');
+                load();
+            },
+            error: () => {
+                button.prop('disabled', false);
+                frappe.show_alert({message: __('Could not update the team position.'), indicator: 'red'}, 5);
+            },
+        });
+    });
 
     const field = (fieldname, label, fieldtype, def) => page.add_field({
         fieldname, label, fieldtype, default: def, change() { filters[fieldname] = this.get_value(); },
@@ -383,12 +407,23 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                 <td>${esc(o.project)}</td><td>${esc(data.tiers[o.tier])}</td><td>${esc(o.kind)}</td>
                 <td>${esc(o.window)}</td><td>${esc(o.reason)}</td><td>${decisionSelect(o.cycle, o.decision)}</td></tr>`).join('')}</tbody></table></section>` : '';
         const STATE = {Current: __('Current'), Stale: __('Old position, not used'), Unknown: __('No visit found'), Incident: __('Incident team · not planned')};
-        const teamPanel = (data.team_positions || []).length ? `<section class="sig-planner-trip"><header><b>${__('Field teams')}</b>
-            <span>${__('From Excel Setup; each team starts where its leader last checked in or out')}</span></header><table><thead><tr>
-            <th>${__('Team')}</th><th>${__('Last site')}</th><th>${__('Last seen')}</th><th>${__('Position')}</th></tr></thead><tbody>${
-            data.team_positions.map((p) => `<tr><td>${esc(p.team)}</td><td>${esc(p.site)}</td>
+        const teamPositions = data.team_positions || [];
+        const canUpdatePosition = (frappe.user_roles || []).some((role) => ['Projects Manager', 'System Manager'].includes(role));
+        const positionControl = canUpdatePosition ? `<div class="sig-planner-position-control">
+            <label>${__('Update a team position')}</label>
+            <select class="form-control sig-planner-position-team" aria-label="${esc(__('Team'))}">
+                ${teamPositions.filter((p) => p.state !== 'Incident').map((p) => `<option value="${esc(p.leader)}">${esc(p.team)}</option>`).join('')}
+            </select>
+            <div class="sig-planner-position-site"></div>
+            <button type="button" class="btn btn-primary btn-sm sig-planner-position-update">${__('Update')}</button>
+        </div>` : '';
+        const teamPanel = teamPositions.length ? `<section class="sig-planner-trip"><header><b>${__('Field teams')}</b>
+            <span>${__('Latest check-in, visit, or PM update; this site is the team’s planner starting point')}</span></header><table><thead><tr>
+            <th>${__('Team')}</th><th>${__('Last site')}</th><th>${__('Last seen')}</th><th>${__('Source')}</th><th>${__('Position')}</th></tr></thead><tbody>${
+            teamPositions.map((p) => `<tr><td>${esc(p.team)}</td><td>${esc(p.site)}</td>
                 <td>${p.seen_at ? esc(p.seen_at.slice(0, 10)) + (p.on_site ? ' · ' + __('on site') : '') : ''}</td>
-                <td>${esc(STATE[p.state] || p.state)}</td></tr>`).join('')}</tbody></table></section>` : '';
+                <td>${esc(p.source || '')}${p.updated_by ? ' · ' + esc(p.updated_by) : ''}</td>
+                <td>${esc(STATE[p.state] || p.state)}</td></tr>`).join('')}</tbody></table>${positionControl}</section>` : '';
         root.html(`<div class="sig-planner-cards">${cards}</div>${note}${teamPanel}
             <div class="sig-planner-searchbar">
                 <input type="search" class="sig-planner-search" autocomplete="off" spellcheck="false" autocapitalize="characters"
@@ -399,6 +434,18 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             <div class="sig-planner-map"><div class="sig-planner-mapbody"></div><div class="sig-planner-sitebox"></div></div>
             ${trips}${other}
             <p class="sig-planner-foot">${__('Read-only proposal. Mark a cycle Hold or Visited on its form to keep it out of the plan.')}</p>`);
+        positionSiteField = null;
+        if (canUpdatePosition && teamPositions.some((p) => p.state !== 'Incident')) {
+            const parent = root.find('.sig-planner-position-site')[0];
+            if (parent) {
+                positionSiteField = frappe.ui.form.make_control({
+                    parent,
+                    df: {fieldname: 'planner_position_site', label: __('Site'), fieldtype: 'Link', options: 'SIG Site', reqd: 1},
+                    only_input: false,
+                });
+                positionSiteField.refresh();
+            }
+        }
         const input = root.find('.sig-planner-search');
         const sugg = root.find('.sig-planner-suggest');
         const pick = (key) => { input.val(key); sugg.hide(); showCard(key); };

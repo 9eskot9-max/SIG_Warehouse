@@ -1,0 +1,28 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:TP-{#####}",
+ "creation": "2026-10-26 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": ["team_leader", "site", "updated_by", "updated_at"],
+ "fields": [
+  {"fieldname": "team_leader", "fieldtype": "Link", "in_list_view": 1, "label": "Team Leader", "options": "Employee", "reqd": 1},
+  {"fieldname": "site", "fieldtype": "Link", "in_list_view": 1, "label": "Current Site", "options": "SIG Site", "reqd": 1},
+  {"fieldname": "updated_by", "fieldtype": "Data", "in_list_view": 1, "label": "Updated By", "read_only": 1},
+  {"fieldname": "updated_at", "fieldtype": "Datetime", "in_list_view": 1, "label": "Updated At", "read_only": 1}
+ ],
+ "links": [],
+ "modified": "2026-10-26 00:00:00",
+ "module": "SIG Warehouse",
+ "name": "SIG Planner Position",
+ "permissions": [
+  {"create": 1, "read": 1, "role": "System Manager"},
+  {"create": 1, "read": 1, "role": "Projects Manager"},
+  {"read": 1, "role": "Projects User"},
+  {"read": 1, "role": "SIG Field Ops"}
+ ],
+ "sort_field": "updated_at",
+ "sort_order": "DESC",
+ "track_changes": 1
+}

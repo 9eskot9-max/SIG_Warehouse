@@ -31,4 +31,5 @@ sig_warehouse.sig_warehouse.patches.v1_0.align_site_po_wo_evidence
 sig_warehouse.sig_warehouse.patches.v1_0.install_sig_letters
 sig_warehouse.sig_warehouse.patches.v1_0.add_field_planner_fields
 sig_warehouse.sig_warehouse.patches.v1_0.grant_projects_user_site_read
+sig_warehouse.sig_warehouse.patches.v1_0.grant_projects_manager_site_read
 sig_warehouse.sig_warehouse.patches.v1_0.add_planner_must_option

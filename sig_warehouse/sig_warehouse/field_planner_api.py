@@ -94,6 +94,74 @@ def _projects():
         return []
 
 
+def _position_team_roster():
+    """Enabled Project teams, keyed by the Employee ID recorded in Field Visits."""
+    return {row["leader"]: row for row in _team_setup()
+            if row["archetype"] == "Project"}
+
+
+def _latest_manual_positions(leaders):
+    if not leaders:
+        return {}
+    rows = frappe.get_list("SIG Planner Position", filters={"team_leader": ["in", leaders]},
+                           fields=["team_leader", "site", "updated_at", "updated_by"],
+                           order_by="updated_at desc", limit_page_length=500)
+    latest = {}
+    for row in rows:
+        latest.setdefault(row.team_leader, dict(row))
+    return latest
+
+
+def _set_manual_position(position, manual, coords, today):
+    """A newer PM update replaces the displayed last-known site, without editing visit evidence."""
+    if not manual:
+        return
+    site = (manual.get("site") or "").upper()
+    stamp = str(manual.get("updated_at") or "")[:19]
+    if not site or not stamp or site not in coords:
+        return
+    if stamp >= str(position.get("seen_at") or "")[:19]:
+        position["site"] = site
+        position["seen_at"] = stamp
+        position["on_site"] = False
+        position["source"] = "PM update"
+        position["updated_by"] = manual.get("updated_by") or ""
+        position["lat"], position["lon"] = coords[site]
+        position["age_days"] = (today - frappe.utils.getdate(stamp)).days
+        position["state"] = "Current" if position["age_days"] <= 14 else "Stale"
+
+
+def _require_position_manager():
+    roles = set(frappe.get_roles(frappe.session.user)) if frappe.session.user != "Guest" else set()
+    if not roles.intersection({"System Manager", "Projects Manager"}):
+        frappe.throw("Only Project Managers can update a team's planner position.", frappe.PermissionError)
+
+
+@frappe.whitelist(methods=["POST"])
+def update_team_position(team_leader, site):
+    """Append a PM-confirmed last-known site for one enabled Project team."""
+    _require_position_manager()
+    roster = _position_team_roster()
+    team_leader = str(team_leader or "").strip()
+    site = str(site or "").strip()
+    if team_leader not in roster:
+        frappe.throw("Select an enabled Project team from Excel Setup.")
+    if not site or not frappe.db.exists("SIG Site", site):
+        frappe.throw("Select a site from the ERP Site list.")
+    if not frappe.has_permission("SIG Site", "read", site):
+        frappe.throw("You do not have read access to the selected ERP Site.", frappe.PermissionError)
+    coords = frappe.db.get_value("SIG Site", site, ["site_latitude", "site_longitude"], as_dict=True)
+    if not coords or coords.site_latitude in (None, "") or coords.site_longitude in (None, ""):
+        frappe.throw("This Site has no coordinates, so it cannot be used as a planner starting position.")
+    doc = frappe.get_doc({
+        "doctype": "SIG Planner Position", "team_leader": team_leader, "site": site,
+        "updated_by": frappe.session.user, "updated_at": frappe.utils.now_datetime(),
+    })
+    doc.insert()
+    return {"name": doc.name, "team_leader": team_leader, "team": roster[team_leader]["team"],
+            "site": site, "updated_at": str(doc.updated_at)}
+
+
 @frappe.whitelist()
 def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=None, project=None):
     """Return the weekly plan: TCN windows are options, trips are placed on the teams that exist, the rest lapse."""
@@ -128,21 +196,35 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
     all_teams = _team_setup()
     team_setup = [t for t in all_teams if t["archetype"] == "Project"]     # Incident teams are never planned
     team_visits = []
+    manual_positions = _latest_manual_positions([t["leader"] for t in team_setup])
     if all_teams:
         team_visits = [dict(v) for v in frappe.get_list(
             "SIG Field Visit", filters={"employee": ["in", [t["leader"] for t in all_teams]],
                                         "start_at": [">=", frappe.utils.add_days(today, -45)]},
             fields=["employee", "site", "start_at", "end_at", "status"], order_by="start_at desc", limit_page_length=500)]
+        team_visits = [dict(v, source="Posted visit") for v in team_visits]
+        team_sessions = [dict(v) for v in frappe.get_list(
+            "SIG Field Session", filters={"employee": ["in", [t["leader"] for t in all_teams]],
+                                           "start_at": [">=", frappe.utils.add_days(today, -45)],
+                                           "disposition": ["not in", ["IN_ERP_WINDOW", "VOID"]]},
+            fields=["employee", "site", "site_key", "start_at", "end_at", "status", "disposition"],
+            order_by="start_at desc", limit_page_length=500)]
+        team_visits.extend(dict(v, site=v.get("site") or v.get("site_key"),
+                                source="WhatsApp report") for v in team_sessions)
 
     coords = {}
-    if _has_field("SIG Site", "site_latitude") and _has_field("SIG Site", "site_longitude") and (candidates or team_visits):
-        wanted = sorted({item["site"] for item in candidates} | {(v["site"] or "").upper() for v in team_visits if v["site"]})
+    if _has_field("SIG Site", "site_latitude") and _has_field("SIG Site", "site_longitude") and (candidates or team_visits or manual_positions):
+        wanted = sorted({item["site"] for item in candidates}
+                        | {(v["site"] or "").upper() for v in team_visits if v["site"]}
+                        | {(p.get("site") or "").upper() for p in manual_positions.values() if p.get("site")})
         for row in frappe.get_list("SIG Site", filters={"name": ["in", wanted]},
                                    fields=["name", "site_latitude", "site_longitude"], limit_page_length=0):
             if row.site_latitude and row.site_longitude:
                 coords[(row.name or "").upper()] = (float(row.site_latitude), float(row.site_longitude))
 
     positions = planner.team_positions(team_setup, team_visits, coords, today)
+    for position in positions:
+        _set_manual_position(position, manual_positions.get(position["leader"]), coords, today)
     positions += [{"leader": t["leader"], "team": t["team"], "phone": t["phone"], "site": "", "seen_at": "",
                    "on_site": False, "age_days": None, "state": "Incident", "lat": None, "lon": None}
                   for t in all_teams if t["archetype"] == "Incident"]
