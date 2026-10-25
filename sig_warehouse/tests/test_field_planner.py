@@ -263,6 +263,14 @@ class ChooseWeekTests(unittest.TestCase):
         days = sorted(c["days"][0] for c in result["clusters"] if c["status"] == "Scheduled")
         self.assertEqual([date(2026, 10, 26), date(2026, 10, 27)], days)
 
+    def test_cycles_from_the_database_carry_datetimes_not_strings(self):
+        from datetime import datetime as dtm
+        cycle_row = {"name": "C-9", "site_id": "R1", "stage": "2 - Plan", "terminal": 0, "tcn_at": None,
+                     "mir_at": dtm(2026, 10, 20, 9, 0), "first_visit_at": None, "impl_visits": 0, "tags_at": None,
+                     "planned_start": None, "last_event_at": dtm(2026, 10, 21, 9, 30), "gross_value": 1000.0}
+        rows, _ = fp.build_candidates([cycle_row], {}, {}, TODAY, PARAMS)
+        self.assertEqual("2026-10-21", rows[0]["age"])
+
     def test_a_site_with_no_window_is_not_forced_onto_a_day(self):
         items = [self.cand("R1", "T1", value=100)]
         result = fp.choose_week(items, {"R1": RIYADH}, WEEK, {"teams": 1, "work_days": 3})

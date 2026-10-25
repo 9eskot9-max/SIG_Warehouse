@@ -441,7 +441,7 @@ def build_candidates(cycles, windows, visit_days, today, params, project_index=N
             "reason": reason, "project": c.get("project") or "", "stage": c.get("stage") or "", "anchor": anchor,
             "window": ("%s to %s" % (win["start"], win["end"])) if win else "",
             "win_start": win["start"] if win else None, "win_end": win["end"] if win else None,
-            "age": (c.get("last_event_at") or "")[:10],
+            "age": str(c.get("last_event_at") or "")[:10],
             "value": value if value is not None else median,
             "value_source": "ERP" if value is not None else "estimated (median)",
             "has_mir": bool(c.get("mir_at")), "must": (c.get(mark_field) or "") == "Must", "_c": c,
