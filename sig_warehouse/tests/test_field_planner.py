@@ -98,12 +98,23 @@ class ClassifyTests(unittest.TestCase):
 
 
 class IncidentAndScheduleTests(unittest.TestCase):
-    def test_incident_cycles_are_not_planned_by_label_or_by_po(self):
-        for project, po in (("Incident", ""), ("incident", "10001134"), ("10001134", ""), ("Capex9", "10001134")):
-            tier, reason = fp.classify(cycle(project=project, po=po), None, [], TODAY, PARAMS)
-            self.assertIsNone(tier, (project, po))
+    def test_incident_cycles_are_found_through_the_erp_project_not_a_hardcoded_po(self):
+        projects = [{"name": "WO-2026-0036", "project_name": "10001134 Incident & Crisis Management - ES 2026",
+                     "custom_project_family": "Incident", "custom_family": "Incident", "custom_agreement_no": "10001134"},
+                    {"name": "WO-2026-0037", "project_name": "10001274 Capex Replacement Project 2026",
+                     "custom_project_family": "Capex", "custom_family": "Capex", "custom_agreement_no": "10001274"},
+                    {"name": "WO-2026-0009", "project_name": "1000268 B2S- (Quality & Crises)-SIG",
+                     "custom_project_family": "Incident", "custom_family": "Incident", "custom_agreement_no": "1000268"}]
+        index = fp.index_projects(projects)
+        for row in (dict(project="10001134", po=""), dict(project="Capex9", po="10001134"), dict(project="x", po="1000268"),
+                    dict(project="incident", po=""), dict(project="y", po="", erp_project="WO-2026-0036")):
+            row["project_text"] = fp.project_text(row, index)
+            tier, reason = fp.classify(cycle(**row), None, [], TODAY, PARAMS)
+            self.assertIsNone(tier, row)
             self.assertIn("Incident", reason)
-        self.assertEqual("T3", fp.classify(cycle(project="Capex9", po="10001274", tcn_at=None), None, [], TODAY, PARAMS)[0])
+        capex = dict(project="Capex9", po="10001274")
+        capex["project_text"] = fp.project_text(capex, index)
+        self.assertEqual("T3", fp.classify(cycle(tcn_at=None, **capex), None, [], TODAY, PARAMS)[0])
 
     def test_schedule_pins_committed_trips_to_their_day_and_fills_free_team_days(self):
         coords = {"R1": RIYADH, "R2": NEAR_RIYADH, "J1": JEDDAH, "D1": DAMMAM}

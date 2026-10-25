@@ -23,9 +23,9 @@ DEFAULTS = {
     "tolerance_before": 1,    # a visit this many days before the window start still counts
     "tolerance_after": 2,     # grace after the window end before a TCN is overdue
     "park_days": 60,          # no evidence for this long: parked for review
-    # Civil work is not planned here. A cycle whose project label or PO contains one of these is left out.
-    # 10001134 is the Incident PO.
-    "exclude_projects": ("incident", "10001134"),
+    # Civil work is not planned here. A cycle is left out when the text of its project (label, PO, and the ERP
+    # Project it resolves to: name, family) contains one of these.
+    "exclude_projects": ("incident",),
 }
 
 TIER_ORDER = {"T0": 0, "T1": 1, "T2": 2, "T3": 3, "T4": 4}
@@ -46,6 +46,32 @@ def _date(value):
     if isinstance(value, date):
         return value
     return date.fromisoformat(str(value)[:10])
+
+
+def index_projects(projects):
+    """Index ERP Project records by name and by agreement (PO) number for project_text()."""
+    index = {}
+    for project in projects or []:
+        for key in (project.get("name"), project.get("custom_agreement_no"), project.get("project_name")):
+            if key:
+                index.setdefault(str(key).strip().lower(), []).append(project)
+    return index
+
+
+def project_text(cycle, index):
+    """Lower-case text describing the ERP Project(s) a cycle belongs to: name, family and agreement number.
+
+    A cycle reaches its Project through erp_project, its PO, or a project label that is itself a PO number.
+    """
+    seen, parts = set(), []
+    for key in (cycle.get("erp_project"), cycle.get("po"), cycle.get("project")):
+        for project in index.get(str(key or "").strip().lower(), []):
+            if project.get("name") in seen:
+                continue
+            seen.add(project.get("name"))
+            parts += [project.get("name"), project.get("project_name"), project.get("custom_project_family"),
+                      project.get("custom_family"), project.get("custom_agreement_no")]
+    return " ".join(str(p) for p in parts if p).lower()
 
 
 def haversine_km(a, b):
@@ -102,7 +128,7 @@ def classify(cycle, window, visit_days, today, params, mark=""):
     stage = str(cycle.get("stage") or "")
     if cycle.get("terminal") in (1, True, "1") or stage.startswith("5"):
         return None, "Closed"
-    labels = (str(cycle.get("project") or "") + "|" + str(cycle.get("po") or "")).lower()
+    labels = (str(cycle.get("project") or "") + "|" + str(cycle.get("po") or "") + "|" + str(cycle.get("project_text") or "")).lower()
     if any(key and key in labels for key in params.get("exclude_projects") or ()):
         return None, "Not planned: Incident (civil work)"
     if mark == "Hold":

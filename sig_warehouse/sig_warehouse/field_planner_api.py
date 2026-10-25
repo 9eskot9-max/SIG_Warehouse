@@ -7,7 +7,7 @@ import frappe
 from sig_warehouse.sig_warehouse import field_planner as planner
 
 PLANNER_ROLES = {"System Manager", "Projects Manager", "Projects User", "SIG Field Ops"}
-CYCLE_FIELDS = ["name", "site", "site_id", "project", "po", "stage", "terminal", "tcn_at", "mir_at", "first_visit_at",
+CYCLE_FIELDS = ["name", "site", "site_id", "project", "po", "erp_project", "stage", "terminal", "tcn_at", "mir_at", "first_visit_at",
                 "impl_visits", "tags_at", "planned_start", "last_event_at"]
 
 
@@ -17,6 +17,15 @@ def _require_access():
     if user == "Guest" or not roles.intersection(PLANNER_ROLES) or not frappe.has_permission("SIG Site Cycle", "read"):
         frappe.throw("You need an Operations page role and SIG Site Cycle read access to view the field plan.",
                      frappe.PermissionError)
+
+
+def _projects():
+    """ERP Projects (name, title, family, agreement/PO) read with the caller's permissions; none if not readable."""
+    try:
+        return frappe.get_list("Project", fields=["name", "project_name", "custom_project_family", "custom_family",
+                                                  "custom_agreement_no"], limit_page_length=0)
+    except frappe.PermissionError:
+        return []
 
 
 def _has_field(doctype, fieldname):
@@ -55,6 +64,7 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
                                  fields=["cycle", "event_code", "occurred_at", "recorded_at"], limit_page_length=0)
         visits = frappe.get_list("SIG Field Visit", filters={"cycle": ["in", names]}, fields=["cycle", "start_at"],
                                  limit_page_length=0)
+    project_index = planner.index_projects(_projects())
     windows = planner.tcn_windows(events, params["tcn_gap_days"])
     visit_days = {}
     for visit in visits:
@@ -63,6 +73,7 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
     candidates = []
     for cycle in cycles:
         window = windows.get(cycle.name)
+        cycle["project_text"] = planner.project_text(cycle, project_index)
         tier, reason = planner.classify(cycle, window, visit_days.get(cycle.name, ()), today, params,
                                         (cycle.get(mark_field) if mark_field else "") or "")
         if tier:
