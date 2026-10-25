@@ -14,7 +14,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         item: 'Tags item', rule: 'Matching rule', priority: 'Match priority', tag_item: 'Tags item', cuc: 'UPL CUC',
         description: 'UPL description', tag_matcher: 'Tags description qualifier', builder_rule: 'Tags normalization rule',
         item_code: 'ERP item code', source_uom: 'ERP unit', target_uom: 'Mapping unit', treatment: 'Treatment',
-        quantity_basis: 'Reviewed quantity basis', origin: 'Imported source', leader: 'Team leader (employee)', team: 'Team', phone: 'Phone', kind: 'Setting type', key: 'Match value', value: 'Output value', value2: 'Additional value'};
+        quantity_basis: 'Reviewed quantity basis', origin: 'Imported source', leader: 'Team leader (employee)', team: 'Team', phone: 'Phone', archetype: 'Archetype', kind: 'Setting type', key: 'Match value', value: 'Output value', value2: 'Additional value'};
     const optionLabels = {purpose_reason: 'TCN purpose and reason', csv_remarks: 'TCN CSV wording', tms_implementer: 'TMS implementer'};
     const referenceFields = {
         projects: {project: 'projects'},

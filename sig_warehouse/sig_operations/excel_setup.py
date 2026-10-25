@@ -7,7 +7,7 @@ import frappe
 from frappe.utils import now_datetime
 
 from sig_warehouse.sig_operations.excel_setup_contract import (
-    ADAPTER_VERSION, CONTRACT, SCHEMA_VERSION, FIELDS, KINDS, canonical, digest, merge_import,
+    ADAPTER_VERSION, CONTRACT, SCHEMA_VERSION, FIELDS, KINDS, TEAM_ARCHETYPES, canonical, digest, merge_import,
     project_bundle, validate, is_legacy, upgrade_legacy, bundle_complete,
 )
 
@@ -177,7 +177,8 @@ def get_page_state():
     return {"schema_version": SCHEMA_VERSION, "migration_pending": migration_pending,
             "revision": int(doc.revision or 0), "datasets": datasets, "fields": FIELDS,
             "published_at": doc.published_at, "published_by": doc.published_by,
-            "options": {"builder_defaults.kind": sorted(KINDS), "material_upl_links.treatment": ["Direct 1:1", "Excluded", "Manual"]},
+            "options": {"builder_defaults.kind": sorted(KINDS), "material_upl_links.treatment": ["Direct 1:1", "Excluded", "Manual"],
+                        "teams.archetype": list(TEAM_ARCHETYPES)},
             "references": _reference_choices(),
             "pending_builder_contacts": sum(r["enabled"] and not r["tawal_contact"] for r in datasets["builder_contacts"]),
             "counts": {key: len(value) for key, value in datasets.items()}}

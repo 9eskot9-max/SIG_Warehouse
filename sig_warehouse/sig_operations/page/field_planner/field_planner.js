@@ -27,7 +27,19 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
     const TIER_COLORS = {T0: '#1e7fff', T1: '#a4211f', T2: '#c27c00', T3: '#1a7a3d', T4: '#868e96'};
     const ZONE_COLORS = {Riyadh: '#fbe3c4', Qassim: '#dcefc9', Hail: '#e4dcf2', Madinah: '#f9d7d7', Makkah: '#d3e7f7',
         Asir: '#fbf0b8', Jizan: '#cdeeea', Najran: '#f3d9e6', East: '#d9e1f2', North: '#e6e8d2'};
-    const BOX0 = [20, 35, 830, 700];
+    const BOX0 = [20, 35, 830, 760];
+    // Rough neighbouring countries (lon, lat), drawn under the outline only so the Kingdom's borders read clearly. Not surveyed.
+    const NEIGHBOURS = [
+        [[38.8,37.0],[41.2,37.1],[42.4,37.2],[44.8,37.2],[46.0,36.8],[47.3,35.0],[48.0,30.0],[48.6,29.9],[47.8,29.0],[46.6,29.1],[44.7,29.2],[41.9,31.2],[40.4,31.9],[39.2,32.2],[38.8,34.0]],
+        [[35.0,29.5],[35.5,32.5],[36.0,32.9],[38.8,32.2],[38.8,31.0],[37.5,30.5],[36.5,29.5]],
+        [[24.7,22.0],[24.7,31.6],[34.2,31.6],[34.9,29.4],[34.3,27.9],[33.0,26.0],[32.6,24.0],[36.9,22.0]],
+        [[42.6,16.2],[43.1,16.3],[43.3,16.6],[44.4,17.0],[46.2,17.3],[48.0,17.5],[52.0,16.0],[52.0,12.0],[43.0,12.5],[42.6,14.5]],
+        [[52.0,19.0],[55.0,20.0],[55.67,22.0],[58.5,23.6],[59.8,22.5],[58.5,20.4],[57.5,19.0],[56.0,17.9],[54.0,16.8],[52.0,16.5]],
+        [[51.6,24.0],[52.5,22.7],[55.0,22.5],[55.7,22.7],[56.4,25.6],[56.0,26.0],[54.6,24.8],[52.9,24.2]],
+        [[50.8,24.7],[51.6,24.6],[51.6,26.1],[51.1,26.1]],
+        [[46.6,29.1],[48.4,28.5],[48.2,30.1],[47.0,30.1]]
+    ];
+    const SEA = '#e9f1f7', LAND = '#f8faf9', NEIGH = '#eef1f3', CAPITAL = '#b7791f';
     const teamName = (n) => (view.teamNames && view.teamNames[n]) || `${__('Team')} ${n}`;
     const view = {mode: 'team', base: 'drawing', zones: false, towns: true, box: null, leaflet: null, townList: null, zoneCells: null};
 
@@ -155,10 +167,12 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             ordered.forEach((trip) => { const n = tripNode(trip); lines += n.line; dots += n.dots; labels += n.labels; });
         }
         const outline = KSA.map(([lon, lat]) => project(lon, lat).join(',')).join(' ');
+        const neighbours = NEIGHBOURS.map((ring) => `<polygon points="${ring.map(([lon, lat]) => project(lon, lat).join(',')).join(' ')}" fill="${NEIGH}" stroke="#d5dde5" stroke-width="0.8" data-w="0.8"/>`).join('');
+        // Capitals and Jeddah are always drawn (also at the furthest zoom), in a colour apart from the planned sites.
         const townDots = (view.towns && view.townList) ? view.townList.map((t) => {
-            const [x, y] = project(t.lon, t.lat);
-            return `<circle class="sig-planner-town-dot" data-r="2.2" cx="${x}" cy="${y}" r="2.2" fill="#6b7785" fill-opacity="0.75"><title>${esc(t.name)} · ${esc(t.zone)}</title></circle>` +
-                `<text class="sig-planner-town" data-f="6.5" x="${x + 3}" y="${y - 3}" font-size="6.5" fill="#53657d" pointer-events="none">${esc(t.name)}</text>`;
+            const [x, y] = project(t.lon, t.lat), big = t.name === 'Jeddah';
+            return `<circle class="sig-planner-cap-dot" data-r="${big ? 3.6 : 2.6}" cx="${x}" cy="${y}" r="${big ? 3.6 : 2.6}" fill="${CAPITAL}" stroke="#fff" stroke-width="0.6" data-w="0.6"><title>${esc(t.name)} · ${esc(t.zone)}</title></circle>` +
+                `<text class="sig-planner-cap" data-f="${big ? 8 : 6.5}" x="${x + 4}" y="${y - 3}" font-size="${big ? 8 : 6.5}" font-weight="${big ? 700 : 400}" fill="#7a4e12" pointer-events="none">${esc(t.name)}</text>`;
         }).join('') : '';
         const zones = view.zones && view.townList ? `<g clip-path="url(#sigksa)">${zoneCells()}</g>` : '';
         const teamsUsed = [...new Set(data.trips.filter((t) => t.status === 'Scheduled').map((t) => t.team))].sort((x, y) => x - y);
@@ -181,11 +195,12 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             ${street ? '<div class="sig-planner-leaflet"></div>'
                 : `<svg viewBox="${view.box.join(' ')}" class="sig-planner-svg" preserveAspectRatio="xMidYMid meet">
                 <defs><clipPath id="sigksa"><polygon points="${outline}"/></clipPath></defs>
-                <polygon points="${outline}" fill="#f7fafc"/>${zones}
+                <rect x="${BOX0[0]}" y="${BOX0[1]}" width="${BOX0[2]}" height="${BOX0[3]}" fill="${SEA}"/>${neighbours}
+                <polygon points="${outline}" fill="${LAND}"/>${zones}
                 <polygon points="${outline}" fill="none" stroke="#9db4c9" stroke-width="1.5" data-w="1.5"/>${townDots}${lines}${dots}${labels}</svg>`}
             <div class="sig-planner-foot">${street
                 ? __('Street map tiles come from OpenStreetMap and need internet. Pins show visiting order.')
-                : __('Colour = team that visits; dark = not planned this week; click a site for details. Zones follow the nearest reference town; outline is schematic. Ctrl + scroll or pinch to zoom, drag to pan, double-click to zoom in.')}</div>`);
+                : __('Colour = team that visits; dark = not planned this week; amber = town/capital (always shown); click a site for details. Zones follow the nearest reference town; outline is schematic. Ctrl + scroll or pinch to zoom, drag to pan, double-click to zoom in.')}</div>`);
         mount.find('[data-base]').on('click', (e) => { view.base = $(e.currentTarget).data('base'); drawMap(data, mount); });
         mount.find('[data-mode]').on('click', (e) => { view.mode = $(e.currentTarget).data('mode'); drawMap(data, mount); });
         mount.find('[data-toggle]').on('click', (e) => { const k = $(e.currentTarget).data('toggle'); view[k] = !view[k]; drawMap(data, mount); });
@@ -354,7 +369,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             data.other.map((o) => `<tr class="sig-planner-row" data-site="${esc(o.site)}"><td><a href="/app/sig-site-cycle/${encodeURIComponent(o.cycle)}">${esc(o.site)}</a></td>
                 <td>${esc(o.project)}</td><td>${esc(data.tiers[o.tier])}</td><td>${esc(o.kind)}</td>
                 <td>${esc(o.window)}</td><td>${esc(o.reason)}</td><td>${decisionSelect(o.cycle, o.decision)}</td></tr>`).join('')}</tbody></table></section>` : '';
-        const STATE = {Current: __('Current'), Stale: __('Old position, not used'), Unknown: __('No visit found')};
+        const STATE = {Current: __('Current'), Stale: __('Old position, not used'), Unknown: __('No visit found'), Incident: __('Incident team · not planned')};
         const teamPanel = (data.team_positions || []).length ? `<section class="sig-planner-trip"><header><b>${__('Field teams')}</b>
             <span>${__('From Excel Setup; each team starts where its leader last checked in or out')}</span></header><table><thead><tr>
             <th>${__('Team')}</th><th>${__('Last site')}</th><th>${__('Last seen')}</th><th>${__('Position')}</th></tr></thead><tbody>${

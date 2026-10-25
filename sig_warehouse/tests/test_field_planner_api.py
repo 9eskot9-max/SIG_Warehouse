@@ -102,13 +102,14 @@ class FieldPlannerApiTests(unittest.TestCase):
         setup = json.dumps({"teams": [
             {"id": "t1", "leader": "E1", "team": "Waqas", "phone": "1", "enabled": True},
             {"id": "t2", "leader": "E2", "team": "Asif", "phone": "2", "enabled": True},
-            {"id": "t3", "leader": "E3", "team": "Off", "phone": "3", "enabled": False}]})
+            {"id": "t3", "leader": "E3", "team": "Off", "phone": "3", "enabled": False},
+            {"id": "t4", "leader": "E4", "team": "Incident crew", "phone": "4", "enabled": True, "archetype": "Incident"}]})
         visits = [dict(employee="E1", site="Z1", start_at="2026-10-23 08:00:00", end_at="2026-10-23 09:00:00", status="COMPLETED", cycle=None)]
         api, _ = load_api(["SIG Field Ops"], setup_json=setup, visits=visits)
         result = api.get_field_plan(week_start="2026-10-25")
         self.assertEqual(2, result["summary"]["teams"])
         states = {p["team"]: p["state"] for p in result["team_positions"]}
-        self.assertEqual({"Waqas": "Current", "Asif": "Unknown"}, states)
+        self.assertEqual({"Waqas": "Current", "Asif": "Unknown", "Incident crew": "Incident"}, states)
         self.assertEqual({"Waqas", "Asif"}, {t["leader"] for t in result["teams"]} | {"Waqas", "Asif"})
 
     def test_reference_towns_need_access_and_load_the_bundled_file(self):

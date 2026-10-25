@@ -80,7 +80,8 @@ def _team_setup():
         data = json.loads(frappe.db.get_single_value("SIG Excel Setup", "configuration_json") or "{}")
     except (ValueError, frappe.DoesNotExistError):
         return []
-    return [{"leader": r["leader"], "team": r.get("team") or r["leader"], "phone": r.get("phone", "")}
+    return [{"leader": r["leader"], "team": r.get("team") or r["leader"], "phone": r.get("phone", ""),
+             "archetype": r.get("archetype") or "Project"}
             for r in data.get("teams", []) if r.get("enabled") and r.get("leader")]
 
 
@@ -124,11 +125,12 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
     candidates, excluded = planner.build_candidates(cycles, windows, visit_days, today, params,
                                                     planner.index_projects(_projects()), "plan_hold", decisions)
 
-    team_setup = _team_setup()
+    all_teams = _team_setup()
+    team_setup = [t for t in all_teams if t["archetype"] == "Project"]     # Incident teams are never planned
     team_visits = []
-    if team_setup:
+    if all_teams:
         team_visits = [dict(v) for v in frappe.get_list(
-            "SIG Field Visit", filters={"employee": ["in", [t["leader"] for t in team_setup]],
+            "SIG Field Visit", filters={"employee": ["in", [t["leader"] for t in all_teams]],
                                         "start_at": [">=", frappe.utils.add_days(today, -45)]},
             fields=["employee", "site", "start_at", "end_at", "status"], order_by="start_at desc", limit_page_length=500)]
 
@@ -141,12 +143,16 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
                 coords[(row.name or "").upper()] = (float(row.site_latitude), float(row.site_longitude))
 
     positions = planner.team_positions(team_setup, team_visits, coords, today)
+    positions += [{"leader": t["leader"], "team": t["team"], "phone": t["phone"], "site": "", "seen_at": "",
+                   "on_site": False, "age_days": None, "state": "Incident", "lat": None, "lon": None}
+                  for t in all_teams if t["archetype"] == "Incident"]
     starts, names = None, None
-    if positions:
-        count = overrides.get("teams") or len(positions)       # a Teams value typed on the page wins over the setup
-        starts = [(p["lat"], p["lon"]) if p["state"] == "Current" else None for p in positions][:count]
+    planned = [p for p in positions if p["state"] != "Incident"]
+    if planned:
+        count = overrides.get("teams") or len(planned)         # a Teams value typed on the page wins over the setup
+        starts = [(p["lat"], p["lon"]) if p["state"] == "Current" else None for p in planned][:count]
         starts += [None] * (count - len(starts))
-        names = {i + 1: p["team"] for i, p in enumerate(positions[:count])}
+        names = {i + 1: p["team"] for i, p in enumerate(planned[:count])}
     plan = continuity.schedule_continuity(planner.plan_week(candidates, coords, start, overrides), coords, start, overrides,
                                           starts, names)
     plan["team_positions"] = positions

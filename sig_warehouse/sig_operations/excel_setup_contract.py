@@ -16,7 +16,7 @@ FIELDS = {
     "tag_upl_links": ("id", "tag_item", "cuc", "description", "tag_matcher", "builder_rule", "po", "upl_revision", "enabled"),
     "material_upl_links": ("id", "item_code", "cuc", "source_uom", "target_uom", "treatment", "quantity_basis", "po", "upl_revision", "enabled"),
     "builder_defaults": ("id", "kind", "key", "value", "value2", "po", "enabled"),
-    "teams": ("id", "leader", "team", "phone", "enabled"),
+    "teams": ("id", "leader", "team", "phone", "archetype", "enabled"),
 }
 REQUIRED = {
     "projects": ("id", "project"),
@@ -30,6 +30,8 @@ REQUIRED = {
     "teams": ("id", "leader"),
 }
 KINDS = {"purpose_reason", "csv_remarks", "tms_implementer"}
+# Project teams are planned by the Field Planner; Incident teams are labelled and never planned.
+TEAM_ARCHETYPES = ("Project", "Incident")
 WORKBOOK_DATASETS = {
     "RV80": ("projects", "builder_profiles", "builder_contacts", "project_builder_links", "tag_definitions", "builder_defaults"),
     "SIGPC": ("projects", "tag_definitions", "tag_upl_links", "material_upl_links"),
@@ -112,6 +114,10 @@ def validate(datasets):
                         raise ValueError("Direct material link needs CUC, both UOMs and reviewed quantity basis")
                     if row["source_uom"].casefold() != row["target_uom"].casefold():
                         raise ValueError("Direct material links cannot convert UOM")
+            if name == "teams":
+                row["archetype"] = row["archetype"] or "Project"
+                if row["archetype"] not in TEAM_ARCHETYPES:
+                    raise ValueError("Team archetype must be Project or Incident")
             if name == "builder_defaults" and row["kind"] not in KINDS:
                 raise ValueError("Adapter v1 supports purpose_reason, csv_remarks and tms_implementer Builder lists")
             if name == "builder_defaults" and row["po"]:
