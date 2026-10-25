@@ -26,3 +26,10 @@
 .sig-planner-maptools { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
 .sig-planner-legend { display: flex; gap: 10px; flex-wrap: wrap; margin-inline-start: 10px; font-size: 11px; color: #53657d; }
 .sig-planner-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-inline-end: 4px; }
+.sig-planner-leaflet { height: 520px; border-radius: 4px; z-index: 0; }
+.sig-planner-pin { width: 18px; height: 18px; border-radius: 50%; color: #fff; font-size: 10px; line-height: 18px; text-align: center; border: 1.5px solid #fff; box-shadow: 0 0 2px rgba(0,0,0,.5); }
+.sig-planner-legend i.sq { border-radius: 2px; }
+.sig-planner-zones { margin: 0 0 6px; }
+.sig-planner-zoom { display: inline-flex; gap: 4px; margin-inline-start: 6px; }
+.sig-planner-town { display: none; }
+.sig-planner-zoomed .sig-planner-town { display: block; }

@@ -93,6 +93,15 @@ class FieldPlannerApiTests(unittest.TestCase):
         self.assertEqual([("get_list", "SIG Site", ("name", "site_latitude", "site_longitude"))], [c for c in calls if c[1] == "SIG Site"])
         self.assertFalse([c for c in calls if c[0] == "get_all"])
 
+    def test_reference_towns_need_access_and_load_the_bundled_file(self):
+        api, _ = load_api(["Employee"])
+        with self.assertRaises(PermissionError):
+            api.get_reference_towns()
+        api, _ = load_api(["SIG Field Ops"])
+        towns = api.get_reference_towns()
+        self.assertGreater(len(towns), 100)
+        self.assertTrue(all(t["zone"] and 15 <= t["lat"] <= 33 and 34 <= t["lon"] <= 56 for t in towns))
+
     def test_no_write_calls_exist_in_the_api_module(self):
         source = (APP_ROOT / "sig_warehouse" / "sig_warehouse" / "field_planner_api.py").read_text(encoding="utf-8")
         for forbidden in ("set_value", ".insert(", ".save(", "db.sql", "delete_doc", "ignore_permissions"):

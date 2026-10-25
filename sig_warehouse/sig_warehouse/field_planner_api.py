@@ -1,4 +1,7 @@
 """Whitelisted read-only API for the Field Planner page. Writes nothing; every read uses the caller's permissions."""
+import json
+import os
+
 import frappe
 
 from sig_warehouse.sig_warehouse import field_planner as planner
@@ -96,3 +99,11 @@ def _present(plan, coords):
              for s in plan["later"] + plan["unplaced"]]
     return {"summary": plan["summary"], "params": plan["params"], "trips": trips, "other": extra,
             "tiers": planner.TIER_LABEL, "has_coordinates": bool(coords)}
+
+
+@frappe.whitelist()
+def get_reference_towns():
+    """Static reference towns (zone, overnight base candidates) for the plan map. Read-only file in the app."""
+    _require_access()
+    with open(os.path.join(os.path.dirname(__file__), "field_planner_towns.json"), encoding="utf-8") as handle:
+        return json.load(handle)
