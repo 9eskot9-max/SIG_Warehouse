@@ -33,3 +33,19 @@
 .sig-planner-zoom { display: inline-flex; gap: 4px; margin-inline-start: 6px; }
 .sig-planner-town { display: none; }
 .sig-planner-zoomed .sig-planner-town { display: block; }
+.sig-planner-searchbar { margin: 4px 0 8px; }
+.sig-planner-search { width: 100%; max-width: 360px; height: 32px; padding: 4px 10px; border: 1px solid #c9d4e0; border-radius: 6px; font-size: 13px; }
+.sig-planner-sitebox:empty { display: none; }
+.sig-planner-sitebox { margin-bottom: 10px; }
+.sig-planner-sitecard { background: #fff; border: 1px solid #c9d4e0; border-inline-start: 4px solid #1e7fff; border-radius: 6px; padding: 10px 12px; max-width: 520px; box-shadow: 0 2px 8px rgba(8,28,68,.08); }
+.sig-planner-sitecard-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 15px; color: #081c44; }
+.sig-planner-sitecard-sub { color: #53657d; font-size: 12px; margin: 2px 0 8px; }
+.sig-planner-sitecard dl { display: grid; grid-template-columns: 110px 1fr; gap: 4px 10px; font-size: 12px; margin: 0; }
+.sig-planner-sitecard dt { color: #53657d; font-weight: 600; }
+.sig-planner-sitecard dd { margin: 0; color: #081c44; }
+.sig-planner-sitecard-links { margin-top: 8px; font-size: 12px; }
+.sig-planner-row { cursor: pointer; }
+.sig-planner-row:hover td { background: #f5f9fd; }
+.sig-planner-must { background: #a4211f; color: #fff; }
+.sig-planner-svg { height: 560px; }
+.sig-planner-leaflet { height: 560px; }

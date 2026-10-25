@@ -104,7 +104,8 @@ def _present(plan, coords):
                                  "lon": coords[s["site"]][1], "cycle": s["cycle"], "project": s["project"],
                                  "tier": s["tier"], "kind": s.get("kind") or cluster["kind"], "window": s.get("window"),
                                  "reason": s["reason"], "leg_km": s["leg_km"] if s["order"] > 1 else None,
-                                 "value": s.get("value"), "must": bool(s.get("must"))}
+                                 "value": s.get("value"), "value_source": s.get("value_source", ""),
+                                 "class": planner.CLASS_LABEL[planner.priority_class(s)], "must": bool(s.get("must"))}
                                 for s in cluster["stops"] if s["site"] in coords]})
     extra = [{"site": s["site"], "cycle": s["cycle"], "project": s["project"], "tier": s["tier"],
               "kind": s.get("kind") or "Committed later", "window": s.get("window"), "reason": s["reason"]}

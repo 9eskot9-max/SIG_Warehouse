@@ -101,7 +101,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                 const fill = view.mode === 'trip' ? color : TIER_COLORS[s.tier];
                 L.marker([s.lat, s.lon], {icon: L.divIcon({className: 'sig-planner-pin-wrap', iconSize: [18, 18],
                     html: `<div class="sig-planner-pin" style="background:${fill};opacity:${trip.loaded ? 1 : 0.55}">${s.order}</div>`})})
-                    .bindTooltip(`${s.site} · ${data.tiers[s.tier]} · ${trip.id} #${s.order}`).addTo(map);
+                    .bindTooltip(`${s.site} · ${data.tiers[s.tier]} · ${trip.id} #${s.order}`).on('click', () => showCard(s.site)).addTo(map);
                 bounds.push([s.lat, s.lon]);
             });
         });
@@ -127,8 +127,8 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                 const [x, y] = pts[i], fill = view.mode === 'trip' ? color : TIER_COLORS[stop.tier], op = trip.loaded ? 1 : 0.5;
                 const tip = `<title>${esc(stop.site)} · ${esc(data.tiers[stop.tier])} · ${esc(trip.id)} #${stop.order}\n${esc(stop.reason)}</title>`;
                 dots += stop.kind === 'Committed'
-                    ? `<rect data-s="12" data-cx="${x}" data-cy="${y}" x="${x - 6}" y="${y - 6}" width="12" height="12" fill="${fill}" fill-opacity="${op}" stroke="#fff" stroke-width="1.5">${tip}</rect>`
-                    : `<circle data-r="6.5" cx="${x}" cy="${y}" r="6.5" fill="${fill}" fill-opacity="${op}" stroke="#fff" stroke-width="1.5">${tip}</circle>`;
+                    ? `<rect data-site="${esc(stop.site)}" data-s="12" data-cx="${x}" data-cy="${y}" x="${x - 6}" y="${y - 6}" width="12" height="12" fill="${fill}" fill-opacity="${op}" stroke="#fff" stroke-width="1.5">${tip}</rect>`
+                    : `<circle data-site="${esc(stop.site)}" data-r="6.5" cx="${x}" cy="${y}" r="6.5" fill="${fill}" fill-opacity="${op}" stroke="#fff" stroke-width="1.5">${tip}</circle>`;
                 labels += `<text data-f="8" x="${x}" y="${y + 3}" text-anchor="middle" font-size="8" fill="#fff" pointer-events="none">${stop.order}</text>`;
             });
             return {line, dots, labels};
@@ -168,6 +168,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         mount.find('[data-base]').on('click', (e) => { view.base = $(e.currentTarget).data('base'); drawMap(data, mount); });
         mount.find('[data-mode]').on('click', (e) => { view.mode = $(e.currentTarget).data('mode'); drawMap(data, mount); });
         mount.find('[data-toggle]').on('click', (e) => { const k = $(e.currentTarget).data('toggle'); view[k] = !view[k]; drawMap(data, mount); });
+        mount.find('[data-site]').on('click', (e) => showCard($(e.currentTarget).attr('data-site')));
         if (street) { drawStreetMap(data, mount); return; }
         const svg = mount.find('svg')[0];
         applyZoom(svg);
@@ -201,7 +202,68 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         return `<div class="sig-planner-card sig-planner-${tone}"><div class="num">${esc(value)}</div><div class="lbl">${esc(label)}</div></div>`;
     }
 
+    function indexSites(data) {
+        const idx = {};
+        data.trips.forEach((trip) => trip.stops.forEach((stop) => { idx[stop.site] = {stop, trip, data}; }));
+        data.other.forEach((o) => { if (!idx[o.site]) idx[o.site] = {other: o, data}; });
+        return idx;
+    }
+
+    function cardHtml(site, project, rows, must) {
+        return `<div class="sig-planner-sitecard">
+            <div class="sig-planner-sitecard-head"><b>${esc(site)}</b>${must ? ' <span class="sig-planner-pill sig-planner-must">Must</span>' : ''}
+            <button type="button" class="btn btn-xs btn-default sig-planner-close" aria-label="${esc(__('Close'))}">&times;</button></div>
+            <div class="sig-planner-sitecard-sub">${esc(project || '')}</div>
+            <dl>${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('')}</dl>
+            <div class="sig-planner-sitecard-links"><a href="/app/sig-site/${encodeURIComponent(site)}">${__('Open site record')}</a></div></div>`;
+    }
+
+    // Small card for one site. Shown only after a search, a map pin or a table row is clicked.
+    function siteCard(site) {
+        const hit = view.index[site];
+        if (!hit) return '';
+        const d = hit.data;
+        const cycleLink = (c) => `<a href="/app/sig-site-cycle/${encodeURIComponent(c)}">${esc(c)}</a>`;
+        if (hit.other) {
+            const o = hit.other;
+            return cardHtml(site, o.project, [
+                [__('Priority'), esc(d.tiers[o.tier])],
+                [__('Plan'), esc(__('Not in this week\'s plan'))],
+                [__('Why'), esc(o.reason)],
+                [__('TCN window'), esc(o.window || '—')],
+                [__('Cycle'), cycleLink(o.cycle)],
+            ]);
+        }
+        const {stop, trip} = hit;
+        const when = trip.first_day === trip.last_day ? trip.first_day : `${trip.first_day} → ${trip.last_day}`;
+        const plan = trip.status === 'Scheduled' ? `${__('Team')} ${trip.team} · ${when}`
+            : trip.status === 'Lapsed' ? __('Lapsed: no team-day left') : __('Waiting for nearby sites');
+        const value = stop.value ? `${Math.round(stop.value).toLocaleString()} SAR · ${stop.value_source || ''}` : '—';
+        const stopText = `${stop.order} / ${trip.stops.length}` +
+            (stop.leg_km == null ? '' : ` · ${stop.leg_km} km ${__('from previous')}`);
+        return cardHtml(site, stop.project, [
+            [__('Priority'), esc(`${stop.class || ''} · ${d.tiers[stop.tier]}`)],
+            [__('Plan'), esc(`${trip.id} · ${plan}`)],
+            [__('Stop'), esc(stopText)],
+            [__('TCN window'), esc(stop.window || __('none this week'))],
+            [__('Value'), esc(value)],
+            [__('Why'), esc(stop.reason)],
+            [__('Cycle'), cycleLink(stop.cycle)],
+        ], stop.must || stop.class === 'Must');
+    }
+
+    function showCard(site) {
+        const key = site ? String(site).toUpperCase() : null;
+        view.selected = key && view.index[key] ? key : null;
+        const box = root.find('.sig-planner-sitebox');
+        box.html(view.selected ? siteCard(view.selected) : '');
+        box.find('.sig-planner-close').on('click', () => showCard(null));
+        if (view.selected) box[0].scrollIntoView({block: 'nearest', behavior: 'smooth'});
+    }
+
     function render(data) {
+        view.index = indexSites(data);
+        const sites = Object.keys(view.index).sort();
         const s = data.summary;
         const cards = [
             card(__('Committed this week'), s.committed_sites, 'blue'),
@@ -209,38 +271,59 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             card(__('Close to handover'), s.close_to_handover, 'amber'),
             card(__('Ready to batch'), s.ready_to_batch, 'green'),
             card(__('Team-days planned / capacity'), `${s.loaded_team_days} / ${s.capacity_team_days}`, s.over_capacity ? 'red' : 'green'),
-            card(__('Backlog trips'), s.backlog_trips, 'gray'),
+            card(__('Lapsed or waiting trips'), s.backlog_trips, 'gray'),
             card(__('No coordinates'), data.has_coordinates ? s.no_coordinates : s.candidates, s.no_coordinates || !data.has_coordinates ? 'red' : 'gray'),
         ].join('');
         const note = data.has_coordinates ? '' :
             `<div class="sig-planner-note">${__('Site coordinates are not loaded yet, so trips cannot be formed.')}</div>`;
         const trips = data.trips.map((trip) => {
-            const rows = trip.stops.map((stop) => `<tr>
+            const rows = trip.stops.map((stop) => `<tr class="sig-planner-row" data-site="${esc(stop.site)}">
                 <td>${stop.order}</td>
                 <td><a href="/app/sig-site-cycle/${encodeURIComponent(stop.cycle)}">${esc(stop.site)}</a></td>
                 <td>${esc(stop.project)}</td>
                 <td><span class="sig-planner-pill sig-planner-${esc(stop.tier)}">${esc(data.tiers[stop.tier])}</span></td>
-                <td>${esc(stop.kind)}</td><td>${esc(stop.window)}</td><td>${esc(stop.reason)}</td>
+                <td>${esc(stop.class || '')}</td><td>${esc(stop.window)}</td><td>${esc(stop.reason)}</td>
                 <td class="num">${stop.leg_km == null ? '' : esc(stop.leg_km)}</td></tr>`).join('');
             const title = `${esc(trip.id)} · ${esc(trip.kind)}${trip.anchor ? ' · ' + esc(trip.anchor) : ''}`;
             const base = baseTown(trip);
             const baseText = base ? ` · ${__('Base')}: ${esc(base.t.name)} (${Math.round(base.d)} km)` : '';
+            const status = trip.status === 'Scheduled' ? `${__('Team')} ${trip.team} · ${esc(trip.first_day)}`
+                : trip.status === 'Lapsed' ? __('Lapsed') : __('Waiting');
             return `<section class="sig-planner-trip ${trip.loaded ? '' : 'sig-planner-backlog'}">
                 <header><b>${title}</b><span>${trip.stops.length} ${__('sites')} · ${esc(trip.diameter_km)} km ${__('spread')} ·
-                ${esc(trip.hours)} h · ${esc(trip.team_days)} ${__('team-day(s)')} ·
-                ${trip.loaded ? __('This week') : __('Backlog')}${baseText}</span></header>
+                ${esc(trip.hours)} h · ${esc(trip.team_days)} ${__('team-day(s)')} · ${status}${baseText}</span></header>
                 <table><thead><tr><th>#</th><th>${__('Site')}</th><th>${__('Project')}</th><th>${__('Priority')}</th>
-                <th>${__('Kind')}</th><th>${__('TCN window')}</th><th>${__('Why')}</th><th>${__('km')}</th></tr></thead>
+                <th>${__('Class')}</th><th>${__('TCN window')}</th><th>${__('Why')}</th><th>${__('km')}</th></tr></thead>
                 <tbody>${rows}</tbody></table></section>`;
         }).join('');
         const other = data.other.length ? `<section class="sig-planner-trip"><header><b>${__('Not placed')}</b>
             <span>${__('Committed for a later week, or no site coordinates')}</span></header><table><tbody>${
-            data.other.map((o) => `<tr><td><a href="/app/sig-site-cycle/${encodeURIComponent(o.cycle)}">${esc(o.site)}</a></td>
+            data.other.map((o) => `<tr class="sig-planner-row" data-site="${esc(o.site)}"><td><a href="/app/sig-site-cycle/${encodeURIComponent(o.cycle)}">${esc(o.site)}</a></td>
                 <td>${esc(o.project)}</td><td>${esc(data.tiers[o.tier])}</td><td>${esc(o.kind)}</td>
                 <td>${esc(o.window)}</td><td>${esc(o.reason)}</td></tr>`).join('')}</tbody></table></section>` : '';
-        root.html(`<div class="sig-planner-cards">${cards}</div>${note}<div class="sig-planner-map"></div>${trips}${other}
+        root.html(`<div class="sig-planner-cards">${cards}</div>${note}
+            <div class="sig-planner-searchbar">
+                <input type="search" class="sig-planner-search" list="sig-planner-sites" autocomplete="off"
+                    placeholder="${esc(__('Search a site code, e.g. ZDA970'))}">
+                <datalist id="sig-planner-sites">${sites.map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
+            </div>
+            <div class="sig-planner-sitebox"></div>
+            <div class="sig-planner-map"></div>${trips}${other}
             <p class="sig-planner-foot">${__('Read-only proposal. Mark a cycle Hold or Visited on its form to keep it out of the plan.')}</p>`);
+        root.find('.sig-planner-search').on('input', (e) => {
+            const q = String($(e.currentTarget).val() || '').trim().toUpperCase();
+            if (view.index[q]) showCard(q);
+        }).on('change', (e) => {
+            const q = String($(e.currentTarget).val() || '').trim().toUpperCase();
+            if (!q) return showCard(null);
+            const hit = Object.keys(view.index).find((k) => k.startsWith(q));
+            if (hit) showCard(hit);
+        });
+        root.find('.sig-planner-row').on('click', (e) => {
+            if (!$(e.target).is('a')) showCard($(e.currentTarget).attr('data-site'));
+        });
         if (data.has_coordinates && data.trips.length) drawMap(data, root.find('.sig-planner-map'));
+        showCard(view.selected);
     }
 
     function load() {
