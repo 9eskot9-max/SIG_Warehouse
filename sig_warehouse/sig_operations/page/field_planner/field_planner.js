@@ -258,7 +258,6 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         const box = root.find('.sig-planner-sitebox');
         box.html(view.selected ? siteCard(view.selected) : '');
         box.find('.sig-planner-close').on('click', () => showCard(null));
-        if (view.selected) box[0].scrollIntoView({block: 'nearest', behavior: 'smooth'});
     }
 
     function render(data) {
@@ -307,8 +306,8 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                     placeholder="${esc(__('Search a site code, e.g. ZDA970'))}">
                 <datalist id="sig-planner-sites">${sites.map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
             </div>
-            <div class="sig-planner-sitebox"></div>
-            <div class="sig-planner-map"></div>${trips}${other}
+            <div class="sig-planner-map"><div class="sig-planner-mapbody"></div><div class="sig-planner-sitebox"></div></div>
+            ${trips}${other}
             <p class="sig-planner-foot">${__('Read-only proposal. Mark a cycle Hold or Visited on its form to keep it out of the plan.')}</p>`);
         root.find('.sig-planner-search').on('input', (e) => {
             const q = String($(e.currentTarget).val() || '').trim().toUpperCase();
@@ -322,7 +321,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         root.find('.sig-planner-row').on('click', (e) => {
             if (!$(e.target).is('a')) showCard($(e.currentTarget).attr('data-site'));
         });
-        if (data.has_coordinates && data.trips.length) drawMap(data, root.find('.sig-planner-map'));
+        if (data.has_coordinates && data.trips.length) drawMap(data, root.find('.sig-planner-mapbody'));
         showCard(view.selected);
     }
 
