@@ -4,6 +4,7 @@ import os
 
 import frappe
 
+from sig_warehouse.sig_warehouse import continuity
 from sig_warehouse.sig_warehouse import field_planner as planner
 
 PLANNER_ROLES = {"System Manager", "Projects Manager", "Projects User", "SIG Field Ops"}
@@ -117,7 +118,7 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
             if row.site_latitude and row.site_longitude:
                 coords[(row.name or "").upper()] = (float(row.site_latitude), float(row.site_longitude))
 
-    plan = planner.choose_week(candidates, coords, start, overrides)
+    plan = continuity.schedule_continuity(planner.plan_week(candidates, coords, start, overrides), coords, start, overrides)
     for ex in excluded:
         if ex["reason"].startswith("PM "):
             c = ex["cycle"]
@@ -154,6 +155,7 @@ def _present(plan, coords):
                                  "tier": s["tier"], "kind": s.get("kind") or cluster["kind"], "window": s.get("window"),
                                  "reason": s["reason"], "leg_km": s["leg_km"] if s["order"] > 1 else None,
                                  "value": s.get("value"), "value_source": s.get("value_source", ""), "decision": s.get("decision", ""),
+                                 "day": s.get("day", ""),
                                  "class": planner.CLASS_LABEL[planner.priority_class(s)], "must": bool(s.get("must"))}
                                 for s in cluster["stops"] if s["site"] in coords]})
     extra = [{"site": s["site"], "cycle": s["cycle"], "project": s["project"], "tier": s["tier"],
