@@ -55,3 +55,5 @@
 .sig-planner-suggest:empty { display: none; }
 .sig-planner-sugg { text-align: start; background: none; border: 0; padding: 6px 10px; font-size: 13px; color: #081c44; font-family: inherit; }
 .sig-planner-sugg:hover, .sig-planner-sugg:focus { background: #eef7fc; outline: none; }
+.sig-planner-decide { font-size: 12px; height: 26px; border: 1px solid #c9d4e0; border-radius: 4px; background: #fff; color: #081c44; }
+.sig-planner-rules { font-size: 12px; color: #53657d; margin: 2px 0 8px; }

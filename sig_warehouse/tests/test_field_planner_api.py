@@ -17,7 +17,7 @@ class Row(dict):
 def load_api(roles, can_read=True):
     calls = []
     frappe = ModuleType("frappe")
-    frappe.whitelist = lambda: lambda function: function
+    frappe.whitelist = lambda *args, **kwargs: (lambda function: function)
     frappe.session = SimpleNamespace(user="pm@example.com")
     frappe.PermissionError = PermissionError
     frappe.get_roles = lambda user: roles
@@ -105,8 +105,11 @@ class FieldPlannerApiTests(unittest.TestCase):
 
     def test_no_write_calls_exist_in_the_api_module(self):
         source = (APP_ROOT / "sig_warehouse" / "sig_warehouse" / "field_planner_api.py").read_text(encoding="utf-8")
-        for forbidden in ("set_value", ".insert(", ".save(", "db.sql", "delete_doc", "ignore_permissions"):
+        # the only write is the logged PM decision; it must be the sole insert and set_value in the module
+        for forbidden in (".save(", "db.sql", "delete_doc", "ignore_permissions"):
             self.assertNotIn(forbidden, source)
+        self.assertEqual(1, source.count(".insert("))
+        self.assertEqual(1, source.count("set_value("))
 
 
 if __name__ == "__main__":

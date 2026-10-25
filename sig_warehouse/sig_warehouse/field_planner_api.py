@@ -31,6 +31,44 @@ def _number(value, default, minimum=0):
     return number if number > minimum else default
 
 
+def _decisions(names):
+    """The PM decision log for these cycles, newest first, read with the caller's permissions."""
+    if not names:
+        return {}
+    rows = frappe.get_list("SIG Plan Decision", filters={"cycle": ["in", names]},
+                           fields=["cycle", "action", "reason", "until", "decided_at"], order_by="decided_at desc",
+                           limit_page_length=0)
+    out = {}
+    for r in rows:
+        out.setdefault(r.cycle, []).append({"action": r.action or "", "reason": r.reason, "until": r.until,
+                                            "created": r.decided_at})
+    return out
+
+
+@frappe.whitelist(methods=["POST"])
+def set_plan_decision(cycle, action="", reason=""):
+    """Record one PM decision for a cycle: Must, Hold, Remove, or blank to clear. Saved at once, logged, never edited."""
+    _require_access()
+    if action not in ("", "Must", "Hold", "Remove"):
+        frappe.throw("Unknown plan decision.")
+    if not frappe.db.exists("SIG Site Cycle", cycle):
+        frappe.throw("The site cycle no longer exists. Refresh the plan.")
+    if not frappe.has_permission("SIG Site Cycle", "write", cycle):
+        frappe.throw("You cannot change the plan decision for this cycle.", frappe.PermissionError)
+    today = frappe.utils.getdate(frappe.utils.nowdate())
+    doc = frappe.get_doc({
+        "doctype": "SIG Plan Decision", "cycle": cycle,
+        "site_key": frappe.db.get_value("SIG Site Cycle", cycle, "site_key"),
+        "action": action, "reason": (reason or "")[:140],
+        "until": frappe.utils.add_days(today, 30) if action == "Hold" else None,
+        "decided_by": frappe.session.user, "decided_at": frappe.utils.now_datetime(),
+    })
+    doc.insert()
+    # the cycle form shows the current decision; the log stays the source of truth
+    frappe.db.set_value("SIG Site Cycle", cycle, "plan_hold", action, update_modified=False)
+    return {"name": doc.name, "action": action}
+
+
 def _projects():
     """ERP Projects (name, title, family, agreement/PO) read with the caller's permissions; none if not readable."""
     try:
@@ -67,8 +105,9 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
     visit_days = {}
     for visit in visits:
         visit_days.setdefault(visit.cycle, set()).add(frappe.utils.getdate(visit.start_at))
-    candidates, _ = planner.build_candidates(cycles, windows, visit_days, today, params,
-                                             planner.index_projects(_projects()), "plan_hold")
+    decisions = _decisions(names)
+    candidates, excluded = planner.build_candidates(cycles, windows, visit_days, today, params,
+                                                    planner.index_projects(_projects()), "plan_hold", decisions)
 
     coords = {}
     if _has_field("SIG Site", "site_latitude") and _has_field("SIG Site", "site_longitude") and candidates:
@@ -79,6 +118,16 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
                 coords[(row.name or "").upper()] = (float(row.site_latitude), float(row.site_longitude))
 
     plan = planner.choose_week(candidates, coords, start, overrides)
+    for ex in excluded:
+        if ex["reason"].startswith("PM "):
+            c = ex["cycle"]
+            site = (c.get("site_id") or c.get("site") or "").upper()
+            plan["later"].append({"site": site, "cycle": c["name"], "project": c.get("project") or "", "tier": "",
+                                  "kind": "Held" if ex["reason"].startswith("PM Hold") else "Removed",
+                                  "window": "", "reason": ex["reason"], "must": False, "decision": "Hold"
+                                  if ex["reason"].startswith("PM Hold") else "Remove",
+                                  "lat": coords[site][0] if site in coords else None,
+                                  "lon": coords[site][1] if site in coords else None})
     return _present(plan, coords)
 
 
@@ -104,14 +153,14 @@ def _present(plan, coords):
                                  "lon": coords[s["site"]][1], "cycle": s["cycle"], "project": s["project"],
                                  "tier": s["tier"], "kind": s.get("kind") or cluster["kind"], "window": s.get("window"),
                                  "reason": s["reason"], "leg_km": s["leg_km"] if s["order"] > 1 else None,
-                                 "value": s.get("value"), "value_source": s.get("value_source", ""),
+                                 "value": s.get("value"), "value_source": s.get("value_source", ""), "decision": s.get("decision", ""),
                                  "class": planner.CLASS_LABEL[planner.priority_class(s)], "must": bool(s.get("must"))}
                                 for s in cluster["stops"] if s["site"] in coords]})
     extra = [{"site": s["site"], "cycle": s["cycle"], "project": s["project"], "tier": s["tier"],
               "kind": s.get("kind") or "Committed later", "window": s.get("window"), "reason": s["reason"],
               "lat": coords[s["site"]][0] if s["site"] in coords else None,
               "lon": coords[s["site"]][1] if s["site"] in coords else None,
-              "must": bool(s.get("must"))}
+              "must": bool(s.get("must")), "decision": s.get("decision", "")}
              for s in plan["later"] + plan["unplaced"]]
     return {"summary": plan["summary"], "params": plan["params"], "trips": trips, "other": extra,
             "tiers": planner.TIER_LABEL, "has_coordinates": bool(coords)}

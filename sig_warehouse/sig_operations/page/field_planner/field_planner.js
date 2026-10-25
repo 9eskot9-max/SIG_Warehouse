@@ -1,6 +1,8 @@
 frappe.pages['field-planner'].on_page_load = function (wrapper) {
     const page = frappe.ui.make_app_page({parent: wrapper, title: __('Field Planner'), single_column: true});
     const root = $('<main class="sig-planner-page"></main>').appendTo(page.main);
+    // Every PM decision list on the page reports here; the choice saves at once.
+    root.on('change', '.sig-planner-decide', (e) => decide($(e.currentTarget).attr('data-cycle'), $(e.currentTarget).val()));
     const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const fmtDates = (text) => text.replace(/(\d{4})-(\d{2})-(\d{2})/g, (m, y, mo, d) => `${d}-${MON[Number(mo) - 1]}`);
     const esc = (value) => frappe.utils.escape_html(fmtDates(value == null ? '' : String(value)));
@@ -227,12 +229,12 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         return idx;
     }
 
-    function cardHtml(site, project, rows, must, cycle) {
+    function cardHtml(site, project, rows, must, cycle, decision) {
         return `<div class="sig-planner-sitecard">
             <div class="sig-planner-sitecard-head"><b>${cycle ? `<a href="/app/sig-site-cycle/${encodeURIComponent(cycle)}">${esc(site)}</a>` : esc(site)}</b>${must ? ' <span class="sig-planner-pill sig-planner-must">Must</span>' : ''}
             <button type="button" class="btn btn-xs btn-default sig-planner-close" aria-label="${esc(__('Close'))}">&times;</button></div>
             <div class="sig-planner-sitecard-sub">${esc(project || '')}</div>
-            <dl>${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('')}</dl>
+            <dl>${rows.concat([[__('Decision'), decisionSelect(cycle, decision)]]).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('')}</dl>
             <div class="sig-planner-sitecard-links"><a href="/app/sig-site/${encodeURIComponent(site)}">${__('Open site record')}</a></div></div>`;
     }
 
@@ -263,7 +265,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                 [__('Plan'), esc(o.kind === 'Committed later' ? __('Later week') : __('Not planned'))],
                 [__('TCN window'), esc(o.window || '—')],
                 [__('Reason'), esc(o.reason)],
-            ], o.must, o.cycle);
+            ], o.must, o.cycle, o.decision);
         }
         const {stop, trip} = hit;
         const scheduled = trip.status === 'Scheduled';
@@ -283,7 +285,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             const n = nearestTeam(site, d);
             if (n) rows.push([__('Nearest team'), esc(`${__('Team')} ${n.team} · ${Math.round(n.km)} km · ${n.day}`)]);
         }
-        return cardHtml(site, stop.project, rows, stop.must || stop.class === 'Must', stop.cycle);
+        return cardHtml(site, stop.project, rows, stop.must || stop.class === 'Must', stop.cycle, stop.decision);
     }
 
     function showCard(site) {
@@ -292,6 +294,22 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         const box = root.find('.sig-planner-sitebox');
         box.html(view.selected ? siteCard(view.selected) : '');
         box.find('.sig-planner-close').on('click', () => showCard(null));
+    }
+
+    const DECISIONS = [['', '—'], ['Must', 'Must'], ['Hold', 'Hold (30 days)'], ['Remove', 'Remove']];
+    function decisionSelect(cycle, current) {
+        return `<select class="sig-planner-decide" data-cycle="${esc(cycle)}" aria-label="${esc(__('PM decision'))}">${
+            DECISIONS.map(([v, label]) => `<option value="${v}"${v === (current || '') ? ' selected' : ''}>${esc(label)}</option>`).join('')}</select>`;
+    }
+
+    // A PM decision saves at once and is logged; the plan refreshes. No confirm step.
+    function decide(cycle, action) {
+        frappe.call({
+            method: 'sig_warehouse.sig_warehouse.field_planner_api.set_plan_decision',
+            args: {cycle: cycle, action: action || '', reason: ''},
+            callback: () => { frappe.show_alert({message: action ? `${action} saved` : __('Decision cleared'), indicator: 'green'}, 3); load(); },
+            error: () => frappe.show_alert({message: __('Could not save the decision'), indicator: 'red'}, 5),
+        });
     }
 
     function render(data) {
@@ -316,7 +334,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                 <td>${esc(stop.project)}</td>
                 <td><span class="sig-planner-pill sig-planner-${esc(stop.tier)}">${esc(data.tiers[stop.tier])}</span></td>
                 <td>${esc(stop.class || '')}</td><td>${esc(stop.window)}</td><td>${esc(stop.reason)}</td>
-                <td class="num">${stop.leg_km == null ? '' : esc(stop.leg_km)}</td></tr>`).join('');
+                <td class="num">${stop.leg_km == null ? '' : esc(stop.leg_km)}</td><td>${decisionSelect(stop.cycle, stop.decision)}</td></tr>`).join('');
             const title = `${esc(trip.id)} · ${esc(trip.kind)}${trip.anchor ? ' · ' + esc(trip.anchor) : ''}`;
             const base = baseTown(trip);
             const baseText = base ? ` · ${__('Base')}: ${esc(base.t.name)} (${Math.round(base.d)} km)` : '';
@@ -326,20 +344,21 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                 <header><b>${title}</b><span>${trip.stops.length} ${__('sites')} · ${esc(trip.diameter_km)} km ${__('spread')} ·
                 ${esc(trip.hours)} h · ${esc(trip.team_days)} ${__('team-day(s)')} · ${status}${baseText}</span></header>
                 <table><thead><tr><th>#</th><th>${__('Site')}</th><th>${__('Project')}</th><th>${__('Priority')}</th>
-                <th>${__('Class')}</th><th>${__('TCN window')}</th><th>${__('Why')}</th><th>${__('km')}</th></tr></thead>
+                <th>${__('Class')}</th><th>${__('TCN window')}</th><th>${__('Why')}</th><th>${__('km')}</th><th>${__('Decision')}</th></tr></thead>
                 <tbody>${rows}</tbody></table></section>`;
         }).join('');
         const other = data.other.length ? `<section class="sig-planner-trip"><header><b>${__('Not placed')}</b>
             <span>${__('Committed for a later week, or no site coordinates')}</span></header><table><tbody>${
             data.other.map((o) => `<tr class="sig-planner-row" data-site="${esc(o.site)}"><td><a href="/app/sig-site-cycle/${encodeURIComponent(o.cycle)}">${esc(o.site)}</a></td>
                 <td>${esc(o.project)}</td><td>${esc(data.tiers[o.tier])}</td><td>${esc(o.kind)}</td>
-                <td>${esc(o.window)}</td><td>${esc(o.reason)}</td></tr>`).join('')}</tbody></table></section>` : '';
+                <td>${esc(o.window)}</td><td>${esc(o.reason)}</td><td>${decisionSelect(o.cycle, o.decision)}</td></tr>`).join('')}</tbody></table></section>` : '';
         root.html(`<div class="sig-planner-cards">${cards}</div>${note}
             <div class="sig-planner-searchbar">
                 <input type="search" class="sig-planner-search" autocomplete="off" spellcheck="false" autocapitalize="characters"
                     placeholder="${esc(__('Search a site code, e.g. ZDA970'))}">
                 <div class="sig-planner-suggest"></div>
             </div>
+            <div class="sig-planner-rules">${__('Must: first in the plan, 14 days. Hold (30 days): out of the plan, then back automatically. Remove: out until cleared. A new TCN brings a held or removed site back.')}</div>
             <div class="sig-planner-map"><div class="sig-planner-mapbody"></div><div class="sig-planner-sitebox"></div></div>
             ${trips}${other}
             <p class="sig-planner-foot">${__('Read-only proposal. Mark a cycle Hold or Visited on its form to keep it out of the plan.')}</p>`);

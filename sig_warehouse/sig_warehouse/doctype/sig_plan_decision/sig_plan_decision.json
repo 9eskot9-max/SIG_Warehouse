@@ -1,0 +1,31 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:PD-{#####}",
+ "creation": "2026-10-25 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": ["cycle", "site_key", "action", "reason", "until", "decided_by", "decided_at"],
+ "fields": [
+  {"fieldname": "cycle", "fieldtype": "Link", "in_list_view": 1, "label": "Cycle", "options": "SIG Site Cycle", "reqd": 1},
+  {"fieldname": "site_key", "fieldtype": "Data", "in_list_view": 1, "label": "Site", "read_only": 1},
+  {"fieldname": "action", "fieldtype": "Select", "in_list_view": 1, "label": "Decision", "options": "\nMust\nHold\nRemove", "reqd": 1},
+  {"fieldname": "reason", "fieldtype": "Data", "label": "Note"},
+  {"fieldname": "until", "fieldtype": "Date", "label": "Hold until", "read_only": 1},
+  {"fieldname": "decided_by", "fieldtype": "Data", "label": "Decided by", "read_only": 1},
+  {"fieldname": "decided_at", "fieldtype": "Datetime", "in_list_view": 1, "label": "Decided at", "read_only": 1}
+ ],
+ "links": [],
+ "modified": "2026-10-25 00:00:00",
+ "module": "SIG Warehouse",
+ "name": "SIG Plan Decision",
+ "owner": "Administrator",
+ "permissions": [
+  {"create": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1},
+  {"create": 1, "export": 1, "read": 1, "report": 1, "role": "SIG Field Ops"},
+  {"create": 1, "export": 1, "read": 1, "report": 1, "role": "Projects User"}
+ ],
+ "sort_field": "decided_at",
+ "sort_order": "DESC",
+ "track_changes": 1
+}

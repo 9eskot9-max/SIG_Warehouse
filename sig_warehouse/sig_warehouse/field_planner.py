@@ -23,6 +23,8 @@ DEFAULTS = {
     "tolerance_before": 1,    # a visit this many days before the window start still counts
     "tolerance_after": 2,     # grace after the window end before a TCN is overdue
     "park_days": 60,          # no evidence for this long: parked for review
+    "hold_days": 30,          # a PM Hold keeps the site out of the plan this long
+    "must_days": 14,          # a PM Must keeps the site first in the plan this long, or until a visit
     "visit_hold_days": 30,    # a visit without HO/GCL is held this long, then comes back (a new TCN returns it sooner)
     # Civil work is not planned here. A cycle is left out when the text of its project (label, PO, and the ERP
     # Project it resolves to: name, family) contains one of these.
@@ -423,7 +425,36 @@ def priority_class(item):
     return 1
 
 
-def build_candidates(cycles, windows, visit_days, today, params, project_index=None, mark_field="plan_hold"):
+def active_decision(entries, cycle, last_visit, today, params):
+    """The PM decision that applies today, or None. entries are the cycle's log lines, newest first.
+
+    A blank line clears. Hold and Remove are cancelled by a TCN issued after the decision (PMs request TCNs on
+    purpose). Must ends after must_days, on a reported visit after the decision, or when HO documents exist.
+    """
+    today = _date(today)
+    if not entries:
+        return None
+    latest = entries[0]
+    action = latest.get("action") or ""
+    if action in ("", "Blank"):
+        return None
+    created = _date(latest.get("created"))
+    tcn = _date(cycle.get("tcn_at"))
+    if action == "Must":
+        if (today - created).days >= params["must_days"] or cycle.get("ho_at") or (last_visit and last_visit > created):
+            return None
+        return {"action": "Must", "reason": latest.get("reason") or "", "until": ""}
+    if tcn and tcn > created:
+        return None
+    until = _date(latest.get("until")) or created + timedelta(days=params["hold_days"])
+    if action == "Hold":
+        if today >= until:
+            return None
+        return {"action": "Hold", "reason": latest.get("reason") or "", "until": str(until)}
+    return {"action": "Remove", "reason": latest.get("reason") or "", "until": ""}
+
+
+def build_candidates(cycles, windows, visit_days, today, params, project_index=None, mark_field="plan_hold", decisions=None):
     """Classify open Plan/Handover cycles into candidate rows, shared by the ERP page and the Excel export.
 
     Returns (candidates, excluded). Each candidate carries the value the choice uses: the SAR gross value of the
@@ -438,7 +469,16 @@ def build_candidates(cycles, windows, visit_days, today, params, project_index=N
         if project_index is not None:
             c["project_text"] = project_text(c, project_index)
         win = windows.get(c["name"])
-        tier, reason = classify(c, win, visit_days.get(c["name"], ()), today, params, c.get(mark_field) or "")
+        last_visit = max(visit_days.get(c["name"], ()), default=None) or _date(c.get("last_visit_at"))
+        dec = active_decision((decisions or {}).get(c["name"], []), c, last_visit, today, params)
+        if dec and dec["action"] in ("Hold", "Remove"):
+            why = "PM Hold until %s" % dec["until"] if dec["action"] == "Hold" else "PM Remove"
+            excluded.append({"cycle": c, "reason": why + (" - " + dec["reason"] if dec["reason"] else "")})
+            continue
+        # the PM log is authoritative when it has entries; the cycle's Planner Mark is only a mirror
+        has_log = c["name"] in (decisions or {})
+        mark = "" if has_log else (c.get(mark_field) or "")
+        tier, reason = classify(c, win, visit_days.get(c["name"], ()), today, params, mark)
         if not tier:
             excluded.append({"cycle": c, "reason": reason})
             continue
@@ -452,7 +492,9 @@ def build_candidates(cycles, windows, visit_days, today, params, project_index=N
             "age": str(c.get("last_event_at") or "")[:10],
             "value": value if value is not None else median,
             "value_source": "ERP" if value is not None else "estimated (median)",
-            "has_mir": bool(c.get("mir_at")), "must": (c.get(mark_field) or "") == "Must", "_c": c,
+            "has_mir": bool(c.get("mir_at")),
+            "must": (dec["action"] == "Must") if has_log else (c.get(mark_field) or "") == "Must",
+            "decision": dec["action"] if dec else "", "_c": c,
         })
     return rows, excluded
 

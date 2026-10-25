@@ -296,5 +296,37 @@ class ChooseWeekTests(unittest.TestCase):
         self.assertEqual(date(2026, 10, 25), result["clusters"][0]["days"][0])
 
 
+class PMDecisionTests(unittest.TestCase):
+    def entry(self, action, created="2026-10-20 09:00:00", until=None, reason=""):
+        return {"action": action, "created": created, "until": until, "reason": reason}
+
+    def test_hold_keeps_the_site_out_for_thirty_days_then_returns(self):
+        dec = fp.active_decision([self.entry("Hold")], cycle(), None, TODAY, PARAMS)
+        self.assertEqual("Hold", dec["action"])
+        self.assertIsNone(fp.active_decision([self.entry("Hold", created="2026-09-01 09:00:00")], cycle(), None, TODAY, PARAMS))
+
+    def test_a_tcn_after_a_hold_or_remove_cancels_it(self):
+        c = cycle(tcn_at="2026-10-22 10:00:00")
+        self.assertIsNone(fp.active_decision([self.entry("Hold")], c, None, TODAY, PARAMS))
+        self.assertIsNone(fp.active_decision([self.entry("Remove")], c, None, TODAY, PARAMS))
+
+    def test_remove_stays_until_a_blank_line_clears_it(self):
+        self.assertEqual("Remove", fp.active_decision([self.entry("Remove")], cycle(), None, TODAY, PARAMS)["action"])
+        self.assertIsNone(fp.active_decision([self.entry(""), self.entry("Remove")], cycle(), None, TODAY, PARAMS))
+
+    def test_must_ends_after_fourteen_days_or_on_a_visit(self):
+        self.assertEqual("Must", fp.active_decision([self.entry("Must")], cycle(), None, TODAY, PARAMS)["action"])
+        self.assertIsNone(fp.active_decision([self.entry("Must", created="2026-10-01 09:00:00")], cycle(), None, TODAY, PARAMS))
+        self.assertIsNone(fp.active_decision([self.entry("Must")], cycle(), date(2026, 10, 22), TODAY, PARAMS))
+
+    def test_build_candidates_excludes_held_sites_and_marks_must(self):
+        decisions = {"R1|NA": [self.entry("Hold", reason="no access")], "J1|NA": [self.entry("Must")]}
+        cycles = [dict(cycle(), name="R1|NA", site_id="R1"), dict(cycle(), name="J1|NA", site_id="J1")]
+        rows, excluded = fp.build_candidates(cycles, {}, {}, TODAY, PARAMS, None, "plan_hold", decisions)
+        self.assertEqual(["J1"], [r["site"] for r in rows])
+        self.assertTrue(rows[0]["must"])
+        self.assertIn("PM Hold", excluded[0]["reason"])
+
+
 if __name__ == "__main__":
     unittest.main()
