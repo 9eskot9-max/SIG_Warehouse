@@ -59,6 +59,27 @@ class WalkTests(unittest.TestCase):
         self.assertGreater(res[0], 0)
 
 
+class StartTests(unittest.TestCase):
+    def test_a_team_pays_the_drive_from_where_it_stands(self):
+        coords = {"R1": RIYADH}
+        t = ct._trip_model(trip("R1", coords), 0, coords, WEEK, 5, P)
+        none = ct._walk([t], 5, P)
+        far = ct._walk([t], 5, P, JEDDAH)
+        self.assertEqual(0, none[2])
+        self.assertAlmostEqual(fp.haversine_km(JEDDAH, RIYADH) * P["circuity"], far[2], places=3)
+        self.assertGreater(far[0], 0)
+
+    def test_the_trip_goes_to_the_nearer_team_and_starts_set_the_team_count(self):
+        coords = {"R1": RIYADH}
+        plan = {"clusters": [trip("R1", coords)], "later": [], "unplaced": [], "summary": {}, "params": P}
+        res = ct.schedule_continuity(plan, coords, WEEK, {"teams": 9}, starts=[JEDDAH, NEAR], names={2: "Ali"})
+        self.assertEqual(2, res["summary"]["teams"])
+        done = [c for c in res["clusters"] if c["status"] == "Scheduled"][0]
+        self.assertEqual(2, done["team"])
+        self.assertEqual("Ali", res["teams"][0]["leader"])
+        self.assertEqual(1, len(res["teams"]))
+
+
 class ScheduleTests(unittest.TestCase):
     def test_windowed_trips_are_placed_inside_their_window(self):
         coords = {"R1": RIYADH, "R2": NEAR, "J1": JEDDAH}

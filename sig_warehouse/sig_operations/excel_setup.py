@@ -88,6 +88,13 @@ def _linked_masters(datasets):
     for row in datasets.get("builder_contacts", []):
         if row["enabled"]:
             _resolve_contact(row)
+    for row in datasets.get("teams", []):
+        # A team is its leader: the team name and phone come from the Employee, never typed.
+        person = frappe.db.get_value("Employee", row["leader"], ["employee_name", "cell_number"], as_dict=True)
+        if not person:
+            frappe.throw(f"Team leader {row['leader']} is not an Employee")
+        row["team"] = person.employee_name or row["leader"]
+        row["phone"] = str(person.cell_number or "")
     for row in datasets["material_upl_links"]:
         if row["enabled"] and not frappe.db.exists("Item", row["item_code"]):
             frappe.throw(f"ERP Item {row['item_code']} does not exist")
@@ -165,6 +172,8 @@ def get_page_state():
     migration_pending = is_legacy(datasets)
     if migration_pending:
         datasets = upgrade_legacy(datasets)
+    for name in FIELDS:     # lists added after the last publication start empty
+        datasets.setdefault(name, [])
     return {"schema_version": SCHEMA_VERSION, "migration_pending": migration_pending,
             "revision": int(doc.revision or 0), "datasets": datasets, "fields": FIELDS,
             "published_at": doc.published_at, "published_by": doc.published_by,
@@ -189,8 +198,10 @@ def _reference_choices():
     contacts = frappe.get_all("SIG TAWAL Contact", fields=["name", "full_name", "mobile", "email"], limit_page_length=10000) if frappe.db.exists("DocType", "SIG TAWAL Contact") else []
     items = frappe.get_all("Item", filters={"disabled": 0, "is_stock_item": 1}, fields=["name", "item_name", "stock_uom"], limit_page_length=10000)
     uoms = frappe.get_all("UOM", fields=["name"], order_by="name asc", limit_page_length=10000)
+    employees = frappe.get_all("Employee", filters={"status": "Active"}, fields=["name", "employee_name"],
+                               order_by="employee_name asc", limit_page_length=10000)
     streams = frappe.get_all("SIG Project Stream", fields=["name", "alias", "project"], limit_page_length=10000) if frappe.db.exists("DocType", "SIG Project Stream") else []
-    return {"projects": projects, "contacts": contacts, "items": items, "streams": streams, "uoms": uoms}
+    return {"projects": projects, "contacts": contacts, "items": items, "streams": streams, "uoms": uoms, "employees": employees}
 
 
 @frappe.whitelist(methods=["POST"])

@@ -51,6 +51,37 @@ def _date(value):
     return date.fromisoformat(str(value)[:10])
 
 
+def team_positions(leaders, visits, coords, today, max_age_days=14):
+    """Where each team (= its leader) stands: the site of the leader's latest check-in or check-out.
+
+    leaders: [{"leader", "team", "phone"}]; visits: rows with employee, site, start_at, end_at, status.
+    A position counts for the plan only while it is at most max_age_days old and the site has coordinates.
+    state: Current (used as the team's starting point), Stale (too old), or Unknown (no visit or no coordinates).
+    """
+    latest = {}
+    for visit in visits:
+        seen = visit.get("end_at") or visit.get("start_at")
+        if not seen or not visit.get("employee"):
+            continue
+        stamp = str(seen)[:19]
+        if visit["employee"] not in latest or stamp > latest[visit["employee"]][0]:
+            latest[visit["employee"]] = (stamp, visit)
+    rows = []
+    for item in leaders:
+        stamp, visit = latest.get(item["leader"], (None, None))
+        site = (visit.get("site") or "").upper() if visit else ""
+        row = {"leader": item["leader"], "team": item["team"], "phone": item.get("phone", ""), "site": site,
+               "seen_at": stamp or "", "on_site": bool(visit and not visit.get("end_at")), "age_days": None,
+               "state": "Unknown", "lat": None, "lon": None}
+        if stamp:
+            row["age_days"] = (today - _date(stamp)).days
+            if site in coords:
+                row["lat"], row["lon"] = coords[site]
+                row["state"] = "Current" if row["age_days"] <= max_age_days else "Stale"
+        rows.append(row)
+    return rows
+
+
 def index_projects(projects):
     """Index ERP Project records by name and by agreement (PO) number for project_text()."""
     index = {}

@@ -14,7 +14,7 @@ class Row(dict):
     __getattr__ = dict.get
 
 
-def load_api(roles, can_read=True):
+def load_api(roles, can_read=True, setup_json="{}", visits=()):
     calls = []
     frappe = ModuleType("frappe")
     frappe.whitelist = lambda *args, **kwargs: (lambda function: function)
@@ -27,7 +27,10 @@ def load_api(roles, can_read=True):
         raise (exc or RuntimeError)(message)
 
     frappe.throw = throw
-    frappe.utils = SimpleNamespace(nowdate=lambda: "2026-10-24", getdate=lambda v: v if isinstance(v, date) else date.fromisoformat(str(v)[:10]))
+    frappe.utils = SimpleNamespace(nowdate=lambda: "2026-10-24", getdate=lambda v: v if isinstance(v, date) else date.fromisoformat(str(v)[:10]),
+                                   add_days=lambda d, n: d + __import__("datetime").timedelta(days=n))
+    frappe.DoesNotExistError = LookupError
+    frappe.db = SimpleNamespace(get_single_value=lambda doctype, field: setup_json)
 
     class Meta:
         def get_field(self, fieldname):
@@ -40,7 +43,7 @@ def load_api(roles, can_read=True):
     store = {"SIG Site Cycle": [cycle],
              "SIG Evidence Event": [Row(cycle="Z1|NA|1", event_code="TCN_GENERATED",
                                         occurred_at="2026-10-26 00:00:00", recorded_at="2026-10-22 10:00:00")],
-             "SIG Field Visit": []}
+             "SIG Field Visit": [Row(v) for v in visits]}
 
     def get_list(doctype, **kwargs):
         calls.append(("get_list", doctype, tuple(kwargs.get("fields", ()))))
@@ -58,7 +61,7 @@ def load_api(roles, can_read=True):
     sub = ModuleType("sig_warehouse.sig_warehouse")
     sys.modules.setdefault("sig_warehouse", pkg)
     sys.modules.setdefault("sig_warehouse.sig_warehouse", sub)
-    for name in ("field_planner",):
+    for name in ("field_planner", "continuity"):
         spec = importlib.util.spec_from_file_location("sig_warehouse.sig_warehouse." + name,
                                                       APP_ROOT / "sig_warehouse" / "sig_warehouse" / (name + ".py"))
         module = importlib.util.module_from_spec(spec)
@@ -93,6 +96,20 @@ class FieldPlannerApiTests(unittest.TestCase):
         self.assertIn(result["trips"][0]["stops"][0]["class"], ("Must", "Priority", "Normal"))
         self.assertEqual([("get_list", "SIG Site", ("name", "site_latitude", "site_longitude"))], [c for c in calls if c[1] == "SIG Site"])
         self.assertFalse([c for c in calls if c[0] == "get_all"])
+
+    def test_setup_teams_set_the_team_count_names_and_starting_positions(self):
+        import json
+        setup = json.dumps({"teams": [
+            {"id": "t1", "leader": "E1", "team": "Waqas", "phone": "1", "enabled": True},
+            {"id": "t2", "leader": "E2", "team": "Asif", "phone": "2", "enabled": True},
+            {"id": "t3", "leader": "E3", "team": "Off", "phone": "3", "enabled": False}]})
+        visits = [dict(employee="E1", site="Z1", start_at="2026-10-23 08:00:00", end_at="2026-10-23 09:00:00", status="COMPLETED", cycle=None)]
+        api, _ = load_api(["SIG Field Ops"], setup_json=setup, visits=visits)
+        result = api.get_field_plan(week_start="2026-10-25")
+        self.assertEqual(2, result["summary"]["teams"])
+        states = {p["team"]: p["state"] for p in result["team_positions"]}
+        self.assertEqual({"Waqas": "Current", "Asif": "Unknown"}, states)
+        self.assertEqual({"Waqas", "Asif"}, {t["leader"] for t in result["teams"]} | {"Waqas", "Asif"})
 
     def test_reference_towns_need_access_and_load_the_bundled_file(self):
         api, _ = load_api(["Employee"])

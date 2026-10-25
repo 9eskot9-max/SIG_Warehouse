@@ -330,3 +330,20 @@ class PMDecisionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TeamPositionTests(unittest.TestCase):
+    leaders = [{"leader": "E1", "team": "Waqas", "phone": "1"}, {"leader": "E2", "team": "Old", "phone": "2"},
+               {"leader": "E3", "team": "New", "phone": "3"}]
+    coords = {"AAA1": (24.7, 46.7), "BBB2": (21.5, 39.2)}
+
+    def test_latest_check_in_or_out_sets_the_position(self):
+        today = date(2026, 10, 26)
+        visits = [{"employee": "E1", "site": "AAA1", "start_at": "2026-10-20 08:00:00", "end_at": "2026-10-20 10:00:00"},
+                  {"employee": "E1", "site": "BBB2", "start_at": "2026-10-25 08:00:00", "end_at": None},
+                  {"employee": "E2", "site": "AAA1", "start_at": "2026-09-01 08:00:00", "end_at": "2026-09-01 09:00:00"}]
+        rows = {r["leader"]: r for r in fp.team_positions(self.leaders, visits, self.coords, today)}
+        self.assertEqual(("BBB2", "Current", True, 1), (rows["E1"]["site"], rows["E1"]["state"], rows["E1"]["on_site"], rows["E1"]["age_days"]))
+        self.assertEqual("Stale", rows["E2"]["state"])
+        self.assertEqual("Unknown", rows["E3"]["state"])
+        self.assertEqual(self.coords["BBB2"], (rows["E1"]["lat"], rows["E1"]["lon"]))

@@ -6,7 +6,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
     let state, selected = 'projects', dirty = false;
     const labels = {projects: __('Projects / PO scope'), builder_profiles: __('Builder profiles (legacy)'),
         builder_contacts: __('Profile-linked contacts (legacy)'), project_builder_links: __('Project → Builder assignments (legacy)'), tag_definitions: __('Tags definitions'),
-        tag_upl_links: __('Tags to UPL'), material_upl_links: __('Item to UPL'), builder_defaults: __('TCN wording and defaults')};
+        tag_upl_links: __('Tags to UPL'), material_upl_links: __('Item to UPL'), builder_defaults: __('TCN wording and defaults'), teams: __('Field teams (leaders)')};
     const legacyDatasets = new Set(['builder_profiles', 'builder_contacts', 'project_builder_links']);
     const fieldLabels = {project: 'ERP Project', profile: 'Builder profile', po: 'PO / Agreement', alias: 'Builder alias', family: 'Project family',
         stream: 'Project stream', stream_alias: 'Stream alias', template: 'Word template key', internal_pm: 'Internal SIG PM', tawal_contact: 'TAWAL contact',
@@ -14,19 +14,21 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         item: 'Tags item', rule: 'Matching rule', priority: 'Match priority', tag_item: 'Tags item', cuc: 'UPL CUC',
         description: 'UPL description', tag_matcher: 'Tags description qualifier', builder_rule: 'Tags normalization rule',
         item_code: 'ERP item code', source_uom: 'ERP unit', target_uom: 'Mapping unit', treatment: 'Treatment',
-        quantity_basis: 'Reviewed quantity basis', origin: 'Imported source', kind: 'Setting type', key: 'Match value', value: 'Output value', value2: 'Additional value'};
+        quantity_basis: 'Reviewed quantity basis', origin: 'Imported source', leader: 'Team leader (employee)', team: 'Team', phone: 'Phone', kind: 'Setting type', key: 'Match value', value: 'Output value', value2: 'Additional value'};
     const optionLabels = {purpose_reason: 'TCN purpose and reason', csv_remarks: 'TCN CSV wording', tms_implementer: 'TMS implementer'};
     const referenceFields = {
         projects: {project: 'projects'},
         builder_contacts: {profile: 'profiles', tawal_contact: 'contacts'},
         project_builder_links: {project: 'projects', profile: 'profiles', stream: 'streams'},
-        material_upl_links: {item_code: 'items', target_uom: 'uoms'}
+        material_upl_links: {item_code: 'items', target_uom: 'uoms'},
+        teams: {leader: 'employees'}
     };
     const referenceLabel = (type, row) => {
         if (type === 'projects') return [row.project_name, row.name].filter(Boolean).join(' · ');
         if (type === 'contacts') return [row.full_name, row.name].filter(Boolean).join(' · ');
         if (type === 'items') return [row.item_name, row.name, row.stock_uom].filter(Boolean).join(' · ');
         if (type === 'streams') return [row.alias, row.name].filter(Boolean).join(' · ');
+        if (type === 'employees') return [row.employee_name, row.name].filter(Boolean).join(' · ');
         if (type === 'profiles') return row.alias;
         return row.name || '';
     };
@@ -84,6 +86,8 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
             row.contact_name = source.full_name || '';
             row.contact_phone = source.mobile || '';
             row.contact_email = source.email || '';
+        } else if (selected === 'teams' && field === 'leader') {
+            row.team = source.employee_name || '';
         } else if (selected === 'material_upl_links' && field === 'item_code') {
             const priorSourceUom = row.source_uom || '';
             row.source_uom = source.stock_uom || '';
@@ -103,7 +107,8 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
             builder_profiles: __('Historical compatibility data. These aliases no longer determine PO family, TAWAL contact or MOP template selection.'),
             builder_contacts: __('Historical profile-linked contact rows. The current TAWAL directory has one record per person; PO defaults reference those records directly.'),
             project_builder_links: __('Historical Builder profile assignments. Kept for old workbook revisions and audit; not required by V3 Sync From ERP.'),
-            builder_defaults: __('Shared TCN purpose, CSV wording and implementer defaults consumed by RV80.')
+            builder_defaults: __('Shared TCN purpose, CSV wording and implementer defaults consumed by RV80.'),
+            teams: __('Each team is its leader and carries the name of its leader. The Field Planner counts enabled teams and starts each one from the latest check-in or check-out site. Not sent to Excel workbooks.')
         };
         const note = notes[selected] || __('Blank PO and UPL revision mean a shared rule. Disable obsolete rows; keep their IDs.');
         root.html('<div class="es-summary"><b>' + __('Published revision') + ': ' + esc(state.revision) + '</b><span>' +
@@ -130,6 +135,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
                     (f === 'id' || (selected === 'projects' && ['po','family'].includes(f)) ||
                         (selected === 'builder_contacts' && ['contact_name','contact_phone','contact_email','origin'].includes(f)) ||
                         (selected === 'project_builder_links' && f === 'stream_alias') ||
+                        (selected === 'teams' && ['team','phone'].includes(f)) ||
                         (selected === 'material_upl_links' && f === 'source_uom') ? 'readonly ' : '') + '>') + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>');
     };
     const load = async () => { state = await call('get_page_state'); dirty = false; render(); };

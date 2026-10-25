@@ -12,12 +12,12 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         fieldname, label, fieldtype, default: def, change() { filters[fieldname] = this.get_value(); },
     });
     field('week_start', __('Week starting (Sunday)'), 'Date');
-    field('teams', __('Teams available'), 'Int', 4);
+    field('teams', __('Teams (blank = Setup)'), 'Int');
     field('scope_hours', __('Hours per site'), 'Float', 2);
     field('diameter_km', __('Trip diameter (km)'), 'Float', 150);
     field('project', __('Project'), 'Data');
     page.set_primary_action(__('Refresh'), load);
-    filters.teams = 4; filters.scope_hours = 2; filters.diameter_km = 150;
+    filters.scope_hours = 2; filters.diameter_km = 150;
 
     // Saudi Arabia outline (lon, lat): Natural Earth 1:110m countries (public domain, via world-atlas); simplified, not a survey boundary.
     const KSA = [[34.95,29.36],[36.07,29.2],[36.5,29.51],[36.74,29.87],[37.5,30.0],[37.67,30.34],[38.0,30.51],[37.0,31.51],[39.0,32.01],[39.2,32.16],[40.4,31.89],[41.89,31.19],[44.71,29.18],[46.57,29.1],[47.46,29.0],[47.71,28.53],[48.42,28.55],[48.81,27.69],[49.3,27.46],[49.47,27.11],[50.15,26.69],[50.21,26.28],[50.11,25.94],[50.24,25.61],[50.53,25.33],[50.66,25.0],[50.81,24.75],[51.11,24.56],[51.39,24.63],[51.58,24.24],[51.62,24.01],[52.0,23.0],[55.01,22.5],[55.21,22.71],[55.67,22.0],[55.0,20.0],[52.0,19.0],[49.12,18.62],[48.18,18.17],[47.47,17.12],[47.0,16.95],[46.75,17.28],[46.37,17.23],[45.4,17.33],[45.22,17.43],[44.06,17.41],[43.79,17.32],[43.38,17.58],[43.12,17.09],[43.22,16.67],[42.78,16.35],[42.65,16.77],[42.35,17.08],[42.27,17.47],[41.76,17.83],[41.22,18.67],[40.94,19.49],[40.25,20.17],[39.8,20.34],[39.14,21.29],[39.02,21.99],[39.07,22.58],[38.49,23.69],[38.03,24.08],[37.49,24.29],[37.15,24.86],[37.21,25.08],[36.93,25.6],[36.64,25.83],[36.25,26.57],[35.64,27.38],[35.13,28.06],[34.63,28.06],[34.79,28.61],[34.83,28.96],[34.95,29.36]];
@@ -28,6 +28,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
     const ZONE_COLORS = {Riyadh: '#fbe3c4', Qassim: '#dcefc9', Hail: '#e4dcf2', Madinah: '#f9d7d7', Makkah: '#d3e7f7',
         Asir: '#fbf0b8', Jizan: '#cdeeea', Najran: '#f3d9e6', East: '#d9e1f2', North: '#e6e8d2'};
     const BOX0 = [20, 35, 830, 700];
+    const teamName = (n) => (view.teamNames && view.teamNames[n]) || `${__('Team')} ${n}`;
     const view = {mode: 'team', base: 'drawing', zones: false, towns: true, box: null, leaflet: null, townList: null, zoneCells: null};
 
     function project(lon, lat) { return [(lon - 33) * 0.91 * 40, (34 - lat) * 40]; }
@@ -163,7 +164,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         const teamsUsed = [...new Set(data.trips.filter((t) => t.status === 'Scheduled').map((t) => t.team))].sort((x, y) => x - y);
         const legend = view.mode === 'tier'
             ? Object.keys(TIER_COLORS).map((tier) => `<span><i style="background:${TIER_COLORS[tier]}"></i>${esc(data.tiers[tier])}</span>`).join('')
-            : teamsUsed.map((t) => `<span><i style="background:${TEAM_COLORS[(t - 1) % TEAM_COLORS.length]}"></i>${__('Team')} ${t}</span>`).join('')
+            : teamsUsed.map((t) => `<span><i style="background:${TEAM_COLORS[(t - 1) % TEAM_COLORS.length]}"></i>${esc(teamName(t))}</span>`).join('')
               + `<span><i style="background:${DARK}"></i>${__('Not planned')}</span>`;
         const zoneLegend = (!street && view.zones && view.townList)
             ? Object.keys(ZONE_COLORS).map((z) => `<span><i class="sq" style="background:${ZONE_COLORS[z]}"></i>${esc(z)}</span>`).join('') : '';
@@ -270,7 +271,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         const {stop, trip} = hit;
         const scheduled = trip.status === 'Scheduled';
         const when = trip.first_day === trip.last_day ? trip.first_day : `${trip.first_day} → ${trip.last_day}`;
-        const planText = scheduled ? `${__('Team')} ${trip.team} · ${when}` : (trip.status === 'Lapsed' ? __('Lapsed') : __('Waiting'));
+        const planText = scheduled ? `${teamName(trip.team)} · ${when}` : (trip.status === 'Lapsed' ? __('Lapsed') : __('Waiting'));
         const value = stop.value ? `${Math.round(stop.value).toLocaleString()} SAR${stop.value_source === 'ERP' ? '' : ' (est.)'}` : '—';
         const rows = [
             [__('Priority'), esc(`${stop.class || ''} · ${d.tiers[stop.tier]}`)],
@@ -283,7 +284,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         }
         if (!scheduled) {
             const n = nearestTeam(site, d);
-            if (n) rows.push([__('Nearest team'), esc(`${__('Team')} ${n.team} · ${Math.round(n.km)} km · ${n.day}`)]);
+            if (n) rows.push([__('Nearest team'), esc(`${teamName(n.team)} · ${Math.round(n.km)} km · ${n.day}`)]);
         }
         return cardHtml(site, stop.project, rows, stop.must || stop.class === 'Must', stop.cycle, stop.decision);
     }
@@ -314,6 +315,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
 
     function render(data) {
         view.index = indexSites(data);
+        view.teamNames = Object.fromEntries((data.teams || []).filter((t) => t.leader).map((t) => [t.team, t.leader]));
         const sites = Object.keys(view.index).sort();
         const s = data.summary;
         const cards = [
@@ -338,7 +340,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             const title = `${esc(trip.id)} · ${esc(trip.kind)}${trip.anchor ? ' · ' + esc(trip.anchor) : ''}`;
             const base = baseTown(trip);
             const baseText = base ? ` · ${__('Base')}: ${esc(base.t.name)} (${Math.round(base.d)} km)` : '';
-            const status = trip.status === 'Scheduled' ? `${__('Team')} ${trip.team} · ${esc(trip.first_day)}`
+            const status = trip.status === 'Scheduled' ? `${esc(teamName(trip.team))} · ${esc(trip.first_day)}`
                 : trip.status === 'Lapsed' ? __('Lapsed') : __('Waiting');
             return `<section class="sig-planner-trip ${trip.loaded ? '' : 'sig-planner-backlog'}">
                 <header><b>${title}</b><span>${trip.stops.length} ${__('sites')} · ${esc(trip.diameter_km)} km ${__('spread')} ·
@@ -352,7 +354,14 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             data.other.map((o) => `<tr class="sig-planner-row" data-site="${esc(o.site)}"><td><a href="/app/sig-site-cycle/${encodeURIComponent(o.cycle)}">${esc(o.site)}</a></td>
                 <td>${esc(o.project)}</td><td>${esc(data.tiers[o.tier])}</td><td>${esc(o.kind)}</td>
                 <td>${esc(o.window)}</td><td>${esc(o.reason)}</td><td>${decisionSelect(o.cycle, o.decision)}</td></tr>`).join('')}</tbody></table></section>` : '';
-        root.html(`<div class="sig-planner-cards">${cards}</div>${note}
+        const STATE = {Current: __('Current'), Stale: __('Old position, not used'), Unknown: __('No visit found')};
+        const teamPanel = (data.team_positions || []).length ? `<section class="sig-planner-trip"><header><b>${__('Field teams')}</b>
+            <span>${__('From Excel Setup; each team starts where its leader last checked in or out')}</span></header><table><thead><tr>
+            <th>${__('Team')}</th><th>${__('Last site')}</th><th>${__('Last seen')}</th><th>${__('Position')}</th></tr></thead><tbody>${
+            data.team_positions.map((p) => `<tr><td>${esc(p.team)}</td><td>${esc(p.site)}</td>
+                <td>${p.seen_at ? esc(p.seen_at.slice(0, 10)) + (p.on_site ? ' · ' + __('on site') : '') : ''}</td>
+                <td>${esc(STATE[p.state] || p.state)}</td></tr>`).join('')}</tbody></table></section>` : '';
+        root.html(`<div class="sig-planner-cards">${cards}</div>${note}${teamPanel}
             <div class="sig-planner-searchbar">
                 <input type="search" class="sig-planner-search" autocomplete="off" spellcheck="false" autocapitalize="characters"
                     placeholder="${esc(__('Search a site code, e.g. ZDA970'))}">

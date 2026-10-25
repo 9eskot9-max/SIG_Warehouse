@@ -70,6 +70,20 @@ def set_plan_decision(cycle, action="", reason=""):
     return {"name": doc.name, "action": action}
 
 
+def _team_setup():
+    """Enabled field teams from the published Excel Setup (a team is its leader).
+
+    Read straight from the published setup so planner roles need no Excel Setup access; only the leader, team name
+    and phone leave this function, and callers are already limited to PLANNER_ROLES.
+    """
+    try:
+        data = json.loads(frappe.db.get_single_value("SIG Excel Setup", "configuration_json") or "{}")
+    except (ValueError, frappe.DoesNotExistError):
+        return []
+    return [{"leader": r["leader"], "team": r.get("team") or r["leader"], "phone": r.get("phone", "")}
+            for r in data.get("teams", []) if r.get("enabled") and r.get("leader")]
+
+
 def _projects():
     """ERP Projects (name, title, family, agreement/PO) read with the caller's permissions; none if not readable."""
     try:
@@ -110,15 +124,32 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
     candidates, excluded = planner.build_candidates(cycles, windows, visit_days, today, params,
                                                     planner.index_projects(_projects()), "plan_hold", decisions)
 
+    team_setup = _team_setup()
+    team_visits = []
+    if team_setup:
+        team_visits = [dict(v) for v in frappe.get_list(
+            "SIG Field Visit", filters={"employee": ["in", [t["leader"] for t in team_setup]],
+                                        "start_at": [">=", frappe.utils.add_days(today, -45)]},
+            fields=["employee", "site", "start_at", "end_at", "status"], order_by="start_at desc", limit_page_length=500)]
+
     coords = {}
-    if _has_field("SIG Site", "site_latitude") and _has_field("SIG Site", "site_longitude") and candidates:
-        wanted = sorted({item["site"] for item in candidates})
+    if _has_field("SIG Site", "site_latitude") and _has_field("SIG Site", "site_longitude") and (candidates or team_visits):
+        wanted = sorted({item["site"] for item in candidates} | {(v["site"] or "").upper() for v in team_visits if v["site"]})
         for row in frappe.get_list("SIG Site", filters={"name": ["in", wanted]},
                                    fields=["name", "site_latitude", "site_longitude"], limit_page_length=0):
             if row.site_latitude and row.site_longitude:
                 coords[(row.name or "").upper()] = (float(row.site_latitude), float(row.site_longitude))
 
-    plan = continuity.schedule_continuity(planner.plan_week(candidates, coords, start, overrides), coords, start, overrides)
+    positions = planner.team_positions(team_setup, team_visits, coords, today)
+    starts, names = None, None
+    if positions:
+        count = overrides.get("teams") or len(positions)       # a Teams value typed on the page wins over the setup
+        starts = [(p["lat"], p["lon"]) if p["state"] == "Current" else None for p in positions][:count]
+        starts += [None] * (count - len(starts))
+        names = {i + 1: p["team"] for i, p in enumerate(positions[:count])}
+    plan = continuity.schedule_continuity(planner.plan_week(candidates, coords, start, overrides), coords, start, overrides,
+                                          starts, names)
+    plan["team_positions"] = positions
     for ex in excluded:
         if ex["reason"].startswith("PM "):
             c = ex["cycle"]
@@ -165,4 +196,5 @@ def _present(plan, coords):
               "must": bool(s.get("must")), "decision": s.get("decision", "")}
              for s in plan["later"] + plan["unplaced"]]
     return {"summary": plan["summary"], "params": plan["params"], "trips": trips, "other": extra,
+            "teams": plan.get("teams", []), "team_positions": plan.get("team_positions", []),
             "tiers": planner.TIER_LABEL, "has_coordinates": bool(coords)}

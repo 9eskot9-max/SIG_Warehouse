@@ -31,10 +31,13 @@ def _trip_model(cluster, index, coords, week, days_n, params):
             "must": any(s.get("must") for s in stops)}
 
 
-def _walk(route, days_n, params):
-    """Time a route. Returns None if it is infeasible, else (travel_h, work_h, reloc_km, [(start_day, end_day)])."""
+def _walk(route, days_n, params, start=None):
+    """Time a route from the team's starting point (None = it starts at its first stop, no drive).
+
+    Returns None if it is infeasible, else (travel_h, work_h, reloc_km, [(start_day, end_day)]).
+    """
     day, h = 0, 0.0
-    pos = None
+    pos = start
     travel = work = reloc = 0.0
     times = []
     for trip in route:
@@ -66,15 +69,15 @@ def _walk(route, days_n, params):
     return travel, work, reloc, times
 
 
-def _objective(routes, days_n, params):
+def _objective(routes, days_n, params, starts):
     """Higher is better, compared in order: Must trips, TCN windows met, class-weighted sites, value, less travel."""
     must = windows = weight = 0
     value = 0.0
     travel = 0.0
-    for route in routes:
+    for t, route in enumerate(routes):
         if not route:
             continue
-        res = _walk(route, days_n, params)
+        res = _walk(route, days_n, params, starts[t])
         if res is None:
             return None
         travel += res[0]
@@ -86,15 +89,15 @@ def _objective(routes, days_n, params):
     return (must, windows, weight, round(value), -round(travel, 3))
 
 
-def _best_insert(routes, trip, teams, days_n, params):
+def _best_insert(routes, trip, teams, days_n, params, starts):
     """Cheapest feasible place for one trip: (added_hours, team_index, position) or None."""
     best = None
     for t in range(teams):
-        base = _walk(routes[t], days_n, params)
+        base = _walk(routes[t], days_n, params, starts[t])
         base_h = (base[0] + base[1]) if base else 0.0
         for pos in range(len(routes[t]) + 1):
             cand = routes[t][:pos] + [trip] + routes[t][pos:]
-            res = _walk(cand, days_n, params)
+            res = _walk(cand, days_n, params, starts[t])
             if res is None:
                 continue
             added = (res[0] + res[1]) - base_h
@@ -104,12 +107,17 @@ def _best_insert(routes, trip, teams, days_n, params):
     return best
 
 
-def schedule_continuity(plan, coords, week_start, overrides=None):
+def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, names=None):
+    """starts: one (lat, lon) or None per team, where that team stands when the week opens; it also sets the number of
+    teams. names: team number (1-based) -> display name (the leader)."""
     params = dict(fp.DEFAULTS)
     params.update({k: v for k, v in (overrides or {}).items() if v not in (None, "")})
     week = fp._date(week_start)
     days_n = int(params["work_days"])
+    if starts:
+        params["teams"] = len(starts)
     teams = int(params["teams"])
+    starts = list(starts or []) + [None] * (teams - len(starts or []))
     started = time.monotonic()
 
     live = [c for c in plan["clusters"] if c["kind"] != "Deferred"]
@@ -122,7 +130,7 @@ def schedule_continuity(plan, coords, week_start, overrides=None):
     anchors = sorted([t for t in trips if t["win"]], key=lambda t: (t["win"][1], -t["cls"]))
     rest = sorted([t for t in trips if not t["win"]], key=lambda t: (-t["cls"], -(t["value"] / max(0.5, t["work"]))))
     for trip in anchors + rest:
-        best = _best_insert(routes, trip, teams, days_n, params)
+        best = _best_insert(routes, trip, teams, days_n, params, starts)
         if best is None:
             lapsed[trip["id"]] = ("no team can reach it inside its TCN window" if trip["win"]
                                   else "no team-day left this week")
@@ -131,7 +139,7 @@ def schedule_continuity(plan, coords, week_start, overrides=None):
         routes[t].insert(pos, trip)
 
     rng = random.Random(SEARCH["seed"])
-    current = _objective(routes, days_n, params)
+    current = _objective(routes, days_n, params, starts)
     evals = 0
     for _ in range(SEARCH["iters"]):
         if time.monotonic() - started > SEARCH["seconds"]:
@@ -155,7 +163,7 @@ def schedule_continuity(plan, coords, week_start, overrides=None):
             t = rng.randrange(teams)
             new[t].insert(rng.randrange(len(new[t]) + 1), trip)
         evals += 1
-        score = _objective(new, days_n, params)
+        score = _objective(new, days_n, params, starts)
         if score is not None and (current is None or score > current):
             routes, current = new, score
             placed_ids = {x["id"] for r in routes for x in r}
@@ -168,9 +176,9 @@ def schedule_continuity(plan, coords, week_start, overrides=None):
 
     scheduled, team_rows = [], []
     for t, route in enumerate(routes, 1):
-        res = _walk(route, days_n, params) if route else (0.0, 0.0, 0.0, [])
+        res = _walk(route, days_n, params, starts[t - 1]) if route else (0.0, 0.0, 0.0, [])
         if route:
-            tr = {"team": t, "trips": len(route), "travel_h": round(res[0], 1), "work_h": round(res[1], 1),
+            tr = {"team": t, "leader": (names or {}).get(t, ""), "trips": len(route), "travel_h": round(res[0], 1), "work_h": round(res[1], 1),
                   "reloc_km": round(res[2]), "days": days_n}
             team_rows.append(tr)
         for trip, (start, end) in zip(route, res[3]):

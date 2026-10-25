@@ -16,6 +16,7 @@ FIELDS = {
     "tag_upl_links": ("id", "tag_item", "cuc", "description", "tag_matcher", "builder_rule", "po", "upl_revision", "enabled"),
     "material_upl_links": ("id", "item_code", "cuc", "source_uom", "target_uom", "treatment", "quantity_basis", "po", "upl_revision", "enabled"),
     "builder_defaults": ("id", "kind", "key", "value", "value2", "po", "enabled"),
+    "teams": ("id", "leader", "team", "phone", "enabled"),
 }
 REQUIRED = {
     "projects": ("id", "project"),
@@ -26,6 +27,7 @@ REQUIRED = {
     "tag_upl_links": ("id", "tag_item", "cuc"),
     "material_upl_links": ("id", "item_code", "treatment"),
     "builder_defaults": ("id", "kind", "key", "value"),
+    "teams": ("id", "leader"),
 }
 KINDS = {"purpose_reason", "csv_remarks", "tms_implementer"}
 WORKBOOK_DATASETS = {
@@ -52,6 +54,7 @@ def natural_key(dataset, row):
         "tag_upl_links": ("po", "upl_revision", "tag_item", "cuc", "tag_matcher"),
         "material_upl_links": ("po", "upl_revision", "item_code", "cuc"),
         "builder_defaults": ("po", "kind", "key"),
+        "teams": ("leader",),
     }[dataset]
     return tuple(str(row.get(k, "")).strip().casefold() for k in keys)
 
