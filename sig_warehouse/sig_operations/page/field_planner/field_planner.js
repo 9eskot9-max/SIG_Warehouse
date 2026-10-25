@@ -28,18 +28,8 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
     const ZONE_COLORS = {Riyadh: '#fbe3c4', Qassim: '#dcefc9', Hail: '#e4dcf2', Madinah: '#f9d7d7', Makkah: '#d3e7f7',
         Asir: '#fbf0b8', Jizan: '#cdeeea', Najran: '#f3d9e6', East: '#d9e1f2', North: '#e6e8d2'};
     const BOX0 = [20, 35, 830, 760];
-    // Rough neighbouring countries (lon, lat), drawn under the outline only so the Kingdom's borders read clearly. Not surveyed.
-    const NEIGHBOURS = [
-        [[38.8,37.0],[41.2,37.1],[42.4,37.2],[44.8,37.2],[46.0,36.8],[47.3,35.0],[48.0,30.0],[48.6,29.9],[47.8,29.0],[46.6,29.1],[44.7,29.2],[41.9,31.2],[40.4,31.9],[39.2,32.2],[38.8,34.0]],
-        [[35.0,29.5],[35.5,32.5],[36.0,32.9],[38.8,32.2],[38.8,31.0],[37.5,30.5],[36.5,29.5]],
-        [[24.7,22.0],[24.7,31.6],[34.2,31.6],[34.9,29.4],[34.3,27.9],[33.0,26.0],[32.6,24.0],[36.9,22.0]],
-        [[42.6,16.2],[43.1,16.3],[43.3,16.6],[44.4,17.0],[46.2,17.3],[48.0,17.5],[52.0,16.0],[52.0,12.0],[43.0,12.5],[42.6,14.5]],
-        [[52.0,19.0],[55.0,20.0],[55.67,22.0],[58.5,23.6],[59.8,22.5],[58.5,20.4],[57.5,19.0],[56.0,17.9],[54.0,16.8],[52.0,16.5]],
-        [[51.6,24.0],[52.5,22.7],[55.0,22.5],[55.7,22.7],[56.4,25.6],[56.0,26.0],[54.6,24.8],[52.9,24.2]],
-        [[50.8,24.7],[51.6,24.6],[51.6,26.1],[51.1,26.1]],
-        [[46.6,29.1],[48.4,28.5],[48.2,30.1],[47.0,30.1]]
-    ];
-    const SEA = '#e9f1f7', LAND = '#f8faf9', NEIGH = '#eef1f3', CAPITAL = '#b7791f';
+    const SEA = '#e9f1f7', LAND = '#f8faf9', CAPITAL = '#b7791f';
+    const KM_PER_UNIT = 111.2 / 40;      // project() puts one degree of latitude at 40 units
     const teamName = (n) => (view.teamNames && view.teamNames[n]) || `${__('Team')} ${n}`;
     const view = {mode: 'team', base: 'drawing', zones: false, towns: true, box: null, leaflet: null, townList: null, zoneCells: null};
 
@@ -84,6 +74,23 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
     }
 
     // Keep markers and text a readable size whatever the zoom.
+    // Bottom-right scale bar: picks a round km length that fits about a fifth of the visible width, so it changes on every zoom.
+    function updateScale(svg) {
+        const g = svg.querySelector('.sig-planner-scale');
+        if (!g) return;
+        const [x, y, w, h] = view.box, s = w / BOX0[2], want = w * 0.2 * KM_PER_UNIT;
+        const nice = [5, 10, 20, 25, 50, 100, 200, 500].filter((km) => km <= want);
+        const km = nice.length ? nice[nice.length - 1] : 5, len = km / KM_PER_UNIT;
+        const x1 = x + w - 16 * s - len, yb = y + h - 16 * s;
+        g.querySelector('rect').setAttribute('x', x1 - 8 * s); g.querySelector('rect').setAttribute('y', yb - 26 * s);
+        g.querySelector('rect').setAttribute('width', len + 16 * s); g.querySelector('rect').setAttribute('height', 32 * s);
+        g.querySelector('path').setAttribute('d', `M${x1} ${yb - 9 * s}V${yb}H${x1 + len}V${yb - 9 * s}`);
+        g.querySelector('path').setAttribute('stroke-width', 1.6 * s);
+        const label = g.querySelector('text');
+        label.setAttribute('x', x1 + len / 2); label.setAttribute('y', yb - 12 * s);
+        label.setAttribute('font-size', 11 * s); label.textContent = `${km} km`;
+    }
+
     function applyZoom(svg) {
         const scale = BOX0[2] / view.box[2], k = Math.max(0.35, Math.pow(scale, -0.8));
         svg.setAttribute('viewBox', view.box.join(' '));
@@ -94,6 +101,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         });
         svg.querySelectorAll('[data-f]').forEach((e) => { e.setAttribute('font-size', e.dataset.f * k); });
         svg.querySelectorAll('[data-w]').forEach((e) => e.setAttribute('stroke-width', e.dataset.w * k));
+        updateScale(svg);
     }
 
     function zoomBy(svg, factor, cx, cy) {
@@ -167,7 +175,6 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             ordered.forEach((trip) => { const n = tripNode(trip); lines += n.line; dots += n.dots; labels += n.labels; });
         }
         const outline = KSA.map(([lon, lat]) => project(lon, lat).join(',')).join(' ');
-        const neighbours = NEIGHBOURS.map((ring) => `<polygon points="${ring.map(([lon, lat]) => project(lon, lat).join(',')).join(' ')}" fill="${NEIGH}" stroke="#d5dde5" stroke-width="0.8" data-w="0.8"/>`).join('');
         // Capitals and Jeddah are always drawn (also at the furthest zoom), in a colour apart from the planned sites.
         const townDots = (view.towns && view.townList) ? view.townList.map((t) => {
             const [x, y] = project(t.lon, t.lat), big = t.name === 'Jeddah';
@@ -195,9 +202,10 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             ${street ? '<div class="sig-planner-leaflet"></div>'
                 : `<svg viewBox="${view.box.join(' ')}" class="sig-planner-svg" preserveAspectRatio="xMidYMid meet">
                 <defs><clipPath id="sigksa"><polygon points="${outline}"/></clipPath></defs>
-                <rect x="${BOX0[0]}" y="${BOX0[1]}" width="${BOX0[2]}" height="${BOX0[3]}" fill="${SEA}"/>${neighbours}
+                <rect x="${BOX0[0]}" y="${BOX0[1]}" width="${BOX0[2]}" height="${BOX0[3]}" fill="${SEA}"/>
                 <polygon points="${outline}" fill="${LAND}"/>${zones}
-                <polygon points="${outline}" fill="none" stroke="#9db4c9" stroke-width="1.5" data-w="1.5"/>${townDots}${lines}${dots}${labels}</svg>`}
+                <polygon points="${outline}" fill="none" stroke="#9db4c9" stroke-width="1.5" data-w="1.5"/>${townDots}${lines}${dots}${labels}
+                <g class="sig-planner-scale" pointer-events="none"><rect fill="#ffffff" fill-opacity="0.85"/><path fill="none" stroke="#33414f"/><text fill="#33414f" text-anchor="middle"></text></g></svg>`}
             <div class="sig-planner-foot">${street
                 ? __('Street map tiles come from OpenStreetMap and need internet. Pins show visiting order.')
                 : __('Colour = team that visits; dark = not planned this week; amber = town/capital (always shown); click a site for details. Zones follow the nearest reference town; outline is schematic. Ctrl + scroll or pinch to zoom, drag to pan, double-click to zoom in.')}</div>`);
