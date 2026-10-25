@@ -73,9 +73,8 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         svg.setAttribute('viewBox', view.box.join(' '));
         svg.classList.toggle('sig-planner-zoomed', scale >= 2.2);
         svg.querySelectorAll('[data-r]').forEach((e) => e.setAttribute('r', e.dataset.r * k));
-        svg.querySelectorAll('[data-s]').forEach((e) => {
-            const s = e.dataset.s * k, cx = e.dataset.cx, cy = e.dataset.cy;
-            e.setAttribute('x', cx - s / 2); e.setAttribute('y', cy - s / 2); e.setAttribute('width', s); e.setAttribute('height', s);
+        svg.querySelectorAll('[data-mk]').forEach((g) => {
+            g.setAttribute('transform', `translate(${g.dataset.cx} ${g.dataset.cy}) scale(${k})`);
         });
         svg.querySelectorAll('[data-f]').forEach((e) => { e.setAttribute('font-size', e.dataset.f * k); });
         svg.querySelectorAll('[data-w]').forEach((e) => e.setAttribute('stroke-width', e.dataset.w * k));
@@ -126,10 +125,11 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             trip.stops.forEach((stop, i) => {
                 const [x, y] = pts[i], fill = view.mode === 'trip' ? color : TIER_COLORS[stop.tier], op = trip.loaded ? 1 : 0.5;
                 const tip = `<title>${esc(stop.site)} · ${esc(data.tiers[stop.tier])} · ${esc(trip.id)} #${stop.order}\n${esc(stop.reason)}</title>`;
-                dots += stop.kind === 'Committed'
-                    ? `<rect data-site="${esc(stop.site)}" data-s="12" data-cx="${x}" data-cy="${y}" x="${x - 6}" y="${y - 6}" width="12" height="12" fill="${fill}" fill-opacity="${op}" stroke="#fff" stroke-width="1.5">${tip}</rect>`
-                    : `<circle data-site="${esc(stop.site)}" data-r="6.5" cx="${x}" cy="${y}" r="6.5" fill="${fill}" fill-opacity="${op}" stroke="#fff" stroke-width="1.5">${tip}</circle>`;
-                labels += `<text data-f="8" x="${x}" y="${y + 3}" text-anchor="middle" font-size="8" fill="#fff" pointer-events="none">${stop.order}</text>`;
+                const shape = stop.kind === 'Committed'
+                    ? `<rect x="-6" y="-6" width="12" height="12" fill="${fill}" fill-opacity="${op}" stroke="#fff" stroke-width="1.5">${tip}</rect>`
+                    : `<circle r="6.5" fill="${fill}" fill-opacity="${op}" stroke="#fff" stroke-width="1.5">${tip}</circle>`;
+                dots += `<g class="sig-planner-mk" data-mk data-site="${esc(stop.site)}" data-cx="${x}" data-cy="${y}">${shape}` +
+                    `<text y="3" text-anchor="middle" font-size="8" fill="#fff" pointer-events="none">${stop.order}</text></g>`;
             });
             return {line, dots, labels};
         };
@@ -302,22 +302,38 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                 <td>${esc(o.window)}</td><td>${esc(o.reason)}</td></tr>`).join('')}</tbody></table></section>` : '';
         root.html(`<div class="sig-planner-cards">${cards}</div>${note}
             <div class="sig-planner-searchbar">
-                <input type="search" class="sig-planner-search" list="sig-planner-sites" autocomplete="off"
+                <input type="search" class="sig-planner-search" autocomplete="off" spellcheck="false" autocapitalize="characters"
                     placeholder="${esc(__('Search a site code, e.g. ZDA970'))}">
-                <datalist id="sig-planner-sites">${sites.map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
+                <div class="sig-planner-suggest"></div>
             </div>
             <div class="sig-planner-map"><div class="sig-planner-mapbody"></div><div class="sig-planner-sitebox"></div></div>
             ${trips}${other}
             <p class="sig-planner-foot">${__('Read-only proposal. Mark a cycle Hold or Visited on its form to keep it out of the plan.')}</p>`);
-        root.find('.sig-planner-search').on('input', (e) => {
-            const q = String($(e.currentTarget).val() || '').trim().toUpperCase();
+        const input = root.find('.sig-planner-search');
+        const sugg = root.find('.sig-planner-suggest');
+        const pick = (key) => { input.val(key); sugg.hide(); showCard(key); };
+        const suggest = (q) => {
+            const keys = Object.keys(view.index);
+            const hits = keys.filter((k) => k.startsWith(q)).concat(keys.filter((k) => !k.startsWith(q) && k.includes(q))).slice(0, 12);
+            sugg.html(hits.map((k) => `<button type="button" class="sig-planner-sugg" data-site="${esc(k)}">${esc(k)}</button>`).join(''));
+            sugg.find('.sig-planner-sugg').on('mousedown', (e) => { e.preventDefault(); pick($(e.currentTarget).attr('data-site')); });
+            sugg.toggle(!!q && hits.length > 0);
+        };
+        input.on('input', () => {
+            const q = String(input.val() || '').trim().toUpperCase();
+            if (!q) { sugg.hide(); return showCard(null); }
             if (view.index[q]) showCard(q);
-        }).on('change', (e) => {
-            const q = String($(e.currentTarget).val() || '').trim().toUpperCase();
-            if (!q) return showCard(null);
-            const hit = Object.keys(view.index).find((k) => k.startsWith(q));
-            if (hit) showCard(hit);
-        });
+            suggest(q);
+        }).on('keydown', (e) => {
+            const q = String(input.val() || '').trim().toUpperCase();
+            if (e.key === 'Enter' && q) {
+                e.preventDefault();
+                const hit = view.index[q] ? q : Object.keys(view.index).find((k) => k.startsWith(q));
+                if (hit) pick(hit);
+            } else if (e.key === 'Escape') {
+                sugg.hide();
+            }
+        }).on('blur', () => sugg.hide());
         root.find('.sig-planner-row').on('click', (e) => {
             if (!$(e.target).is('a')) showCard($(e.currentTarget).attr('data-site'));
         });

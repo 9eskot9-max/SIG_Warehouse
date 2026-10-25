@@ -50,3 +50,8 @@
 .sig-planner-must { background: #a4211f; color: #fff; }
 .sig-planner-svg { height: 560px; }
 .sig-planner-leaflet { height: 560px; }
+.sig-planner-searchbar { position: relative; }
+.sig-planner-suggest { position: absolute; top: 36px; left: 0; width: 360px; max-width: 100%; max-height: 280px; overflow: auto; background: #fff; border: 1px solid #c9d4e0; border-radius: 6px; box-shadow: 0 6px 18px rgba(8,28,68,.15); z-index: 1200; display: flex; flex-direction: column; }
+.sig-planner-suggest:empty { display: none; }
+.sig-planner-sugg { text-align: start; background: none; border: 0; padding: 6px 10px; font-size: 13px; color: #081c44; font-family: inherit; }
+.sig-planner-sugg:hover, .sig-planner-sugg:focus { background: #eef7fc; outline: none; }
