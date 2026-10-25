@@ -198,6 +198,16 @@ class PlanWeekTests(unittest.TestCase):
         self.assertEqual(("Committed", date(2026, 10, 25)), (trip["kind"], trip["anchor"]))
         self.assertEqual(0, len(result["later"]))
 
+    def test_two_cycles_at_one_site_are_one_stop_that_lists_the_other_cycle(self):
+        a, b = item("R1", "T1"), item("R1", "T1")
+        a["cycle"], b["cycle"] = "R1|WO-1", "R1|WO-2"
+        result = self.plan([a, b, item("R2", "T1")])
+        stops = [s for c in result["clusters"] for s in c["stops"]]
+        self.assertEqual(2, len(stops))
+        r1 = next(s for s in stops if s["site"] == "R1")
+        self.assertEqual("R1|WO-1", r1["cycle"])
+        self.assertEqual(["R1|WO-2"], r1["also"])
+
     def test_workload_uses_scope_hours_and_travel_and_days_round_up(self):
         result = self.plan([item("R1", "T1"), item("R2", "T1"), item("R3", "T1"), item("R4", "T1")], scope_hours=2)
         trip = result["clusters"][0]

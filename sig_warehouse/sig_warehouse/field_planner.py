@@ -241,8 +241,13 @@ def plan_week(candidates, coords, week_start, overrides=None):
     week_start = _date(week_start)
     week_end = week_start + timedelta(days=6)
 
-    placeable, unplaced = [], []
+    # One site is one stop: a second cycle (another WO) at the same site rides along on the first one.
+    placeable, unplaced, first_at = [], [], {}
     for item in sorted(candidates, key=_sort_key):
+        if item["site"] in first_at:
+            first_at[item["site"]].setdefault("also", []).append(item["cycle"])
+            continue
+        first_at[item["site"]] = item
         (placeable if item["site"] in coords else unplaced).append(item)
     for item in unplaced:
         item["kind"] = "No coordinates"
