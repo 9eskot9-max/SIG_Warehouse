@@ -401,3 +401,129 @@ def schedule_week(plan, week_start, teams=None, work_days=None):
             busy[(team, days[i + k])] = trip["id"]
         placements.append({"trip": trip["id"], "team": team, "start": days[i], "days": days[i:i + length], "status": "Scheduled"})
     return placements
+
+
+CLASS_LABEL = {3: "Must", 2: "Priority", 1: "Normal"}
+
+
+def priority_class(item):
+    """3 = Must (PM mark), 2 = close to handover, or a TCN/ready site that already has a MIR, 1 = everything else."""
+    if item.get("must"):
+        return 3
+    if item["tier"] == "T2" or (item["tier"] in ("T0", "T1", "T3") and item.get("has_mir")):
+        return 2
+    return 1
+
+
+def build_candidates(cycles, windows, visit_days, today, params, project_index=None, mark_field="plan_hold"):
+    """Classify open Plan/Handover cycles into candidate rows, shared by the ERP page and the Excel export.
+
+    Returns (candidates, excluded). Each candidate carries the value the choice uses: the SAR gross value of the
+    cycle, or the median of known values when the cycle has none (value_source says which).
+    """
+    today = _date(today)
+    known = sorted(float(c["gross_value"]) for c in cycles if c.get("gross_value"))
+    median = known[len(known) // 2] if known else 0.0
+    rows, excluded = [], []
+    for raw in cycles:
+        c = dict(raw)
+        if project_index is not None:
+            c["project_text"] = project_text(c, project_index)
+        win = windows.get(c["name"])
+        tier, reason = classify(c, win, visit_days.get(c["name"], ()), today, params, c.get(mark_field) or "")
+        if not tier:
+            excluded.append({"cycle": c, "reason": reason})
+            continue
+        anchor = win["anchor"] if win else (_date(c["planned_start"]) if c.get("planned_start") else None)
+        value = float(c["gross_value"]) if c.get("gross_value") else None
+        rows.append({
+            "site": (c.get("site_id") or c.get("site") or "").upper(), "cycle": c["name"], "tier": tier,
+            "reason": reason, "project": c.get("project") or "", "stage": c.get("stage") or "", "anchor": anchor,
+            "window": ("%s to %s" % (win["start"], win["end"])) if win else "",
+            "win_start": win["start"] if win else None, "win_end": win["end"] if win else None,
+            "age": (c.get("last_event_at") or "")[:10],
+            "value": value if value is not None else median,
+            "value_source": "ERP" if value is not None else "estimated (median)",
+            "has_mir": bool(c.get("mir_at")), "must": (c.get(mark_field) or "") == "Must", "_c": c,
+        })
+    return rows, excluded
+
+
+def choose_week(candidates, coords, week_start, overrides=None):
+    """Option-based choice of this week's trips.
+
+    A TCN window is an opportunity, not a commitment. Trips are ranked by priority class (Must, then Priority, then
+    Normal), then by SAR value per team-day, then by the earliest window end. Each trip takes the earliest free slot
+    on one of the teams that exist, on any day inside its window; no extra teams are invented. A trip that finds no
+    slot is Lapsed: shown for review, not scheduled. A trip with a site that has no TCN window may go on any day.
+    """
+    params = dict(DEFAULTS)
+    params.update({k: v for k, v in (overrides or {}).items() if v not in (None, "")})
+    week_start = _date(week_start)
+    plan = plan_week(candidates, coords, week_start, overrides)
+    days = [week_start + timedelta(days=i) for i in range(int(params["work_days"]))]
+    teams = int(params["teams"])
+    busy = {(t, i): False for t in range(1, teams + 1) for i in range(len(days))}
+
+    def window(cluster):
+        stops = cluster["stops"]
+        if any(not s.get("win_end") for s in stops):
+            return 0, len(days) - 1
+        lo_date = min(_date(s.get("win_start") or s["win_end"]) for s in stops)
+        hi_date = max(_date(s["win_end"]) for s in stops)
+        if hi_date < days[0]:                           # the window has already passed: as soon as possible
+            return 0, len(days) - 1
+        lo = next((i for i, d in enumerate(days) if d >= lo_date), 0)
+        hi = max((i for i, d in enumerate(days) if d <= hi_date), default=len(days) - 1)
+        return lo, hi
+
+    def value(cluster):
+        return sum(float(s.get("value") or 0) for s in cluster["stops"])
+
+    def rank(cluster):
+        cls = max(priority_class(s) for s in cluster["stops"])
+        per = value(cluster) / max(1, cluster["team_days"])
+        ends = [_date(s["win_end"]) for s in cluster["stops"] if s.get("win_end")]
+        return (-cls, -per, min(ends) if ends else date.max, cluster["stops"][0]["site"])
+
+    active = [c for c in plan["clusters"] if c["kind"] != "Deferred"]
+    waiting = [c for c in plan["clusters"] if c["kind"] == "Deferred"]
+    for c in sorted(active, key=rank):
+        n = c["team_days"]
+        lo, hi = window(c)
+        slot = None
+        for i in range(lo, hi + 1):
+            if i + n - 1 > hi:
+                break
+            for t in range(1, teams + 1):
+                if all(not busy[(t, i + k)] for k in range(n)):
+                    slot = (t, i)
+                    break
+            if slot:
+                break
+        if slot:
+            t, i = slot
+            for k in range(n):
+                busy[(t, i + k)] = True
+            c.update(status="Scheduled", team=t, days=days[i:i + n], loaded=True)
+        else:
+            c.update(status="Lapsed", team=None, days=[], loaded=False)
+    for c in waiting:
+        c.update(status="Waiting for neighbours", team=None, days=[], loaded=False)
+    for c in plan["clusters"]:
+        cls = max(priority_class(s) for s in c["stops"])
+        c.update(priority=cls, priority_label=CLASS_LABEL[cls], value=round(value(c)),
+                 per_team_day=round(value(c) / max(1, c["team_days"])))
+    scheduled = [c for c in plan["clusters"] if c["status"] == "Scheduled"]
+    lapsed = [c for c in plan["clusters"] if c["status"] == "Lapsed"]
+    clusters = scheduled + lapsed + waiting
+    summary = dict(plan["summary"])
+    summary.update({
+        "trips": len(clusters), "trips_scheduled": len(scheduled), "trips_lapsed": len(lapsed), "trips_waiting": len(waiting),
+        "sites_scheduled": sum(len(c["stops"]) for c in scheduled), "sites_lapsed": sum(len(c["stops"]) for c in lapsed),
+        "value_scheduled": round(sum(c["value"] for c in scheduled)), "value_lapsed": round(sum(c["value"] for c in lapsed)),
+        "must_lapsed": sum(1 for c in lapsed for s in c["stops"] if s.get("must")),
+        "teams": teams, "loaded_team_days": sum(c["team_days"] for c in scheduled),
+        "capacity_team_days": teams * len(days), "backlog_trips": len(lapsed) + len(waiting), "over_capacity": False,
+    })
+    return {"clusters": clusters, "later": plan["later"], "unplaced": plan["unplaced"], "summary": summary, "params": params}

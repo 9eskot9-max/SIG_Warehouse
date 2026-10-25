@@ -230,5 +230,45 @@ class PlanWeekTests(unittest.TestCase):
         self.assertEqual(date(2026, 10, 25), fp.week_start_for(date(2026, 10, 28)))   # Wednesday
 
 
+class ChooseWeekTests(unittest.TestCase):
+    def cand(self, site, tier, start=None, end=None, value=1000.0, must=False, has_mir=True):
+        return {"site": site, "cycle": site + "|NA", "tier": tier, "anchor": start, "age": "2026-10-01", "reason": "x",
+                "project": "P", "window": "", "win_start": start, "win_end": end, "value": value, "must": must,
+                "has_mir": has_mir}
+
+    def statuses(self, result):
+        return {c["stops"][0]["site"]: c["status"] for c in result["clusters"]}
+
+    def test_a_must_site_beats_a_richer_normal_site_when_there_is_one_team_day(self):
+        items = [self.cand("R1", "T1", value=9000, has_mir=False), self.cand("J1", "T1", value=10, must=True)]
+        result = fp.choose_week(items, {"R1": RIYADH, "J1": JEDDAH}, WEEK, {"teams": 1, "work_days": 1})
+        self.assertEqual({"J1": "Scheduled", "R1": "Lapsed"}, self.statuses(result))
+
+    def test_value_per_team_day_orders_equal_priority_sites(self):
+        items = [self.cand("R1", "T1", value=500), self.cand("J1", "T1", value=5000)]
+        result = fp.choose_week(items, {"R1": RIYADH, "J1": JEDDAH}, WEEK, {"teams": 1, "work_days": 1})
+        self.assertEqual({"J1": "Scheduled", "R1": "Lapsed"}, self.statuses(result))
+
+    def test_no_extra_teams_are_invented_and_the_rest_lapse(self):
+        items = [self.cand(s, "T0", date(2026, 10, 25), date(2026, 10, 25)) for s in ("R1", "J1", "D1")]
+        result = fp.choose_week(items, {"R1": RIYADH, "J1": JEDDAH, "D1": DAMMAM}, WEEK, {"teams": 2, "work_days": 1})
+        self.assertEqual(["Lapsed", "Scheduled", "Scheduled"], sorted(c["status"] for c in result["clusters"]))
+        self.assertTrue(all(c["team"] in (1, 2) for c in result["clusters"] if c["status"] == "Scheduled"))
+        self.assertEqual(1, result["summary"]["trips_lapsed"])
+
+    def test_a_windowed_trip_takes_any_free_day_inside_its_window(self):
+        items = [self.cand("R1", "T0", date(2026, 10, 26), date(2026, 10, 27)),
+                 self.cand("J1", "T0", date(2026, 10, 26), date(2026, 10, 27))]
+        result = fp.choose_week(items, {"R1": RIYADH, "J1": JEDDAH}, WEEK, {"teams": 1, "work_days": 3})
+        days = sorted(c["days"][0] for c in result["clusters"] if c["status"] == "Scheduled")
+        self.assertEqual([date(2026, 10, 26), date(2026, 10, 27)], days)
+
+    def test_a_site_with_no_window_is_not_forced_onto_a_day(self):
+        items = [self.cand("R1", "T1", value=100)]
+        result = fp.choose_week(items, {"R1": RIYADH}, WEEK, {"teams": 1, "work_days": 3})
+        self.assertEqual("Scheduled", result["clusters"][0]["status"])
+        self.assertEqual(date(2026, 10, 25), result["clusters"][0]["days"][0])
+
+
 if __name__ == "__main__":
     unittest.main()
