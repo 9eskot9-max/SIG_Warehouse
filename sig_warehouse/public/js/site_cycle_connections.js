@@ -8,6 +8,7 @@
 
 	const DOCTYPE = "SIG Site Cycle";
 	const SITE_DOCTYPE = "SIG Site";
+	const PROJECT_DOCTYPE = "Project";
 	const GROUP = __("Field Ops");
 
 	function getFieldOpsColumn(frm, $dashboard) {
@@ -51,6 +52,11 @@
 	function openSiteFromItem($item) {
 		const siteName = $item.attr("data-site-record");
 		if (siteName) frappe.set_route("Form", SITE_DOCTYPE, siteName);
+	}
+
+	function openProjectFromItem($item) {
+		const projectName = $item.attr("data-project-record");
+		if (projectName) frappe.set_route("Form", PROJECT_DOCTYPE, projectName);
 	}
 
 	function addSiteToGroup(frm) {
@@ -128,12 +134,82 @@
 			);
 	}
 
+	function markProjectUnavailable(frm, $item, docName, projectName, message) {
+		if (frm.doc?.name !== docName || $item.attr("data-project-name") !== projectName) return;
+		$item.removeAttr("data-project-record data-project-checking");
+		$item.find(".badge-link").first().attr({
+			"aria-disabled": "true",
+			title: message,
+		}).addClass("text-muted");
+	}
+
+	function addProjectToGroup(frm) {
+		const $dashboard = frm.dashboard?.transactions_area;
+		if (!$dashboard?.length || frm.is_new()) return;
+
+		const $area = frm.dashboard.links_area.body;
+		$area.find('[data-sig-project-connection="1"]').remove();
+
+		const projectName = String(frm.doc?.project_ref || "").trim();
+		if (!projectName) return;
+
+		const $column = getFieldOpsColumn(frm, $dashboard);
+		const $item = makeConnectionItem($column)
+			.attr("data-doctype", PROJECT_DOCTYPE)
+			.attr("data-sig-project-connection", "1");
+		$item.removeAttr("data-sig-site-connection data-site-id data-site-record data-site-checking");
+		$item.find(".count, .open-notification, .btn-new").remove();
+		$column.append($item);
+
+		const docName = frm.doc.name;
+		const label = `${__("Project")}: ${projectName}`;
+		$item.attr("data-project-name", projectName).attr("data-project-checking", "1").removeAttr("data-project-record");
+		$item.find(".badge-link").first().text(label).attr({
+			href: "#",
+			"aria-label": label,
+			"aria-disabled": "true",
+			title: __("Checking Project access…"),
+		}).addClass("text-muted");
+		$item.find(".badge-link").first().on("click", (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			openProjectFromItem($item);
+		});
+
+		frm.dashboard.links_area.show();
+		frm.dashboard.show();
+
+		if (!frappe.model.can_read(PROJECT_DOCTYPE)) {
+			markProjectUnavailable(frm, $item, docName, projectName, __("You do not have read access to Project."));
+			return;
+		}
+
+		frappe.db.get_value(PROJECT_DOCTYPE, projectName, "name")
+			.then((result) => {
+				if (frm.doc?.name !== docName || $item.attr("data-project-name") !== projectName) return;
+				if (!result?.message?.name) {
+					markProjectUnavailable(frm, $item, docName, projectName, __("The linked Project could not be found."));
+					return;
+				}
+				$item.attr("data-project-record", result.message.name).removeAttr("data-project-checking");
+				$item.find(".badge-link").first().attr({
+					"aria-disabled": "false",
+					title: __("Open the linked ERP Project."),
+				}).removeClass("text-muted");
+			})
+			.catch(() => markProjectUnavailable(frm, $item, docName, projectName, __("Project access could not be verified. Refresh and try again.")));
+	}
+
 	const Dashboard = frappe.ui.form.Dashboard;
 	if (Dashboard?.prototype && !Dashboard.prototype.__sig_site_cycle_open_override) {
 		const originalOpenDocumentList = Dashboard.prototype.open_document_list;
 		Dashboard.prototype.open_document_list = function ($link, showOpen) {
 			if (this.frm?.doctype === DOCTYPE && $link.attr("data-doctype") === SITE_DOCTYPE) {
 				openSiteFromItem($link);
+				return false;
+			}
+			if (this.frm?.doctype === DOCTYPE && $link.attr("data-doctype") === PROJECT_DOCTYPE && $link.attr("data-sig-project-connection") === "1") {
+				openProjectFromItem($link);
 				return false;
 			}
 			return originalOpenDocumentList.call(this, $link, showOpen);
@@ -144,6 +220,7 @@
 	frappe.ui.form.on(DOCTYPE, {
 		refresh(frm) {
 			addSiteToGroup(frm);
+			addProjectToGroup(frm);
 		},
 	});
 })();

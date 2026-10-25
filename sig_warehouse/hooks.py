@@ -80,7 +80,7 @@ app_include_js = [
     "/assets/sig_warehouse/js/stock_entry.js?v=20260929-2",
     "/assets/sig_warehouse/js/warehouse_workspace_redirect.js?v=20261018-1",
     "/assets/sig_warehouse/js/print_download.js?v=20261006-1",
-    "/assets/sig_warehouse/js/site_cycle_connections.js?v=20261013-1",
+    "/assets/sig_warehouse/js/site_cycle_connections.js?v=20261026-1",
 ]
 
 # Field visit feed (gate F1: shadow; see docs/field_visit_feed_design.md). Runs every 15 minutes; mode is
@@ -100,6 +100,7 @@ scheduler_events = {
 }
 
 override_doctype_dashboards = {
+    "Project": "sig_warehouse.sig_warehouse.dashboards.project",
     "Material Request": "sig_warehouse.sig_warehouse.dashboards.material_request",
     "Stock Entry": "sig_warehouse.sig_warehouse.dashboards.stock_entry",
     "Delivery Note": "sig_warehouse.sig_warehouse.dashboards.delivery_note",

@@ -96,6 +96,16 @@ def site_cycle(data):
     return _ensure_connection_group(data, "Field Ops", ["SIG Site"])
 
 
+def project(data):
+    """Show Site Cycles that explicitly link to this ERP Project."""
+    # Project uses `project` for its native transactions. Site Cycles use the
+    # explicit Project Link `project_ref`, so keep that non-standard reverse
+    # link separate from the native ERPNext project transactions.
+    data.setdefault("fieldname", "project")
+    data.setdefault("non_standard_fieldnames", {})["SIG Site Cycle"] = "project_ref"
+    return _ensure_connection_group(data, "Field Ops", ["SIG Site Cycle"])
+
+
 def field_visit(data):
     return _add_site(data, "site")
 

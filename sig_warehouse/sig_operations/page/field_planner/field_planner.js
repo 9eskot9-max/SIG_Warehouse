@@ -17,6 +17,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
     field('diameter_km', __('Trip diameter (km)'), 'Float', 150);
     field('project', __('Project'), 'Data');
     page.set_primary_action(__('Refresh'), load);
+    page.add_inner_button(__('Operations Workbench'), () => frappe.set_route('operations-workbench'));
     filters.scope_hours = 2; filters.diameter_km = 150;
 
     // Saudi Arabia outline (lon, lat): Natural Earth 1:110m countries (public domain, via world-atlas); simplified, not a survey boundary.
