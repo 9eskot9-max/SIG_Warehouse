@@ -29,6 +29,10 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         Asir: '#fbf0b8', Jizan: '#cdeeea', Najran: '#f3d9e6', East: '#d9e1f2', North: '#e6e8d2'};
     const BOX0 = [20, 35, 830, 760];
     const SEA = '#e9f1f7', LAND = '#f8faf9', CAPITAL = '#b7791f';
+    // Main towns stay on the map at the normal zoom; every other town appears only once zoomed in.
+    const MAIN_TOWNS = new Set(['Riyadh', 'Jeddah', 'Makkah', 'Madinah', 'Dammam', 'Al Khobar', 'Al Hofuf', 'Taif', 'Abha',
+        'Tabuk', 'Buraydah', 'Hail', 'Najran', 'Jizan', 'Yanbu', 'Al Jubail', 'Arar', 'Sakaka', 'Al Bahah', 'Khamis Mushait',
+        'Al Kharj', 'Al Qatif', 'Hafar Albatin', 'Bisha', 'Al Ula', 'Unayzah', 'Rabigh']);
     const KM_PER_UNIT = 111.2 / 40;      // project() puts one degree of latitude at 40 units
     const teamName = (n) => (view.teamNames && view.teamNames[n]) || `${__('Team')} ${n}`;
     const view = {mode: 'team', base: 'drawing', zones: false, towns: true, box: null, leaflet: null, townList: null, zoneCells: null};
@@ -177,9 +181,9 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         const outline = KSA.map(([lon, lat]) => project(lon, lat).join(',')).join(' ');
         // Capitals and Jeddah are always drawn (also at the furthest zoom), in a colour apart from the planned sites.
         const townDots = (view.towns && view.townList) ? view.townList.map((t) => {
-            const [x, y] = project(t.lon, t.lat), big = t.name === 'Jeddah';
-            return `<circle class="sig-planner-cap-dot" data-r="${big ? 3.6 : 2.6}" cx="${x}" cy="${y}" r="${big ? 3.6 : 2.6}" fill="${CAPITAL}" stroke="#fff" stroke-width="0.6" data-w="0.6"><title>${esc(t.name)} · ${esc(t.zone)}</title></circle>` +
-                `<text class="sig-planner-cap" data-f="${big ? 8 : 6.5}" x="${x + 4}" y="${y - 3}" font-size="${big ? 8 : 6.5}" font-weight="${big ? 700 : 400}" fill="#7a4e12" pointer-events="none">${esc(t.name)}</text>`;
+            const [x, y] = project(t.lon, t.lat), big = t.name === 'Jeddah', minor = MAIN_TOWNS.has(t.name) ? '' : ' sig-planner-minor';
+            return `<circle class="sig-planner-cap-dot${minor}" data-r="${big ? 3.6 : 2.6}" cx="${x}" cy="${y}" r="${big ? 3.6 : 2.6}" fill="${CAPITAL}" stroke="#fff" stroke-width="0.6" data-w="0.6"><title>${esc(t.name)} · ${esc(t.zone)}</title></circle>` +
+                `<text class="sig-planner-cap${minor}" data-f="${big ? 8 : 6.5}" x="${x + 4}" y="${y - 3}" font-size="${big ? 8 : 6.5}" font-weight="${big ? 700 : 400}" fill="#7a4e12" pointer-events="none">${esc(t.name)}</text>`;
         }).join('') : '';
         const zones = view.zones && view.townList ? `<g clip-path="url(#sigksa)">${zoneCells()}</g>` : '';
         const teamsUsed = [...new Set(data.trips.filter((t) => t.status === 'Scheduled').map((t) => t.team))].sort((x, y) => x - y);
