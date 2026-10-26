@@ -54,8 +54,10 @@ def set_plan_decision(cycle, action="", reason=""):
         frappe.throw("Unknown plan decision.")
     if not frappe.db.exists("SIG Site Cycle", cycle):
         frappe.throw("The site cycle no longer exists. Refresh the plan.")
-    if not frappe.has_permission("SIG Site Cycle", "write", cycle):
-        frappe.throw("You cannot change the plan decision for this cycle.", frappe.PermissionError)
+    if not frappe.has_permission("SIG Site Cycle", "read", cycle):
+        frappe.throw("You cannot view this cycle.", frappe.PermissionError)
+    if not frappe.has_permission("SIG Plan Decision", "create"):
+        frappe.throw("You cannot record a planner decision.", frappe.PermissionError)
     today = frappe.utils.getdate(frappe.utils.nowdate())
     doc = frappe.get_doc({
         "doctype": "SIG Plan Decision", "cycle": cycle,
@@ -65,7 +67,8 @@ def set_plan_decision(cycle, action="", reason=""):
         "decided_by": frappe.session.user, "decided_at": frappe.utils.now_datetime(),
     })
     doc.insert()
-    # the cycle form shows the current decision; the log stays the source of truth
+    # The append-only Planner Decision is authoritative. This endpoint mirrors
+    # its current value for the cycle form; no general cycle-write grant is needed.
     frappe.db.set_value("SIG Site Cycle", cycle, "plan_hold", action, update_modified=False)
     return {"name": doc.name, "action": action}
 
