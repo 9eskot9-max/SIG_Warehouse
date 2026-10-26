@@ -1,6 +1,9 @@
 """Whitelisted read-only API for the Field Planner page. Writes nothing; every read uses the caller's permissions."""
 import json
+import hashlib
 import os
+import urllib.error
+import urllib.request
 from uuid import uuid4
 
 import frappe
@@ -41,6 +44,11 @@ def _riyadh_now():
 def _trace_export_enabled():
     """Site-level kill switch for diagnostic capture/export; absent means disabled."""
     value = getattr(frappe, "conf", {}).get("sig_field_planner_trace_export_enabled", False)
+    return str(value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _site_config_enabled(key):
+    value = getattr(frappe, "conf", {}).get(key, False)
     return str(value or "").strip().lower() in ("1", "true", "yes", "on")
 
 
@@ -181,7 +189,8 @@ def update_team_position(team_leader, site):
 
 
 @frappe.whitelist()
-def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=None, project=None, capture_trace=0):
+def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=None, project=None, capture_trace=0,
+                   search_seed=None, search_iters=None, search_seconds=None):
     """Return the weekly plan: TCN windows are options, trips are placed on the teams that exist, the rest lapse."""
     _require_access()
     business_now = _riyadh_now()
@@ -361,7 +370,9 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
         starts += [None] * (count - len(starts))
         names = {i + 1: p["team"] for i, p in enumerate(planned[:count])}
     clustered = planner.plan_week(candidates, coords, start, overrides, schedule_singletons=True, trace=trace)
-    plan = continuity.schedule_continuity(clustered, coords, start, overrides, starts, names, trace=trace)
+    plan = continuity.schedule_continuity(clustered, coords, start, overrides, starts, names, trace=trace,
+                                         search_seed=search_seed, search_iters=search_iters,
+                                         search_seconds=search_seconds)
     if trace is not None:
         trace["inputs"]["coordinates_used"] = {site: [lat, lon] for site, (lat, lon) in coords.items()}
         trace["diagnostics"] = []
@@ -390,6 +401,7 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
                        if planner.tcn_cutoff(day) > business_now.replace(tzinfo=None)), default=None)
     cutoff_text = next_cutoff.replace(tzinfo=business_now.tzinfo).isoformat() if next_cutoff else ""
     result = _present(plan, coords, cutoff_text)
+    result["scheduler_objective"] = plan.get("objective")
     result["trace_export_enabled"] = trace_enabled
     if trace is not None:
         accounted_cycles = {stop.get("cycle") for cluster in plan["clusters"] for stop in cluster.get("stops", [])}
@@ -413,6 +425,184 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
                                                else trace["outcome"]["judgement"])})
         result["decision_trace"] = trace
     return result
+
+
+def _planner_input_hash(data):
+    trace = data.get("decision_trace") or {}
+    frozen = {key: trace.get(key) for key in ("inputs", "candidate_decisions", "evidence_summary", "evidence_records")}
+    encoded = json.dumps(frozen, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _schedule_signature(data):
+    rows = []
+    for trip in data.get("trips") or []:
+        rows.append((trip.get("id"), trip.get("team"), trip.get("first_day"), trip.get("last_day"),
+                     tuple((stop.get("site"), stop.get("day"), stop.get("needs_tcn"), stop.get("tcn_due_for"))
+                           for stop in trip.get("stops") or [])))
+    return hashlib.sha256(json.dumps(rows, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+def _ai_schedule_summary(candidate_id, data):
+    teams = {}
+    for row in data.get("teams") or []:
+        number = str(row.get("team") or "")
+        teams[number] = {"team": "Team " + number, "travel_hours": row.get("travel_h"),
+                         "work_hours": row.get("work_h"), "relocation_km": row.get("reloc_km")}
+    schedule = []
+    team_routes = {}
+    for trip in data.get("trips") or []:
+        team = str(trip.get("team") or "")
+        route = team_routes.setdefault(team, []) if team else None
+        trip_sites = []
+        for stop in trip.get("stops") or []:
+            trip_sites.append({"site": stop.get("site"), "day": stop.get("day"), "priority": stop.get("class"),
+                               "must": bool(stop.get("must")), "needs_tcn": bool(stop.get("needs_tcn")),
+                               "tcn_due_for": stop.get("tcn_due_for") or None, "tags_complete": bool(stop.get("has_tags"))})
+        if team and trip_sites:
+            route.append({"days": [trip.get("first_day"), trip.get("last_day")], "sites": trip_sites})
+            schedule.extend(dict(site, team="Team " + team) for site in trip_sites)
+    for route in team_routes.values():
+        route.sort(key=lambda item: str(item.get("days", [""])[0] or ""))
+    summary = data.get("summary") or {}
+    return {"candidate_id": candidate_id, "objective": data.get("scheduler_objective"),
+            "metrics": {key: summary.get(key) for key in ("trips_scheduled", "trips_lapsed", "trips_waiting",
+                "sites_scheduled", "sites_lapsed", "value_scheduled", "must_lapsed", "windows_met",
+                "windows_total", "loaded_team_days", "capacity_team_days", "travel_h", "work_h", "reloc_km")},
+            "team_totals": [teams[key] for key in sorted(teams, key=lambda value: int(value) if value.isdigit() else 0)],
+            "team_routes": [{"team": "Team " + key, "trips": value} for key, value in sorted(team_routes.items())],
+            "scheduled_stops": schedule,
+            "unplaced_sites": sorted({str(item.get("site") or "") for item in data.get("other") or []
+                                       if item.get("kind") == "Unplaced"})}
+
+
+def _call_openai_schedule_picker(api_key, candidates):
+    candidate_ids = [candidate["candidate_id"] for candidate in candidates]
+    schema = {"type": "object", "additionalProperties": False,
+              "properties": {
+                  "selected_candidate_id": {"type": "string", "enum": candidate_ids},
+                  "ranked_candidate_ids": {"type": "array", "items": {"type": "string", "enum": candidate_ids}},
+                  "needs_human_review": {"type": "boolean"},
+                  "reasons": {"type": "array", "items": {"type": "string"}},
+                  "warnings": {"type": "array", "items": {"type": "string"}},
+                  "tradeoffs": {"type": "array", "items": {"type": "string"}},
+                  "unsupported_assumptions": {"type": "array", "items": {"type": "string"}},
+              }, "required": ["selected_candidate_id", "ranked_candidate_ids", "needs_human_review",
+                              "reasons", "warnings", "tradeoffs", "unsupported_assumptions"]}
+    instructions = (
+        "Choose only among the supplied ERP-generated feasible schedules. Never invent sites, teams, dates, "
+        "TCN approvals, travel estimates, or assignments. Preserve Must, dated TCN windows, priority, and "
+        "scheduled scope coverage before considering travel and team continuity. Compare the supplied ERP "
+        "objective and metrics; prefer a lower-travel or more regionally coherent option only when it does "
+        "not sacrifice a higher-priority objective component. Flag stale or missing position/evidence and "
+        "material tradeoffs. If the scenarios are effectively tied or the supplied facts cannot support a "
+        "safe choice, set needs_human_review true. Reasons must refer only to supplied fields."
+    )
+    body = {"model": "gpt-6-luna", "reasoning": {"effort": "high"}, "store": False,
+            "max_output_tokens": 900,
+            "input": [{"role": "system", "content": instructions},
+                      {"role": "user", "content": json.dumps({"candidates": candidates}, separators=(",", ":"))}],
+            "text": {"format": {"type": "json_schema", "name": "planner_schedule_choice", "strict": True,
+                                 "schema": schema}}}
+    request = urllib.request.Request("https://api.openai.com/v1/responses",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Authorization": "Bearer " + api_key, "Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=50) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ValueError):
+        frappe.log_error("Field Planner AI request failed; credential and provider response omitted.",
+                         "Field Planner AI")
+        frappe.throw("AI schedule review is unavailable. The ERP plan is unchanged.")
+    output_text = payload.get("output_text") or ""
+    if not output_text:
+        for item in payload.get("output") or []:
+            if item.get("type") == "message":
+                output_text = "".join(part.get("text", "") for part in item.get("content") or []
+                                      if part.get("type") == "output_text")
+                if output_text:
+                    break
+    try:
+        choice = json.loads(output_text)
+    except (TypeError, ValueError):
+        frappe.throw("AI schedule review returned an unreadable choice. The ERP plan is unchanged.")
+    if choice.get("selected_candidate_id") not in candidate_ids:
+        frappe.throw("AI selected a schedule outside the ERP candidate set. The ERP plan is unchanged.")
+    ranked = choice.get("ranked_candidate_ids") or []
+    if any(candidate_id not in candidate_ids for candidate_id in ranked):
+        frappe.throw("AI returned an unknown schedule rank. The ERP plan is unchanged.")
+    choice["ranked_candidate_ids"] = list(dict.fromkeys(ranked))
+    choice["reasons"] = [str(value)[:240] for value in choice.get("reasons", [])[:4]]
+    choice["warnings"] = [str(value)[:240] for value in choice.get("warnings", [])[:4]]
+    choice["tradeoffs"] = [str(value)[:240] for value in choice.get("tradeoffs", [])[:4]]
+    choice["unsupported_assumptions"] = [str(value)[:240] for value in choice.get("unsupported_assumptions", [])[:4]]
+    return choice, payload.get("id"), payload.get("model") or "gpt-6-luna"
+
+
+@frappe.whitelist(methods=["POST"])
+def recommend_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=None, project=None):
+    """Compare same-input ERP schedules and return an AI recommendation; never saves or publishes the choice."""
+    _require_access()
+    if not _site_config_enabled("sig_field_planner_ai_selection_enabled"):
+        frappe.throw("Field Planner AI selection is disabled in site settings.")
+    if not _trace_export_enabled():
+        frappe.throw("Enable the Field Planner decision trace before requesting an AI recommendation.")
+    api_key = str(getattr(frappe, "conf", {}).get("sig_field_planner_openai_api_key") or "").strip()
+    if not api_key:
+        frappe.throw("Configure the Field Planner OpenAI key in the server-side secret settings first.")
+    base_args = {"week_start": week_start, "teams": teams, "scope_hours": scope_hours,
+                 "diameter_km": diameter_km, "project": project}
+    seeds = [continuity.SEARCH["seed"], continuity.SEARCH["seed"] + 1, continuity.SEARCH["seed"] + 2]
+    generated = []
+    input_hash = None
+    for index, seed in enumerate(seeds):
+        data = get_field_plan(**dict(base_args, capture_trace=1, search_seed=seed))
+        current_hash = _planner_input_hash(data)
+        if not current_hash or not data.get("decision_trace"):
+            frappe.throw("A traceable ERP snapshot is required; the ERP plan is unchanged.")
+        if input_hash and current_hash != input_hash:
+            frappe.throw("Planner inputs changed while alternatives were being generated. Refresh and try again.")
+        input_hash = current_hash
+        signature = _schedule_signature(data)
+        if all(signature != row["signature"] for row in generated):
+            candidate_id = "BASELINE" if index == 0 else "VARIANT_" + str(index)
+            generated.append({"signature": signature, "candidate_id": candidate_id, "data": data,
+                              "summary": _ai_schedule_summary(candidate_id, data)})
+    if len(generated) < 2:
+        frappe.throw("The ERP search did not produce a distinct feasible alternative. No AI schedule was selected.")
+    scored = [(tuple(row["summary"].get("objective") or ()), row) for row in generated
+              if row["summary"].get("objective") is not None]
+    if len(scored) < 2:
+        frappe.throw("ERP could not score enough alternatives for AI review. The baseline is unchanged.")
+    best_objective = max(score for score, _row in scored)
+    eligible = [row for score, row in scored if score == best_objective]
+    if len(eligible) < 2:
+        frappe.throw("ERP's existing priority order leaves one best schedule; no AI tie-break is needed.")
+    candidates = [row["summary"] for row in eligible]
+    candidate_set_hash = hashlib.sha256(json.dumps(candidates, sort_keys=True, separators=(",", ":"),
+                                             default=str).encode("utf-8")).hexdigest()
+    cache_key = "sig_field_planner_ai_choice:" + input_hash + ":" + candidate_set_hash
+    cached = frappe.cache().get_value(cache_key)
+    if cached:
+        choice, response_id, model = cached.get("choice"), cached.get("response_id"), cached.get("model")
+    else:
+        choice, response_id, model = _call_openai_schedule_picker(api_key, candidates)
+        frappe.cache().set_value(cache_key, {"choice": choice, "response_id": response_id, "model": model},
+                                 expires_in_sec=3600)
+    selected = next(row for row in eligible if row["candidate_id"] == choice["selected_candidate_id"])
+    audit = {"schema": "sig-field-planner-ai-selection/v1",
+             "run_id": selected["data"]["decision_trace"].get("run_id"),
+             "input_hash": input_hash, "candidate_set_hash": candidate_set_hash,
+             "erp_best_objective": list(best_objective),
+             "model": model, "reasoning_effort": "high", "response_id": response_id,
+             "selected_candidate_id": choice["selected_candidate_id"],
+             "ranked_candidate_ids": choice["ranked_candidate_ids"], "needs_human_review": choice["needs_human_review"],
+             "reasons": choice["reasons"], "warnings": choice["warnings"], "tradeoffs": choice["tradeoffs"],
+             "unsupported_assumptions": choice["unsupported_assumptions"], "candidate_summaries": candidates,
+             "mode": "recommendation_only; no schedule writes"}
+    selected["data"]["decision_trace"]["ai_review"] = audit
+    return {"recommendation": audit, "selected_plan": selected["data"],
+            "candidate_summaries": candidates, "input_hash": input_hash}
 
 
 @frappe.whitelist()

@@ -247,7 +247,8 @@ def _best_insert(routes, trip, teams, days_n, params, starts, trace=None):
     return best
 
 
-def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, names=None, trace=None):
+def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, names=None, trace=None,
+                        search_seed=None, search_iters=None, search_seconds=None):
     """starts: one (lat, lon) or None per team, where that team stands when the week opens; it also sets the number of
     teams. names: team number (1-based) -> display name (the leader)."""
     params = dict(fp.DEFAULTS)
@@ -258,6 +259,13 @@ def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, n
     if starts:
         params["teams"] = len(starts)
     teams = int(params["teams"])
+    search = dict(SEARCH)
+    if search_seed is not None:
+        search["seed"] = int(search_seed)
+    if search_iters is not None:
+        search["iters"] = max(0, min(int(search_iters), SEARCH["iters"]))
+    if search_seconds is not None:
+        search["seconds"] = max(0.0, min(float(search_seconds), SEARCH["seconds"]))
     starts = list(starts or []) + [None] * (teams - len(starts or []))
     live = [c for c in plan["clusters"] if c["kind"] != "Deferred"]
     waiting = [c for c in plan["clusters"] if c["kind"] == "Deferred"]
@@ -265,7 +273,7 @@ def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, n
     by_id = {t["id"]: t for t in trips}
 
     if trace is not None:
-        trace.update({"scheduler": {"algorithm": "continuity-insert-and-improve", "search": dict(SEARCH),
+        trace.update({"scheduler": {"algorithm": "continuity-insert-and-improve", "search": search,
                                      "week_start": str(week), "work_dates": [str(day) for day in work_dates],
                                      "teams": teams, "team_names": {str(k): v for k, v in (names or {}).items()},
                                      "starting_positions": [list(pos) if pos else None for pos in starts],
@@ -299,7 +307,7 @@ def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, n
         _, t, pos = best
         routes[t].insert(pos, trip)
 
-    rng = random.Random(SEARCH["seed"])
+    rng = random.Random(search["seed"])
     current = _objective(routes, days_n, params, starts)
     if trace is not None:
         trace["scheduler"]["initial_objective"] = list(current) if current is not None else None
@@ -307,8 +315,8 @@ def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, n
     trace_overhead = 0.0
     evals = 0
     termination_reason = "iteration_limit"
-    for _ in range(SEARCH["iters"]):
-        if time.monotonic() - started - trace_overhead > SEARCH["seconds"]:
+    for _ in range(search["iters"]):
+        if time.monotonic() - started - trace_overhead > search["seconds"]:
             termination_reason = "time_limit"
             break
         new = [list(r) for r in routes]
@@ -476,4 +484,5 @@ def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, n
                                          "No trips scheduled in this horizon" if no_scheduled_work else
                                          "Plan formed; TCN pending" if provisional_pending else "Targets met"}
     return {"clusters": scheduled + lapsed_out + waiting_out, "later": plan["later"], "unplaced": plan["unplaced"],
-            "summary": summary, "params": params, "teams": team_rows}
+            "summary": summary, "params": params, "teams": team_rows,
+            "objective": list(current) if current is not None else None}

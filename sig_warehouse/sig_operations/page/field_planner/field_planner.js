@@ -26,6 +26,52 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
     root.on('click', '[data-export-trace]', () => downloadTrace('json'));
     root.on('click', '[data-export-trace-csv]', () => downloadTrace('csv'));
 
+    function reviewScheduleWithAI(button) {
+        button.prop('disabled', true).addClass('disabled');
+        frappe.call({
+            method: 'sig_warehouse.sig_warehouse.field_planner_api.recommend_field_plan',
+            args: filters,
+            freeze: true,
+            freeze_message: __('Comparing feasible ERP schedules…'),
+            callback(r) {
+                button.prop('disabled', false).removeClass('disabled');
+                const payload = r.message || {}, recommendation = payload.recommendation || {}, plan = payload.selected_plan || {};
+                if (!recommendation.selected_candidate_id || !plan.trips) {
+                    frappe.msgprint(__('The AI recommendation could not be prepared. The current ERP schedule is unchanged.'));
+                    return;
+                }
+                currentTrace = plan.decision_trace || currentTrace;
+                const selected = (payload.candidate_summaries || []).find(x => x.candidate_id === recommendation.selected_candidate_id) || {};
+                const metrics = selected.metrics || {};
+                const metric = (label, value) => '<span class="sig-planner-ai-metric"><b>' + esc(value == null ? '—' : value) + '</b> ' + esc(label) + '</span>';
+                const routeRows = (plan.trips || []).filter(t => t.team != null && t.stops && t.stops.length).map(t => {
+                    const team = (plan.teams || []).find(x => Number(x.team) === Number(t.team));
+                    const label = team && team.leader ? team.leader : __('Team {0}', [t.team]);
+                    const sites = t.stops.map(s => esc(s.site) + (s.day ? ' · ' + esc(fmtDates(s.day)) : '')).join(' &nbsp;→&nbsp; ');
+                    return '<tr><td>' + esc(label) + '</td><td>' + esc(fmtDates(t.first_day || '')) + '</td><td>' + sites + '</td></tr>';
+                }).join('');
+                const reasonList = (recommendation.reasons || []).map(x => '<li>' + esc(x) + '</li>').join('');
+                const warningList = [].concat(recommendation.warnings || [], recommendation.tradeoffs || [],
+                    recommendation.unsupported_assumptions || []).map(x => '<li>' + esc(x) + '</li>').join('');
+                const body = '<div class="sig-planner-ai-result"><p><b>' + __('ERP scenario') + ' ' + esc(recommendation.selected_candidate_id) + '</b> · ' +
+                    (recommendation.needs_human_review ? '<span class="text-warning">' + __('PM review recommended') + '</span>' : __('Recommendation only')) +
+                    '</p><div class="sig-planner-ai-metrics">' + metric(__('scheduled sites'), metrics.sites_scheduled) +
+                    metric(__('Must left unscheduled'), metrics.must_lapsed) + metric(__('TCN dates met'), (metrics.windows_met || 0) + ' / ' + (metrics.windows_total || 0)) +
+                    metric(__('travel hours'), metrics.travel_h) + metric(__('team-days'), (metrics.loaded_team_days || 0) + ' / ' + (metrics.capacity_team_days || 0)) +
+                    '</div>' + (reasonList ? '<h4>' + __('Why this schedule') + '</h4><ul>' + reasonList + '</ul>' : '') +
+                    (warningList ? '<h4>' + __('Tradeoffs and review points') + '</h4><ul>' + warningList + '</ul>' : '') +
+                    '<div class="sig-planner-table-wrap"><table class="table table-bordered"><thead><tr><th>' + __('Team') + '</th><th>' + __('Start') + '</th><th>' + __('Proposed stops') +
+                    '</th></tr></thead><tbody>' + (routeRows || '<tr><td colspan="3">' + __('No scheduled stops') + '</td></tr>') + '</tbody></table></div>' +
+                    '<p class="text-muted">' + __('This is a temporary recommendation. ERP does not save or publish the selected schedule.') + '</p></div>';
+                const dialog = new frappe.ui.Dialog({title: __('AI schedule recommendation'), fields: [{fieldtype: 'HTML', fieldname: 'result', options: body}],
+                    primary_action_label: __('Export decision trace'),
+                    primary_action() { currentTrace = plan.decision_trace || currentTrace; downloadTrace('json'); dialog.hide(); }});
+                dialog.show();
+            },
+            error() { button.prop('disabled', false).removeClass('disabled'); },
+        });
+    }
+
     function csvCell(value) {
         let text = value == null ? '' : String(value);
         if (/^[\s]*[=+@-]/.test(text)) text = "'" + text;
@@ -657,6 +703,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             '<label>' + __('Plan starts') + '<input type="date" readonly value="' + esc(filters.week_start) + '"></label>' +
             '<label class="sig-planner-project-control">' + __('Project / PO') + '<div class="sig-planner-project-link"></div></label>' +
             '<button type="button" class="btn btn-default" data-action="settings">' + __('Planning settings') + '</button>' +
+            '<button type="button" class="btn btn-default" data-action="ai-recommend">' + __('AI schedule choice') + '</button>' +
             '</div><div class="sig-planner-metrics" id="sig-planner-metrics"></div></section>' +
             (data.decision_trace ? '<section class="sig-planner-trace-actions"><span>' + __('Trace captured for this plan') + ' · ' +
                 esc(fmtDates(data.decision_trace.week_start || '')) + ' · ' + esc(data.decision_trace.generated_at_riyadh || '') + '</span><div>' +
@@ -875,6 +922,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             const a = $(e.currentTarget).attr('data-action');
             if (a === 'settings') openSettings();
             if (a === 'position') openPosition(view.selectedTeam);
+            if (a === 'ai-recommend') reviewScheduleWithAI($(e.currentTarget));
             if (a === 'refresh') load();
             if (a === 'locate-selected' && view.selected) chooseCycle(view.selected, true);
             if (a === 'toggle-map-size') {

@@ -134,6 +134,7 @@
 .sig-planner-rules{padding:10px 13px;border:1px solid #e0e8ee;border-radius:8px;background:#f8fafb;color:#607687;font-size:12px}
 .sig-planner-rules summary{cursor:pointer;font-weight:700;color:#3b596d}.sig-planner-rules p{margin:8px 0 0}
 .sig-planner-table-wrap{width:100%;overflow:auto;border:1px solid #dce6ee;border-radius:10px;background:#fff}
+.sig-planner-ai-metrics{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 16px}.sig-planner-ai-metric{display:inline-flex;align-items:baseline;gap:5px;padding:8px 11px;border:1px solid #dce6ee;border-radius:8px;background:#f4f8fb;color:#536b7e}.sig-planner-ai-metric b{font-size:16px;color:#183b56}
 .sig-planner-shell table{width:100%;border-collapse:separate;border-spacing:0;color:#294457;font-size:13px}
 .sig-planner-shell th{padding:12px 13px;text-align:start;background:#f3f8fb;border-bottom:1px solid #dce6ee;color:#526d80;font-size:12px;font-weight:750;white-space:nowrap}
 .sig-planner-shell td{padding:12px 13px;vertical-align:middle;border-bottom:1px solid #edf1f4}
