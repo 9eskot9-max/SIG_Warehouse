@@ -24,9 +24,6 @@
 .sig-planner-card .num{font-size:23px;line-height:1.1;font-weight:750;color:#183247}
 .sig-planner-card .lbl{margin-top:7px;color:#617687;font-size:12px;font-weight:600}
 .sig-planner-blue{border-inline-start-color:#3784db}.sig-planner-red{border-inline-start-color:#c64d4b}.sig-planner-amber{border-inline-start-color:#d19a24}.sig-planner-green{border-inline-start-color:#36915b}.sig-planner-gray{border-inline-start-color:#8495a2}
-.sig-planner-signals{display:flex;gap:8px;flex-wrap:wrap}
-.sig-planner-signals>span{padding:7px 11px;background:#f4f8fa;border:1px solid #e0e9ef;border-radius:999px;color:#526b7d;font-size:12px}
-.sig-planner-signals b{color:#183247}
 .sig-planner-teams{display:grid;grid-template-columns:repeat(auto-fit,minmax(235px,1fr));gap:9px}
 .sig-planner-team{display:flex;align-items:center;gap:11px;min-height:67px;padding:10px 13px;text-align:start;background:#fff;border:1px solid #dce6ee;border-radius:10px;color:#183247;box-shadow:0 1px 2px rgba(24,50,71,.04);cursor:pointer}
 .sig-planner-team:hover{border-color:#9eb7c9;background:#f8fbfd}
@@ -35,7 +32,6 @@
 .sig-planner-team>span{display:flex;flex-direction:column;min-width:0;flex:1}
 .sig-planner-team b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sig-planner-team small{margin-top:3px;color:#6b7f8e;font-size:11px}
-.sig-planner-team strong{white-space:nowrap;color:#3d647e;font-size:12px}
 .sig-planner-context{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 17px;background:#edf6fb;border:1px solid #d2e4ef;border-radius:10px}
 .sig-planner-context-title{display:flex;align-items:center;gap:10px}
 .sig-planner-context-title h3{margin:0;color:#183e5b;font-size:18px}

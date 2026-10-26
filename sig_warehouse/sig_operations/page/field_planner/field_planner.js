@@ -416,6 +416,9 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             '</select></label>';
         const canUpdatePosition = () => (frappe.user_roles || []).some((r) => ['Projects Manager', 'System Manager'].includes(r));
         const currentPosition = (n) => view.teamPositions.find((p) => Number(p.team_no) === Number(n));
+        const teamPositionSummary = (p) => !p ? __('No position reported') :
+            p.state === 'Incident' ? __('Incident team · not planned') : !p.site ? __('No position reported') :
+                p.state === 'Stale' ? __('Last site: ') + p.site + ' · ' + __('not used') : __('Start: ') + p.site;
         const positionName = (p) => p && (p.team || p.leader) || '';
         const positionState = (p) => !p ? __('No position report') : p.state === 'Incident' ? __('Incident team · not planned') :
             p.state === 'Stale' ? __('Old position · not used') : p.site && (p.lat == null || p.lon == null) ?
@@ -484,12 +487,12 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         root.html('<div class="sig-planner-shell">' +
             '<section class="sig-planner-toolbar"><div><span class="sig-planner-eyebrow">SIG OPERATIONS</span><h2>' + __('Plan for tomorrow') +
             '</h2><p>' + esc(fmtDates(horizon[0] || '')) + ' – ' + esc(fmtDates(horizon[horizon.length - 1] || '')) +
-            ' · ' + __('following workdays retained for continuity') + '</p></div><div class="sig-planner-controls">' +
+            '</p></div><div class="sig-planner-controls">' +
             '<label>' + __('Plan starts') + '<input type="date" readonly value="' + esc(filters.week_start) + '"></label>' +
             '<label class="sig-planner-project-control">' + __('Project / PO') + '<div class="sig-planner-project-link"></div></label>' +
             '<button type="button" class="btn btn-default" data-action="settings">' + __('Planning settings') + '</button>' +
             '<button type="button" class="btn btn-primary" data-action="refresh">' + __('Refresh') + '</button></div></section>' +
-            '<div class="sig-planner-metrics" id="sig-planner-metrics"></div><div class="sig-planner-signals" id="sig-planner-signals"></div>' +
+            '<div class="sig-planner-metrics" id="sig-planner-metrics"></div>' +
             '<section class="sig-planner-teams" id="sig-planner-teams"></section><section class="sig-planner-context"><div><div class="sig-planner-context-title">' +
             '<i id="sig-planner-team-dot"></i><h3 id="sig-planner-team-name"></h3></div><p id="sig-planner-team-context"></p></div>' +
             (canUpdatePosition() ? '<button type="button" class="btn btn-default sig-planner-update-main" data-action="position">' + __('Update position') + '</button>' : '') +
@@ -557,25 +560,17 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             card(__('No coordinates'), data.has_coordinates ? (stats.no_coordinates || 0) : (stats.candidates || 0),
                 stats.no_coordinates || !data.has_coordinates ? 'red' : 'gray'),
         ].join(''));
-        const tierCounts = {T0: 0, T1: 0, T2: 0, T3: 0};
-        view.rows.forEach((r) => { if (tierCounts[r.tier] != null) tierCounts[r.tier]++; });
-        root.find('#sig-planner-signals').html('<span><b>' + tierCounts.T0 + '</b> ' + __('TCN-linked') + '</span><span><b>' + tierCounts.T1 +
-            '</b> ' + __('overdue TCN') + '</span><span><b>' + tierCounts.T2 + '</b> ' + __('handover follow-up') + '</span><span><b>' + tierCounts.T3 +
-            '</b> ' + __('MIR ready') + '</span>');
         root.find('#sig-planner-teams').html(view.teams.map((t) => {
             const p = currentPosition(t.team), c = TEAM_COLORS[(t.team - 1) % TEAM_COLORS.length];
             return '<button type="button" class="sig-planner-team" data-team="' + t.team + '" aria-pressed="' + (Number(view.selectedTeam) === t.team) +
                 '" style="--team:' + c + '"><i></i><span><b>' + esc(t.leader) + '</b><small>' +
-                esc(p && p.site || __('No position')) + ' · ' + esc(p && p.seen_at || __('No report')) + '</small></span><strong>' +
-                teamRows(t.team).length + ' ' + __('visits') + '</strong></button>';
+                esc(teamPositionSummary(p)) + '</small></span></button>';
         }).join(''));
-        const chosen = view.teams.find((t) => t.team === Number(view.selectedTeam)), position = currentPosition(view.selectedTeam);
+        const chosen = view.teams.find((t) => t.team === Number(view.selectedTeam));
         root.find('#sig-planner-team-name').text(chosen ? chosen.leader : __('No project team'));
         root.find('#sig-planner-team-dot').css('background', TEAM_COLORS[(Number(view.selectedTeam) - 1) % TEAM_COLORS.length]);
-        root.find('#sig-planner-team-context').html(teamRows(view.selectedTeam).length + ' ' + __('proposed visits') + ' · ' +
-            teamTrips(view.selectedTeam).length + ' ' + __('trips') + ' · ' + __('Reported start') + ' <b>' +
-            esc(position && position.site || __('Unknown')) + '</b> · ' + esc(position && position.seen_at || __('No report')) + ' · ' +
-            esc(position && position.source || __('No report')) + (position && position.state === 'Stale' ? ' · ' + __('old position, not used') : ''));
+        root.find('#sig-planner-team-context').text(teamRows(view.selectedTeam).length + ' ' + __('planned stops') + ' · ' +
+            teamTrips(view.selectedTeam).length + ' ' + __('trips'));
         root.find('#sig-planner-schedule-count').text(assigned().length);
         root.find('#sig-planner-review-count').text(backlog().length);
         root.find('#sig-planner-filter-team').html('<option value="">' + __('All teams') + '</option>' +
