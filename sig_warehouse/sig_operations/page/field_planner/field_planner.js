@@ -32,10 +32,11 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
     const MAIN_TOWNS = new Set(['Riyadh', 'Jeddah', 'Makkah', 'Madinah', 'Dammam', 'Al Khobar', 'Al Hofuf', 'Taif', 'Abha',
         'Tabuk', 'Buraydah', 'Hail', 'Najran', 'Jizan', 'Yanbu', 'Al Jubail', 'Arar', 'Sakaka', 'Al Bahah', 'Khamis Mushait',
         'Al Kharj', 'Al Qatif', 'Hafar Albatin', 'Bisha', 'Al Ula', 'Unayzah', 'Rabigh']);
+    const NATIONAL_TOWNS = new Set(['Riyadh', 'Jeddah', 'Makkah', 'Madinah', 'Dammam', 'Taif', 'Tabuk', 'Buraydah', 'Abha', 'Hail', 'Najran', 'Al Hofuf']);
     const KM_PER_UNIT = 111.2 / 40;      // project() puts one degree of latitude at 40 units
     const teamName = (n) => (view.teamNames && view.teamNames[n]) || `${__('Team')} ${n}`;
-    const view = {mode: 'team', base: 'street', extent: 'all', showUnplanned: false, selectedTeam: 1, activeTab: 'team', reviewKind: 'all',
-        zones: false, towns: true, box: null, leaflet: null, townList: null, zoneCells: null, teamNames: {}, teamPositions: [], markers: {}};
+    const view = {mode: 'team', base: 'drawing', extent: 'all', showUnplanned: false, selectedTeam: 1, selected: null, activeTab: 'team', reviewKind: 'all',
+        zones: true, towns: true, box: null, leaflet: null, leafletView: null, townList: null, zoneCells: null, teamNames: {}, teamPositions: [], markers: {}};
 
     function project(lon, lat) { return [(lon - 33) * 0.91 * 40, (34 - lat) * 40]; }
 
@@ -72,8 +73,9 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
 
     function clampBox(box) {
         const w = Math.min(BOX0[2], Math.max(BOX0[2] / 12, box[2])), h = w * BOX0[3] / BOX0[2];
-        const x = Math.min(BOX0[0] + BOX0[2] - w, Math.max(BOX0[0], box[0]));
-        const y = Math.min(BOX0[1] + BOX0[3] - h, Math.max(BOX0[1], box[1]));
+        const px = Math.min(BOX0[2] * 0.35, w * 0.55), py = Math.min(BOX0[3] * 0.35, h * 0.55);
+        const x = Math.min(BOX0[0] + BOX0[2] - w + px, Math.max(BOX0[0] - px, box[0]));
+        const y = Math.min(BOX0[1] + BOX0[3] - h + py, Math.max(BOX0[1] - py, box[1]));
         return [x, y, w, h];
     }
 
@@ -99,13 +101,37 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         const scale = BOX0[2] / view.box[2], k = Math.max(0.35, Math.pow(scale, -0.8));
         svg.setAttribute('viewBox', view.box.join(' '));
         svg.classList.toggle('sig-planner-zoomed', scale >= 2.2);
+        svg.classList.toggle('sig-planner-very-zoomed', scale >= 4.5);
         svg.querySelectorAll('[data-r]').forEach((e) => e.setAttribute('r', e.dataset.r * k));
         svg.querySelectorAll('[data-mk]').forEach((g) => {
-            g.setAttribute('transform', `translate(${g.dataset.cx} ${g.dataset.cy}) scale(${k})`);
+            const emphasis = g.classList.contains('is-selected') ? 2.2 : 1;
+            g.setAttribute('transform', `translate(${g.dataset.cx} ${g.dataset.cy}) scale(${k * emphasis})`);
         });
         svg.querySelectorAll('[data-f]').forEach((e) => { e.setAttribute('font-size', e.dataset.f * k); });
         svg.querySelectorAll('[data-w]').forEach((e) => e.setAttribute('stroke-width', e.dataset.w * k));
         updateScale(svg);
+        layoutTownLabels(svg, scale);
+    }
+
+    function layoutTownLabels(svg, scale) {
+        const all = [...svg.querySelectorAll('.sig-planner-cap[data-town]')];
+        if (!all.length) return;
+        const regional = all.filter((e) => !e.classList.contains('sig-planner-minor'));
+        const local = all.filter((e) => e.classList.contains('sig-planner-minor'));
+        const eligible = [...all.filter((e) => e.classList.contains('sig-planner-national-town'))];
+        if (scale >= 2.2) regional.filter((e) => !eligible.includes(e)).slice(0, 24).forEach((e) => eligible.push(e));
+        if (scale >= 4.5) local.slice(0, 40).forEach((e) => eligible.push(e));
+        all.forEach((e) => { e.style.visibility = 'hidden'; });
+        const accepted = [];
+        eligible.forEach((label) => {
+            const box = label.getBoundingClientRect();
+            if (!box.width || !box.height) return;
+            const overlaps = accepted.some((other) => {
+                const r = other.getBoundingClientRect();
+                return !(box.right + 5 < r.left || box.left - 5 > r.right || box.bottom + 3 < r.top || box.top - 3 > r.bottom);
+            });
+            if (!overlaps) { label.style.visibility = 'visible'; accepted.push(label); }
+        });
     }
 
     function zoomBy(svg, factor, cx, cy) {
@@ -131,34 +157,60 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             bounds.push([p.lat, p.lon]);
         });
         data.trips.forEach((trip, index) => {
-            if ((trip.status !== 'Scheduled' && !view.showUnplanned) || (view.extent === 'team' && trip.team !== view.selectedTeam)) return;
+            const hasSelected = trip.stops.some((s) => String(s.cycle) === String(view.selected));
+            if ((trip.status !== 'Scheduled' && !view.showUnplanned && !hasSelected) || (view.extent === 'team' && trip.team !== view.selectedTeam)) return;
             const color = trip.status === 'Scheduled' ? TEAM_COLORS[((trip.team || 1) - 1) % TEAM_COLORS.length] : DARK, pts = trip.stops.map((s) => [s.lat, s.lon]);
             if (pts.length > 1) L.polyline(pts, {color, weight: 3, opacity: trip.loaded ? 0.9 : 0.4, dashArray: trip.loaded ? null : '6 6'}).addTo(map);
             trip.stops.forEach((s) => {
                 const fill = view.mode === 'tier' ? TIER_COLORS[s.tier] : color;
-                L.marker([s.lat, s.lon], {icon: L.divIcon({className: 'sig-planner-pin-wrap', iconSize: [18, 18],
-                    html: `<div class="sig-planner-pin" style="background:${fill};opacity:${trip.loaded ? 1 : 0.55}">${s.order}</div>`})})
-                    .bindTooltip(`${s.site} · ${data.tiers[s.tier]} · ${trip.id} #${s.order}`).on('click', () => showCard(s.site)).addTo(map);
+                const isSelected = String(s.cycle) === String(view.selected);
+                L.marker([s.lat, s.lon], {zIndexOffset: isSelected ? 1000 : 0, icon: L.divIcon({className: 'sig-planner-pin-wrap',
+                    iconSize: [isSelected ? 34 : 22, isSelected ? 34 : 22], iconAnchor: [isSelected ? 17 : 11, isSelected ? 17 : 11],
+                    html: `<div class="sig-planner-pin${isSelected ? ' is-selected' : ''}" style="background:${fill};opacity:${trip.loaded ? 1 : 0.55}">${s.order}</div>`})})
+                    .bindTooltip(`${s.site} · ${data.tiers[s.tier]} · ${trip.id} #${s.order}`).on('click', (e) => {
+                        L.DomEvent.stopPropagation(e); $(root).trigger('sig-planner-select', [s.cycle, false]);
+                    }).addTo(map);
                 bounds.push([s.lat, s.lon]);
             });
         });
-        if (view.showUnplanned) (data.other || []).filter((o) => o.lat != null && o.lon != null).forEach((o) => {
-            L.circleMarker([o.lat, o.lon], {radius: 4, color: '#fff', weight: 1, fillColor: DARK, fillOpacity: .55})
-                .bindTooltip((o.site || '') + ' · ' + (o.reason || o.kind)).on('click', () => showCard(o.site)).addTo(map);
+        (data.other || []).filter((o) => (view.showUnplanned || String(o.cycle) === String(view.selected)) && o.lat != null && o.lon != null).forEach((o) => {
+            L.circleMarker([o.lat, o.lon], {radius: String(o.cycle) === String(view.selected) ? 9 : 4,
+                color: String(o.cycle) === String(view.selected) ? '#183247' : '#fff', weight: String(o.cycle) === String(view.selected) ? 3 : 1,
+                fillColor: DARK, fillOpacity: .65})
+                .bindTooltip((o.site || '') + ' · ' + (o.reason || o.kind)).on('click', (e) => {
+                    L.DomEvent.stopPropagation(e); $(root).trigger('sig-planner-select', [o.cycle, false]);
+                }).addTo(map);
             bounds.push([o.lat, o.lon]);
         });
         if (view.towns && view.townList) view.townList.forEach((t) =>
             L.circleMarker([t.lat, t.lon], {radius: 3, color: '#6b7785', weight: 1, fillOpacity: 0.7}).bindTooltip(`${t.name} · ${t.zone}`).addTo(map));
-        if (bounds.length) map.fitBounds(bounds, {padding: [20, 20]}); else map.setView([24.5, 45], 6);
+        map.on('click', () => $(root).trigger('sig-planner-clear-selection'));
+        if (view.locateCycle) {
+            const hit = view.index && view.index.byCycle[view.locateCycle], item = hit && (hit.stop || hit.other);
+            if (item && item.lat != null && item.lon != null) {
+                const currentZoom = Number(map.getZoom());
+                const targetZoom = Number.isFinite(currentZoom) ? Math.max(currentZoom, 8) : 8;
+                map.setView([item.lat, item.lon], targetZoom, {animate: true});
+                view.locateCycle = null;
+            }
+        } else if (view.leafletView) map.setView(view.leafletView.center, view.leafletView.zoom);
+        else if (bounds.length) map.fitBounds(bounds, {padding: [20, 20]}); else map.setView([24.5, 45], 6);
         setTimeout(() => map.invalidateSize(), 50);
     }
 
     function drawMap(data, mount) {
-        if (view.leaflet) { view.leaflet.remove(); view.leaflet = null; }
+        if (view.cameraAnimation) { cancelAnimationFrame(view.cameraAnimation); view.cameraAnimation = null; }
+        if (view.dragCleanup) { view.dragCleanup(); view.dragCleanup = null; }
+        if (view.leaflet) {
+            const center = view.leaflet.getCenter();
+            view.leafletView = {center: [center.lat, center.lng], zoom: view.leaflet.getZoom()};
+            view.leaflet.remove(); view.leaflet = null;
+        }
         view.box = view.box || BOX0.slice();
         const street = view.base === 'street' && typeof L !== 'undefined';
         const tripNode = (trip) => {
-            if ((trip.status !== 'Scheduled' && !view.showUnplanned) ||
+            const hasSelected = trip.stops.some((s) => String(s.cycle) === String(view.selected));
+            if ((trip.status !== 'Scheduled' && !view.showUnplanned && !hasSelected) ||
                 (view.extent === 'team' && trip.team !== view.selectedTeam)) return {line: '', dots: '', labels: ''};
             const scheduled = trip.status === 'Scheduled';
             const teamColor = TEAM_COLORS[((trip.team || 1) - 1) % TEAM_COLORS.length];
@@ -180,27 +232,27 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                     ? `<rect x="-${size}" y="-${size}" width="${size * 2}" height="${size * 2}" fill="${fill}" fill-opacity="${op}" stroke="${ring}" stroke-width="${ringWidth}">${tip}</rect>`
                     : `<circle r="${size}" fill="${fill}" fill-opacity="${op}" stroke="${ring}" stroke-width="${ringWidth}">${tip}</circle>`;
                 const label = scheduled ? `<text y="2.5" text-anchor="middle" font-size="7" fill="#fff" pointer-events="none">${stop.order}</text>` : '';
-                dots += `<g class="sig-planner-mk" data-mk data-site="${esc(stop.site)}" data-cx="${x}" data-cy="${y}">${shape}${label}</g>`;
+                dots += `<g class="sig-planner-mk${String(stop.cycle) === String(view.selected) ? ' is-selected' : ''}" data-mk data-site="${esc(stop.site)}" data-cycle="${esc(stop.cycle)}" data-cx="${x}" data-cy="${y}" tabindex="0" role="button" aria-label="${esc(stop.site)}">${shape}${label}</g>`;
             });
             return {line, dots, labels};
         };
         let lines = '', dots = '', labels = '';
-        const extraDots = data.other.filter((o) => o.lat != null).map((o) => {
+        const extraDots = data.other.filter((o) => o.lat != null && (view.showUnplanned || String(o.cycle) === String(view.selected))).map((o) => {
             const [x, y] = project(o.lon, o.lat);
-            return `<g class="sig-planner-mk" data-mk data-site="${esc(o.site)}" data-cx="${x}" data-cy="${y}"><circle r="4" fill="${DARK}" fill-opacity="0.45" stroke="#fff" stroke-width="1"><title>${esc(o.site)} · ${esc(o.reason)}</title></circle></g>`;
+            return `<g class="sig-planner-mk${String(o.cycle) === String(view.selected) ? ' is-selected' : ''}" data-mk data-site="${esc(o.site)}" data-cycle="${esc(o.cycle)}" data-cx="${x}" data-cy="${y}" tabindex="0" role="button" aria-label="${esc(o.site)}"><circle r="4" fill="${DARK}" fill-opacity="0.65" stroke="#fff" stroke-width="1"><title>${esc(o.site)} · ${esc(o.reason)}</title></circle></g>`;
         }).join('');
         // Unplanned sites are drawn first, underneath, so the planned teams stay on top and clickable.
         if (!street) {
             const ordered = [...data.trips].sort((a, b) => (a.status === 'Scheduled') - (b.status === 'Scheduled'));
-            if (view.showUnplanned) dots += extraDots;
+            dots += extraDots;
             ordered.forEach((trip) => { const n = tripNode(trip); lines += n.line; dots += n.dots; labels += n.labels; });
         }
         const outline = KSA.map(([lon, lat]) => project(lon, lat).join(',')).join(' ');
         // Capitals and Jeddah are always drawn (also at the furthest zoom), in a colour apart from the planned sites.
         const townDots = (view.towns && view.townList) ? view.townList.map((t) => {
-            const [x, y] = project(t.lon, t.lat), big = t.name === 'Jeddah', minor = MAIN_TOWNS.has(t.name) ? '' : ' sig-planner-minor';
-            return `<circle class="sig-planner-cap-dot${minor}" data-r="${big ? 3.6 : 2.6}" cx="${x}" cy="${y}" r="${big ? 3.6 : 2.6}" fill="${CAPITAL}" stroke="#fff" stroke-width="0.6" data-w="0.6"><title>${esc(t.name)} · ${esc(t.zone)}</title></circle>` +
-                `<text class="sig-planner-cap${minor}" data-f="${big ? 8 : 6.5}" x="${x + 4}" y="${y - 3}" font-size="${big ? 8 : 6.5}" font-weight="${big ? 700 : 400}" fill="#7a4e12" pointer-events="none">${esc(t.name)}</text>`;
+            const [x, y] = project(t.lon, t.lat), big = t.name === 'Jeddah', minor = MAIN_TOWNS.has(t.name) ? '' : ' sig-planner-minor', national = NATIONAL_TOWNS.has(t.name) ? ' sig-planner-national-town' : '';
+            return `<circle class="sig-planner-cap-dot${minor}${national}" data-r="${big ? 3.6 : 2.6}" cx="${x}" cy="${y}" r="${big ? 3.6 : 2.6}" fill="${CAPITAL}" stroke="#fff" stroke-width="0.6" data-w="0.6" data-town-x="${x}" data-town-y="${y}"><title>${esc(t.name)} · ${esc(t.zone)}</title></circle>` +
+                `<text class="sig-planner-cap${minor}${national}" data-f="${big ? 8 : 6.5}" data-town="${esc(t.name)}" data-town-x="${x}" data-town-y="${y}" x="${x + 4}" y="${y - 3}" font-size="12" font-weight="${big ? 700 : 400}" fill="#7a4e12" pointer-events="none">${esc(t.name)}</text>`;
         }).join('') : '';
         const zones = view.zones && view.townList ? `<g clip-path="url(#sigksa)">${zoneCells()}</g>` : '';
         const teamsUsed = [...new Set(data.trips.filter((t) => t.status === 'Scheduled').map((t) => t.team))].sort((x, y) => x - y);
@@ -219,7 +271,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                 <button class="btn btn-xs btn-default" data-zoom="out">&minus;</button>
                 <button class="btn btn-xs btn-default" data-zoom="reset">${__('Reset')}</button></span>`}
             <span class="sig-planner-legend">${legend}</span></div>
-            ${zoneLegend ? `<div class="sig-planner-legend sig-planner-zones">${zoneLegend}</div>` : ''}
+            ${zoneLegend ? `<details class="sig-planner-zones"><summary>${__('Planning zone colours · approximate areas')}</summary><div class="sig-planner-zone-items">${zoneLegend}</div></details>` : ''}
             ${street ? '<div class="sig-planner-leaflet"></div>'
                 : `<svg viewBox="${view.box.join(' ')}" class="sig-planner-svg" preserveAspectRatio="xMidYMid meet">
                 <defs><clipPath id="sigksa"><polygon points="${outline}"/></clipPath></defs>
@@ -245,15 +297,31 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         mount.find('[data-base]').on('click', (e) => { view.base = $(e.currentTarget).data('base'); drawMap(data, mount); });
         mount.find('[data-mode]').on('click', (e) => { view.mode = $(e.currentTarget).data('mode'); drawMap(data, mount); });
         mount.find('[data-toggle]').on('click', (e) => { const k = $(e.currentTarget).data('toggle'); view[k] = !view[k]; drawMap(data, mount); });
-        mount.find('[data-site]').on('click', (e) => showCard($(e.currentTarget).attr('data-site')));
+        // Map selection is handled by the shared cycle-based handler in renderFull.
         if (street) { drawStreetMap(data, mount); return; }
         const svg = mount.find('svg')[0];
+        const selectedMarker = svg.querySelector('.sig-planner-mk.is-selected');
+        if (selectedMarker) selectedMarker.parentNode.appendChild(selectedMarker);
         applyZoom(svg);
         mount.find('[data-zoom]').on('click', (e) => {
             const z = $(e.currentTarget).data('zoom');
             if (z === 'reset') { view.box = BOX0.slice(); applyZoom(svg); } else zoomBy(svg, z === 'in' ? 0.6 : 1 / 0.6);
         });
-        const point = (e) => { const r = svg.getBoundingClientRect(), [x, y, w, h] = view.box; return [x + (e.clientX - r.left) / r.width * w, y + (e.clientY - r.top) / r.height * h]; };
+        let drag = null, suppressMapClick = false;
+        svg.addEventListener('click', (e) => {
+            if (suppressMapClick) { suppressMapClick = false; e.preventDefault(); e.stopPropagation(); return; }
+            if (!e.target.closest('[data-cycle]')) $(root).trigger('sig-planner-clear-selection');
+        });
+        svg.addEventListener('keydown', (e) => {
+            if ((e.key === 'Enter' || e.key === ' ') && e.target.closest('[data-cycle]')) {
+                e.preventDefault(); $(root).trigger('sig-planner-select', [e.target.closest('[data-cycle]').getAttribute('data-cycle'), false]);
+            } else if (e.key === 'Escape' && view.selected) $(root).trigger('sig-planner-clear-selection');
+        });
+        const point = (e) => {
+            const r = svg.getBoundingClientRect(), [x, y, w, h] = view.box, scale = Math.min(r.width / w, r.height / h);
+            const drawnW = w * scale, drawnH = h * scale, left = r.left + (r.width - drawnW) / 2, top = r.top + (r.height - drawnH) / 2;
+            return [x + (e.clientX - left) / scale, y + (e.clientY - top) / scale];
+        };
         svg.addEventListener('wheel', (e) => {
             if (!(e.ctrlKey || e.metaKey)) return;                // plain scrolling keeps moving the page
             e.preventDefault();
@@ -262,15 +330,25 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             zoomBy(svg, Math.exp(d * 0.008), px, py);
         }, {passive: false});
         svg.addEventListener('dblclick', (e) => { const [px, py] = point(e); zoomBy(svg, 0.5, px, py); });
-        let drag = null;
-        svg.addEventListener('mousedown', (e) => { drag = {x: e.clientX, y: e.clientY, box: view.box.slice()}; });
-        window.addEventListener('mouseup', () => { drag = null; });
+        svg.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            const r = svg.getBoundingClientRect(), [x, y, w, h] = view.box, scale = Math.min(r.width / w, r.height / h);
+            drag = {x: e.clientX, y: e.clientY, box: view.box.slice(), unitsPerPixel: 1 / scale};
+        });
+        const onMapMouseUp = () => {
+            drag = null;
+            if (suppressMapClick) setTimeout(() => { suppressMapClick = false; }, 0);
+            window.removeEventListener('mouseup', onMapMouseUp);
+            view.dragCleanup = null;
+        };
+        window.addEventListener('mouseup', onMapMouseUp);
+        view.dragCleanup = () => window.removeEventListener('mouseup', onMapMouseUp);
         svg.addEventListener('mousemove', (e) => {
             if (!drag) return;
             if (!e.buttons) { drag = null; return; }              // button was released outside the map
-            const r = svg.getBoundingClientRect();
-            view.box = clampBox([drag.box[0] - (e.clientX - drag.x) / r.width * drag.box[2],
-                drag.box[1] - (e.clientY - drag.y) / r.height * drag.box[3], drag.box[2], drag.box[3]]);
+            if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 5) suppressMapClick = true;
+            view.box = clampBox([drag.box[0] - (e.clientX - drag.x) * drag.unitsPerPixel,
+                drag.box[1] - (e.clientY - drag.y) * drag.unitsPerPixel, drag.box[2], drag.box[3]]);
             applyZoom(svg);
         });
     }
@@ -280,78 +358,40 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
     }
 
     function indexSites(data) {
-        const idx = {};
-        data.trips.forEach((trip) => trip.stops.forEach((stop) => { idx[stop.site] = {stop, trip, data}; }));
-        data.other.forEach((o) => { if (!idx[o.site]) idx[o.site] = {other: o, data}; });
-        return idx;
+        const idx = {}, cycles = {};
+        data.trips.forEach((trip) => trip.stops.forEach((stop) => {
+            const key = String(stop.site || '').toUpperCase(), hit = {stop, trip, data};
+            if (key) (idx[key] || (idx[key] = [])).push(hit);
+            if (stop.cycle) cycles[stop.cycle] = hit;
+        }));
+        data.other.forEach((o) => {
+            const key = String(o.site || '').toUpperCase(), hit = {other: o, data};
+            if (key && !idx[key]) idx[key] = [];
+            if (key) idx[key].push(hit);
+            if (o.cycle && !cycles[o.cycle]) cycles[o.cycle] = hit;
+        });
+        return {bySite: idx, byCycle: cycles};
     }
 
-    function cardHtml(site, project, rows, must, cycle, decision) {
-        return `<div class="sig-planner-sitecard">
-            <div class="sig-planner-sitecard-head"><b>${cycle ? `<a href="/app/sig-site-cycle/${encodeURIComponent(cycle)}">${esc(site)}</a>` : esc(site)}</b>${must ? ' <span class="sig-planner-pill sig-planner-must">Must</span>' : ''}
-            <button type="button" class="btn btn-xs btn-default sig-planner-close" aria-label="${esc(__('Close'))}">&times;</button></div>
-            <div class="sig-planner-sitecard-sub">${esc(project || '')}</div>
-            <dl>${rows.concat([[__('Decision'), decisionSelect(cycle, decision)]]).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('')}</dl>
-            <div class="sig-planner-sitecard-links"><a href="/app/sig-site/${encodeURIComponent(site)}">${__('Open site record')}</a></div></div>`;
+    function hitForSite(site) {
+        const hits = view.index && view.index.bySite[String(site || '').toUpperCase()];
+        return hits && hits[0];
     }
 
     // Team nearest to an unplanned site: the closest stop of a scheduled trip.
-    function nearestTeam(site, data) {
-        const me = view.index[site];
-        if (!me || !me.stop || me.stop.lat == null) return null;
+    function nearestTeam(site, data, cycle) {
+        const me = cycle && view.index && view.index.byCycle[String(cycle)] || hitForSite(site);
+        const point = me && (me.stop || me.other);
+        if (!point || point.lat == null || point.lon == null) return null;
         let best = null;
         data.trips.forEach((t) => {
             if (t.status !== 'Scheduled') return;
             t.stops.forEach((st) => {
-                const d = km([me.stop.lat, me.stop.lon], [st.lat, st.lon]);
+                const d = km([point.lat, point.lon], [st.lat, st.lon]);
                 if (!best || d < best.km) best = {km: d, team: t.team, day: t.first_day};
             });
         });
         return best;
-    }
-
-    // Small card for one site. Shown only after a search, a map pin or a table row is clicked.
-    function siteCard(site) {
-        const hit = view.index[site];
-        if (!hit) return '';
-        const d = hit.data;
-        if (hit.other) {
-            const o = hit.other;
-            return cardHtml(site, o.project, [
-                [__('Priority'), esc(d.tiers[o.tier])],
-                [__('Plan'), esc(o.kind === 'Committed later' ? __('Later week') : __('Not planned'))],
-                [__('TCN window'), esc(o.window || '—')],
-                [__('Reason'), esc(o.reason)],
-            ], o.must, o.cycle, o.decision);
-        }
-        const {stop, trip} = hit;
-        const scheduled = trip.status === 'Scheduled';
-        const when = trip.first_day === trip.last_day ? trip.first_day : `${trip.first_day} → ${trip.last_day}`;
-        const planText = scheduled ? `${teamName(trip.team)} · ${when}` : (trip.status === 'Lapsed' ? __('Lapsed') : __('Waiting'));
-        const value = stop.value ? `${Math.round(stop.value).toLocaleString()} SAR${stop.value_source === 'ERP' ? '' : ' (est.)'}` : '—';
-        const rows = [
-            [__('Priority'), esc(`${stop.class || ''} · ${d.tiers[stop.tier]}`)],
-            [__('Plan'), esc(planText)],
-            [__('TCN window'), esc(stop.window || __('none this week'))],
-            [__('Value'), esc(value)],
-        ];
-        if (scheduled && trip.stops.length > 1) {
-            rows.push([__('Stop'), esc(`${stop.order} of ${trip.stops.length}${stop.leg_km == null ? '' : ' · ' + stop.leg_km + ' km'}`)]);
-        }
-        if (!scheduled) {
-            const n = nearestTeam(site, d);
-            if (n) rows.push([__('Nearest team'), esc(`${teamName(n.team)} · ${Math.round(n.km)} km · ${n.day}`)]);
-        }
-        return cardHtml(site, stop.project, rows, stop.must || stop.class === 'Must', stop.cycle, stop.decision);
-    }
-
-    function showCard(site) {
-        const key = site ? String(site).toUpperCase() : null;
-        const hit = key && view.index[key];
-        view.selected = hit ? (hit.stop ? hit.stop.cycle : hit.other.cycle) : null;
-        const box = root.find('.sig-planner-sitebox');
-        box.html(hit ? siteCard(key) : '');
-        box.find('.sig-planner-close').on('click', () => showCard(null));
     }
 
     const DECISIONS = [['', '—'], ['Must', 'Must'], ['Hold', 'Hold (30 days)'], ['Remove', 'Remove']];
@@ -391,10 +431,6 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             po: String(r.cycle || '').split('|')[1] || ''})));
         view.rows = data.rows;
         if (!view.selectedTeam || !view.teamNames[view.selectedTeam]) view.selectedTeam = view.teams.length ? view.teams[0].team : 1;
-        if (!view.selected) {
-            const first = data.trips.find((t) => t.status === 'Scheduled' && t.stops.length);
-            view.selected = first ? first.stops[0].cycle : (data.rows[0] && data.rows[0].cycle);
-        }
         const horizon = workDates(data.summary.week_start, data.params.work_days || 5);
         const assigned = () => view.rows.filter((r) => r.trip_status === 'Scheduled');
         const backlog = () => view.rows.filter((r) => r.trip_status !== 'Scheduled');
@@ -509,9 +545,13 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             (view.base === 'drawing' ? '<div class="sig-planner-map-segment"><button data-map-zoom="in" aria-label="' + __('Zoom in') + '">+</button>' +
                 '<button data-map-zoom="out" aria-label="' + __('Zoom out') + '">−</button>' +
                 '<button data-map-zoom="reset">' + __('Reset map') + '</button></div>' : '') +
-            '<span class="sig-planner-map-key">' + __('Ring = reported start · numbered pin = proposed stop') + '</span></div>' +
+            '<div class="sig-planner-map-searchbar"><label class="sig-planner-search-label" for="sig-planner-site-search">' + __('Find a site in this plan') + '</label>' +
+            '<div class="sig-planner-search"><input id="sig-planner-site-search" type="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="sig-planner-site-suggestions" ' +
+            'aria-label="' + __('Find a site in this plan') + '" placeholder="' + __('Site, project, or PO') + '"><button type="button" data-action="clear-site-search" aria-label="' + __('Clear search and selection') + '">×</button>' +
+            '<div id="sig-planner-site-suggestions" class="sig-planner-suggest" role="listbox"></div></div>' +
+            '<span class="sig-planner-map-key">' + __('Ring = reported start · numbered pin = proposed stop') + '</span>' +
+            '<button type="button" class="sig-planner-expand" data-action="toggle-map-size">' + __('Expand map') + '</button></div></div>' +
             '<div class="sig-planner-mapbody"></div><div class="sig-planner-sitebox"></div></section>' +
-            '<div class="sig-planner-search"><input type="search" placeholder="' + __('Find a site in this plan…') + '"><div class="sig-planner-suggest"></div></div>' +
             '<div class="sig-planner-tabs" role="tablist"><button role="tab" data-tab="team" aria-selected="true">' + __('Team plan') +
             '</button><button role="tab" data-tab="overall" aria-selected="false">' + __('Overall schedule') + ' <span id="sig-planner-schedule-count"></span></button>' +
             '<button role="tab" data-tab="review" aria-selected="false">' + __('Unplaced & review') + ' <span id="sig-planner-review-count"></span></button>' +
@@ -566,11 +606,16 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                 '" style="--team:' + c + '"><i></i><span><b>' + esc(t.leader) + '</b><small>' +
                 esc(teamPositionSummary(p)) + '</small></span></button>';
         }).join(''));
-        const chosen = view.teams.find((t) => t.team === Number(view.selectedTeam));
-        root.find('#sig-planner-team-name').text(chosen ? chosen.leader : __('No project team'));
-        root.find('#sig-planner-team-dot').css('background', TEAM_COLORS[(Number(view.selectedTeam) - 1) % TEAM_COLORS.length]);
-        root.find('#sig-planner-team-context').text(teamRows(view.selectedTeam).length + ' ' + __('planned stops') + ' · ' +
-            teamTrips(view.selectedTeam).length + ' ' + __('trips'));
+        function updateTeamSummary() {
+            const chosen = view.teams.find((t) => t.team === Number(view.selectedTeam));
+            root.find('#sig-planner-team-name').text(chosen ? chosen.leader : __('No project team'));
+            root.find('#sig-planner-team-dot').css('background', TEAM_COLORS[(Number(view.selectedTeam) - 1) % TEAM_COLORS.length]);
+            root.find('#sig-planner-team-context').text(teamRows(view.selectedTeam).length + ' ' + __('planned stops') + ' · ' +
+                teamTrips(view.selectedTeam).length + ' ' + __('trips'));
+            root.find('#sig-planner-teams [data-team]').attr('aria-pressed', 'false')
+                .filter('[data-team="' + Number(view.selectedTeam) + '"]').attr('aria-pressed', 'true');
+        }
+        updateTeamSummary();
         root.find('#sig-planner-schedule-count').text(assigned().length);
         root.find('#sig-planner-review-count').text(backlog().length);
         root.find('#sig-planner-filter-team').html('<option value="">' + __('All teams') + '</option>' +
@@ -587,7 +632,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                 esc(t.first_day) + ' – ' + esc(t.last_day) + ' · ' + t.stops.length + ' ' + __('sites') + ' · ~' + esc(t.hours) + ' h</span></header>' +
                 t.stops.map((s) => {
                     const r = view.rows.find((x) => x.cycle === s.cycle), sig = r ? statusFor(r) : {line: s.reason || ''};
-                    return '<div class="sig-planner-stop" data-cycle="' + esc(s.cycle) + '"><div><a class="sig-planner-site-link" href="/app/sig-site-cycle/' +
+                    return '<div class="sig-planner-stop' + (view.selected === String(s.cycle) ? ' is-selected' : '') + '" data-cycle="' + esc(s.cycle) + '"><div><a class="sig-planner-site-link" href="/app/sig-site-cycle/' +
                         encodeURIComponent(s.cycle) + '">' + esc(s.site) + '</a><small>' + __('Project') + ' ' + esc(s.project || '—') +
                         '</small><div class="sig-planner-badges">' + (r ? statusBadge(r) + decisionBadge(r) : '') +
                         '<span class="sig-planner-muted">' + esc(sig.line) + '</span></div></div><div><b>' + esc(fmtDates(s.day || t.first_day)) +
@@ -618,7 +663,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             root.find('#sig-planner-schedule-range').text(sorted.length + ' ' + __('of') + ' ' + assigned().length + ' ' + __('proposed visits'));
             root.find('#sig-planner-schedule-rows').html(sorted.length ? sorted.map((r) => {
                 const s = statusFor(r);
-                return '<tr class="' + (view.selected === r.cycle ? 'selected' : '') + '" data-cycle="' + esc(r.cycle) + '"><td><b>' + esc(fmtDates(r.day)) + '</b></td>' +
+                return '<tr class="' + (String(view.selected) === String(r.cycle) ? 'is-selected' : '') + '" data-cycle="' + esc(r.cycle) + '"><td><b>' + esc(fmtDates(r.day)) + '</b></td>' +
                     '<td><span class="sig-planner-team-label" style="--team:' + TEAM_COLORS[(r.team - 1) % TEAM_COLORS.length] + '"><i></i>' +
                     esc(leaderFor(r.team)) + '</span></td><td><a class="sig-planner-site-link" href="/app/sig-site-cycle/' +
                     encodeURIComponent(r.cycle) + '">' + esc(r.site) + '</a><small>' + esc(r.project || '—') + (r.po ? ' · PO ' + esc(r.po) : '') +
@@ -638,8 +683,8 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                 (!q || [r.site, r.project, r.po, r.reason].some((x) => String(x || '').toLowerCase().includes(q))));
             root.find('#sig-planner-review-range').text(rows.length + ' ' + __('work items'));
             root.find('#sig-planner-review-rows').html(rows.length ? rows.map((r) => {
-                const closest = hasPoint(r) ? nearestTeam(r.site, data) : null, s = statusFor(r);
-                return '<tr data-cycle="' + esc(r.cycle) + '"><td><a class="sig-planner-site-link" href="/app/sig-site-cycle/' + encodeURIComponent(r.cycle) + '">' +
+                const closest = hasPoint(r) ? nearestTeam(r.site, data, r.cycle) : null, s = statusFor(r);
+                return '<tr class="' + (String(view.selected) === String(r.cycle) ? 'is-selected' : '') + '" data-cycle="' + esc(r.cycle) + '"><td><a class="sig-planner-site-link" href="/app/sig-site-cycle/' + encodeURIComponent(r.cycle) + '">' +
                     esc(r.site) + '</a><small>' + esc(r.project || '—') + (r.po ? ' · PO ' + esc(r.po) : '') + '</small></td><td>' +
                     esc(!hasPoint(r) ? __('Coordinates needed') : __('No team / date proposal')) + decisionBadge(r) + '<small>' + esc(r.reason || '') +
                     '</small></td><td>' + statusBadge(r) + '<small>' + esc(s.line) + '</small></td><td>' +
@@ -660,7 +705,8 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         root.find('#sig-planner-filter-day').html('<option value="">' + __('All proposed days') + '</option>' +
             horizon.map((d) => '<option value="' + d + '">' + esc(fmtDates(d)) + '</option>').join(''));
         root.find('#sig-planner-teams').on('click', '[data-team]', (e) => {
-            view.selectedTeam = Number($(e.currentTarget).attr('data-team')); view.extent = 'team'; renderFull(data);
+            view.selectedTeam = Number($(e.currentTarget).attr('data-team'));
+            updateTeamSummary(); drawTeamPlan(); refreshMap();
         });
         root.find('.sig-planner-tabs').on('click', '[data-tab]', (e) => activate($(e.currentTarget).attr('data-tab')));
         root.find('.sig-planner-position-table').on('click', '.sig-planner-position-update', (e) => openPosition(Number($(e.currentTarget).attr('data-team-no'))));
@@ -669,6 +715,14 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             if (a === 'settings') openSettings();
             if (a === 'position') openPosition(view.selectedTeam);
             if (a === 'refresh') load();
+            if (a === 'locate-selected' && view.selected) chooseCycle(view.selected, true);
+            if (a === 'toggle-map-size') {
+                view.expandedMap = !view.expandedMap;
+                root.find('.sig-planner-map-card').toggleClass('is-expanded', view.expandedMap);
+                $(e.currentTarget).text(view.expandedMap ? __('Restore map') : __('Expand map'));
+                if (view.leaflet) setTimeout(() => view.leaflet.invalidateSize(), 80);
+            }
+            if (a === 'fit-trip' && view.selected) fitSelectedTrip();
             if (a === 'clear-schedule') { root.find('#sig-planner-filter-team, #sig-planner-filter-day').val(''); root.find('#sig-planner-filter-search').val(''); renderMatrix(); }
         });
         root.find('#sig-planner-filter-search').on('input', renderMatrix);
@@ -679,17 +733,17 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             root.find('#sig-planner-filter-team').val($(e.currentTarget).attr('data-team'));
             root.find('#sig-planner-filter-day').val($(e.currentTarget).attr('data-day')); activate('overall'); renderMatrix();
         });
-        root.find('.sig-planner-mapbody').on('click', '[data-extent]', (e) => { view.extent = $(e.currentTarget).attr('data-extent'); drawMap(data, root.find('.sig-planner-mapbody')); });
-        root.find('.sig-planner-mapbody').on('click', '[data-unplanned]', () => { view.showUnplanned = !view.showUnplanned; drawMap(data, root.find('.sig-planner-mapbody')); });
-        root.find('.sig-planner-live-map-controls').on('click', '[data-map-base]', (e) => { view.base = $(e.currentTarget).attr('data-map-base'); renderFull(data); });
-        root.find('.sig-planner-live-map-controls').on('click', '[data-map-mode]', (e) => { view.mode = $(e.currentTarget).attr('data-map-mode'); renderFull(data); });
-        root.find('.sig-planner-live-map-controls').on('click', '[data-map-extent]', (e) => { view.extent = $(e.currentTarget).attr('data-map-extent'); renderFull(data); });
-        root.find('.sig-planner-live-map-controls').on('click', '[data-map-unplanned]', () => { view.showUnplanned = !view.showUnplanned; renderFull(data); });
-        root.find('.sig-planner-live-map-controls').on('click', '[data-map-towns]', () => { view.towns = !view.towns; renderFull(data); });
+        root.find('.sig-planner-mapbody').on('click', '[data-extent]', (e) => { view.extent = $(e.currentTarget).attr('data-extent'); refreshMap(); });
+        root.find('.sig-planner-mapbody').on('click', '[data-unplanned]', () => { view.showUnplanned = !view.showUnplanned; refreshMap(); });
+        root.find('.sig-planner-live-map-controls').on('click', '[data-map-base]', (e) => setMapBase($(e.currentTarget).attr('data-map-base')));
+        root.find('.sig-planner-live-map-controls').on('click', '[data-map-mode]', (e) => { view.mode = $(e.currentTarget).attr('data-map-mode'); refreshMap(); });
+        root.find('.sig-planner-live-map-controls').on('click', '[data-map-extent]', (e) => { view.extent = $(e.currentTarget).attr('data-map-extent'); refreshMap(); });
+        root.find('.sig-planner-live-map-controls').on('click', '[data-map-unplanned]', () => { view.showUnplanned = !view.showUnplanned; refreshMap(); });
+        root.find('.sig-planner-live-map-controls').on('click', '[data-map-towns]', () => { view.towns = !view.towns; refreshMap(); });
         root.find('.sig-planner-live-map-controls').on('click', '[data-map-zones]', () => {
             view.zones = !view.zones;
             if (view.zones) view.base = 'drawing';
-            renderFull(data);
+            refreshMap();
         });
         root.find('.sig-planner-live-map-controls').on('click', '[data-map-zoom]', (e) => {
             const svg = root.find('.sig-planner-svg')[0], action = $(e.currentTarget).attr('data-map-zoom');
@@ -697,45 +751,194 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             if (action === 'reset') { view.box = BOX0.slice(); applyZoom(svg); }
             else zoomBy(svg, action === 'in' ? 0.65 : 1 / 0.65);
         });
-        root.find('.sig-planner-search input').on('input', () => {
-            const q = String(root.find('.sig-planner-search input').val() || '').trim().toUpperCase(), suggest = root.find('.sig-planner-suggest');
-            const keys = Object.keys(view.index), hits = q ? keys.filter((k) => k.startsWith(q)).concat(keys.filter((k) => !k.startsWith(q) && k.includes(q))).slice(0, 12) : [];
-            suggest.html(hits.map((k) => '<button type="button" data-site="' + esc(k) + '">' + esc(k) + '</button>').join('')).toggle(!!hits.length);
+        root.find('.sig-planner-live-map-controls').on('click', '[data-map-zoom]', (e) => {
+            const svg = root.find('.sig-planner-svg')[0], action = $(e.currentTarget).attr('data-map-zoom');
+            if (!svg) return;
+            if (action === 'reset') { view.box = BOX0.slice(); applyZoom(svg); }
+            else zoomBy(svg, action === 'in' ? 0.65 : 1 / 0.65);
         });
-        root.find('.sig-planner-suggest').on('mousedown', '[data-site]', (e) => {
-            e.preventDefault(); const key = $(e.currentTarget).attr('data-site'), hit = view.index[key];
-            if (hit) { view.selected = hit.stop ? hit.stop.cycle : hit.other.cycle; if (hit.trip && hit.trip.team) view.selectedTeam = hit.trip.team; }
-            renderFull(data);
+        const search = root.find('#sig-planner-site-search'), suggest = root.find('#sig-planner-site-suggestions');
+        let searchHits = [], activeSuggestion = -1, suggestionsOpen = false;
+        const closeSuggestions = () => { suggest.empty().hide(); search.attr('aria-expanded', 'false').removeAttr('aria-activedescendant'); activeSuggestion = -1; suggestionsOpen = false; searchHits = []; };
+        const renderSuggestions = () => {
+            const q = String(search.val() || '').trim().toLowerCase();
+            searchHits = q ? Object.entries(view.index.byCycle).map(([cycle, hit]) => {
+                const item = hit.stop || hit.other;
+                const trip = hit.trip, team = trip ? leaderFor(trip.team) : __('Unplaced');
+                const day = trip ? fmtDates(trip.first_day || '') : '';
+                const po = String(item.po || String(cycle).split('|')[1] || '');
+                return {cycle, hit, site: String(item.site || ''), project: String(item.project || ''), po, team, day,
+                    label: `${item.site || ''} ${item.project || ''} ${po} ${team} ${day} ${cycle}`};
+            }).filter((x) => x.label.toLowerCase().includes(q))
+                .sort((a, b) => Number(a.site.toLowerCase() !== q) - Number(b.site.toLowerCase() !== q) || Number(b.site.toLowerCase().startsWith(q)) - Number(a.site.toLowerCase().startsWith(q)) || a.site.localeCompare(b.site)).slice(0, 12) : [];
+            activeSuggestion = -1;
+            suggest.html(searchHits.length ? searchHits.map((x, i) => '<button type="button" role="option" id="sig-planner-option-' + i + '" aria-selected="false"' +
+                ' data-cycle="' + esc(x.cycle) + '"><b>' + esc(x.site) + '</b><small>' + esc(x.project || __('No project')) + (x.po ? ' · PO ' + esc(x.po) : '') +
+                ' · ' + esc(x.team) + (x.day ? ' · ' + esc(x.day) : '') + '</small></button>').join('') : (q ? '<div class="sig-planner-no-results" role="status">' + __('No matching sites in this plan.') + '</div>' : ''));
+            suggestionsOpen = !!(q && searchHits.length);
+            search.attr('aria-expanded', String(suggestionsOpen));
+            if (activeSuggestion >= 0) search.attr('aria-activedescendant', 'sig-planner-option-' + activeSuggestion);
+            else search.removeAttr('aria-activedescendant');
+            suggest.toggle(!!q);
+        };
+        search.on('input', renderSuggestions).on('focus', () => { if (String(search.val() || '').trim()) renderSuggestions(); });
+        search.on('keydown', (e) => {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                if (!suggestionsOpen) renderSuggestions();
+                if (searchHits.length) {
+                    e.preventDefault(); activeSuggestion = (activeSuggestion + (e.key === 'ArrowDown' ? 1 : -1) + searchHits.length) % searchHits.length;
+                    const active = suggest.find('[role="option"]').attr('aria-selected', 'false').eq(activeSuggestion).attr('aria-selected', 'true');
+                    if (active[0]) active[0].scrollIntoView({block: 'nearest'});
+                    search.attr('aria-activedescendant', 'sig-planner-option-' + activeSuggestion);
+                }
+            } else if (e.key === 'Enter') {
+                if (activeSuggestion >= 0 && searchHits[activeSuggestion]) { e.preventDefault(); chooseCycle(searchHits[activeSuggestion].cycle, true); }
+                else if (searchHits.length === 1) { e.preventDefault(); chooseCycle(searchHits[0].cycle, true); }
+            } else if (e.key === 'Escape') closeSuggestions();
         });
-        root.find('.sig-planner-mapbody').on('click', '[data-site]', (e) => {
-            const hit = view.index[$(e.currentTarget).attr('data-site')];
-            if (hit) { view.selected = hit.stop ? hit.stop.cycle : hit.other.cycle; renderInspector(); }
+        suggest.on('mousedown', '[data-cycle]', (e) => e.preventDefault());
+        suggest.on('click', '[data-cycle]', (e) => chooseCycle($(e.currentTarget).attr('data-cycle'), true));
+        search.on('blur', () => setTimeout(closeSuggestions, 120));
+        root.find('.sig-planner-shell').on('click', '[data-action="clear-site-search"]', () => {
+            search.val(''); closeSuggestions(); clearSelection(); search.trigger('focus');
+        });
+        root.off('.sigPlannerMap').on('sig-planner-select.sigPlannerMap', (e, cycle, locate) => chooseCycle(cycle, locate))
+            .on('sig-planner-clear-selection.sigPlannerMap', () => clearSelection());
+        root.find('.sig-planner-mapbody').on('click', '[data-cycle]', (e) => {
+            e.stopPropagation(); chooseCycle($(e.currentTarget).attr('data-cycle'), false);
         });
         root.find('.sig-planner-sitebox').on('click', '#sig-planner-map-inspector-close', () => {
-            view.selected = null; root.find('.sig-planner-sitebox').empty();
+            clearSelection();
         });
         root.find('.sig-planner-shell').on('click', '[data-cycle]', (e) => {
             if ($(e.target).is('select, option, a')) return;
-            view.selected = $(e.currentTarget).attr('data-cycle'); renderInspector();
+            chooseCycle($(e.currentTarget).attr('data-cycle'), false);
         });
         function renderInspector() {
             const r = view.rows.find((x) => x.cycle === view.selected);
-            if (!r) return;
+            if (!r) { root.find('.sig-planner-sitebox').empty(); return; }
             const s = statusFor(r), pos = r.team ? currentPosition(r.team) : null;
-            root.find('.sig-planner-sitebox').html('<div class="sig-planner-sitecard"><button id="sig-planner-map-inspector-close" type="button">×</button>' +
+            const canLocate = hasPoint(r);
+            const teamColor = r.team ? TEAM_COLORS[(Number(r.team) - 1) % TEAM_COLORS.length] : '#718096';
+            const selectedHit = view.index.byCycle[String(r.cycle)], hasTrip = !!(selectedHit && selectedHit.trip && selectedHit.trip.stops && selectedHit.trip.stops.length);
+            root.find('.sig-planner-sitebox').html('<div class="sig-planner-sitecard" style="--site-team:' + teamColor + '"><button id="sig-planner-map-inspector-close" type="button" aria-label="' + __('Close') + '">×</button>' +
                 '<b><a href="' + projectLink(r) + '">' + esc(r.site) + '</a></b><small>' + esc(r.project || '—') + '</small>' +
+                '<button type="button" class="sig-planner-locate" data-action="locate-selected" ' + (canLocate ? '' : 'disabled') + '>' + __('Locate site') + '</button>' +
+                (hasTrip ? '<button type="button" class="sig-planner-locate" data-action="fit-trip">' + __('Fit trip') + '</button>' : '') +
                 statusBadge(r) + decisionBadge(r) + '<dl><dt>' + __('Plan') + '</dt><dd>' +
                 (r.trip_status === 'Scheduled' ? esc(leaderFor(r.team)) + ' · ' + esc(fmtDates(r.day || r.first_day)) : esc(r.trip_status)) +
                 '</dd><dt>' + __('TCN window') + '</dt><dd>' + esc(r.window || '—') + '</dd><dt>' + __('Why') + '</dt><dd>' +
                 esc(r.reason || s.line) + '</dd><dt>' + __('Team position') + '</dt><dd>' + esc(pos && pos.site || __('No report')) +
-                (pos && pos.seen_at ? ' · ' + esc(pos.seen_at) : '') + '</dd></dl>' + decisionControl(r) + '</div>');
+                (pos && pos.seen_at ? ' · ' + esc(pos.seen_at) : '') + '</dd><dt>' + __('Coordinates') + '</dt><dd>' +
+                (canLocate ? esc(Number(r.lat).toFixed(5) + ', ' + Number(r.lon).toFixed(5)) : __('Unavailable')) + '</dd></dl>' + decisionControl(r) + '</div>');
+            const bodyTop = root.find('.sig-planner-mapbody').position().top;
+            root.find('.sig-planner-sitebox').css('top', bodyTop + 12);
+        }
+        function syncSelectedRows() {
+            root.find('.sig-planner-stop[data-cycle], .sig-planner-schedule tr[data-cycle], .sig-planner-review tr[data-cycle]')
+                .each((_, el) => $(el).toggleClass('is-selected', String($(el).attr('data-cycle')) === String(view.selected)));
+        }
+        function syncMapControls() {
+            root.find('[data-map-base]').attr('aria-pressed', function () { return String($(this).attr('data-map-base') === view.base); });
+            root.find('[data-map-mode]').attr('aria-pressed', function () { return String($(this).attr('data-map-mode') === view.mode); });
+            root.find('[data-map-extent]').attr('aria-pressed', function () { return String($(this).attr('data-map-extent') === view.extent); });
+            root.find('[data-map-unplanned]').attr('aria-pressed', String(view.showUnplanned));
+            root.find('[data-map-towns]').attr('aria-pressed', String(view.towns));
+            root.find('[data-map-zones]').attr('aria-pressed', String(view.zones));
+            root.find('[data-map-zoom]').closest('.sig-planner-map-segment').toggle(view.base === 'drawing');
+        }
+        function refreshMap() {
+            drawMap(data, root.find('.sig-planner-mapbody'));
+            syncMapControls(); renderInspector(); syncSelectedRows();
+            if (view.activeTab === 'team') drawTeamPlan();
+            if (view.expandedMap) root.find('.sig-planner-map-card').addClass('is-expanded');
+        }
+        function setMapBase(nextBase) {
+            if (nextBase === view.base) return;
+            if (view.base === 'drawing' && nextBase === 'street') {
+                const [x, y, w] = view.box || BOX0, lon = 33 + (x + w / 2) / (0.91 * 40), lat = 34 - (y + (w * BOX0[3] / BOX0[2]) / 2) / 40;
+                const scale = BOX0[2] / w;
+                view.leafletView = {center: [lat, lon], zoom: Math.max(5, Math.min(11, 6 + Math.log2(scale)))};
+            } else if (view.base === 'street' && view.leaflet) {
+                const c = view.leaflet.getCenter(), scale = Math.pow(2, Math.max(0, view.leaflet.getZoom() - 6));
+                const width = BOX0[2] / scale, height = width * BOX0[3] / BOX0[2], [x, y] = project(c.lng, c.lat);
+                view.box = clampBox([x - width / 2, y - height / 2, width, height]);
+            }
+            view.base = nextBase; refreshMap();
+        }
+        function chooseCycle(cycle, locate) {
+            const hit = view.index.byCycle[String(cycle)], item = hit && (hit.stop || hit.other);
+            if (!item) return;
+            const oldTeam = view.selectedTeam;
+            view.selected = String(cycle);
+            if (hit.trip && hit.trip.team && view.extent === 'team') view.selectedTeam = Number(hit.trip.team);
+            if (locate && hasPoint(item)) {
+                if (view.base === 'drawing') {
+                    const [x, y] = project(item.lon, item.lat), currentScale = BOX0[2] / (view.box || BOX0)[2];
+                    const width = BOX0[2] / Math.max(currentScale, 3.2), height = width * BOX0[3] / BOX0[2];
+                    view.box = clampBox([x - width / 2, y - height / 2, width, height]);
+                    view.locateCycle = null;
+                } else view.locateCycle = String(cycle);
+            }
+            if (oldTeam !== view.selectedTeam) updateTeamSummary();
+            refreshMap();
+            if (locate && view.base === 'drawing' && hasPoint(item)) focusSelectedInDrawing(item);
+            if (locate && view.base === 'street' && hasPoint(item)) focusSelectedOnRoad(item);
+            if (oldTeam !== view.selectedTeam && view.activeTab === 'team') drawTeamPlan();
+            if (locate) root.find('.sig-planner-map-card')[0].scrollIntoView({behavior: 'smooth', block: 'start'});
+            closeSuggestions();
+        }
+        function clearSelection() {
+            if (!view.selected) return;
+            view.selected = null; view.locateCycle = null;
+            refreshMap();
+        }
+        function focusSelectedInDrawing(item) {
+            const svg = root.find('.sig-planner-svg')[0], mapBody = root.find('.sig-planner-mapbody')[0];
+            if (!svg || !mapBody || item.lat == null || item.lon == null) return;
+            applyZoom(svg);
+            const [x, y, w, h] = view.box, rect = svg.getBoundingClientRect(), card = root.find('.sig-planner-sitebox')[0];
+            const scale = Math.min(rect.width / w, rect.height / h), drawnW = w * scale, drawnH = h * scale;
+            const left = rect.left + (rect.width - drawnW) / 2, top = rect.top + (rect.height - drawnH) / 2;
+            const cardRect = card && !card.hidden ? card.getBoundingClientRect() : null;
+            const desiredX = cardRect && cardRect.left < rect.right && cardRect.right > rect.left ?
+                Math.max(rect.left + 24, Math.min(rect.right - 24, cardRect.left - 24)) : rect.left + rect.width / 2;
+            const desiredY = rect.top + rect.height / 2, point = project(item.lon, item.lat);
+            const target = clampBox([point[0] - (desiredX - left) / scale, point[1] - (desiredY - top) / scale, w, h]);
+            const start = view.box.slice(), duration = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 350;
+            const started = performance.now();
+            const frame = (now) => {
+                const t = duration ? Math.min(1, (now - started) / duration) : 1, ease = t * t * (3 - 2 * t);
+                view.box = start.map((v, i) => v + (target[i] - v) * ease);
+                applyZoom(svg);
+                if (t < 1) view.cameraAnimation = requestAnimationFrame(frame); else view.cameraAnimation = null;
+            };
+            if (duration) view.cameraAnimation = requestAnimationFrame(frame); else { view.box = target; applyZoom(svg); }
+        }
+        function focusSelectedOnRoad(item) {
+            const map = view.leaflet, card = root.find('.sig-planner-sitebox')[0];
+            if (!map || item.lat == null || item.lon == null) return;
+            const size = map.getSize(), mapRect = map.getContainer().getBoundingClientRect(), cardRect = card && card.getBoundingClientRect();
+            const desiredX = cardRect && cardRect.left < mapRect.right && cardRect.right > mapRect.left ?
+                Math.max(24, Math.min(size.x - 24, cardRect.left - mapRect.left - 24)) : size.x / 2;
+            map.panBy([desiredX - size.x / 2, 0], {animate: true, duration: 0.35});
+        }
+        function fitSelectedTrip() {
+            const hit = view.index.byCycle[String(view.selected)], stops = hit && hit.trip ? hit.trip.stops : [];
+            const pts = stops.filter(hasPoint);
+            if (!pts.length) return;
+            if (view.base === 'street' && view.leaflet) {
+                view.leaflet.fitBounds(pts.map((p) => [p.lat, p.lon]), {padding: [44, 44], maxZoom: 8, animate: true});
+                return;
+            }
+            const projected = pts.map((p) => project(p.lon, p.lat)), xs = projected.map((p) => p[0]), ys = projected.map((p) => p[1]);
+            const width = Math.max(24, Math.max(...xs) - Math.min(...xs)), height = width * BOX0[3] / BOX0[2], pad = 0.16;
+            const x = (Math.min(...xs) + Math.max(...xs) - width) / 2 - width * pad;
+            const y = (Math.min(...ys) + Math.max(...ys) - height) / 2 - height * pad;
+            view.box = clampBox([x, y, width * (1 + 2 * pad), height * (1 + 2 * pad)]);
+            refreshMap();
         }
         function renderAll() { drawTeamPlan(); renderMatrix(); renderReview(); renderInspector(); activate(view.activeTab || 'team'); }
-        root.find('#sig-planner-team-trips').on('click', '[data-cycle]', (e) => { view.selected = $(e.currentTarget).attr('data-cycle'); renderInspector(); });
-        root.find('#sig-planner-schedule-rows, #sig-planner-review-rows').on('click', 'tr', (e) => {
-            const row = $(e.currentTarget), cycle = row.attr('data-cycle') || row.find('[href*="/app/sig-site-cycle/"]').attr('href');
-            if (cycle && !$(e.target).is('a')) { view.selected = cycle; renderInspector(); }
-        });
         drawMap(data, root.find('.sig-planner-mapbody'));
         renderAll();
         view.lastLoaded = Date.now();
