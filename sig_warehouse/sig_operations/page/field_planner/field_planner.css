@@ -1,4 +1,7 @@
 .sig-planner-page { padding: 12px 0; }
+.sig-planner-nav { display:flex; gap:8px; flex-wrap:wrap; margin:0 0 14px; padding:8px 0; border-bottom:1px solid #dfe6ee; }
+.sig-planner-nav a { display:inline-block; padding:7px 12px; border-radius:6px; background:#f4f7fa; color:#183b57; text-decoration:none; }
+.sig-planner-nav a.active { background:#183b57; color:#fff; }
 .sig-planner-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
 .sig-planner-card { background: #fff; border: 1px solid #dfe6ee; border-inline-start: 4px solid #53657d; border-radius: 6px; padding: 10px 12px; }
 .sig-planner-card .num { font-size: 22px; font-weight: 600; color: #081c44; }
@@ -20,6 +23,7 @@
 .sig-planner-pill.sig-planner-T2 { background: #fff8e1; color: #8a6d00; }
 .sig-planner-pill.sig-planner-T3 { background: #eafaf0; color: #1a7a3d; }
 .sig-planner-note { background: #fdecec; color: #a4211f; padding: 8px 12px; border-radius: 6px; margin-bottom: 10px; }
+.sig-planner-visited-note { background:#eef7fc; color:#36536a; padding:7px 12px; border-radius:6px; margin-bottom:10px; }
 .sig-planner-foot { color: #53657d; font-size: 12px; margin-top: 12px; }
 .sig-planner-position-control { display: flex; align-items: end; gap: 10px; padding: 10px 12px; flex-wrap: wrap; border-top: 1px solid #edf1f5; }
 .sig-planner-position-control > label { margin: 0 4px 6px 0; color: #53657d; font-size: 12px; }

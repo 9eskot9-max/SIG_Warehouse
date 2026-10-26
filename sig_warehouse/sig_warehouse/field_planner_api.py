@@ -9,7 +9,7 @@ from sig_warehouse.sig_warehouse import field_planner as planner
 
 PLANNER_ROLES = {"System Manager", "Projects Manager", "Projects User", "SIG Field Ops"}
 CYCLE_FIELDS = ["name", "site", "site_id", "project", "po", "erp_project", "stage", "terminal", "tcn_at", "mir_at",
-                "first_visit_at", "impl_visits", "tags_at", "planned_start", "last_event_at", "gross_value"]
+                "first_visit_at", "last_visit_at", "ho_at", "impl_visits", "tags_at", "planned_start", "last_event_at", "gross_value"]
 
 
 def _require_access():
@@ -103,9 +103,11 @@ def _position_team_roster():
 def _latest_manual_positions(leaders):
     if not leaders:
         return {}
-    rows = frappe.get_list("SIG Planner Position", filters={"team_leader": ["in", leaders]},
-                           fields=["team_leader", "site", "updated_at", "updated_by"],
-                           order_by="updated_at desc", limit_page_length=500)
+    # Planner audience is explicitly role-gated; per-user Employee Link filters
+    # must not hide the other enabled field teams from this aggregate view.
+    rows = frappe.get_all("SIG Planner Position", filters={"team_leader": ["in", leaders]},
+                          fields=["team_leader", "site", "updated_at", "updated_by"],
+                          order_by="updated_at desc", limit_page_length=500)
     latest = {}
     for row in rows:
         latest.setdefault(row.team_leader, dict(row))
@@ -167,30 +169,39 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
     """Return the weekly plan: TCN windows are options, trips are placed on the teams that exist, the rest lapse."""
     _require_access()
     today = frappe.utils.getdate(frappe.utils.nowdate())
-    start = frappe.utils.getdate(week_start) if week_start else planner.week_start_for(today)
+    start = frappe.utils.getdate(week_start) if week_start else frappe.utils.add_days(today, 1)
     overrides = {"teams": int(_number(teams, 0)) or None, "scope_hours": _number(scope_hours, 0) or None,
                  "diameter_km": _number(diameter_km, 0) or None}
     overrides = {key: value for key, value in overrides.items() if value}
     params = dict(planner.DEFAULTS, **overrides)
 
     filters = {"terminal": 0, "stage": ["in", ["2 - Plan", "3 - Handover"]]}
-    if project:
-        filters["project"] = ["like", "%{0}%".format(project)]
     fields = CYCLE_FIELDS + (["plan_hold"] if _has_field("SIG Site Cycle", "plan_hold") else [])
     cycles = [dict(c) for c in frappe.get_list("SIG Site Cycle", filters=filters, fields=fields, limit_page_length=0)]
+    if project:
+        # Project is selected from ERP Project's Link search. Match the stable
+        # ERP link first, with agreement/PO compatibility for older cycles.
+        agreement = frappe.db.get_value("Project", project, "custom_agreement_no")
+        cycles = [c for c in cycles if c.get("erp_project") == project
+                  or (agreement and str(c.get("po") or "").strip() == str(agreement).strip())]
     names = [cycle["name"] for cycle in cycles]
     events, visits = [], []
     if names:
         events = frappe.get_list("SIG Evidence Event", filters={"event_code": "TCN_GENERATED", "cycle": ["in", names]},
                                  fields=["cycle", "event_code", "occurred_at", "recorded_at"], limit_page_length=0)
-        visits = frappe.get_list("SIG Field Visit", filters={"cycle": ["in", names]}, fields=["cycle", "start_at"],
-                                 limit_page_length=0)
+        visits = frappe.get_all("SIG Field Visit", filters={"cycle": ["in", names]}, fields=["cycle", "start_at", "status"],
+                                limit_page_length=0)
     windows = planner.tcn_windows(events, params["tcn_gap_days"])
     visit_days = {}
     for visit in visits:
         visit_days.setdefault(visit.cycle, set()).add(frappe.utils.getdate(visit.start_at))
     decisions = _decisions(names)
-    candidates, excluded = planner.build_candidates(cycles, windows, visit_days, today, params,
+    # This view is for tomorrow-forward field planning. A cycle with an
+    # existing visit is complete for the visit-planning queue; a later scope
+    # remains eligible under its own cycle.
+    visited_cycles = {v.cycle for v in visits if v.get("cycle") and v.get("status") == "COMPLETED"}
+    plan_cycles = [c for c in cycles if c["name"] not in visited_cycles]
+    candidates, excluded = planner.build_candidates(plan_cycles, windows, visit_days, today, params,
                                                     planner.index_projects(_projects()), "plan_hold", decisions)
 
     all_teams = _team_setup()
@@ -198,12 +209,12 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
     team_visits = []
     manual_positions = _latest_manual_positions([t["leader"] for t in team_setup])
     if all_teams:
-        team_visits = [dict(v) for v in frappe.get_list(
+        team_visits = [dict(v) for v in frappe.get_all(
             "SIG Field Visit", filters={"employee": ["in", [t["leader"] for t in all_teams]],
                                         "start_at": [">=", frappe.utils.add_days(today, -45)]},
             fields=["employee", "site", "start_at", "end_at", "status"], order_by="start_at desc", limit_page_length=500)]
         team_visits = [dict(v, source="Posted visit") for v in team_visits]
-        team_sessions = [dict(v) for v in frappe.get_list(
+        team_sessions = [dict(v) for v in frappe.get_all(
             "SIG Field Session", filters={"employee": ["in", [t["leader"] for t in all_teams]],
                                            "start_at": [">=", frappe.utils.add_days(today, -45)],
                                            "disposition": ["not in", ["IN_ERP_WINDOW", "VOID"]]},
@@ -238,6 +249,7 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
     plan = continuity.schedule_continuity(planner.plan_week(candidates, coords, start, overrides), coords, start, overrides,
                                           starts, names)
     plan["team_positions"] = positions
+    plan["summary"]["visited_cycles_dismissed"] = len(visited_cycles)
     for ex in excluded:
         if ex["reason"].startswith("PM "):
             c = ex["cycle"]

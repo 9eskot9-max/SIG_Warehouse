@@ -1,6 +1,13 @@
 frappe.pages['field-planner'].on_page_load = function (wrapper) {
     const page = frappe.ui.make_app_page({parent: wrapper, title: __('Field Planner'), single_column: true});
     const root = $('<main class="sig-planner-page"></main>').appendTo(page.main);
+    const canSeeSetup = (frappe.user_roles || []).some(r => ['System Manager','Operations Manager','Operations User','Projects Manager','SIG Excel Setup Editor'].includes(r));
+    const nav = $('<nav class="sig-planner-nav" aria-label="Operations"><a href="#" data-route="projects">Projects</a><a href="#" data-route="cycles">Site Cycles</a><a href="#" data-route="visits">Site Visits</a><a class="active" href="#">Field Planner</a>' + (canSeeSetup ? '<a href="#" data-route="setup">Excel Setup</a>' : '') + '</nav>');
+    page.main.prepend(nav);
+    nav.find('[data-route="projects"]').on('click', e => { e.preventDefault(); frappe.set_route('List', 'Project'); });
+    nav.find('[data-route="cycles"]').on('click', e => { e.preventDefault(); frappe.set_route('site-cycles'); });
+    nav.find('[data-route="visits"]').on('click', e => { e.preventDefault(); frappe.set_route('site-visits'); });
+    nav.find('[data-route="setup"]').on('click', e => { e.preventDefault(); frappe.set_route('excel-setup'); });
     // Every PM decision list on the page reports here; the choice saves at once.
     root.on('change', '.sig-planner-decide', (e) => decide($(e.currentTarget).attr('data-cycle'), $(e.currentTarget).val()));
     const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -35,13 +42,13 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
     const field = (fieldname, label, fieldtype, def) => page.add_field({
         fieldname, label, fieldtype, default: def, change() { filters[fieldname] = this.get_value(); },
     });
-    field('week_start', __('Week starting (Sunday)'), 'Date');
+    field('week_start', __('Plan starts'), 'Date', frappe.datetime.add_days(frappe.datetime.get_today(), 1));
     field('teams', __('Teams (blank = Setup)'), 'Int');
     field('scope_hours', __('Hours per site'), 'Float', 2);
     field('diameter_km', __('Trip diameter (km)'), 'Float', 150);
-    field('project', __('Project'), 'Data');
+    page.add_field({fieldname: 'project', label: __('Project'), fieldtype: 'Link', options: 'Project',
+        change() { filters.project = this.get_value(); }});
     page.set_primary_action(__('Refresh'), load);
-    page.add_inner_button(__('Operations Workbench'), () => frappe.set_route('operations-workbench'));
     filters.scope_hours = 2; filters.diameter_km = 150;
 
     // Saudi Arabia outline (lon, lat): Natural Earth 1:110m countries (public domain, via world-atlas); simplified, not a survey boundary.
@@ -381,12 +388,14 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         ].join('');
         const note = data.has_coordinates ? '' :
             `<div class="sig-planner-note">${__('Site coordinates are not loaded yet, so trips cannot be formed.')}</div>`;
+        const visitedNote = s.visited_cycles_dismissed
+            ? `<div class="sig-planner-visited-note">${__('{0} visited work items hidden from this field plan.', [s.visited_cycles_dismissed])}</div>` : '';
         const trips = data.trips.map((trip) => {
             const rows = trip.stops.map((stop) => `<tr class="sig-planner-row" data-site="${esc(stop.site)}">
                 <td>${stop.order}</td>
                 <td><a href="/app/sig-site-cycle/${encodeURIComponent(stop.cycle)}">${esc(stop.site)}</a></td>
                 <td>${esc(stop.project)}</td>
-                <td><span class="sig-planner-pill sig-planner-${esc(stop.tier)}">${esc(data.tiers[stop.tier])}</span></td>
+                <td>${esc(stop.day || '')}</td><td><span class="sig-planner-pill sig-planner-${esc(stop.tier)}">${esc(data.tiers[stop.tier])}</span></td>
                 <td>${esc(stop.class || '')}</td><td>${esc(stop.window)}</td><td>${esc(stop.reason)}</td>
                 <td class="num">${stop.leg_km == null ? '' : esc(stop.leg_km)}</td><td>${decisionSelect(stop.cycle, stop.decision)}</td></tr>`).join('');
             const title = `${esc(trip.id)} · ${esc(trip.kind)}${trip.anchor ? ' · ' + esc(trip.anchor) : ''}`;
@@ -397,7 +406,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             return `<section class="sig-planner-trip ${trip.loaded ? '' : 'sig-planner-backlog'}">
                 <header><b>${title}</b><span>${trip.stops.length} ${__('sites')} · ${esc(trip.diameter_km)} km ${__('spread')} ·
                 ${esc(trip.hours)} h · ${esc(trip.team_days)} ${__('team-day(s)')} · ${status}${baseText}</span></header>
-                <table><thead><tr><th>#</th><th>${__('Site')}</th><th>${__('Project')}</th><th>${__('Priority')}</th>
+                <table><thead><tr><th>#</th><th>${__('Site')}</th><th>${__('Project')}</th><th>${__('Day')}</th><th>${__('Priority')}</th>
                 <th>${__('Class')}</th><th>${__('TCN window')}</th><th>${__('Why')}</th><th>${__('km')}</th><th>${__('Decision')}</th></tr></thead>
                 <tbody>${rows}</tbody></table></section>`;
         }).join('');
@@ -424,7 +433,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                 <td>${p.seen_at ? esc(p.seen_at.slice(0, 10)) + (p.on_site ? ' · ' + __('on site') : '') : ''}</td>
                 <td>${esc(p.source || '')}${p.updated_by ? ' · ' + esc(p.updated_by) : ''}</td>
                 <td>${esc(STATE[p.state] || p.state)}</td></tr>`).join('')}</tbody></table>${positionControl}</section>` : '';
-        root.html(`<div class="sig-planner-cards">${cards}</div>${note}${teamPanel}
+        root.html(`<div class="sig-planner-cards">${cards}</div>${note}${visitedNote}${teamPanel}
             <div class="sig-planner-searchbar">
                 <input type="search" class="sig-planner-search" autocomplete="off" spellcheck="false" autocapitalize="characters"
                     placeholder="${esc(__('Search a site code, e.g. ZDA970'))}">
@@ -484,8 +493,15 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             .then((r) => { view.townList = r.message || []; }).catch(() => { view.townList = []; });
         towns.then(() => frappe.call({
             method: 'sig_warehouse.sig_warehouse.field_planner_api.get_field_plan', args: filters,
-            callback: (r) => render(r.message), error: () => root.html(`<p class="sig-planner-foot">${__('Could not load the field plan.')}</p>`),
+            callback: (r) => { view.lastLoaded = Date.now(); render(r.message); }, error: () => root.html(`<p class="sig-planner-foot">${__('Could not load the field plan.')}</p>`),
         }));
     }
+    wrapper.__sigFieldPlannerRefresh = () => {
+        if (Date.now() - (view.lastLoaded || 0) > 30000) load();
+    };
     load();
+};
+
+frappe.pages['field-planner'].on_page_show = function (wrapper) {
+    if (wrapper.__sigFieldPlannerRefresh) wrapper.__sigFieldPlannerRefresh();
 };

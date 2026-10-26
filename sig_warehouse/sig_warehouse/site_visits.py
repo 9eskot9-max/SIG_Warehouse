@@ -27,6 +27,7 @@ STREAM_PM = {
     'ti5g': 'Mohammed Imran Ansary',             # SIG_5G_Collocation
 }
 STREAM_LABEL = {'tiinc': 'Incident', 'ticpx': 'Capex', 'ticpx2': 'Capex2', 'ti5g': '5G Collocation'}
+SITE_VISIT_ROLES = {"System Manager", "Operations Manager", "Operations User", "Projects Manager", "Projects User", "SIG Field Ops"}
 
 
 def text_value(value):
@@ -35,6 +36,10 @@ def text_value(value):
 
 @frappe.whitelist()
 def get_visits(stream='', site='', person='', status='', view='current', search=''):
+    user = frappe.session.user
+    roles = set(frappe.get_roles(user)) if user != "Guest" else set()
+    if not roles.intersection(SITE_VISIT_ROLES):
+        frappe.throw("You need an Operations role to view field visits.", frappe.PermissionError)
     stream = text_value(stream)
     site = text_value(site)
     person = text_value(person)

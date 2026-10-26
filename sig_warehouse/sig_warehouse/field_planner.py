@@ -127,6 +127,17 @@ def week_start_for(today):
     return start + timedelta(days=7) if today.weekday() in (4, 5) else start
 
 
+def planning_days(start, count):
+    """Upcoming Saudi workdays (Sunday–Thursday), starting on/after `start`."""
+    day = _date(start)
+    result = []
+    while len(result) < int(count):
+        if day.weekday() not in (4, 5):  # Friday and Saturday
+            result.append(day)
+        day += timedelta(days=1)
+    return result
+
+
 def tcn_windows(events, gap_days=1):
     """Latest TCN window per cycle. Exports of one site on consecutive days are one window.
 

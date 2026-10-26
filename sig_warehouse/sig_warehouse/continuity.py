@@ -6,7 +6,6 @@ Deterministic: the improvement search is capped by an iteration count and a fixe
 """
 import random
 import time
-from datetime import timedelta
 
 from sig_warehouse.sig_warehouse import field_planner as fp
 
@@ -17,14 +16,24 @@ def _trip_model(cluster, index, coords, week, days_n, params):
     stops = cluster["stops"]
     inner_km = sum((s.get("leg_km") or 0) for s in stops)
     work = len(stops) * params["scope_hours"] + inner_km / params["speed_kmh"]
-    windowed = all(s.get("win_end") for s in stops)
+    window_stops = [s for s in stops if s.get("win_end")]
     win = None
-    if windowed:
-        lo = min(fp._date(s.get("win_start") or s["win_end"]) for s in stops)
-        hi = max(fp._date(s["win_end"]) for s in stops)
-        hi_i = (hi - week).days
-        if hi_i >= 0:                       # a window that already passed imposes no day
-            win = (max(0, (lo - week).days), min(hi_i, days_n - 1))
+    if window_stops:
+        # A non-TCN filler must not erase the committed trip constraint. When
+        # several TCN windows share a route, the route must fit their overlap.
+        lo = max(fp._date(s.get("win_start") or s["win_end"]) for s in window_stops)
+        hi = min(fp._date(s["win_end"]) for s in window_stops)
+        if lo > hi:
+            return {"id": cluster["id"], "cluster": cluster, "stops": stops, "index": index,
+                    "first": coords[stops[0]["site"]], "last": coords[stops[-1]["site"]], "work": work,
+                    "win": (days_n, days_n), "value": sum(float(s.get("value") or 0) for s in stops),
+                    "cls": max(fp.priority_class(s) for s in stops), "must": any(s.get("must") for s in stops)}
+        if hi >= week:
+            eligible = [i for i, day in enumerate(fp.planning_days(week, days_n)) if lo <= day <= hi]
+            if not eligible:
+                eligible = [i for i, day in enumerate(fp.planning_days(week, days_n)) if day >= max(lo, week)]
+            if eligible:
+                win = (eligible[0], eligible[-1])
     return {"id": cluster["id"], "cluster": cluster, "stops": stops, "index": index,
             "first": coords[stops[0]["site"]], "last": coords[stops[-1]["site"]], "work": work, "win": win,
             "value": sum(float(s.get("value") or 0) for s in stops), "cls": max(fp.priority_class(s) for s in stops),
@@ -114,6 +123,7 @@ def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, n
     params.update({k: v for k, v in (overrides or {}).items() if v not in (None, "")})
     week = fp._date(week_start)
     days_n = int(params["work_days"])
+    work_dates = fp.planning_days(week, days_n)
     if starts:
         params["teams"] = len(starts)
     teams = int(params["teams"])
@@ -186,10 +196,11 @@ def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, n
             span = end - start + 1
             stops = []
             for k, s in enumerate(trip["stops"]):
-                stops.append(dict(s, day=str(week + timedelta(days=start + int((k * params["scope_hours"]) // params["day_hours"])))))
-            c.update(stops=stops, status="Scheduled", team=t, days=[week + timedelta(days=d) for d in range(start, end + 1)],
+                stop_day = min(start + int((k * params["scope_hours"]) // params["day_hours"]), days_n - 1)
+                stops.append(dict(s, day=str(work_dates[stop_day])))
+            c.update(stops=stops, status="Scheduled", team=t, days=[work_dates[d] for d in range(start, end + 1)],
                      loaded=True, team_days=span, hours=round(trip["work"], 1), value=round(trip["value"]),
-                     priority_label=fp.CLASS_LABEL[trip["cls"]], day_start=str(week + timedelta(days=start)))
+                     priority_label=fp.CLASS_LABEL[trip["cls"]], day_start=str(work_dates[start]))
             scheduled.append(c)
     lapsed_out = []
     for trip in trips:
@@ -213,7 +224,7 @@ def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, n
         "sites_scheduled": sum(len(c["stops"]) for c in scheduled), "sites_lapsed": sum(len(c["stops"]) for c in lapsed_out),
         "value_scheduled": sum(c["value"] for c in scheduled), "value_lapsed": sum(c["value"] for c in lapsed_out),
         "must_lapsed": sum(1 for c in lapsed_out for s in c["stops"] if s.get("must")),
-        "teams": teams, "loaded_team_days": sum(c["team_days"] for c in scheduled),
+        "teams": teams, "loaded_team_days": len({(c.get("team"), day) for c in scheduled for day in c.get("days", [])}),
         "capacity_team_days": teams * days_n, "backlog_trips": len(lapsed_out) + len(waiting_out),
         "over_capacity": False, "travel_h": round(sum(r["travel_h"] for r in team_rows), 1),
         "work_h": round(sum(r["work_h"] for r in team_rows), 1), "reloc_km": sum(r["reloc_km"] for r in team_rows),
