@@ -71,7 +71,7 @@ def _trip_model(cluster, index, coords, week, days_n, params):
             "must": any(s.get("must") for s in stops)}
 
 
-def _walk(route, days_n, params, start=None):
+def _walk(route, days_n, params, start=None, diagnostics=None):
     """Time a route from the team's starting point (None = it starts at its first stop, no drive).
 
     Returns None if infeasible, else travel/work/relocation, trip spans and exact ERP stop-day indexes.
@@ -100,6 +100,9 @@ def _walk(route, days_n, params, start=None):
                     day, h, trip_span, stop_days = path
                     break
             if path is None:
+                if diagnostics is not None:
+                    diagnostics.append({"trip": trip["id"], "reason": "no per-stop eligible date remains after prior route travel/work",
+                                       "earliest_reached_day_index": day, "allowed_start_indexes": trip.get("allowed_starts")})
                 return None
             times.append(trip_span)
             stop_days_by_trip.append(stop_days)
@@ -112,12 +115,18 @@ def _walk(route, days_n, params, start=None):
             if day < lo:                                 # arrived early: wait for the window to open
                 day, h = lo, 0.0
             if day > hi:                                 # arrived after the window closed
+                if diagnostics is not None:
+                    diagnostics.append({"trip": trip["id"], "reason": "arrived after the TCN window closed",
+                                       "reached_day_index": day, "window_day_indexes": [lo, hi]})
                 return None
         start = day
         t = h + trip["work"]
         day += int(t // params["day_hours"])
         h = t % params["day_hours"]
         if day > days_n or (day == days_n and h > 0):   # runs past Thursday
+            if diagnostics is not None:
+                diagnostics.append({"trip": trip["id"], "reason": "route exceeds the available workday horizon",
+                                   "reached_day_index": day, "workday_count": days_n})
             return None
         end = day if h > 0 else max(start, day - 1)
         travel += tr_h
@@ -154,25 +163,75 @@ def _objective(routes, days_n, params, starts):
     return (must, windows, weight, round(value), -round(travel, 3))
 
 
-def _best_insert(routes, trip, teams, days_n, params, starts):
+def _route_trace_snapshot(routes, days_n, params, starts, work_dates):
+    """Compact assignment signature for explaining accepted optimizer changes."""
+    snapshot = {}
+    for team_index, route in enumerate(routes):
+        result = _walk(route, days_n, params, starts[team_index]) if route else (0, 0, 0, [], [])
+        for order, (trip, span, stop_indexes) in enumerate(zip(route, result[3], result[4]), 1):
+            if stop_indexes and trip.get("work_dates"):
+                stop_dates = [str(trip["work_dates"][index]) for index in stop_indexes]
+            else:
+                stop_dates = []
+            snapshot[trip["id"]] = {"team_index": team_index + 1, "order": order,
+                                    "trip_days": [str(work_dates[index]) for index in range(span[0], span[1] + 1)],
+                                    "stop_dates": stop_dates}
+    return snapshot
+
+
+def _best_insert(routes, trip, teams, days_n, params, starts, trace=None):
     """Cheapest feasible place for one trip: (added_hours, team_index, position) or None."""
     best = None
+    alternatives = [] if trace is not None else None
     for t in range(teams):
         base = _walk(routes[t], days_n, params, starts[t])
         base_h = (base[0] + base[1]) if base else 0.0
         for pos in range(len(routes[t]) + 1):
             cand = routes[t][:pos] + [trip] + routes[t][pos:]
-            res = _walk(cand, days_n, params, starts[t])
+            failure = [] if trace is not None else None
+            res = _walk(cand, days_n, params, starts[t], diagnostics=failure)
             if res is None:
+                if trace is not None:
+                    alternatives.append({"team_index": t + 1, "insert_before": routes[t][pos]["id"] if pos < len(routes[t]) else None,
+                                         "feasible": False, "reason": failure[-1] if failure else "route constraints fail"})
                 continue
             added = (res[0] + res[1]) - base_h
             key = (round(added, 4), t, pos)
+            if trace is not None:
+                trip_index = next(i for i, item in enumerate(cand) if item["id"] == trip["id"])
+                stop_day_indexes = res[4][trip_index]
+                stop_dates = ([str(trip["work_dates"][day_index]) for day_index in stop_day_indexes]
+                              if stop_day_indexes and trip.get("work_dates") else [])
+                alternatives.append({"team_index": t + 1, "insert_before": routes[t][pos]["id"] if pos < len(routes[t]) else None,
+                                    "feasible": True, "added_hours": round(added, 4),
+                                    "travel_hours": round(res[0], 3), "work_hours": round(res[1], 3),
+                                    "relocation_km": round(res[2], 2),
+                                    "trip_days": list(res[3][trip_index]), "stop_dates": stop_dates})
             if best is None or key < best:
                 best = key
+    if trace is not None:
+        selected_alt = next((option for option in alternatives
+                             if best and option.get("team_index") == best[1] + 1 and
+                             option.get("insert_before") == (routes[best[1]][best[2]]["id"]
+                                                             if best[2] < len(routes[best[1]]) else None)), None)
+        trace.setdefault("initial_placement", []).append({
+            "trip": trip["id"], "candidate_order": len(trace.setdefault("initial_placement", [])) + 1,
+            "alternatives": alternatives,
+            "chosen": ({"team_index": best[1] + 1, "insert_before": routes[best[1]][best[2]]["id"]
+                        if best[2] < len(routes[best[1]]) else None, "added_hours": best[0],
+                        "trip_days": selected_alt.get("trip_days") if selected_alt else [],
+                        "stop_dates": selected_alt.get("stop_dates") if selected_alt else [],
+                        "travel_hours": selected_alt.get("travel_hours") if selected_alt else None,
+                        "work_hours": selected_alt.get("work_hours") if selected_alt else None,
+                        "relocation_km": selected_alt.get("relocation_km") if selected_alt else None,
+                        "tie_break_rule": "lowest added travel+work hours, then lowest team index, then earliest route position"
+                        } if best else None),
+            "result": "placed" if best else "no_feasible_team_order",
+        })
     return best
 
 
-def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, names=None):
+def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, names=None, trace=None):
     """starts: one (lat, lon) or None per team, where that team stands when the week opens; it also sets the number of
     teams. names: team number (1-based) -> display name (the leader)."""
     params = dict(fp.DEFAULTS)
@@ -184,12 +243,21 @@ def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, n
         params["teams"] = len(starts)
     teams = int(params["teams"])
     starts = list(starts or []) + [None] * (teams - len(starts or []))
-    started = time.monotonic()
-
     live = [c for c in plan["clusters"] if c["kind"] != "Deferred"]
     waiting = [c for c in plan["clusters"] if c["kind"] == "Deferred"]
     trips = [_trip_model(c, i, coords, week, days_n, params) for i, c in enumerate(live)]
     by_id = {t["id"]: t for t in trips}
+
+    if trace is not None:
+        trace.update({"scheduler": {"algorithm": "continuity-insert-and-improve", "search": dict(SEARCH),
+                                     "week_start": str(week), "work_dates": [str(day) for day in work_dates],
+                                     "teams": teams, "team_names": {str(k): v for k, v in (names or {}).items()},
+                                     "starting_positions": [list(pos) if pos else None for pos in starts],
+                                     "search_components": ["Must trips", "TCN dates met", "priority-class × sites", "gross value", "lower travel"],
+                                     "priority_order": ["Must", "TCN dates met", "priority-class × site count",
+                                                        "gross value", "lower travel"],
+                                     "search_logging": "All initial team/order insertion alternatives are retained. Search records attempted-move count and accepted objective improvements; rejected randomized search trials are not retained."},
+                      "initial_placement": [], "improvement": {"attempted_moves": 0, "accepted_changes": []}})
 
     routes = [[] for _ in range(teams)]
     lapsed = {}
@@ -199,8 +267,11 @@ def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, n
                                         str(day) for stop in t["stops"] for day in stop.get("tcn_days") or []),
                                     -t["cls"]))
     rest = sorted([t for t in trips if t not in anchors], key=lambda t: (-t["cls"], -(t["value"] / max(0.5, t["work"]))))
+    if trace is not None:
+        trace["scheduler"]["initial_trip_order"] = [trip["id"] for trip in anchors + rest]
     for trip in anchors + rest:
-        best = _best_insert(routes, trip, teams, days_n, params, starts)
+        best = _best_insert(routes, trip, teams, days_n, params, starts,
+                            trace if trace is not None else None)
         if best is None:
             lapsed[trip["id"]] = ("no eligible day remains before the TCN cutoff" if trip.get("allowed_starts") == []
                                   else "no team can reach it inside its TCN window" if trip["win"]
@@ -211,13 +282,20 @@ def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, n
 
     rng = random.Random(SEARCH["seed"])
     current = _objective(routes, days_n, params, starts)
+    if trace is not None:
+        trace["scheduler"]["initial_objective"] = list(current) if current is not None else None
+    started = time.monotonic()
+    trace_overhead = 0.0
     evals = 0
+    termination_reason = "iteration_limit"
     for _ in range(SEARCH["iters"]):
-        if time.monotonic() - started > SEARCH["seconds"]:
+        if time.monotonic() - started - trace_overhead > SEARCH["seconds"]:
+            termination_reason = "time_limit"
             break
         new = [list(r) for r in routes]
         placed = [(t, trip) for t, r in enumerate(new) for trip in r]
         if not placed and not lapsed:
+            termination_reason = "no_remaining_moves"
             break
         if placed and rng.random() < 0.3 and len(placed) > 1:          # swap two placed trips
             (ta, a), (tb, b) = rng.sample(placed, 2)
@@ -236,7 +314,26 @@ def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, n
         evals += 1
         score = _objective(new, days_n, params, starts)
         if score is not None and (current is None or score > current):
+            old_routes = routes
+            old_score = current
             routes, current = new, score
+            if trace is not None:
+                trace_started = time.monotonic()
+                component_labels = ["Must trips", "TCN dates met", "priority-class × sites", "gross value", "lower travel"]
+                first_changed = next((index for index, (before, after) in enumerate(zip(old_score or (), score))
+                                      if before != after), None)
+                old_assignment = _route_trace_snapshot(old_routes, days_n, params, starts, work_dates)
+                new_assignment = _route_trace_snapshot(routes, days_n, params, starts, work_dates)
+                trace["improvement"]["accepted_changes"].append({
+                    "evaluation": evals, "objective_before": list(old_score) if old_score is not None else None,
+                    "objective_after": list(score),
+                    "first_improved_component": component_labels[first_changed] if first_changed is not None else "",
+                    "trip_changes": [{"trip": trip_id, "before": old_assignment.get(trip_id),
+                                      "after": new_assignment.get(trip_id)}
+                                     for trip_id in sorted(set(old_assignment) | set(new_assignment))
+                                     if old_assignment.get(trip_id) != new_assignment.get(trip_id)],
+                })
+                trace_overhead += time.monotonic() - trace_started
             placed_ids = {x["id"] for r in routes for x in r}
             for k in list(lapsed):
                 if k in placed_ids:
@@ -296,7 +393,52 @@ def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, n
         "over_capacity": False, "travel_h": round(sum(r["travel_h"] for r in team_rows), 1),
         "work_h": round(sum(r["work_h"] for r in team_rows), 1), "reloc_km": sum(r["reloc_km"] for r in team_rows),
         "windows_total": windows_total, "windows_met": windows_met,
-        "search_evals": evals, "search_seconds": round(time.monotonic() - started, 2),
+        "search_evals": evals, "search_seconds": round(time.monotonic() - started - trace_overhead, 2),
     })
+    if trace is not None:
+        trace["improvement"].update({"attempted_moves": evals, "accepted_count": len(trace["improvement"]["accepted_changes"]),
+                                     "final_objective": list(current) if current is not None else None,
+                                     "search_seconds": summary["search_seconds"],
+                                     "termination_reason": termination_reason})
+        trace["final_assignments"] = [
+            {"trip": cluster["id"], "kind": cluster.get("kind"), "status": cluster.get("status"),
+             "team_index": cluster.get("team"), "team": (names or {}).get(cluster.get("team"), ""),
+             "days": [str(day) for day in cluster.get("days", [])],
+             "lapse_reason": cluster.get("lapse_reason", ""),
+             "stops": [{"cycle": stop.get("cycle"), "site": stop.get("site"), "scheduled_day": stop.get("day") or None,
+                        "tcn_days": [str(day)[:10] for day in stop.get("tcn_days") or []],
+                        "tcn_met": bool(stop.get("tcn_days") and str(stop.get("day") or "")[:10] in
+                                         {str(day)[:10] for day in stop.get("tcn_days") or []}),
+                        "provisional_days": [str(day)[:10] for day in stop.get("provisional_days") or []],
+                        "tcn_state": ("dated_tcn_evidenced" if str(stop.get("day") or "")[:10] in
+                                      {str(day)[:10] for day in stop.get("tcn_days") or []} else
+                                      "provisional_tcn_required" if str(stop.get("day") or "")[:10] in
+                                      {str(day)[:10] for day in stop.get("provisional_days") or []} else
+                                      "not_scheduled"),
+                        "tcn_cutoff": str(fp.tcn_cutoff(stop["day"])) if stop.get("day") and
+                                      str(stop.get("day"))[:10] in {str(d)[:10] for d in stop.get("provisional_days") or []}
+                                      else ""} for stop in cluster.get("stops", [])]}
+            for cluster in scheduled + lapsed_out + waiting_out]
+        provisional_pending = sum(1 for cluster in scheduled for stop in cluster.get("stops", [])
+                                  if str(stop.get("day") or "")[:10] in
+                                  {str(day)[:10] for day in stop.get("provisional_days") or []})
+        needs_review = bool(lapsed_out or waiting_out or windows_met < windows_total or summary["must_lapsed"])
+        no_scheduled_work = not scheduled and not lapsed_out and not waiting_out
+        no_candidates = not int(summary.get("candidates") or 0)
+        trace["outcome"] = {"scheduled_trips": len(scheduled), "lapsed_trips": len(lapsed_out),
+                            "waiting_trips": len(waiting_out), "scheduled_sites": sum(len(c["stops"]) for c in scheduled),
+                            "must_sites_scheduled": sum(1 for c in scheduled for s in c["stops"] if s.get("must")),
+                            "must_sites_lapsed": summary["must_lapsed"], "tcn_dates_met": windows_met,
+                            "provisional_sites_awaiting_tcn": provisional_pending,
+                            "tcn_dates_total": windows_total, "loaded_team_days": summary["loaded_team_days"],
+                            "capacity_team_days": summary["capacity_team_days"], "over_capacity": summary["over_capacity"],
+                            "plan_validity": "review_required" if needs_review else
+                                             "no_eligible_candidates" if no_candidates else
+                                             "no_trips_in_horizon" if no_scheduled_work else
+                                             "provisional_work_pending_tcn" if provisional_pending else "dated_work_tcn_supported",
+                            "judgement": "Review required" if needs_review else
+                                         "No eligible candidate cycles" if no_candidates else
+                                         "No trips scheduled in this horizon" if no_scheduled_work else
+                                         "Plan formed; TCN pending" if provisional_pending else "Targets met"}
     return {"clusters": scheduled + lapsed_out + waiting_out, "later": plan["later"], "unplaced": plan["unplaced"],
             "summary": summary, "params": params, "teams": team_rows}

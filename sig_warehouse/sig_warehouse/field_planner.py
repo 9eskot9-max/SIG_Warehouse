@@ -376,41 +376,74 @@ def _cluster_dates_feasible(items, coords, params):
     return False
 
 
-def _grow(coords, seed, pool, params, member_limit, existing=None, max_km=None, existing_items=None):
+def _grow(coords, seed, pool, params, member_limit, existing=None, max_km=None, existing_items=None,
+          trace=None, phase="cluster"):
     """Greedy diameter-capped growth. `pool` is a list of items; returns chosen items (without seed)."""
     members = list(existing or [seed["site"]])
     chosen = []
     candidates = list(pool)
     while candidates:
         best = None
+        checks = [] if trace is not None else None
         for item in candidates:
             current_items = list(existing_items) + chosen if existing_items is not None else [seed] + chosen
-            if not _cluster_dates_feasible(current_items + [item], coords, params):
+            date_ok = _cluster_dates_feasible(current_items + [item], coords, params)
+            if trace is None and not date_ok:
                 continue
             near = min(_distance(coords, item["site"], member, params) for member in members)
-            if max_km is not None and near > max_km:
+            if trace is None and max_km is not None and near > max_km:
                 continue
-            if _diameter(coords, members + [item["site"]], params) > params["diameter_km"]:
+            diameter = _diameter(coords, members + [item["site"]], params)
+            if not date_ok:
+                if checks is not None: checks.append({"cycle": item.get("cycle"), "site": item.get("site"), "feasible": False, "rejected_by": "combined per-stop date constraints"})
+                continue
+            if max_km is not None and near > max_km:
+                if checks is not None: checks.append({"cycle": item.get("cycle"), "site": item.get("site"), "feasible": False, "rejected_by": "fill radius", "nearest_km": round(near, 2), "limit_km": max_km})
+                continue
+            if diameter > params["diameter_km"]:
+                if checks is not None: checks.append({"cycle": item.get("cycle"), "site": item.get("site"), "feasible": False, "rejected_by": "cluster diameter", "diameter_km": round(diameter, 2), "limit_km": params["diameter_km"]})
                 continue
             if len(members) + 1 > member_limit:
+                if checks is not None: checks.append({"cycle": item.get("cycle"), "site": item.get("site"), "feasible": False, "rejected_by": "member limit", "limit": member_limit})
                 continue
             rank = (near, TIER_ORDER[item["tier"]], str(item.get("age") or ""))
+            if checks is not None:
+                checks.append({"cycle": item.get("cycle"), "site": item.get("site"), "feasible": True,
+                               "nearest_km": round(near, 2), "resulting_diameter_km": round(diameter, 2),
+                               "rank": [round(near, 4), TIER_ORDER[item["tier"]], str(item.get("age") or "")]})
             if best is None or rank < best[0]:
                 best = (rank, item)
         if best is None:
+            if trace is not None:
+                trace.append({"phase": phase, "seed_cycle": seed.get("cycle"),
+                              "members_before": [item.get("cycle") for item in (existing_items or [seed]) + chosen],
+                              "candidate_checks": checks, "selected_cycle": None, "stop_reason": "no eligible neighbour"})
             break
         item = best[1]
         _, _, _, days = _workload(coords, members + [item["site"]], params)
         if days > params["max_trip_days"]:
+            if trace is not None:
+                trace.append({"phase": phase, "seed_cycle": seed.get("cycle"),
+                              "members_before": [entry.get("cycle") for entry in (existing_items or [seed]) + chosen],
+                              "candidate_checks": checks, "selected_cycle": item.get("cycle"),
+                              "rejected_by": "maximum trip days", "estimated_team_days": days,
+                              "limit": params["max_trip_days"]})
             candidates.remove(item)
             continue
+        if trace is not None:
+            trace.append({"phase": phase, "seed_cycle": seed.get("cycle"),
+                          "members_before": [entry.get("cycle") for entry in (existing_items or [seed]) + chosen],
+                          "candidate_checks": checks, "selected_cycle": item.get("cycle"),
+                          "selection_stage": "growth shortlist; committed-fill budget checked afterward" if phase == "nearby_fill" else "cluster member selected",
+                          "selection_reason": "lowest nearest-distance rank among candidates passing date, radius, diameter and member checks",
+                          "estimated_team_days": days})
         members.append(item["site"])
         chosen.append(item)
         candidates.remove(item)
     return chosen
 
 
-def plan_week(candidates, coords, week_start, overrides=None, schedule_singletons=False):
+def plan_week(candidates, coords, week_start, overrides=None, schedule_singletons=False, trace=None):
     """candidates: dicts with site, cycle, tier, anchor (date or None), age, reason, project.
 
     Returns {"clusters": [...], "unplaced": [...], "summary": {...}, "params": {...}}.
@@ -419,6 +452,10 @@ def plan_week(candidates, coords, week_start, overrides=None, schedule_singleton
     params.update({k: v for k, v in (overrides or {}).items() if v not in (None, "")})
     week_start = _date(week_start)
     week_end = week_start + timedelta(days=6)
+    if trace is not None:
+        trace.update({"clustering": {"policy": "TCN-anchored trips, nearby candidate fills, then proposed trips",
+                                     "candidate_count": len(candidates), "candidates_without_coordinates": [],
+                                     "growth_evaluations": [], "trips": [], "capacity_decisions": []}})
 
     # Keep one work item per cycle. Several scopes can share a physical site, but
     # their readiness and TCN dates must not be discarded by site-level de-duplication.
@@ -427,6 +464,9 @@ def plan_week(candidates, coords, week_start, overrides=None, schedule_singleton
         (placeable if item["site"] in coords else unplaced).append(item)
     for item in unplaced:
         item["kind"] = "No coordinates"
+        if trace is not None:
+            trace["clustering"]["candidates_without_coordinates"].append(
+                {"cycle": item.get("cycle"), "site": item.get("site"), "reason": "no coordinates in ERP Site"})
 
     # a TCN window that just ended (still inside its grace days) is due now, so it joins the first day of the week
     committed_now = [i for i in placeable if i["tier"] == "T0" and i.get("anchor") and i["anchor"] <= week_end]
@@ -447,6 +487,17 @@ def plan_week(candidates, coords, week_start, overrides=None, schedule_singleton
                          "hours": round(hours, 1), "team_days": days,
                          "best_tier": min((i["tier"] for i in items), key=TIER_ORDER.get),
                          "stops": [dict(item, leg_km=round(leg)) for item, leg in zip(ordered_items, legs)]})
+        if trace is not None:
+            trace["clustering"]["trips"].append({"event": "trip_formed", "sequence": len(trace["clustering"]["trips"]) + 1,
+                "kind": kind, "anchor": str(anchor) if anchor else None,
+                "members": [{"cycle": item.get("cycle"), "site": item.get("site"), "tier": item.get("tier"),
+                             "reason": item.get("reason"), "dated_tcn": bool(item.get("dated_tcn")),
+                             "priority_class": CLASS_LABEL[priority_class(item)], "must": bool(item.get("must")),
+                             "gross_value": item.get("value"), "value_source": item.get("value_source", ""),
+                             "tour_leg_km": round(leg, 2)}
+                            for item, leg in zip(ordered_items, legs)],
+                "diameter_km": round(_diameter(coords, sites, params), 2), "estimated_team_days": days,
+                "estimated_work_hours": round(hours, 2)})
         return clusters[-1]
 
     # 1. committed TCN sites, one trip set per anchor day
@@ -454,7 +505,9 @@ def plan_week(candidates, coords, week_start, overrides=None, schedule_singleton
         left = [i for i in committed_now if max(i["anchor"], week_start) == day]
         while left:
             seed = left.pop(0)
-            more = _grow(coords, seed, left, params, params["cluster_size"])
+            more = _grow(coords, seed, left, params, params["cluster_size"],
+                         trace=trace["clustering"]["growth_evaluations"] if trace is not None else None,
+                         phase="dated_tcn_cluster")
             for item in more:
                 left.remove(item)
             for item in [seed] + more:
@@ -467,9 +520,23 @@ def plan_week(candidates, coords, week_start, overrides=None, schedule_singleton
         budget = cluster["team_days"] * params["day_hours"]
         fills = []
         for item in _grow(coords, cluster["stops"][0], pool, params, params["cluster_size"] + 2,
-                          existing=members, max_km=params["fill_km"], existing_items=cluster["stops"]):
-            if _workload(coords, members + [f["site"] for f in fills] + [item["site"]], params)[2] > budget:
+                          existing=members, max_km=params["fill_km"], existing_items=cluster["stops"],
+                          trace=trace["clustering"]["growth_evaluations"] if trace is not None else None,
+                          phase="nearby_fill"):
+            fill_hours = _workload(coords, members + [f["site"] for f in fills] + [item["site"]], params)[2]
+            if fill_hours > budget:
+                if trace is not None:
+                    trace["clustering"]["growth_evaluations"].append({
+                        "phase": "nearby_fill", "seed_cycle": cluster["stops"][0].get("cycle"),
+                        "candidate_cycle": item.get("cycle"), "accepted": False,
+                        "rejected_by": "committed trip work-hour budget",
+                        "resulting_hours": round(fill_hours, 2), "budget_hours": round(budget, 2)})
                 continue
+            if trace is not None:
+                trace["clustering"]["growth_evaluations"].append({
+                    "phase": "nearby_fill", "seed_cycle": cluster["stops"][0].get("cycle"),
+                    "candidate_cycle": item.get("cycle"), "accepted": True,
+                    "resulting_hours": round(fill_hours, 2), "budget_hours": round(budget, 2)})
             fills.append(item)
         if fills:
             for item in fills:
@@ -481,7 +548,9 @@ def plan_week(candidates, coords, week_start, overrides=None, schedule_singleton
     # 3. proposed trips from what is left, seeded by tier then age
     while pool:
         seed = pool.pop(0)
-        more = _grow(coords, seed, pool, params, params["cluster_size"])
+        more = _grow(coords, seed, pool, params, params["cluster_size"],
+                     trace=trace["clustering"]["growth_evaluations"] if trace is not None else None,
+                     phase="proposed_trip")
         for item in more:
             pool.remove(item)
         items = [seed] + more
@@ -518,6 +587,26 @@ def plan_week(candidates, coords, week_start, overrides=None, schedule_singleton
             stop["order"] = position
             stop["cluster"] = cluster["id"]
             stop["loaded"] = cluster["loaded"]
+    if trace is not None:
+        trace["clustering"]["preliminary_capacity"] = {"teams_parameter": params["teams"],
+            "work_days": params["work_days"], "load_target": params["load_target"],
+            "capacity_team_days": round(capacity, 2),
+            "committed_team_days": sum(c["team_days"] for c in committed),
+            "total_preliminary_loaded_team_days": round(load, 2)}
+        trace["clustering"]["capacity_decisions"] = [
+            {"trip": cluster["id"], "kind": cluster["kind"], "loaded": bool(cluster.get("loaded")),
+             "team_days": cluster["team_days"],
+             "reason": "TCN-anchored trip retained" if cluster["kind"] == "Committed" else
+                       "singleton deferred by the lower-priority deferral rule" if cluster["kind"] == "Deferred" else
+                       "within preliminary load target" if cluster.get("loaded") else
+                       "preliminary load target exceeded"}
+            for cluster in ordered]
+        for event in trace["clustering"]["trips"]:
+            member_cycles = {member.get("cycle") for member in event["members"]}
+            match = next((cluster for cluster in ordered
+                          if member_cycles <= {stop.get("cycle") for stop in cluster["stops"]}), None)
+            event["final_trip"] = match["id"] if match else None
+            event["superseded_by_fill"] = bool(match and len(member_cycles) < len(match["stops"]))
 
     summary = {
         "week_start": str(week_start),

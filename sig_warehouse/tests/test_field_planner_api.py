@@ -119,6 +119,26 @@ class FieldPlannerApiTests(unittest.TestCase):
         self.assertEqual([("get_list", "SIG Site", ("name", "site_latitude", "site_longitude"))], [c for c in calls if c[1] == "SIG Site"])
         self.assertFalse([c for c in calls if c[0] == "get_all" and c[1] == "SIG Site"])
 
+    def test_trace_hides_visit_details_without_visit_read_permission(self):
+        visit = dict(name="VISIT-1", cycle="Z1|NA|1", site="Z1", start_at="2026-10-25 08:00:00",
+                     status="COMPLETED")
+        api, calls = load_api(["SIG Field Ops"], visits=[visit])
+        api.frappe.has_permission = lambda doctype, ptype, *args: doctype != "SIG Field Visit"
+        trace = api.get_field_plan(week_start="2026-10-25", capture_trace=1)["decision_trace"]
+        self.assertEqual([], trace["evidence_records"]["cycle_visits"])
+        self.assertEqual([], trace["candidate_decisions"][0]["visit_dates"])
+        self.assertFalse(trace["candidate_decisions"][0]["visit_detail_access"])
+        self.assertFalse([call for call in calls if call[0] == "get_list" and call[1] == "SIG Field Visit"])
+
+    def test_trace_counts_dated_tcn_even_when_site_has_no_coordinates(self):
+        api, _ = load_api(["SIG Field Ops"])
+        original_get_list = api.frappe.get_list
+        api.frappe.get_list = lambda doctype, **kwargs: [] if doctype == "SIG Site" else original_get_list(doctype, **kwargs)
+        outcome = api.get_field_plan(week_start="2026-10-25", capture_trace=1)["decision_trace"]["outcome"]
+        self.assertEqual(1, outcome["dated_tcn_candidates_in_scope"])
+        self.assertEqual(1, outcome["dated_tcn_candidates_without_coordinates"])
+        self.assertEqual("review_required", outcome["plan_validity"])
+
     def test_setup_teams_set_the_team_count_names_and_starting_positions(self):
         import json
         setup = json.dumps({"teams": [

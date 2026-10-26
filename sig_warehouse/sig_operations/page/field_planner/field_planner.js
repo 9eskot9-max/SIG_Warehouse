@@ -19,7 +19,94 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
     let positionSiteField = null;
     let projectControl = null;
     let cutoffRefreshTimer = null;
+    let captureTrace = false;
+    let currentTrace = null;
+    let planRequestSequence = 0;
     filters.week_start = frappe.datetime.add_days(frappe.datetime.get_today(), 1);
+    root.on('click', '[data-export-trace]', () => downloadTrace('json'));
+    root.on('click', '[data-export-trace-csv]', () => downloadTrace('csv'));
+
+    function csvCell(value) {
+        let text = value == null ? '' : String(value);
+        if (/^[\s]*[=+@-]/.test(text)) text = "'" + text;
+        return '"' + text.replace(/"/g, '""') + '"';
+    }
+    function downloadTrace(format) {
+        if (!currentTrace) return;
+        let content, filename, type;
+        if (format === 'json') {
+            content = JSON.stringify(currentTrace, null, 2);
+            filename = 'field-planner-decision-trace-' + currentTrace.week_start + '-' + String(currentTrace.run_id || '').slice(0, 8) + '.json';
+            type = 'application/json;charset=utf-8';
+        } else {
+            const headers = ['section','decision','cycle','site','project','stage','tier','priority_class','reason','date','status','team','trip','feasible','added_hours','tcn_days','tcn_met','tcn_state','cutoff','details_json'];
+            const rows = [];
+            const add = (section, row) => rows.push(headers.map(key => csvCell(key === 'section' ? section : row[key])).join(','));
+            (currentTrace.candidate_decisions || []).forEach(candidate => {
+                (candidate.planning_day_checks || []).forEach(day => add('candidate_day', {
+                    cycle: candidate.cycle, site: candidate.site, project: candidate.project, stage: candidate.stage,
+                    tier: candidate.tier, priority_class: candidate.priority_class, decision: candidate.included ? 'included' : 'excluded',
+                    reason: day.reason || candidate.exclusion_reason || candidate.priority_reason, date: day.date,
+                    status: day.status, tcn_days: (candidate.tcn_dates || []).join(';'),
+                    cutoff: day.tcn_cutoff, details_json: JSON.stringify({mir: candidate.mir_evidence_present,
+                        tags_complete: candidate.tags_complete, visit_dates: candidate.visit_dates, pm_decision: candidate.pm_decision,
+                        pm_decision_history: candidate.pm_decision_history})
+                }));
+            });
+            ((currentTrace.evidence_records || {}).tcn_events || []).forEach(event => add('tcn_evidence', {
+                cycle: event.cycle, trip: event.id, date: event.occurred_at, status: 'TCN_GENERATED',
+                details_json: JSON.stringify({recorded_at: event.recorded_at})
+            }));
+            ((currentTrace.evidence_records || {}).cycle_visits || []).forEach(visit => add('visit_evidence', {
+                cycle: visit.cycle, trip: visit.id, date: visit.start_at, status: visit.status
+            }));
+            ((currentTrace.clustering || {}).trips || []).forEach(trip => (trip.members || []).forEach(member => add('cluster_member', {
+                cycle: member.cycle, site: member.site, tier: member.tier, priority_class: member.priority_class, reason: member.reason,
+                trip: trip.final_trip || ('cluster-' + trip.sequence), status: trip.kind, date: trip.anchor,
+                details_json: JSON.stringify({formation_event: trip.sequence, superseded_by_fill: trip.superseded_by_fill,
+                    tour_leg_km: member.tour_leg_km, diameter_km: trip.diameter_km,
+                    team_days: trip.estimated_team_days})
+            })));
+            ((currentTrace.clustering || {}).growth_evaluations || []).forEach(event => {
+                (event.candidate_checks || []).forEach(check => add('cluster_check', {
+                    cycle: check.cycle, site: check.site, decision: check.feasible ? 'eligible' : 'rejected',
+                    reason: check.rejected_by || '', status: event.phase,
+                    details_json: JSON.stringify({seed_cycle: event.seed_cycle, selected_cycle: event.selected_cycle,
+                        check: check})
+                }));
+                if (event.candidate_cycle) add('fill_budget', {
+                    cycle: event.candidate_cycle, decision: event.accepted ? 'accepted' : 'rejected',
+                    reason: event.rejected_by || '', status: event.phase, details_json: JSON.stringify(event)
+                });
+            });
+            (currentTrace.initial_placement || []).forEach(placement => (placement.alternatives || []).forEach(option => add('placement_alternative', {
+                trip: placement.trip, team: option.team_index, feasible: option.feasible,
+                added_hours: option.added_hours, status: option.feasible ? 'feasible' : 'rejected',
+                reason: option.reason && typeof option.reason === 'object' ? option.reason.reason || '' : option.reason || '',
+                details_json: JSON.stringify({insert_before: option.insert_before, failure: option.reason,
+                    trip_days: option.trip_days, stop_dates: option.stop_dates,
+                    travel_hours: option.travel_hours, work_hours: option.work_hours, relocation_km: option.relocation_km,
+                    chosen: placement.chosen && placement.chosen.team_index === option.team_index && placement.chosen.insert_before === option.insert_before})
+            })));
+            (currentTrace.final_assignments || []).forEach(assignment => (assignment.stops || []).forEach(stop => add('final_stop', {
+                cycle: stop.cycle, site: stop.site, team: assignment.team, trip: assignment.trip,
+                date: stop.scheduled_day, status: assignment.status, tcn_days: (stop.tcn_days || []).join(';'),
+                tcn_met: stop.tcn_met, tcn_state: stop.tcn_state, cutoff: stop.tcn_cutoff, reason: assignment.lapse_reason || ''
+            })));
+            ((currentTrace.improvement || {}).accepted_changes || []).forEach(change => add('accepted_improvement', {
+                decision: 'accepted', trip: (change.trip_changes || []).map(x => x.trip).join(';'),
+                details_json: JSON.stringify(change)
+            }));
+            add('outcome', {decision: (currentTrace.outcome || {}).judgement,
+                details_json: JSON.stringify(currentTrace.outcome || {})});
+            content = headers.map(csvCell).join(',') + '\r\n' + rows.join('\r\n');
+            filename = 'field-planner-decision-trace-' + currentTrace.week_start + '-' + String(currentTrace.run_id || '').slice(0, 8) + '.csv';
+            type = 'text/csv;charset=utf-8';
+        }
+        const url = URL.createObjectURL(new Blob([content], {type}));
+        const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename;
+        document.body.appendChild(anchor); anchor.click(); anchor.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
 
     // Saudi Arabia outline (lon, lat): Natural Earth 1:110m countries (public domain, via world-atlas); simplified, not a survey boundary.
     const KSA = [[34.95,29.36],[36.07,29.2],[36.5,29.51],[36.74,29.87],[37.5,30.0],[37.67,30.34],[38.0,30.51],[37.0,31.51],[39.0,32.01],[39.2,32.16],[40.4,31.89],[41.89,31.19],[44.71,29.18],[46.57,29.1],[47.46,29.0],[47.71,28.53],[48.42,28.55],[48.81,27.69],[49.3,27.46],[49.47,27.11],[50.15,26.69],[50.21,26.28],[50.11,25.94],[50.24,25.61],[50.53,25.33],[50.66,25.0],[50.81,24.75],[51.11,24.56],[51.39,24.63],[51.58,24.24],[51.62,24.01],[52.0,23.0],[55.01,22.5],[55.21,22.71],[55.67,22.0],[55.0,20.0],[52.0,19.0],[49.12,18.62],[48.18,18.17],[47.47,17.12],[47.0,16.95],[46.75,17.28],[46.37,17.23],[45.4,17.33],[45.22,17.43],[44.06,17.41],[43.79,17.32],[43.38,17.58],[43.12,17.09],[43.22,16.67],[42.78,16.35],[42.65,16.77],[42.35,17.08],[42.27,17.47],[41.76,17.83],[41.22,18.67],[40.94,19.49],[40.25,20.17],[39.8,20.34],[39.14,21.29],[39.02,21.99],[39.07,22.58],[38.49,23.69],[38.03,24.08],[37.49,24.29],[37.15,24.86],[37.21,25.08],[36.93,25.6],[36.64,25.83],[36.25,26.57],[35.64,27.38],[35.13,28.06],[34.63,28.06],[34.79,28.61],[34.83,28.96],[34.95,29.36]];
@@ -533,6 +620,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                     {fieldtype: 'Int', fieldname: 'teams', label: __('Project teams (blank uses Setup)'), default: filters.teams || data.params.teams},
                     {fieldtype: 'Float', fieldname: 'scope_hours', label: __('Hours per site'), default: filters.scope_hours || data.params.scope_hours},
                     {fieldtype: 'Float', fieldname: 'diameter_km', label: __('Trip diameter · km'), default: filters.diameter_km || data.params.diameter_km},
+                    {fieldtype: 'Check', fieldname: 'capture_trace', label: __('Capture decision trace'), default: captureTrace ? 1 : 0},
                     {fieldtype: 'HTML', fieldname: 'day_length', options: '<p class="text-muted">' +
                         __('Workday length: {0} hours, controlled by planner setup.', [esc(data.params.day_hours)]) + '</p>'},
                 ],
@@ -542,6 +630,8 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                     filters.teams = v.teams || '';
                     filters.scope_hours = v.scope_hours || '';
                     filters.diameter_km = v.diameter_km || '';
+                    captureTrace = Boolean(v.capture_trace);
+                    currentTrace = null;
                     d.hide(); load();
                 },
             });
@@ -565,6 +655,10 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             '<label class="sig-planner-project-control">' + __('Project / PO') + '<div class="sig-planner-project-link"></div></label>' +
             '<button type="button" class="btn btn-default" data-action="settings">' + __('Planning settings') + '</button>' +
             '</div><div class="sig-planner-metrics" id="sig-planner-metrics"></div></section>' +
+            (data.decision_trace ? '<section class="sig-planner-trace-actions"><span>' + __('Trace captured for this plan') + ' · ' +
+                esc(fmtDates(data.decision_trace.week_start || '')) + ' · ' + esc(data.decision_trace.generated_at_riyadh || '') + '</span><div>' +
+                '<button type="button" class="btn btn-default" data-export-trace>' + __('Export trace JSON') + '</button>' +
+                '<button type="button" class="btn btn-default" data-export-trace-csv>' + __('Export trace CSV') + '</button></div></section>' : '') +
             '<section class="sig-planner-teams" id="sig-planner-teams"></section><section class="sig-planner-context"><div><div class="sig-planner-context-title">' +
             '<i id="sig-planner-team-dot"></i><h3 id="sig-planner-team-name"></h3>' +
             (canUpdatePosition() ? '<button type="button" class="btn btn-default sig-planner-update-main" data-action="position">' + __('Update position') + '</button>' : '') +
@@ -1020,21 +1114,26 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         return out;
     }
 
-    function render(data) { renderFull(data); }
+    function render(data) { currentTrace = data && data.decision_trace || null; renderFull(data); }
 
     function load() {
+        const requestSequence = ++planRequestSequence;
+        const captureThisRun = captureTrace;
+        currentTrace = null;
         root.html(`<p class="sig-planner-foot">${__('Loading…')}</p>`);
         const towns = view.townList ? Promise.resolve() : frappe.call({method: 'sig_warehouse.sig_warehouse.field_planner_api.get_reference_towns'})
             .then((r) => { view.townList = r.message || []; }).catch(() => { view.townList = []; });
         towns.then(() => frappe.call({
-            method: 'sig_warehouse.sig_warehouse.field_planner_api.get_field_plan', args: filters,
+            method: 'sig_warehouse.sig_warehouse.field_planner_api.get_field_plan', args: Object.assign({}, filters, {capture_trace: captureThisRun ? 1 : 0}),
             callback: (r) => {
+                if (requestSequence !== planRequestSequence) return;
+                if (captureThisRun) captureTrace = false;
                 view.lastLoaded = Date.now();
                 if (cutoffRefreshTimer) clearTimeout(cutoffRefreshTimer);
                 const cutoff = r.message && r.message.next_cutoff_at ? Date.parse(r.message.next_cutoff_at) : NaN;
                 if (Number.isFinite(cutoff) && cutoff > Date.now()) cutoffRefreshTimer = setTimeout(load, Math.min(cutoff - Date.now() + 1000, 2147483000));
                 render(r.message);
-            }, error: () => root.html(`<p class="sig-planner-foot">${__('Could not load the field plan.')}</p>`),
+            }, error: () => { if (requestSequence === planRequestSequence) { if (captureThisRun) captureTrace = false; root.html(`<p class="sig-planner-foot">${__('Could not load the field plan.')}</p>`); } },
         }));
     }
     wrapper.__sigFieldPlannerRefresh = () => {

@@ -1,6 +1,7 @@
 """Whitelisted read-only API for the Field Planner page. Writes nothing; every read uses the caller's permissions."""
 import json
 import os
+from uuid import uuid4
 
 import frappe
 
@@ -42,12 +43,12 @@ def _decisions(names):
     if not names:
         return {}
     rows = frappe.get_list("SIG Plan Decision", filters={"cycle": ["in", names]},
-                           fields=["cycle", "action", "reason", "until", "decided_at"], order_by="decided_at desc",
+                           fields=["name", "cycle", "action", "reason", "until", "decided_at"], order_by="decided_at desc",
                            limit_page_length=0)
     out = {}
     for r in rows:
-        out.setdefault(r.cycle, []).append({"action": r.action or "", "reason": r.reason, "until": r.until,
-                                            "created": r.decided_at})
+        out.setdefault(r.cycle, []).append({"name": r.name, "action": r.action or "", "reason": r.reason,
+                                            "until": r.until, "created": r.decided_at})
     return out
 
 
@@ -174,7 +175,7 @@ def update_team_position(team_leader, site):
 
 
 @frappe.whitelist()
-def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=None, project=None):
+def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=None, project=None, capture_trace=0):
     """Return the weekly plan: TCN windows are options, trips are placed on the teams that exist, the rest lapse."""
     _require_access()
     business_now = _riyadh_now()
@@ -185,6 +186,22 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
     overrides = {key: value for key, value in overrides.items() if value}
     params = dict(planner.DEFAULTS, **overrides)
     schedule_dates = planner.planning_days(start, params["work_days"])
+    trace = None
+    if str(capture_trace).lower() in ("1", "true", "yes", "on"):
+        trace = {"schema": "sig-field-planner-decision-trace/v1", "run_id": str(uuid4()),
+                 "generated_at_riyadh": business_now.isoformat(), "week_start": str(start),
+                 "limitations": ["This is a plan-time judgement, not proof that visits were executed.",
+                                "Rejected randomized optimizer trials are counted but not individually retained.",
+                                "Application revision and authenticated user identity are not stamped."],
+                 "inputs": {"parameters": params,
+                            "parameter_sources": {"teams": "page override" if overrides.get("teams") else "planner default until roster is loaded",
+                                                  "scope_hours": "page override" if overrides.get("scope_hours") else "planner default",
+                                                  "diameter_km": "page override" if overrides.get("diameter_km") else "planner default",
+                                                  "other parameters": "SIG Warehouse field_planner.DEFAULTS"},
+                            "schedule_dates": [str(day) for day in schedule_dates],
+                            "selected_project": project or "All projects", "erp_policy": "Stage 2 scopes plus Stage 3 scopes with Tags outstanding; dated TCNs constrain dates; other dates remain provisional through the preceding-workday 14:00 cutoff.",
+                            "candidate_scope": "Open, non-terminal SIG Site Cycles in stages 2 - Plan and 3 - Handover"},
+                 "candidate_decisions": [], "evidence_summary": {}}
 
     filters = {"terminal": 0, "stage": ["in", ["2 - Plan", "3 - Handover"]]}
     fields = CYCLE_FIELDS + (["plan_hold"] if _has_field("SIG Site Cycle", "plan_hold") else [])
@@ -199,13 +216,23 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
     events, visits = [], []
     if names:
         events = frappe.get_list("SIG Evidence Event", filters={"event_code": "TCN_GENERATED", "cycle": ["in", names]},
-                                 fields=["cycle", "event_code", "occurred_at", "recorded_at"], limit_page_length=0)
-        visits = frappe.get_all("SIG Field Visit", filters={"cycle": ["in", names]}, fields=["cycle", "start_at", "status"],
+                                 fields=["name", "cycle", "event_code", "occurred_at", "recorded_at"], limit_page_length=0)
+        visits = frappe.get_all("SIG Field Visit", filters={"cycle": ["in", names]}, fields=["name", "cycle", "start_at", "status"],
                                 limit_page_length=0)
     windows = planner.tcn_windows(events, params["tcn_gap_days"])
     visit_days = {}
     for visit in visits:
         visit_days.setdefault(visit.cycle, set()).add(frappe.utils.getdate(visit.start_at))
+    # The scheduler uses visit counts from get_all. Downloadable trace detail must
+    # still obey the caller's record permissions.
+    trace_visits = []
+    visit_detail_access = bool(trace is not None and frappe.has_permission("SIG Field Visit", "read"))
+    if visit_detail_access and names:
+        trace_visits = frappe.get_list("SIG Field Visit", filters={"cycle": ["in", names]},
+                                      fields=["name", "cycle", "start_at", "status"], limit_page_length=0)
+    trace_visit_days = {}
+    for visit in trace_visits:
+        trace_visit_days.setdefault(visit.cycle, set()).add(frappe.utils.getdate(visit.start_at))
     decisions = _decisions(names)
     # ERP Field Planner pools all open Stage 2 scopes, plus Stage 3 scopes with
     # Tags outstanding. A visit is evidence, not a declaration that the scope
@@ -213,6 +240,66 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
     candidates, excluded = planner.build_candidates(cycles, windows, visit_days, today, params,
                                                     planner.index_projects(_projects()), "plan_hold", decisions,
                                                     erp_policy=True, schedule_dates=schedule_dates, now=business_now.replace(tzinfo=None))
+
+    if trace is not None:
+        candidates_by_cycle = {item["cycle"]: item for item in candidates}
+        excluded_by_cycle = {item["cycle"]["name"]: item["reason"] for item in excluded}
+        for cycle in cycles:
+            cycle_id = cycle["name"]
+            candidate = candidates_by_cycle.get(cycle_id)
+            window = windows.get(cycle_id) or {}
+            dated_days = [day for day in schedule_dates if planner.window_covers(window, day)]
+            eligible_days = {str(day)[:10] for day in (candidate or {}).get("eligible_days", [])}
+            provisional_days = {str(day)[:10] for day in (candidate or {}).get("provisional_days", [])}
+            day_checks = []
+            for day in schedule_dates:
+                key = str(day)
+                if not candidate:
+                    status, reason = "excluded", excluded_by_cycle.get(cycle_id, "Excluded by Stage 2/3 policy")
+                elif key in eligible_days:
+                    status = "eligible_provisional" if key in provisional_days else "eligible_dated_tcn"
+                    reason = (("No TCN covers this date; TCN must be generated by the preceding-workday 14:00 cutoff"
+                               if key in provisional_days else "A generated TCN window covers this date"))
+                elif dated_days:
+                    status, reason = "blocked_by_dated_tcn", "A dated TCN constrains this scope to its evidenced date(s)"
+                elif business_now.replace(tzinfo=None) >= planner.tcn_cutoff(day):
+                    status, reason = "cutoff_expired", "No TCN evidence existed by the preceding-workday 14:00 cutoff"
+                else:
+                    status, reason = "not_eligible", excluded_by_cycle.get(cycle_id, "Excluded by Stage 2/3 policy")
+                day_checks.append({"date": key, "status": status, "reason": reason,
+                                   "tcn_cutoff": str(planner.tcn_cutoff(day)) if status in ("eligible_provisional", "cutoff_expired") else ""})
+            visits_for_cycle = sorted(str(day) for day in trace_visit_days.get(cycle_id, ()))
+            tcn_dates = sorted(str(day) for day in (window.get("dates") or []))
+            trace["candidate_decisions"].append({"cycle": cycle_id,
+                "site": (cycle.get("site_id") or cycle.get("site") or "").upper(),
+                "project": cycle.get("project") or "", "po": cycle.get("po") or "", "stage": cycle.get("stage") or "",
+                "included": bool(candidate), "tier": candidate.get("tier") if candidate else "",
+                "priority_reason": candidate.get("reason") if candidate else "",
+                "priority_class": planner.CLASS_LABEL[planner.priority_class(candidate)] if candidate else "",
+                "gross_value": candidate.get("value") if candidate else None,
+                "value_source": candidate.get("value_source", "") if candidate else "",
+                "must": bool(candidate.get("must")) if candidate else False,
+                "exclusion_reason": excluded_by_cycle.get(cycle_id, ""),
+                "pm_decision": candidate.get("decision", "") if candidate else "",
+                "pm_decision_history": [{"id": entry.get("name"), "action": entry.get("action"),
+                                         "reason": entry.get("reason"), "until": str(entry.get("until") or ""),
+                                         "created": str(entry.get("created") or "")}
+                                        for entry in (decisions or {}).get(cycle_id, [])],
+                "mir_evidence_present": bool(cycle.get("mir_at")), "tags_complete": bool(cycle.get("tags_at")),
+                "visit_dates": visits_for_cycle, "visit_count_used": len(visit_days.get(cycle_id, ())),
+                "visit_detail_access": visit_detail_access, "tcn_dates": tcn_dates,
+                "planning_day_checks": day_checks})
+        trace["evidence_summary"] = {"cycles_in_scope": len(cycles), "included_candidates": len(candidates),
+                                     "excluded_cycles": len(excluded), "dated_tcn_cycles": sum(bool(windows.get(c["name"])) for c in cycles),
+                                     "cycles_with_mir": sum(bool(c.get("mir_at")) for c in cycles),
+                                     "cycles_with_tags_complete": sum(bool(c.get("tags_at")) for c in cycles),
+                                     "cycles_with_visit_evidence": sum(bool(visit_days.get(c["name"])) for c in cycles)}
+        trace["evidence_records"] = {
+            "tcn_events": [{"id": event.get("name"), "cycle": event.get("cycle"), "occurred_at": str(event.get("occurred_at") or ""),
+                            "recorded_at": str(event.get("recorded_at") or "")} for event in events],
+            "cycle_visits": [{"id": visit.get("name"), "cycle": visit.get("cycle"), "start_at": str(visit.get("start_at") or ""),
+                              "status": visit.get("status") or ""} for visit in trace_visits],
+        }
 
     all_teams = _team_setup()
     team_setup = [t for t in all_teams if t["archetype"] == "Project"]     # Incident teams are never planned
@@ -249,6 +336,13 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
     positions += [{"leader": t["leader"], "team": t["team"], "phone": t["phone"], "site": "", "seen_at": "",
                    "on_site": False, "age_days": None, "state": "Incident", "lat": None, "lon": None}
                   for t in all_teams if t["archetype"] == "Incident"]
+    if trace is not None:
+        trace["inputs"]["team_positions"] = [{"leader": p.get("leader"), "team": p.get("team"), "site": p.get("site"),
+                                               "seen_at": p.get("seen_at"), "source": p.get("source"),
+                                               "state": p.get("state"), "age_days": p.get("age_days"),
+                                               "starting_coordinates": [p.get("lat"), p.get("lon")]
+                                               if p.get("lat") is not None and p.get("lon") is not None else None}
+                                              for p in positions]
     starts, names = None, None
     planned = [p for p in positions if p["state"] != "Incident"]
     if planned:
@@ -256,8 +350,16 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
         starts = [(p["lat"], p["lon"]) if p["state"] == "Current" else None for p in planned][:count]
         starts += [None] * (count - len(starts))
         names = {i + 1: p["team"] for i, p in enumerate(planned[:count])}
-    plan = continuity.schedule_continuity(planner.plan_week(candidates, coords, start, overrides, schedule_singletons=True), coords, start, overrides,
-                                          starts, names)
+    clustered = planner.plan_week(candidates, coords, start, overrides, schedule_singletons=True, trace=trace)
+    plan = continuity.schedule_continuity(clustered, coords, start, overrides, starts, names, trace=trace)
+    if trace is not None:
+        trace["inputs"]["coordinates_used"] = {site: [lat, lon] for site, (lat, lon) in coords.items()}
+        trace["diagnostics"] = []
+        actual_team_count = len(starts) if starts is not None else int(overrides.get("teams") or params["teams"])
+        if int(clustered["params"]["teams"]) != actual_team_count:
+            trace["diagnostics"].append({"type": "team_capacity_basis_differs",
+                "message": "Preliminary cluster loading uses its configured team count, while continuity scheduling uses the enabled roster/override count.",
+                "preliminary_team_count": int(clustered["params"]["teams"]), "continuity_team_count": actual_team_count})
     plan["team_positions"] = positions
     plan["summary"].update({
         "tcn_needed": sum(1 for item in candidates if not item.get("dated_tcn")),
@@ -277,7 +379,29 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
     next_cutoff = min((planner.tcn_cutoff(day) for day in schedule_dates
                        if planner.tcn_cutoff(day) > business_now.replace(tzinfo=None)), default=None)
     cutoff_text = next_cutoff.replace(tzinfo=business_now.tzinfo).isoformat() if next_cutoff else ""
-    return _present(plan, coords, cutoff_text)
+    result = _present(plan, coords, cutoff_text)
+    if trace is not None:
+        accounted_cycles = {stop.get("cycle") for cluster in plan["clusters"] for stop in cluster.get("stops", [])}
+        accounted_cycles.update(item.get("cycle") for item in plan["later"])
+        accounted_cycles.update(item.get("cycle") for item in plan["unplaced"])
+        accounted_cycles.discard(None)
+        candidate_cycles = {item.get("cycle") for item in candidates}
+        accounted_candidate_cycles = accounted_cycles & candidate_cycles
+        scope_dated_tcn = sum(bool(item.get("dated_tcn")) for item in candidates)
+        unplaced_dated_tcn = sum(bool(item.get("dated_tcn")) for item in plan["unplaced"])
+        incomplete = bool(plan["unplaced"] or not candidate_cycles <= accounted_candidate_cycles)
+        trace["outcome"].update({"candidate_cycles": len(candidates), "cycles_without_coordinates": len(plan["unplaced"]),
+                                 "dated_tcn_candidates_in_scope": scope_dated_tcn,
+                                 "dated_tcn_candidates_without_coordinates": unplaced_dated_tcn,
+                                 "tcn_dates_total_basis": "scheduler trips only; see dated_tcn_candidates_in_scope for all candidate cycles",
+                                 "accounted_candidate_cycles": len(accounted_candidate_cycles),
+                                 "all_candidate_cycles_accounted_for": candidate_cycles <= accounted_candidate_cycles,
+                                 "plan_validity": "review_required" if incomplete else trace["outcome"]["plan_validity"],
+                                 "judgement": ("Review required" if trace["outcome"]["judgement"] == "Review required" or
+                                               incomplete
+                                               else trace["outcome"]["judgement"])})
+        result["decision_trace"] = trace
+    return result
 
 
 @frappe.whitelist()

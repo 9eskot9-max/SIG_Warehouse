@@ -15,6 +15,8 @@
 .sig-planner-toolbar-title{grid-area:title;min-width:0}
 .sig-planner-toolbar h2{margin:0 0 3px;color:#173b59;font-size:21px;line-height:1.15;font-weight:700;white-space:nowrap}
 .sig-planner-toolbar p{margin:0;color:#617687;font-size:12px;white-space:nowrap}
+.sig-planner-trace-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 10px;background:#f2f7fa;border:1px solid #dce6ee;border-radius:8px;color:#5c7181;font-size:12px}
+.sig-planner-trace-actions>div{display:flex;gap:7px;flex-wrap:wrap}
 .sig-planner-controls{grid-area:controls;display:flex;align-items:flex-end;gap:8px;flex-wrap:nowrap;min-width:0}
 .sig-planner-controls>label{display:flex;flex:0 1 auto;flex-direction:column;gap:3px;color:#5c7181;font-size:11px;font-weight:600;min-width:0}
 .sig-planner-controls input,.sig-planner-controls .link-field input{height:32px;min-width:120px;padding:5px 8px;background:#fff;border:1px solid #cddae4;border-radius:7px;color:#183247}
