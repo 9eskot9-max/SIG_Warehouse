@@ -1,13 +1,15 @@
 frappe.pages['field-planner'].on_page_load = function (wrapper) {
     const page = frappe.ui.make_app_page({parent: wrapper, title: __('Field Planner'), single_column: true});
+    $(wrapper).find('.page-head').hide();
     const root = $('<main class="sig-planner-page"></main>').appendTo(page.main);
     const canSeeSetup = (frappe.user_roles || []).some(r => ['System Manager','Operations Manager','Operations User','Projects Manager','SIG Excel Setup Editor'].includes(r));
-    const nav = $('<nav class="sig-planner-nav" aria-label="Operations"><a href="#" data-route="projects">Projects</a><a href="#" data-route="cycles">Site Cycles</a><a href="#" data-route="visits">Site Visits</a><a class="active" href="#">Field Planner</a>' + (canSeeSetup ? '<a href="#" data-route="setup">Excel Setup</a>' : '') + '</nav>');
+    const nav = $('<header class="sig-planner-topbar"><div class="sig-planner-brand"><span>SIG OPERATIONS</span><h1>Field Planner</h1></div><nav class="sig-planner-nav" aria-label="Operations"><a href="#" data-route="projects">Projects</a><a href="#" data-route="cycles">Site Cycles</a><a href="#" data-route="visits">Site Visits</a><a class="active" href="#" aria-current="page">Field Planner</a>' + (canSeeSetup ? '<a href="#" data-route="setup">Excel Setup</a>' : '') + '</nav><button type="button" class="sig-planner-top-refresh" data-route="refresh">' + __('Refresh') + '</button></header>');
     page.main.prepend(nav);
     nav.find('[data-route="projects"]').on('click', e => { e.preventDefault(); frappe.set_route('List', 'Project'); });
     nav.find('[data-route="cycles"]').on('click', e => { e.preventDefault(); frappe.set_route('site-cycles'); });
     nav.find('[data-route="visits"]').on('click', e => { e.preventDefault(); frappe.set_route('site-visits'); });
     nav.find('[data-route="setup"]').on('click', e => { e.preventDefault(); frappe.set_route('excel-setup'); });
+    nav.find('[data-route="refresh"]').on('click', e => { e.preventDefault(); load(); });
     // Every PM decision list on the page reports here; the choice saves at once.
     root.on('change', '.sig-planner-decide', (e) => decide($(e.currentTarget).attr('data-cycle'), $(e.currentTarget).val()));
     const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -522,14 +524,13 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         }).join('');
         projectControl = null;
         root.html('<div class="sig-planner-shell">' +
-            '<section class="sig-planner-toolbar"><div><span class="sig-planner-eyebrow">SIG OPERATIONS</span><h2>' + __('Plan for tomorrow') +
+            '<section class="sig-planner-toolbar"><div class="sig-planner-toolbar-title"><h2>' + __('Plan for tomorrow') +
             '</h2><p>' + esc(fmtDates(horizon[0] || '')) + ' – ' + esc(fmtDates(horizon[horizon.length - 1] || '')) +
             '</p></div><div class="sig-planner-controls">' +
             '<label>' + __('Plan starts') + '<input type="date" readonly value="' + esc(filters.week_start) + '"></label>' +
             '<label class="sig-planner-project-control">' + __('Project / PO') + '<div class="sig-planner-project-link"></div></label>' +
             '<button type="button" class="btn btn-default" data-action="settings">' + __('Planning settings') + '</button>' +
-            '<button type="button" class="btn btn-primary" data-action="refresh">' + __('Refresh') + '</button></div></section>' +
-            '<div class="sig-planner-metrics" id="sig-planner-metrics"></div>' +
+            '</div><div class="sig-planner-metrics" id="sig-planner-metrics"></div></section>' +
             '<section class="sig-planner-teams" id="sig-planner-teams"></section><section class="sig-planner-context"><div><div class="sig-planner-context-title">' +
             '<i id="sig-planner-team-dot"></i><h3 id="sig-planner-team-name"></h3>' +
             (canUpdatePosition() ? '<button type="button" class="btn btn-default sig-planner-update-main" data-action="position">' + __('Update position') + '</button>' : '') +
