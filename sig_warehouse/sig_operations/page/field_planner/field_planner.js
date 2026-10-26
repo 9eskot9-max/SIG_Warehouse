@@ -193,7 +193,8 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                 map.setView([item.lat, item.lon], targetZoom, {animate: true});
                 view.locateCycle = null;
             }
-        } else if (view.leafletView) map.setView(view.leafletView.center, view.leafletView.zoom);
+        } else if (view.fitTeam && bounds.length) { map.fitBounds(bounds, {padding: [35, 35], maxZoom: 8}); view.fitTeam = false; }
+        else if (view.leafletView) map.setView(view.leafletView.center, view.leafletView.zoom);
         else if (bounds.length) map.fitBounds(bounds, {padding: [20, 20]}); else map.setView([24.5, 45], 6);
         setTimeout(() => map.invalidateSize(), 50);
     }
@@ -704,8 +705,21 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             view.teams.map((t) => '<option value="' + t.team + '">' + esc(t.leader) + '</option>').join(''));
         root.find('#sig-planner-filter-day').html('<option value="">' + __('All proposed days') + '</option>' +
             horizon.map((d) => '<option value="' + d + '">' + esc(fmtDates(d)) + '</option>').join(''));
+        function fitCurrentExtent() {
+            const trips = data.trips.filter((t) => t.status === 'Scheduled' && (view.extent !== 'team' || Number(t.team) === Number(view.selectedTeam)));
+            let points = trips.flatMap((t) => t.stops.filter(hasPoint).map((s) => [s.lon, s.lat]));
+            points = points.concat((data.team_positions || []).filter((p) => p.state !== 'Incident' && p.lat != null && p.lon != null &&
+                (view.extent !== 'team' || Number(p.team_no) === Number(view.selectedTeam))).map((p) => [p.lon, p.lat]));
+            if (view.base === 'street') { view.fitTeam = true; view.leafletView = null; return; }
+            if (!points.length) { view.box = BOX0.slice(); return; }
+            const projected = points.map(([lon, lat]) => project(lon, lat)), xs = projected.map((p) => p[0]), ys = projected.map((p) => p[1]);
+            const ratio = BOX0[3] / BOX0[2], width = Math.max(40, Math.max(Math.max(...xs) - Math.min(...xs), (Math.max(...ys) - Math.min(...ys)) / ratio)) * 1.35;
+            const height = width * ratio, cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+            view.box = clampBox([cx - width / 2, cy - height / 2, width, height]);
+        }
         root.find('#sig-planner-teams').on('click', '[data-team]', (e) => {
             view.selectedTeam = Number($(e.currentTarget).attr('data-team'));
+            if (view.extent === 'team') fitCurrentExtent();
             updateTeamSummary(); drawTeamPlan(); refreshMap();
         });
         root.find('.sig-planner-tabs').on('click', '[data-tab]', (e) => activate($(e.currentTarget).attr('data-tab')));
@@ -725,6 +739,9 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             if (a === 'fit-trip' && view.selected) fitSelectedTrip();
             if (a === 'clear-schedule') { root.find('#sig-planner-filter-team, #sig-planner-filter-day').val(''); root.find('#sig-planner-filter-search').val(''); renderMatrix(); }
         });
+        root.find('.sig-planner-mapbody, .sig-planner-sitebox').on('keydown', (e) => {
+            if (e.key === 'Escape' && view.selected) { e.stopPropagation(); clearSelection(); }
+        });
         root.find('#sig-planner-filter-search').on('input', renderMatrix);
         root.find('#sig-planner-filter-team, #sig-planner-filter-day').on('change', renderMatrix);
         root.find('#sig-planner-review-search').on('input', renderReview);
@@ -737,7 +754,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         root.find('.sig-planner-mapbody').on('click', '[data-unplanned]', () => { view.showUnplanned = !view.showUnplanned; refreshMap(); });
         root.find('.sig-planner-live-map-controls').on('click', '[data-map-base]', (e) => setMapBase($(e.currentTarget).attr('data-map-base')));
         root.find('.sig-planner-live-map-controls').on('click', '[data-map-mode]', (e) => { view.mode = $(e.currentTarget).attr('data-map-mode'); refreshMap(); });
-        root.find('.sig-planner-live-map-controls').on('click', '[data-map-extent]', (e) => { view.extent = $(e.currentTarget).attr('data-map-extent'); refreshMap(); });
+        root.find('.sig-planner-live-map-controls').on('click', '[data-map-extent]', (e) => { view.extent = $(e.currentTarget).attr('data-map-extent'); fitCurrentExtent(); refreshMap(); });
         root.find('.sig-planner-live-map-controls').on('click', '[data-map-unplanned]', () => { view.showUnplanned = !view.showUnplanned; refreshMap(); });
         root.find('.sig-planner-live-map-controls').on('click', '[data-map-towns]', () => { view.towns = !view.towns; refreshMap(); });
         root.find('.sig-planner-live-map-controls').on('click', '[data-map-zones]', () => {
@@ -794,7 +811,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             } else if (e.key === 'Enter') {
                 if (activeSuggestion >= 0 && searchHits[activeSuggestion]) { e.preventDefault(); chooseCycle(searchHits[activeSuggestion].cycle, true); }
                 else if (searchHits.length === 1) { e.preventDefault(); chooseCycle(searchHits[0].cycle, true); }
-            } else if (e.key === 'Escape') closeSuggestions();
+            } else if (e.key === 'Escape') { e.stopPropagation(); closeSuggestions(); }
         });
         suggest.on('mousedown', '[data-cycle]', (e) => e.preventDefault());
         suggest.on('click', '[data-cycle]', (e) => chooseCycle($(e.currentTarget).attr('data-cycle'), true));
