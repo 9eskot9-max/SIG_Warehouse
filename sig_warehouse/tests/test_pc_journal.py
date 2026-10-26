@@ -60,6 +60,7 @@ def app(monkeypatch):
 
     fake.throw = throw
     utils = types.ModuleType("frappe.utils")
+    utils.cint = lambda value: int(value or 0)
     utils.get_datetime = lambda value: dt.datetime.fromisoformat(str(value))
     utils.now_datetime = lambda: dt.datetime(2026, 10, 19, 13, 5)
     monkeypatch.setitem(sys.modules, "frappe", fake)
@@ -147,6 +148,26 @@ def test_native_journal_permission_denial_does_not_confirm_receipt(app):
     assert not fake.journals
     assert not any(t[0] == "save" for t in fake.trace)
     assert not hasattr(fake.flags, "sig_pc_journal_create_receipt")
+
+
+def test_confirmation_runs_funding_hook_with_reviewer_employee_default(app, monkeypatch):
+    _, fake, receipt, context = app
+    funding = importlib.import_module("sig_warehouse.sig_warehouse.pc_funding")
+    monkeypatch.setattr(funding, "frappe", fake)
+    fake.get_roles = lambda: context["roles"]
+    fake.new_doc = lambda doctype, as_dict: {
+        "custom_pc_employee": context["actor"].name, "custom_pc_top_up": 0,
+    }
+    original_insert = Record.insert
+    def insert_with_frappe_defaults_and_hook(journal, **kwargs):
+        journal.update(fake.new_doc(journal.doctype, as_dict=True))
+        journal.get_doc_before_save = lambda: None
+        funding.validate_journal_entry(journal)
+        return original_insert(journal, **kwargs)
+    monkeypatch.setattr(Record, "insert", insert_with_frappe_defaults_and_hook)
+    result = confirm(app)
+    assert fake.journals[result["journal_entry"]].docstatus == 0
+    assert receipt.closure_status == "Closed"
 
 
 def test_exact_retry_returns_same_journal(app):

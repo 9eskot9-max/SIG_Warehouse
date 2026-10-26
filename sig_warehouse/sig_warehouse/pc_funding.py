@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from hashlib import sha256
 
 import frappe
+from frappe.utils import cint
 
 
 FINANCE_ROLES = {"System Manager", "Accounts User", "Accounts Manager"}
@@ -12,11 +13,6 @@ FUNDING_FIELDS = (
     "custom_pc_top_up", "custom_pc_transfer_category", "custom_pc_employee",
     "custom_pc_funding_date", "custom_pc_funding_source", "custom_pc_bank_txn_id",
     "custom_pc_bank_journal_number", "custom_pc_statement_key", "custom_pc_funding_source_key",
-)
-FINANCE_EDIT_FIELDS = (
-    "custom_pc_top_up", "custom_pc_employee", "custom_pc_funding_date",
-    "custom_pc_funding_source", "custom_pc_bank_txn_id", "custom_pc_bank_journal_number",
-    "custom_pc_funding_source_key",
 )
 
 
@@ -51,22 +47,21 @@ def _active_employee(name, company):
 
 def _fields_changed(doc, fields):
     before = doc.get_doc_before_save()
-    if not before:
-        return any(doc.get(field) for field in fields)
-    return any(doc.get(field) != before.get(field) for field in fields)
+    if before is None:
+        # Frappe fills Link fields from the current user's User Permissions on
+        # insert. A reviewer's own Employee default is not a funding designation.
+        before = frappe.new_doc(doc.doctype, as_dict=True)
+    def value(record, field):
+        raw = record.get(field)
+        return cint(raw) if field == "custom_pc_top_up" else str(raw or "")
+    return any(value(doc, field) != value(before, field) for field in fields)
 
 
 def validate_journal_entry(doc, method=None):
     """Validate the manual top-up checkbox without changing accounting lines."""
-    roles = set(frappe.get_roles())
-    if _fields_changed(doc, FINANCE_EDIT_FIELDS):
+    if _fields_changed(doc, FUNDING_FIELDS):
         _require_finance()
-    before = doc.get_doc_before_save()
-    if before and any(doc.get(field) != before.get(field)
-                      for field in ("custom_pc_transfer_category", "custom_pc_statement_key")):
-        if not roles.intersection(FINANCE_ROLES):
-            _require_finance()
-    if not doc.get("custom_pc_top_up"):
+    if not cint(doc.get("custom_pc_top_up")):
         return
     _require_finance()
     if doc.docstatus == 2:

@@ -64,19 +64,24 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
                 });
             }
         } catch (e) { /* fall through */ }
+        if (!out.length && body && body._error_message) out.push(plainText(body._error_message));
         if (!out.length && body && body.exception) out.push(String(body.exception).replace(/^[\w.]+:\s*/, ''));
         return out.filter(Boolean);
     }
     function readError(xhr) {
-        let body = xhr && (xhr.responseJSON || xhr);
-        if (!body) { try { body = JSON.parse(xhr.responseText); } catch (e) { body = {}; } }
+        let body;
+        try { body = JSON.parse(xhr && xhr.responseText); } catch (e) { body = xhr && (xhr.responseJSON || xhr); }
         const msgs = serverMessages(body);
         return msgs.length ? msgs.join('\n') : `${__('The server rejected the request.')} HTTP ${Number(xhr && xhr.status) || 'unknown'}`;
     }
     // silent: we show one readable message ourselves instead of Frappe's popup.
     function call(method, args) {
         return new Promise((resolve, reject) => {
-            frappe.call({method, args, type: 'POST', silent: true, callback: (r) => resolve(r.message), error: (xhr) => reject(new Error(readError(xhr)))});
+            // v15's 403 handler invokes the error callback without the xhr.
+            // The returned jqXHR preserves the response for our inline message.
+            frappe.call({method, args, type: 'POST', silent: true,
+                callback: (r) => resolve(r.message), error: () => {}})
+                .fail((xhr) => reject(new Error(readError(xhr))));
         });
     }
 
