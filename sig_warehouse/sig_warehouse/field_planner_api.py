@@ -38,6 +38,12 @@ def _riyadh_now():
     return frappe.utils.get_datetime_in_timezone("Asia/Riyadh")
 
 
+def _trace_export_enabled():
+    """Site-level kill switch for diagnostic capture/export; absent means disabled."""
+    value = getattr(frappe, "conf", {}).get("sig_field_planner_trace_export_enabled", False)
+    return str(value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def _decisions(names):
     """The PM decision log for these cycles, newest first, read with the caller's permissions."""
     if not names:
@@ -186,8 +192,9 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
     overrides = {key: value for key, value in overrides.items() if value}
     params = dict(planner.DEFAULTS, **overrides)
     schedule_dates = planner.planning_days(start, params["work_days"])
+    trace_enabled = _trace_export_enabled()
     trace = None
-    if str(capture_trace).lower() in ("1", "true", "yes", "on"):
+    if trace_enabled and str(capture_trace).lower() in ("1", "true", "yes", "on"):
         trace = {"schema": "sig-field-planner-decision-trace/v1", "run_id": str(uuid4()),
                  "generated_at_riyadh": business_now.isoformat(), "week_start": str(start),
                  "limitations": ["This is a plan-time judgement, not proof that visits were executed.",
@@ -380,6 +387,7 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
                        if planner.tcn_cutoff(day) > business_now.replace(tzinfo=None)), default=None)
     cutoff_text = next_cutoff.replace(tzinfo=business_now.tzinfo).isoformat() if next_cutoff else ""
     result = _present(plan, coords, cutoff_text)
+    result["trace_export_enabled"] = trace_enabled
     if trace is not None:
         accounted_cycles = {stop.get("cycle") for cluster in plan["clusters"] for stop in cluster.get("stops", [])}
         accounted_cycles.update(item.get("cycle") for item in plan["later"])

@@ -613,24 +613,27 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             d.show();
         };
         const openSettings = () => {
+            const fields = [
+                {fieldtype: 'Date', fieldname: 'week_start', label: __('Plan starts'), default: filters.week_start, reqd: 1},
+                {fieldtype: 'Int', fieldname: 'teams', label: __('Project teams (blank uses Setup)'), default: filters.teams || data.params.teams},
+                {fieldtype: 'Float', fieldname: 'scope_hours', label: __('Hours per site'), default: filters.scope_hours || data.params.scope_hours},
+                {fieldtype: 'Float', fieldname: 'diameter_km', label: __('Trip diameter · km'), default: filters.diameter_km || data.params.diameter_km},
+                {fieldtype: 'HTML', fieldname: 'day_length', options: '<p class="text-muted">' +
+                    __('Workday length: {0} hours, controlled by planner setup.', [esc(data.params.day_hours)]) + '</p>'},
+            ];
+            if (data.trace_export_enabled) fields.splice(4, 0, {
+                fieldtype: 'Check', fieldname: 'capture_trace', label: __('Capture decision trace for this run'), default: captureTrace ? 1 : 0,
+            });
             const d = new frappe.ui.Dialog({
                 title: __('Planning settings'),
-                fields: [
-                    {fieldtype: 'Date', fieldname: 'week_start', label: __('Plan starts'), default: filters.week_start, reqd: 1},
-                    {fieldtype: 'Int', fieldname: 'teams', label: __('Project teams (blank uses Setup)'), default: filters.teams || data.params.teams},
-                    {fieldtype: 'Float', fieldname: 'scope_hours', label: __('Hours per site'), default: filters.scope_hours || data.params.scope_hours},
-                    {fieldtype: 'Float', fieldname: 'diameter_km', label: __('Trip diameter · km'), default: filters.diameter_km || data.params.diameter_km},
-                    {fieldtype: 'Check', fieldname: 'capture_trace', label: __('Capture decision trace'), default: captureTrace ? 1 : 0},
-                    {fieldtype: 'HTML', fieldname: 'day_length', options: '<p class="text-muted">' +
-                        __('Workday length: {0} hours, controlled by planner setup.', [esc(data.params.day_hours)]) + '</p>'},
-                ],
+                fields,
                 primary_action_label: __('Recalculate plan'),
                 primary_action(v) {
                     filters.week_start = v.week_start;
                     filters.teams = v.teams || '';
                     filters.scope_hours = v.scope_hours || '';
                     filters.diameter_km = v.diameter_km || '';
-                    captureTrace = Boolean(v.capture_trace);
+                    captureTrace = Boolean(data.trace_export_enabled && v.capture_trace);
                     currentTrace = null;
                     d.hide(); load();
                 },
