@@ -10,6 +10,7 @@ from datetime import date, datetime, timedelta
 
 DEFAULTS = {
     "circuity": 1.3,          # road km per straight-line km; provisional until calibrated
+    "travel_mode": "town_mesh",  # offline reference-town road-time estimate for between-trip travel
     "diameter_km": 150.0,     # largest distance between any two sites of one trip (road estimate)
     "fill_km": 60.0,          # a site may join a committed trip when this close to a member
     "cluster_size": 6,        # soft cap on sites per proposed trip

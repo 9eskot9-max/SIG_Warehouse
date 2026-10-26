@@ -8,6 +8,7 @@ import random
 import time
 
 from sig_warehouse.sig_warehouse import field_planner as fp
+from sig_warehouse.sig_warehouse import town_mesh
 
 SEARCH = {"iters": 4000, "seconds": 3.0, "seed": 20261025}   # seconds is only a safety cap
 
@@ -71,7 +72,7 @@ def _trip_model(cluster, index, coords, week, days_n, params):
             "must": any(s.get("must") for s in stops)}
 
 
-def _walk(route, days_n, params, start=None, diagnostics=None):
+def _walk(route, days_n, params, start=None, diagnostics=None, travel_trace=None):
     """Time a route from the team's starting point (None = it starts at its first stop, no drive).
 
     Returns None if infeasible, else travel/work/relocation, trip spans and exact ERP stop-day indexes.
@@ -83,9 +84,18 @@ def _walk(route, days_n, params, start=None, diagnostics=None):
     stop_days_by_trip = []
     for trip in route:
         tr_h = 0.0
+        travel_leg = None
         if pos is not None:                              # drive from the last stop of the previous trip
-            d = fp.haversine_km(pos, trip["first"]) * params["circuity"]
-            tr_h = d / params["speed_kmh"]
+            mode = str(params.get("travel_mode") or "legacy").lower()
+            if mode == "town_mesh":
+                travel_leg = town_mesh.estimate(pos, trip["first"], params)
+                d = float(travel_leg["km"])
+                tr_h = float(travel_leg["hours"])
+            else:
+                d = fp.haversine_km(pos, trip["first"]) * params["circuity"]
+                tr_h = d / params["speed_kmh"]
+                travel_leg = {"km": d, "hours": tr_h, "method": "legacy_direct",
+                              "origin_towns": [], "destination_towns": [], "fallback_reason": "travel_mode_legacy"}
             reloc += d
         t = h + tr_h
         day += int(t // params["day_hours"])
@@ -108,6 +118,9 @@ def _walk(route, days_n, params, start=None, diagnostics=None):
             stop_days_by_trip.append(stop_days)
             travel += tr_h
             work += trip["work"]
+            if travel_trace is not None and travel_leg is not None:
+                travel_trace.append({"trip": trip["id"], "from": list(pos),
+                                     "to": list(trip["first"]), **travel_leg})
             pos = trip["last"]
             continue
         elif trip["win"]:
@@ -131,6 +144,9 @@ def _walk(route, days_n, params, start=None, diagnostics=None):
         end = day if h > 0 else max(start, day - 1)
         travel += tr_h
         work += trip["work"]
+        if travel_trace is not None and travel_leg is not None:
+            travel_trace.append({"trip": trip["id"], "from": list(pos),
+                                 "to": list(trip["first"]), **travel_leg})
         pos = trip["last"]
         times.append((start, min(end, days_n - 1)))
         stop_days_by_trip.append([])
@@ -253,11 +269,14 @@ def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, n
                                      "week_start": str(week), "work_dates": [str(day) for day in work_dates],
                                      "teams": teams, "team_names": {str(k): v for k, v in (names or {}).items()},
                                      "starting_positions": [list(pos) if pos else None for pos in starts],
+                                     "travel_mode": str(params.get("travel_mode") or "legacy"),
+                                     "travel_matrix_version": town_mesh.MATRIX_VERSION if params.get("travel_mode") == "town_mesh" and town_mesh.MATRIX_AVAILABLE else "",
                                      "search_components": ["Must trips", "TCN dates met", "priority-class × sites", "gross value", "lower travel"],
                                      "priority_order": ["Must", "TCN dates met", "priority-class × site count",
                                                         "gross value", "lower travel"],
                                      "search_logging": "All initial team/order insertion alternatives are retained. Search records attempted-move count and accepted objective improvements; rejected randomized search trials are not retained."},
-                      "initial_placement": [], "improvement": {"attempted_moves": 0, "accepted_changes": []}})
+                      "initial_placement": [], "improvement": {"attempted_moves": 0, "accepted_changes": []},
+                      "travel_estimates": []})
 
     routes = [[] for _ in range(teams)]
     lapsed = {}
@@ -344,7 +363,11 @@ def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, n
 
     scheduled, team_rows = [], []
     for t, route in enumerate(routes, 1):
-        res = _walk(route, days_n, params, starts[t - 1]) if route else (0.0, 0.0, 0.0, [], [])
+        final_legs = [] if trace is not None else None
+        res = _walk(route, days_n, params, starts[t - 1], travel_trace=final_legs) if route else (0.0, 0.0, 0.0, [], [])
+        if trace is not None:
+            trace.setdefault("travel_estimates", []).extend(
+                dict(leg, team_index=t) for leg in (final_legs or []))
         if route:
             tr = {"team": t, "leader": (names or {}).get(t, ""), "trips": len(route), "travel_h": round(res[0], 1), "work_h": round(res[1], 1),
                   "reloc_km": round(res[2]), "days": days_n}
@@ -396,6 +419,18 @@ def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, n
         "search_evals": evals, "search_seconds": round(time.monotonic() - started - trace_overhead, 2),
     })
     if trace is not None:
+        methods = {}
+        fallbacks = {}
+        for leg in trace.get("travel_estimates", []):
+            methods[leg.get("method", "unknown")] = methods.get(leg.get("method", "unknown"), 0) + 1
+            if leg.get("fallback_reason"):
+                reason = leg["fallback_reason"]
+                fallbacks[reason] = fallbacks.get(reason, 0) + 1
+        trace["travel_estimate_summary"] = {"mode": str(params.get("travel_mode") or "legacy"),
+                                            "matrix_version": town_mesh.MATRIX_VERSION if params.get("travel_mode") == "town_mesh" and town_mesh.MATRIX_AVAILABLE else "",
+                                            "final_leg_count": len(trace.get("travel_estimates", [])),
+                                            "method_counts": methods, "fallback_counts": fallbacks,
+                                            "within_trip_method": "unchanged straight-line circuity estimate"}
         trace["improvement"].update({"attempted_moves": evals, "accepted_count": len(trace["improvement"]["accepted_changes"]),
                                      "final_objective": list(current) if current is not None else None,
                                      "search_seconds": summary["search_seconds"],

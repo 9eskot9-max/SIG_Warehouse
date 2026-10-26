@@ -189,6 +189,8 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
     start = frappe.utils.getdate(week_start) if week_start else frappe.utils.add_days(today, 1)
     overrides = {"teams": int(_number(teams, 0)) or None, "scope_hours": _number(scope_hours, 0) or None,
                  "diameter_km": _number(diameter_km, 0) or None}
+    configured_travel_mode = str(getattr(frappe, "conf", {}).get("sig_field_planner_travel_mode", "town_mesh")).lower()
+    overrides["travel_mode"] = configured_travel_mode if configured_travel_mode in ("town_mesh", "legacy") else "town_mesh"
     overrides = {key: value for key, value in overrides.items() if value}
     params = dict(planner.DEFAULTS, **overrides)
     schedule_dates = planner.planning_days(start, params["work_days"])
@@ -204,6 +206,7 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
                             "parameter_sources": {"teams": "page override" if overrides.get("teams") else "planner default until roster is loaded",
                                                   "scope_hours": "page override" if overrides.get("scope_hours") else "planner default",
                                                   "diameter_km": "page override" if overrides.get("diameter_km") else "planner default",
+                                                  "travel_mode": "site config" if configured_travel_mode in ("town_mesh", "legacy") else "planner default",
                                                   "other parameters": "SIG Warehouse field_planner.DEFAULTS"},
                             "schedule_dates": [str(day) for day in schedule_dates],
                             "selected_project": project or "All projects", "erp_policy": "Stage 2 scopes plus Stage 3 scopes with Tags outstanding; dated TCNs constrain dates; other dates remain provisional through the preceding-workday 14:00 cutoff.",

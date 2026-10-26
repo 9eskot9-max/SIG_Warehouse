@@ -1,0 +1,9 @@
+# Planner town mesh data
+
+`field_planner_town_mesh.json` contains 30 Saudi reference-town coordinates and 870 directed road-time/distance pairs from OSRM and OpenStreetMap, generated 27 October 2026. The matrix is a static, non-traffic estimate. It is used only for between-trip travel in the Field Planner; local legs use the existing circuity/speed model. Do not describe it as live routing or guidance.
+
+Attribution: © OpenStreetMap contributors, https://www.openstreetmap.org/copyright. OpenStreetMap data is available under the Open Database License (ODbL). Routing service: OSRM, https://project-osrm.org/. The output is distributed with ODbL attribution in its JSON metadata. Recreate/update the matrix outside ERP request handling and review current provider usage terms before doing so. The public OSRM demo service is not a production service commitment.
+
+The app computes a deterministic nearest two town candidates for each endpoint and chooses the fastest covered pair, adding local endpoint legs using the existing circuity/speed assumptions. A valid mesh route is used even when slower than the legacy straight-line estimate, because retaining the shorter estimate can understate travel on indirect roads. It falls back to the legacy estimate when endpoints are within 75 km, map to the same nearest town, have no usable matrix pair, or the bundled matrix is unavailable. The decision trace records the selected method and a reason for direct-estimate fallbacks. The site config key `sig_field_planner_travel_mode` accepts `town_mesh` or `legacy`; default is `town_mesh`.
+
+Re-run the frozen-plan comparison when updating the matrix and change `matrix_version`. Keep coordinate access and team routing data within existing page authorization; the matrix itself contains public town points, not project/site coordinates.
