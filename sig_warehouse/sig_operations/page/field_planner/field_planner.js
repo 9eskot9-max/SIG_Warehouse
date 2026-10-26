@@ -18,6 +18,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
     const filters = {};
     let positionSiteField = null;
     let projectControl = null;
+    let cutoffRefreshTimer = null;
     filters.week_start = frappe.datetime.add_days(frappe.datetime.get_today(), 1);
 
     // Saudi Arabia outline (lon, lat): Natural Earth 1:110m countries (public domain, via world-atlas); simplified, not a survey boundary.
@@ -25,7 +26,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
     const TRIP_COLORS = ['#1e7fff', '#e8590c', '#2b9348', '#9c36b5', '#d6336c', '#0b7285', '#a67c00', '#495057'];
     const TEAM_COLORS = ['#1e7fff', '#e8590c', '#2b9348', '#9c36b5', '#d6336c'];
     const DARK = '#2f3640';
-    const TIER_COLORS = {T0: '#1e7fff', T1: '#a4211f', T2: '#c27c00', T3: '#1a7a3d', T4: '#868e96'};
+    const TIER_COLORS = {T0: '#1e7fff', T1: '#a4211f', T2: '#c27c00', T3: '#1a7a3d', T4: '#868e96', T5: '#426b8a'};
     const ZONE_COLORS = {Riyadh: '#fbe3c4', Qassim: '#dcefc9', Hail: '#e4dcf2', Madinah: '#f9d7d7', Makkah: '#d3e7f7',
         Asir: '#fbf0b8', Jizan: '#cdeeea', Najran: '#f3d9e6', East: '#d9e1f2', North: '#e6e8d2'};
     const BOX0 = [20, 35, 830, 760];
@@ -143,6 +144,26 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         applyZoom(svg);
     }
 
+    function groupTripVisits(trip) {
+        const visits = new Map();
+        (trip.stops || []).forEach((stop) => {
+            const key = String(stop.site || '').toUpperCase() + '|' + String(stop.day || trip.first_day || '');
+            if (!visits.has(key)) visits.set(key, Object.assign({}, stop, {scopes: []}));
+            visits.get(key).scopes.push(stop);
+        });
+        return [...visits.values()];
+    }
+
+    function groupScheduledVisits(rows) {
+        const visits = new Map();
+        (rows || []).forEach((row) => {
+            const key = [row.site, row.day, row.team].map((value) => String(value || '').toUpperCase()).join('|');
+            if (!visits.has(key)) visits.set(key, {site: row.site, day: row.day, team: row.team, scopes: []});
+            visits.get(key).scopes.push(row);
+        });
+        return [...visits.values()];
+    }
+
     function drawStreetMap(data, mount) {
         const box = mount.find('.sig-planner-leaflet')[0];
         const map = L.map(box, {minZoom: 5, maxZoom: 11, scrollWheelZoom: false});
@@ -163,13 +184,17 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             if ((trip.status !== 'Scheduled' && !view.showUnplanned && !hasSelected) || (view.extent === 'team' && trip.team !== view.selectedTeam)) return;
             const color = trip.status === 'Scheduled' ? TEAM_COLORS[((trip.team || 1) - 1) % TEAM_COLORS.length] : DARK, pts = trip.stops.map((s) => [s.lat, s.lon]);
             if (pts.length > 1) L.polyline(pts, {color, weight: 3, opacity: trip.loaded ? 0.9 : 0.4, dashArray: trip.loaded ? null : '6 6'}).addTo(map);
-            trip.stops.forEach((s) => {
+            groupTripVisits(trip).forEach((visit) => {
+                const scopes = visit.scopes;
+                const selectedScope = scopes.find((s) => String(s.cycle) === String(view.selected));
+                const s = selectedScope || scopes[0];
                 const fill = view.mode === 'tier' ? TIER_COLORS[s.tier] : color;
-                const isSelected = String(s.cycle) === String(view.selected);
+                const isSelected = !!selectedScope;
+                const scopeSummary = scopes.map((scope) => `${esc(scope.cycle)}: ${esc(data.tiers[scope.tier])}`).join('<br>');
                 L.marker([s.lat, s.lon], {zIndexOffset: isSelected ? 1000 : 0, icon: L.divIcon({className: 'sig-planner-pin-wrap',
                     iconSize: [isSelected ? 34 : 22, isSelected ? 34 : 22], iconAnchor: [isSelected ? 17 : 11, isSelected ? 17 : 11],
-                    html: `<div class="sig-planner-pin${isSelected ? ' is-selected' : ''}" style="background:${fill};opacity:${trip.loaded ? 1 : 0.55}">${s.order}</div>`})})
-                    .bindTooltip(`${s.site} · ${data.tiers[s.tier]} · ${trip.id} #${s.order}`).on('click', (e) => {
+                    html: `<div class="sig-planner-pin${isSelected ? ' is-selected' : ''}" style="background:${fill};opacity:${trip.loaded ? 1 : 0.55};${scopes.some((scope) => scope.needs_tcn) ? 'outline:3px solid #d99000;outline-offset:2px' : ''}">${visit.order}${scopes.length > 1 ? `·${scopes.length}` : ''}</div>`})})
+                    .bindTooltip(`${esc(s.site)} · ${scopes.length} ${__('work scopes')}<br>${scopeSummary}`).on('click', (e) => {
                         L.DomEvent.stopPropagation(e); $(root).trigger('sig-planner-select', [s.cycle, false]);
                     }).addTo(map);
                 bounds.push([s.lat, s.lon]);
@@ -222,20 +247,26 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             if (pts.length > 1 && scheduled) {
                 line = `<polyline points="${pts.map((q) => q.join(',')).join(' ')}" fill="none" stroke="${teamColor}" stroke-width="2" stroke-opacity="0.85" data-w="2"/>`;
             }
-            trip.stops.forEach((stop, i) => {
+            groupTripVisits(trip).forEach((visit) => {
+                const scopes = visit.scopes;
+                const selectedScope = scopes.find((s) => String(s.cycle) === String(view.selected));
+                const stop = selectedScope || scopes[0];
+                const i = trip.stops.indexOf(stop);
                 const [x, y] = pts[i];
                 const fill = !scheduled ? (trip.status === 'Waiting' ? '#ffffff' : DARK)
                     : (view.mode === 'tier' ? TIER_COLORS[stop.tier] : teamColor);
-                const ring = !scheduled ? (stop.must ? '#a4211f' : DARK) : '#ffffff';
-                const ringWidth = !scheduled ? (stop.must ? 2.5 : (trip.status === 'Waiting' ? 2 : 1)) : 1.5;
-                const tip = `<title>${esc(stop.site)} · ${esc(data.tiers[stop.tier])} · ${esc(trip.id)} #${stop.order}\n${esc(stop.reason)}</title>`;
-                const size = scheduled ? 5 : 3.5;
+                const needsTcn = scopes.some((s) => s.needs_tcn);
+                const ring = needsTcn ? '#d99000' : (!scheduled ? (stop.must ? '#a4211f' : DARK) : '#ffffff');
+                const ringWidth = needsTcn ? 3 : (!scheduled ? (stop.must ? 2.5 : (trip.status === 'Waiting' ? 2 : 1)) : 1.5);
+                const scopeInfo = scopes.map((s) => `${s.cycle}: ${data.tiers[s.tier]}${s.needs_tcn ? ` (TCN by 2pm ${s.tcn_due_at.slice(0, 10)})` : ''}`).join('\n');
+                const tip = `<title>${esc(stop.site)} · ${scopes.length} ${__('work scopes')} · ${esc(trip.id)} #${visit.order}\n${esc(scopeInfo)}</title>`;
+                const size = scheduled ? (scopes.length > 1 ? 7 : 5) : 3.5;
                 const op = scheduled ? 1 : 0.5;
                 const shape = stop.kind === 'Committed'
                     ? `<rect x="-${size}" y="-${size}" width="${size * 2}" height="${size * 2}" fill="${fill}" fill-opacity="${op}" stroke="${ring}" stroke-width="${ringWidth}">${tip}</rect>`
                     : `<circle r="${size}" fill="${fill}" fill-opacity="${op}" stroke="${ring}" stroke-width="${ringWidth}">${tip}</circle>`;
-                const label = scheduled ? `<text y="2.5" text-anchor="middle" font-size="7" fill="#fff" pointer-events="none">${stop.order}</text>` : '';
-                dots += `<g class="sig-planner-mk${String(stop.cycle) === String(view.selected) ? ' is-selected' : ''}" data-mk data-site="${esc(stop.site)}" data-cycle="${esc(stop.cycle)}" data-cx="${x}" data-cy="${y}" tabindex="0" role="button" aria-label="${esc(stop.site)}">${shape}${label}</g>`;
+                const label = scheduled ? `<text y="2.5" text-anchor="middle" font-size="${scopes.length > 1 ? 6 : 7}" fill="#fff" pointer-events="none">${visit.order}${scopes.length > 1 ? `·${scopes.length}` : ''}</text>` : '';
+                dots += `<g class="sig-planner-mk${selectedScope ? ' is-selected' : ''}" data-mk data-site="${esc(stop.site)}" data-cycle="${esc(stop.cycle)}" data-cx="${x}" data-cy="${y}" tabindex="0" role="button" aria-label="${esc(stop.site)}, ${scopes.length} ${__('work scopes')}">${shape}${label}</g>`;
             });
             return {line, dots, labels};
         };
@@ -441,10 +472,13 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         const teamTrips = (n) => data.trips.filter((t) => t.status === 'Scheduled' && Number(t.team) === Number(n));
         const selected = () => view.rows.find((r) => r.cycle === view.selected) || assigned()[0] || view.rows[0];
         const statusFor = (r) => {
+            if (r.needs_tcn) return {label: __('TCN needed'), cls: 'mismatch', line: __('TCN due by 2pm on {0} for {1}',
+                [fmtDates((r.tcn_due_at || '').slice(0, 10)), fmtDates(r.tcn_due_for || '')])};
             if (r.tier === 'T1') return {label: __('TCN overdue'), cls: 'overdue', line: __('No completed visit in the TCN window')};
             if (r.tier === 'T0') return {label: __('TCN linked'), cls: 'tcn', line: __('TCN window') + ' · ' + (r.window || '—')};
             if (r.tier === 'T3') return {label: __('Ready to batch'), cls: 'ready', line: __('MIR ready · no current TCN')};
-            if (r.tier === 'T2') return {label: __('Handover follow-up'), cls: 'mismatch', line: __('Tags / handover readiness')};
+            if (r.tier === 'T2') return {label: __('Handover follow-up'), cls: 'mismatch', line: r.has_tags ? __('Office handover follow-up') : __('Tags remain; field work is still required')};
+            if (r.tier === 'T5') return {label: __('TCN needed'), cls: 'mismatch', line: __('Stage 2 scope; TCN needed before field date')};
             return {label: data.tiers[r.tier] || r.tier || __('Review'), cls: '', line: r.reason || ''};
         };
         const statusBadge = (r) => { const s = statusFor(r); return '<span class="sig-planner-status ' + s.cls + '">' + esc(s.label) + '</span>'; };
@@ -582,7 +616,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             '</h3><p>' + __('Posted visits, WhatsApp reports and PM updates remain separately identified.') + '</p></div></div><div class="sig-planner-table-wrap">' +
             '<div class="sig-planner-position-table"><table class="sig-planner-positions"><thead><tr><th>' + __('Team') + '</th><th>' + __('Last site') + '</th><th>' + __('Last seen · Riyadh') +
             '</th><th>' + __('Source') + '</th><th>' + __('Position status') + '</th><th></th></tr></thead><tbody>' + renderPositionRows() + '</tbody></table></div></div></section>' +
-            '<footer class="sig-planner-footer"><span>' + esc(stats.visited_cycles_dismissed || 0) + ' ' + __('visited cycles excluded · Incident teams are not scheduled') +
+            '<footer class="sig-planner-footer"><span>' + __('A visit does not remove an open Stage 2/3 scope from planning · Incident teams are not scheduled') +
             '</span><span>' + __('Road connections are proposed sequence, not calculated driving routes.') + '</span></footer></div>');
 
         projectControl = frappe.ui.form.make_control({parent: root.find('.sig-planner-project-link')[0],
@@ -594,10 +628,10 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         projectControl.refresh();
         if (filters.project) projectControl.set_value(filters.project);
         root.find('#sig-planner-metrics').html([
-            card(__('Committed this week'), stats.committed_sites || 0, 'blue'),
-            card(__('Overdue TCN'), stats.overdue || 0, 'red'),
-            card(__('Close to handover'), stats.close_to_handover || 0, 'amber'),
-            card(__('Ready to batch'), stats.ready_to_batch || 0, 'green'),
+            card(__('TCN dates in plan'), stats.committed_sites || 0, 'blue'),
+            card(__('Stage 2 candidates'), stats.stage2_candidates || 0, 'green'),
+            card(__('Tags outstanding'), stats.stage3_tags_outstanding || 0, 'amber'),
+            card(__('TCN needed'), stats.tcn_needed || 0, 'amber'),
             card(__('Team-days planned / capacity'), (stats.loaded_team_days || 0) + ' / ' + (stats.capacity_team_days || 0), stats.over_capacity ? 'red' : 'green'),
             card(__('Lapsed or waiting trips'), stats.backlog_trips || 0, 'gray'),
             card(__('No coordinates'), data.has_coordinates ? (stats.no_coordinates || 0) : (stats.candidates || 0),
@@ -613,13 +647,13 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             const chosen = view.teams.find((t) => t.team === Number(view.selectedTeam));
             root.find('#sig-planner-team-name').text(chosen ? chosen.leader : __('No project team'));
             root.find('#sig-planner-team-dot').css('background', TEAM_COLORS[(Number(view.selectedTeam) - 1) % TEAM_COLORS.length]);
-            root.find('#sig-planner-team-context').text(teamRows(view.selectedTeam).length + ' ' + __('planned stops') + ' · ' +
+            root.find('#sig-planner-team-context').text(groupScheduledVisits(teamRows(view.selectedTeam)).length + ' ' + __('site visits') + ' · ' +
                 teamTrips(view.selectedTeam).length + ' ' + __('trips'));
             root.find('#sig-planner-teams [data-team]').attr('aria-pressed', 'false')
                 .filter('[data-team="' + Number(view.selectedTeam) + '"]').attr('aria-pressed', 'true');
         }
         updateTeamSummary();
-        root.find('#sig-planner-schedule-count').text(assigned().length);
+        root.find('#sig-planner-schedule-count').text(groupScheduledVisits(assigned()).length);
         root.find('#sig-planner-review-count').text(backlog().length);
         root.find('#sig-planner-filter-team').html('<option value="">' + __('All teams') + '</option>' +
             view.teams.map((t) => '<option value="' + t.team + '">' + esc(t.leader) + '</option>').join(''));
@@ -632,15 +666,19 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             root.find('#sig-planner-team-estimate').text(__('Whole-trip effort estimates include travel.'));
             root.find('#sig-planner-team-trips').html(trips.length ? trips.map((t) => '<article class="sig-planner-trip" style="--team:' +
                 TEAM_COLORS[(t.team - 1) % TEAM_COLORS.length] + '"><header><b>' + esc(t.kind) + ' · ' + esc(t.id) + '</b><span>' +
-                esc(t.first_day) + ' – ' + esc(t.last_day) + ' · ' + t.stops.length + ' ' + __('sites') + ' · ~' + esc(t.hours) + ' h</span></header>' +
-                t.stops.map((s) => {
-                    const r = view.rows.find((x) => x.cycle === s.cycle), sig = r ? statusFor(r) : {line: s.reason || ''};
-                    return '<div class="sig-planner-stop' + (view.selected === String(s.cycle) ? ' is-selected' : '') + '" data-cycle="' + esc(s.cycle) + '"><div><a class="sig-planner-site-link" href="/app/sig-site-cycle/' +
-                        encodeURIComponent(s.cycle) + '">' + esc(s.site) + '</a><small>' + __('Project') + ' ' + esc(s.project || '—') +
-                        '</small><div class="sig-planner-badges">' + (r ? statusBadge(r) + decisionBadge(r) : '') +
-                        '<span class="sig-planner-muted">' + esc(sig.line) + '</span></div></div><div><b>' + esc(fmtDates(s.day || t.first_day)) +
-                        '</b><small>' + __('Stop') + ' ' + s.order + ' · ' + esc(data.tiers[s.tier] || s.tier) + '</small>' +
-                        (r ? decisionControl(r) : '') + '</div></div>';
+                esc(t.first_day) + ' – ' + esc(t.last_day) + ' · ' + new Set(t.stops.map((s) => s.site)).size + ' ' + __('sites') +
+                ' · ' + t.stops.length + ' ' + __('work scopes') + ' · ~' + esc(t.hours) + ' h</span></header>' +
+                groupTripVisits(t).map((visit) => {
+                    const scopeHtml = visit.scopes.map((s) => {
+                        const r = view.rows.find((x) => x.cycle === s.cycle), sig = r ? statusFor(r) : {line: s.reason || ''};
+                        return '<div class="sig-planner-visit-scope' + (view.selected === String(s.cycle) ? ' is-selected' : '') + '" data-cycle="' + esc(s.cycle) + '"><a class="sig-planner-site-link" href="/app/sig-site-cycle/' +
+                            encodeURIComponent(s.cycle) + '">' + esc(s.cycle) + '</a><small>' + __('Project') + ' ' + esc(s.project || '—') +
+                            '</small><div class="sig-planner-badges">' + (r ? statusBadge(r) + decisionBadge(r) : '') +
+                            '<span class="sig-planner-muted">' + esc(sig.line) + '</span></div>' + (r ? decisionControl(r) : '') + '</div>';
+                    }).join('');
+                    return '<div class="sig-planner-stop"><div><b>' + esc(visit.site) + '</b><small>' + visit.scopes.length + ' ' + __('work scopes at this site') +
+                        '</small>' + scopeHtml + '</div><div><b>' + esc(fmtDates(visit.day || t.first_day)) + '</b><small>' + __('One site visit') +
+                        ' · ' + __('Stop') + ' ' + visit.order + '</small></div></div>';
                 }).join('') + '<details><summary>' + __('Trip details') + '</summary><p>' + __('Spread') + ': ' + esc(t.diameter_km) +
                 ' km · ' + __('Team days') + ': ' + esc(t.team_days) + ' · ' + __('Priority') + ': ' + esc(data.tiers[t.best_tier] || t.best_tier) +
                 '</p></details></article>').join('') : '<p class="sig-planner-empty">' + __('No proposed trips for this team.') + '</p>');
@@ -651,8 +689,8 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                 horizon.map((d) => '<th>' + esc(fmtDates(d)) + '</th>').join('') + '</tr></thead><tbody>' +
                 view.teams.map((t) => '<tr><th><span class="sig-planner-team-label" style="--team:' + TEAM_COLORS[(t.team - 1) % TEAM_COLORS.length] +
                     '"><i></i>' + esc(t.leader) + '</span></th>' + horizon.map((d) => {
-                        const trips = tripsOn(t.team, d), count = teamRows(t.team).filter((r) => String(r.day).slice(0, 10) === d).length;
-                        const label = count ? count + ' ' + __('proposed visits') : trips.length ? __('Trip continuation') : __('No proposed site work');
+                        const trips = tripsOn(t.team, d), count = groupScheduledVisits(teamRows(t.team).filter((r) => String(r.day).slice(0, 10) === d)).length;
+                        const label = count ? count + ' ' + __('site visits') : trips.length ? __('Trip continuation') : __('No proposed site work');
                         return '<td>' + (trips.length ? '<button class="sig-planner-matrix-cell" data-team="' + t.team + '" data-day="' + d +
                             '" style="--team:' + TEAM_COLORS[(t.team - 1) % TEAM_COLORS.length] + '"><b>' + label + '</b><small>' +
                             esc(trips.map((x) => x.id).join(' · ')) + '</small></button>' : '<span class="sig-planner-empty-cell">' + label + '</span>') + '</td>';
@@ -663,15 +701,25 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                 (!q || [r.site, r.project, r.po].some((v) => String(v || '').toLowerCase().includes(q))))
                 .sort((a, b) => String(a.day).localeCompare(String(b.day)) || Number(a.team) - Number(b.team) ||
                     String(a.trip_id).localeCompare(String(b.trip_id)) || Number(a.order) - Number(b.order));
-            root.find('#sig-planner-schedule-range').text(sorted.length + ' ' + __('of') + ' ' + assigned().length + ' ' + __('proposed visits'));
-            root.find('#sig-planner-schedule-rows').html(sorted.length ? sorted.map((r) => {
-                const s = statusFor(r);
-                return '<tr class="' + (String(view.selected) === String(r.cycle) ? 'is-selected' : '') + '" data-cycle="' + esc(r.cycle) + '"><td><b>' + esc(fmtDates(r.day)) + '</b></td>' +
-                    '<td><span class="sig-planner-team-label" style="--team:' + TEAM_COLORS[(r.team - 1) % TEAM_COLORS.length] + '"><i></i>' +
-                    esc(leaderFor(r.team)) + '</span></td><td><a class="sig-planner-site-link" href="/app/sig-site-cycle/' +
-                    encodeURIComponent(r.cycle) + '">' + esc(r.site) + '</a><small>' + esc(r.project || '—') + (r.po ? ' · PO ' + esc(r.po) : '') +
-                    '</small></td><td>' + statusBadge(r) + '<small>' + esc(s.line) + '</small></td><td><b>' + esc(r.trip_id) +
-                    '</b><small>~' + esc(r.trip_hours || '—') + ' h · ' + __('whole trip') + '</small></td><td>' + decisionControl(r) + '</td></tr>';
+            const visits = groupScheduledVisits(sorted), allVisits = groupScheduledVisits(assigned());
+            root.find('#sig-planner-schedule-range').text(visits.length + ' ' + __('of') + ' ' + allVisits.length + ' ' + __('site visits') +
+                ' · ' + sorted.length + ' ' + __('work scopes shown'));
+            root.find('#sig-planner-schedule-rows').html(visits.length ? visits.map((visit) => {
+                const scopes = visit.scopes;
+                const scopeRows = (render) => scopes.map((r) => {
+                    const s = statusFor(r);
+                    return '<div class="sig-planner-visit-scope' + (String(view.selected) === String(r.cycle) ? ' is-selected' : '') + '" data-cycle="' + esc(r.cycle) + '">' +
+                        render(r, s) + '</div>';
+                }).join('');
+                const trips = [...new Map(scopes.map((r) => [r.trip_id, r])).values()].map((r) => '<b>' + esc(r.trip_id) +
+                    '</b><small>~' + esc(r.trip_hours || '—') + ' h · ' + __('whole trip') + '</small>').join('');
+                return '<tr><td><b>' + esc(fmtDates(visit.day)) + '</b></td>' +
+                    '<td><span class="sig-planner-team-label" style="--team:' + TEAM_COLORS[(visit.team - 1) % TEAM_COLORS.length] + '"><i></i>' +
+                    esc(leaderFor(visit.team)) + '</span></td><td><b>' + esc(visit.site) + '</b><small>' + scopes.length + ' ' + __('work scopes · one visit') + '</small>' +
+                    scopeRows((r) => '<a class="sig-planner-site-link" href="/app/sig-site-cycle/' + encodeURIComponent(r.cycle) + '">' + esc(r.cycle) + '</a>' +
+                        '<small>' + esc(r.project || '—') + (r.po ? ' · PO ' + esc(r.po) : '') + '</small>') + '</td><td>' +
+                    scopeRows((r, s) => statusBadge(r) + '<small>' + esc(s.line) + '</small>') + '</td><td>' + trips + '</td><td>' +
+                    scopeRows((r) => decisionControl(r)) + '</td></tr>';
             }).join('') : '<tr><td colspan="6" class="sig-planner-empty">' + __('No visits match the filters.') + '</td></tr>');
         }
         function renderReview() {
@@ -854,7 +902,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             root.find('.sig-planner-sitebox').css('top', bodyTop + 12);
         }
         function syncSelectedRows() {
-            root.find('.sig-planner-stop[data-cycle], .sig-planner-schedule tr[data-cycle], .sig-planner-review tr[data-cycle]')
+            root.find('.sig-planner-stop[data-cycle], .sig-planner-visit-scope[data-cycle], .sig-planner-schedule tr[data-cycle], .sig-planner-review tr[data-cycle]')
                 .each((_, el) => $(el).toggleClass('is-selected', String($(el).attr('data-cycle')) === String(view.selected)));
         }
         function syncMapControls() {
@@ -980,7 +1028,13 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             .then((r) => { view.townList = r.message || []; }).catch(() => { view.townList = []; });
         towns.then(() => frappe.call({
             method: 'sig_warehouse.sig_warehouse.field_planner_api.get_field_plan', args: filters,
-            callback: (r) => { view.lastLoaded = Date.now(); render(r.message); }, error: () => root.html(`<p class="sig-planner-foot">${__('Could not load the field plan.')}</p>`),
+            callback: (r) => {
+                view.lastLoaded = Date.now();
+                if (cutoffRefreshTimer) clearTimeout(cutoffRefreshTimer);
+                const cutoff = r.message && r.message.next_cutoff_at ? Date.parse(r.message.next_cutoff_at) : NaN;
+                if (Number.isFinite(cutoff) && cutoff > Date.now()) cutoffRefreshTimer = setTimeout(load, Math.min(cutoff - Date.now() + 1000, 2147483000));
+                render(r.message);
+            }, error: () => root.html(`<p class="sig-planner-foot">${__('Could not load the field plan.')}</p>`),
         }));
     }
     wrapper.__sigFieldPlannerRefresh = () => {

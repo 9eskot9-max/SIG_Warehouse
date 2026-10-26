@@ -5,6 +5,7 @@ coordinates; the result is a proposal for a coordinator, never a task or a stage
 Tiers come from the cycle's next required action, not from the parsed type of the last visit.
 """
 import math
+from collections import defaultdict
 from datetime import date, datetime, timedelta
 
 DEFAULTS = {
@@ -31,13 +32,14 @@ DEFAULTS = {
     "exclude_projects": ("incident",),
 }
 
-TIER_ORDER = {"T0": 0, "T1": 1, "T2": 2, "T3": 3, "T4": 4}
+TIER_ORDER = {"T0": 0, "T1": 1, "T2": 2, "T3": 3, "T4": 4, "T5": 5}
 TIER_LABEL = {
     "T0": "Committed TCN",
     "T1": "Overdue TCN",
     "T2": "Close to handover",
     "T3": "Ready to batch",
     "T4": "Filler",
+    "T5": "TCN needed",
 }
 
 
@@ -138,8 +140,75 @@ def planning_days(start, count):
     return result
 
 
+def previous_workday(day):
+    """Return the preceding Tawal workday (Sunday–Thursday)."""
+    day = _date(day) - timedelta(days=1)
+    while day.weekday() in (4, 5):
+        day -= timedelta(days=1)
+    return day
+
+
+def tcn_cutoff(day):
+    """TCN deadline for a proposed field day: 14:00 on the preceding Tawal workday."""
+    return datetime.combine(previous_workday(day), datetime.min.time()).replace(hour=14)
+
+
+def erp_candidate(cycle, window, mark="", schedule_dates=None, now=None):
+    """Classify an ERP field-work scope and calculate the days it can still be planned.
+
+    ERP planning intentionally differs from the legacy Excel choice flow: open Stage 2 work is
+    pooled even without MIR/TCN/visits, and Stage 3 stays field-eligible until Tags are complete.
+    TCN windows constrain dated work; otherwise each proposed date remains provisional until its
+    preceding-workday 14:00 cutoff. ``now`` is a Riyadh-local datetime supplied by the API.
+    """
+    dates = [_date(d) for d in (schedule_dates or [])]
+    stage = str(cycle.get("stage") or "")
+    if cycle.get("terminal") in (1, True, "1") or stage.startswith("5"):
+        return None, "Closed", [], []
+    labels = (str(cycle.get("project") or "") + "|" + str(cycle.get("po") or "") + "|" +
+              str(cycle.get("project_text") or "")).lower()
+    if any(key and key in labels for key in DEFAULTS.get("exclude_projects") or ()):
+        return None, "Not planned: Incident (civil work)", [], []
+    if mark in ("Hold", "Remove"):
+        return None, "Held by PM" if mark == "Hold" else "Removed by PM", [], []
+    if stage.startswith("1"):
+        return None, "Initial: scope and mapping", [], []
+    if stage.startswith("4"):
+        return None, "Office work", [], []
+    if stage.startswith("3") and cycle.get("tags_at"):
+        return None, "Tags complete: office handover follow-up", [], []
+    if not (stage.startswith("2") or stage.startswith("3")):
+        return None, "Outside Stage 2/3", [], []
+
+    tcn_days = [day for day in dates if window_covers(window, day)]
+    eligible, provisional = [], []
+    if tcn_days:
+        # A dated TCN commits this scope to its evidenced workday. Nearby
+        # provisional work cannot move it to another date.
+        eligible = tcn_days
+    else:
+        for day in dates:
+            if now is not None and now < tcn_cutoff(day):
+                eligible.append(day)
+                provisional.append(day)
+    if not eligible:
+        return None, "No eligible workday remains before the TCN cutoff", [], []
+
+    has_dated_tcn = bool(tcn_days)
+    if has_dated_tcn:
+        tier = "T0"
+        reason = "TCN covers proposed workday"
+    elif stage.startswith("3"):
+        tier = "T2"
+        reason = "Handover needs Tags; TCN required for field date"
+    else:
+        tier = "T5"
+        reason = "Stage 2 candidate; TCN needed by 2pm before field date"
+    return tier, reason, eligible, provisional
+
+
 def tcn_windows(events, gap_days=1):
-    """Latest TCN window per cycle. Exports of one site on consecutive days are one window.
+    """Retain every TCN date and its date-runs per cycle; expose the latest run for legacy callers.
 
     The anchor is the middle calendar day of the window (the earlier one on an even span).
     From 20 Oct 2026 an event's occurred_at is the planned start; before that it is the
@@ -167,9 +236,21 @@ def tcn_windows(events, gap_days=1):
         runs.append(run)
         last = runs[-1]
         start, end = last[0], last[-1]
+        run_rows = [{"start": part[0], "end": part[-1],
+                     "anchor": part[0] + timedelta(days=(part[-1] - part[0]).days // 2),
+                     "exports": len(part)} for part in runs]
         result[key] = {"start": start, "end": end, "anchor": start + timedelta(days=(end - start).days // 2),
-                       "exports": len(last), "windows": len(runs)}
+                       "exports": len(last), "windows": len(runs), "runs": run_rows, "dates": ordered}
     return result
+
+
+def window_covers(window, day):
+    """Whether a planned TCN event covers a workday; supports all evidence runs."""
+    if not window:
+        return False
+    day = _date(day)
+    return any(_date(run["start"]) <= day <= _date(run["end"])
+               for run in (window.get("runs") or [window]))
 
 
 def classify(cycle, window, visit_days, today, params, mark=""):
@@ -257,7 +338,45 @@ def _sort_key(item):
     return (TIER_ORDER[item["tier"]], str(item.get("age") or ""), item["site"])
 
 
-def _grow(coords, seed, pool, params, member_limit, existing=None, max_km=None):
+def _cluster_dates_feasible(items, coords, params):
+    """Keep a cluster only when its route order can still honor each scope's workday."""
+    if not items or not all("eligible_days" in item for item in items):
+        return True
+    eligible_sets = [{str(day)[:10] for day in item.get("eligible_days") or []} for item in items]
+    common = set.intersection(*eligible_sets) if eligible_sets else set()
+    if not common:
+        return False
+    common_dates = sorted(_date(day) for day in common)
+    start_day = common_dates[0]
+    horizon = (common_dates[-1] - start_day).days + len(items) + 3
+    workdays = planning_days(start_day, horizon)
+    start_indexes = {day: index for index, day in enumerate(workdays)}
+
+    sites = [item["site"] for item in items]
+    order, legs = _tour(coords, sites, params)
+    by_site = defaultdict(list)
+    for item in items:
+        by_site[item["site"]].append(item)
+    for site_items in by_site.values():
+        site_items.sort(key=_sort_key)
+    ordered = [by_site[site].pop(0) for site in order]
+    for start in common_dates:
+        start_index = start_indexes[start]
+        elapsed = 0.0
+        feasible = True
+        for item, leg in zip(ordered, legs):
+            stop_offset = int((elapsed + leg / params["speed_kmh"]) // params["day_hours"])
+            position = start_index + stop_offset
+            if position >= len(workdays) or str(workdays[position]) not in eligible_sets[items.index(item)]:
+                feasible = False
+                break
+            elapsed += leg / params["speed_kmh"] + params["scope_hours"]
+        if feasible:
+            return True
+    return False
+
+
+def _grow(coords, seed, pool, params, member_limit, existing=None, max_km=None, existing_items=None):
     """Greedy diameter-capped growth. `pool` is a list of items; returns chosen items (without seed)."""
     members = list(existing or [seed["site"]])
     chosen = []
@@ -265,6 +384,9 @@ def _grow(coords, seed, pool, params, member_limit, existing=None, max_km=None):
     while candidates:
         best = None
         for item in candidates:
+            current_items = list(existing_items) + chosen if existing_items is not None else [seed] + chosen
+            if not _cluster_dates_feasible(current_items + [item], coords, params):
+                continue
             near = min(_distance(coords, item["site"], member, params) for member in members)
             if max_km is not None and near > max_km:
                 continue
@@ -288,7 +410,7 @@ def _grow(coords, seed, pool, params, member_limit, existing=None, max_km=None):
     return chosen
 
 
-def plan_week(candidates, coords, week_start, overrides=None):
+def plan_week(candidates, coords, week_start, overrides=None, schedule_singletons=False):
     """candidates: dicts with site, cycle, tier, anchor (date or None), age, reason, project.
 
     Returns {"clusters": [...], "unplaced": [...], "summary": {...}, "params": {...}}.
@@ -298,13 +420,10 @@ def plan_week(candidates, coords, week_start, overrides=None):
     week_start = _date(week_start)
     week_end = week_start + timedelta(days=6)
 
-    # One site is one stop: a second cycle (another WO) at the same site rides along on the first one.
-    placeable, unplaced, first_at = [], [], {}
+    # Keep one work item per cycle. Several scopes can share a physical site, but
+    # their readiness and TCN dates must not be discarded by site-level de-duplication.
+    placeable, unplaced = [], []
     for item in sorted(candidates, key=_sort_key):
-        if item["site"] in first_at:
-            first_at[item["site"]].setdefault("also", []).append(item["cycle"])
-            continue
-        first_at[item["site"]] = item
         (placeable if item["site"] in coords else unplaced).append(item)
     for item in unplaced:
         item["kind"] = "No coordinates"
@@ -318,11 +437,16 @@ def plan_week(candidates, coords, week_start, overrides=None):
     def add_cluster(kind, items, anchor=None):
         sites = [i["site"] for i in items]
         order, legs, hours, days = _workload(coords, sites, params)
-        by_site = {i["site"]: i for i in items}
+        by_site = defaultdict(list)
+        for item in items:
+            by_site[item["site"]].append(item)
+        for site_items in by_site.values():
+            site_items.sort(key=_sort_key)
+        ordered_items = [by_site[site].pop(0) for site in order]
         clusters.append({"id": None, "kind": kind, "anchor": anchor, "diameter_km": round(_diameter(coords, sites, params)),
                          "hours": round(hours, 1), "team_days": days,
                          "best_tier": min((i["tier"] for i in items), key=TIER_ORDER.get),
-                         "stops": [dict(by_site[s], leg_km=round(l)) for s, l in zip(order, legs)]})
+                         "stops": [dict(item, leg_km=round(leg)) for item, leg in zip(ordered_items, legs)]})
         return clusters[-1]
 
     # 1. committed TCN sites, one trip set per anchor day
@@ -342,7 +466,8 @@ def plan_week(candidates, coords, week_start, overrides=None):
         members = [s["site"] for s in cluster["stops"]]
         budget = cluster["team_days"] * params["day_hours"]
         fills = []
-        for item in _grow(coords, cluster["stops"][0], pool, params, params["cluster_size"] + 2, existing=members, max_km=params["fill_km"]):
+        for item in _grow(coords, cluster["stops"][0], pool, params, params["cluster_size"] + 2,
+                          existing=members, max_km=params["fill_km"], existing_items=cluster["stops"]):
             if _workload(coords, members + [f["site"] for f in fills] + [item["site"]], params)[2] > budget:
                 continue
             fills.append(item)
@@ -360,7 +485,7 @@ def plan_week(candidates, coords, week_start, overrides=None):
         for item in more:
             pool.remove(item)
         items = [seed] + more
-        if len(items) == 1 and TIER_ORDER[seed["tier"]] >= TIER_ORDER["T3"]:
+        if len(items) == 1 and TIER_ORDER[seed["tier"]] >= TIER_ORDER["T3"] and not schedule_singletons:
             seed["kind"] = "Deferred"
             add_cluster("Deferred", items)
             continue
@@ -467,6 +592,8 @@ def priority_class(item):
     """3 = Must (PM mark), 2 = close to handover, or a TCN/ready site that already has a MIR, 1 = everything else."""
     if item.get("must"):
         return 3
+    if item.get("dated_tcn"):
+        return 2
     if item["tier"] == "T2" or (item["tier"] in ("T0", "T1", "T3") and item.get("has_mir")):
         return 2
     return 1
@@ -501,7 +628,8 @@ def active_decision(entries, cycle, last_visit, today, params):
     return {"action": "Remove", "reason": latest.get("reason") or "", "until": ""}
 
 
-def build_candidates(cycles, windows, visit_days, today, params, project_index=None, mark_field="plan_hold", decisions=None):
+def build_candidates(cycles, windows, visit_days, today, params, project_index=None, mark_field="plan_hold", decisions=None,
+                     erp_policy=False, schedule_dates=None, now=None):
     """Classify open Plan/Handover cycles into candidate rows, shared by the ERP page and the Excel export.
 
     Returns (candidates, excluded). Each candidate carries the value the choice uses: the SAR gross value of the
@@ -525,16 +653,27 @@ def build_candidates(cycles, windows, visit_days, today, params, project_index=N
         # the PM log is authoritative when it has entries; the cycle's Planner Mark is only a mirror
         has_log = c["name"] in (decisions or {})
         mark = "" if has_log else (c.get(mark_field) or "")
-        tier, reason = classify(c, win, visit_days.get(c["name"], ()), today, params, mark)
+        eligible_days, provisional_days = [], []
+        if erp_policy:
+            tier, reason, eligible_days, provisional_days = erp_candidate(c, win, mark, schedule_dates, now)
+            # A dated PM Must raises priority; it never changes the TCN cutoff.
+            if dec and dec["action"] == "Must" and tier:
+                reason = "PM Must · " + reason
+        else:
+            tier, reason = classify(c, win, visit_days.get(c["name"], ()), today, params, mark)
         if not tier:
             excluded.append({"cycle": c, "reason": reason})
             continue
-        anchor = win["anchor"] if win else (_date(c["planned_start"]) if c.get("planned_start") else None)
+        dated_days = [day for day in (schedule_dates or []) if erp_policy and window_covers(win, day)]
+        anchor = (min(dated_days) if erp_policy and dated_days else
+                  win["anchor"] if win else (_date(c["planned_start"]) if c.get("planned_start") else None))
+        window_label = ", ".join(str(day) for day in dated_days) if erp_policy and dated_days else (
+            ("%s to %s" % (win["start"], win["end"])) if win else "")
         value = float(c["gross_value"]) if c.get("gross_value") else None
         rows.append({
             "site": (c.get("site_id") or c.get("site") or "").upper(), "cycle": c["name"], "tier": tier,
             "reason": reason, "project": c.get("project") or "", "stage": c.get("stage") or "", "anchor": anchor,
-            "window": ("%s to %s" % (win["start"], win["end"])) if win else "",
+            "window": window_label,
             "win_start": win["start"] if win else None, "win_end": win["end"] if win else None,
             "age": str(c.get("last_event_at") or "")[:10],
             "value": value if value is not None else median,
@@ -543,6 +682,18 @@ def build_candidates(cycles, windows, visit_days, today, params, project_index=N
             "must": (dec["action"] == "Must") if has_log else (c.get(mark_field) or "") == "Must",
             "decision": dec["action"] if dec else "", "_c": c,
         })
+        if erp_policy:
+            item = rows[-1]
+            item["eligible_days"] = eligible_days
+            item["provisional_days"] = provisional_days
+            item["needs_tcn"] = bool(provisional_days)
+            item["tcn_days"] = dated_days
+            item["dated_tcn"] = bool(dated_days)
+            provisional_day = provisional_days[0] if provisional_days else None
+            item["tcn_due_at"] = str(tcn_cutoff(provisional_day)) if provisional_day else ""
+            item["tcn_due_for"] = str(provisional_day) if provisional_day else ""
+            item["has_tags"] = bool(c.get("tags_at"))
+            item["visit_count"] = max(len(visit_days.get(c["name"], ())), int(c.get("impl_visits") or 0))
     return rows, excluded
 
 

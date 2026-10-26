@@ -1,6 +1,6 @@
 import sys
 import unittest
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 APP_ROOT = Path(__file__).resolve().parents[2]
@@ -52,6 +52,43 @@ class TcnWindowTests(unittest.TestCase):
     def test_planned_start_is_used_when_it_is_after_the_export_time(self):
         windows = fp.tcn_windows([event("C", "2026-10-22", occurred="2026-10-26")])
         self.assertEqual(date(2026, 10, 26), windows["C"]["anchor"])
+
+    def test_every_separate_tcn_date_is_retained(self):
+        windows = fp.tcn_windows([event("C", "2026-10-26", occurred="2026-10-27"),
+                                  event("C", "2026-10-26", occurred="2026-10-29")])
+        self.assertEqual([date(2026, 10, 27), date(2026, 10, 29)], windows["C"]["dates"])
+        self.assertTrue(fp.window_covers(windows["C"], date(2026, 10, 27)))
+        self.assertTrue(fp.window_covers(windows["C"], date(2026, 10, 29)))
+        self.assertFalse(fp.window_covers(windows["C"], date(2026, 10, 28)))
+
+
+class ErpCandidateTests(unittest.TestCase):
+    def test_stage_two_and_tags_outstanding_stage_three_stay_in_pool_after_a_visit(self):
+        now = datetime(2026, 10, 26, 13, 59)
+        days = [date(2026, 10, 27), date(2026, 10, 28)]
+        stage_two = cycle(name="C2", stage="2 - Plan", tcn_at=None, mir_at=None, impl_visits=1)
+        stage_three = cycle(name="C3", stage="3 - Handover", tcn_at=None, mir_at=None, impl_visits=1)
+        self.assertEqual("T5", fp.erp_candidate(stage_two, None, schedule_dates=days, now=now)[0])
+        self.assertEqual("T2", fp.erp_candidate(stage_three, None, schedule_dates=days, now=now)[0])
+        tags_done = dict(stage_three, tags_at="2026-10-25 08:00:00")
+        self.assertIsNone(fp.erp_candidate(tags_done, None, schedule_dates=days, now=now)[0])
+
+    def test_exact_two_pm_cutoff_removes_tomorrow_but_keeps_later_workday(self):
+        dates = [date(2026, 10, 27), date(2026, 10, 28)]
+        c = cycle(name="C", tcn_at=None, mir_at=None)
+        before = fp.erp_candidate(c, None, schedule_dates=dates, now=datetime(2026, 10, 26, 13, 59))
+        after = fp.erp_candidate(c, None, schedule_dates=dates, now=datetime(2026, 10, 26, 14, 0))
+        self.assertEqual(dates, before[2])
+        self.assertEqual([date(2026, 10, 28)], after[2])
+        self.assertEqual([date(2026, 10, 28)], after[3])
+
+    def test_a_dated_tcn_fixes_eligibility_to_its_evidenced_dates(self):
+        dates = [date(2026, 10, 27), date(2026, 10, 28)]
+        window = {"start": dates[0], "end": dates[0], "runs": [{"start": dates[0], "end": dates[0]}]}
+        result = fp.erp_candidate(cycle(tcn_at="2026-10-26"), window, schedule_dates=dates,
+                                  now=datetime(2026, 10, 26, 13, 59))
+        self.assertEqual([dates[0]], result[2])
+        self.assertEqual([], result[3])
 
 
 class ClassifyTests(unittest.TestCase):
@@ -216,15 +253,14 @@ class PlanWeekTests(unittest.TestCase):
         self.assertEqual(("Committed", date(2026, 10, 25)), (trip["kind"], trip["anchor"]))
         self.assertEqual(0, len(result["later"]))
 
-    def test_two_cycles_at_one_site_are_one_stop_that_lists_the_other_cycle(self):
+    def test_two_cycles_at_one_site_remain_separate_work_items(self):
         a, b = item("R1", "T1"), item("R1", "T1")
         a["cycle"], b["cycle"] = "R1|WO-1", "R1|WO-2"
         result = self.plan([a, b, item("R2", "T1")])
         stops = [s for c in result["clusters"] for s in c["stops"]]
-        self.assertEqual(2, len(stops))
-        r1 = next(s for s in stops if s["site"] == "R1")
-        self.assertEqual("R1|WO-1", r1["cycle"])
-        self.assertEqual(["R1|WO-2"], r1["also"])
+        self.assertEqual(3, len(stops))
+        r1 = [s for s in stops if s["site"] == "R1"]
+        self.assertEqual({"R1|WO-1", "R1|WO-2"}, {s["cycle"] for s in r1})
 
     def test_workload_uses_scope_hours_and_travel_and_days_round_up(self):
         result = self.plan([item("R1", "T1"), item("R2", "T1"), item("R3", "T1"), item("R4", "T1")], scope_hours=2)

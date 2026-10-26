@@ -32,6 +32,11 @@ def _number(value, default, minimum=0):
     return number if number > minimum else default
 
 
+def _riyadh_now():
+    """Current time in the agreed Tawal business timezone, independent of site/user timezone."""
+    return frappe.utils.get_datetime_in_timezone("Asia/Riyadh")
+
+
 def _decisions(names):
     """The PM decision log for these cycles, newest first, read with the caller's permissions."""
     if not names:
@@ -58,7 +63,8 @@ def set_plan_decision(cycle, action="", reason=""):
         frappe.throw("You cannot view this cycle.", frappe.PermissionError)
     if not frappe.has_permission("SIG Plan Decision", "create"):
         frappe.throw("You cannot record a planner decision.", frappe.PermissionError)
-    today = frappe.utils.getdate(frappe.utils.nowdate())
+    business_now = _riyadh_now()
+    today = business_now.date()
     doc = frappe.get_doc({
         "doctype": "SIG Plan Decision", "cycle": cycle,
         "site_key": frappe.db.get_value("SIG Site Cycle", cycle, "site_key"),
@@ -171,12 +177,14 @@ def update_team_position(team_leader, site):
 def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=None, project=None):
     """Return the weekly plan: TCN windows are options, trips are placed on the teams that exist, the rest lapse."""
     _require_access()
-    today = frappe.utils.getdate(frappe.utils.nowdate())
+    business_now = _riyadh_now()
+    today = business_now.date()
     start = frappe.utils.getdate(week_start) if week_start else frappe.utils.add_days(today, 1)
     overrides = {"teams": int(_number(teams, 0)) or None, "scope_hours": _number(scope_hours, 0) or None,
                  "diameter_km": _number(diameter_km, 0) or None}
     overrides = {key: value for key, value in overrides.items() if value}
     params = dict(planner.DEFAULTS, **overrides)
+    schedule_dates = planner.planning_days(start, params["work_days"])
 
     filters = {"terminal": 0, "stage": ["in", ["2 - Plan", "3 - Handover"]]}
     fields = CYCLE_FIELDS + (["plan_hold"] if _has_field("SIG Site Cycle", "plan_hold") else [])
@@ -199,13 +207,12 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
     for visit in visits:
         visit_days.setdefault(visit.cycle, set()).add(frappe.utils.getdate(visit.start_at))
     decisions = _decisions(names)
-    # This view is for tomorrow-forward field planning. A cycle with an
-    # existing visit is complete for the visit-planning queue; a later scope
-    # remains eligible under its own cycle.
-    visited_cycles = {v.cycle for v in visits if v.get("cycle") and v.get("status") == "COMPLETED"}
-    plan_cycles = [c for c in cycles if c["name"] not in visited_cycles]
-    candidates, excluded = planner.build_candidates(plan_cycles, windows, visit_days, today, params,
-                                                    planner.index_projects(_projects()), "plan_hold", decisions)
+    # ERP Field Planner pools all open Stage 2 scopes, plus Stage 3 scopes with
+    # Tags outstanding. A visit is evidence, not a declaration that the scope
+    # no longer needs field work.
+    candidates, excluded = planner.build_candidates(cycles, windows, visit_days, today, params,
+                                                    planner.index_projects(_projects()), "plan_hold", decisions,
+                                                    erp_policy=True, schedule_dates=schedule_dates, now=business_now.replace(tzinfo=None))
 
     all_teams = _team_setup()
     team_setup = [t for t in all_teams if t["archetype"] == "Project"]     # Incident teams are never planned
@@ -249,10 +256,14 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
         starts = [(p["lat"], p["lon"]) if p["state"] == "Current" else None for p in planned][:count]
         starts += [None] * (count - len(starts))
         names = {i + 1: p["team"] for i, p in enumerate(planned[:count])}
-    plan = continuity.schedule_continuity(planner.plan_week(candidates, coords, start, overrides), coords, start, overrides,
+    plan = continuity.schedule_continuity(planner.plan_week(candidates, coords, start, overrides, schedule_singletons=True), coords, start, overrides,
                                           starts, names)
     plan["team_positions"] = positions
-    plan["summary"]["visited_cycles_dismissed"] = len(visited_cycles)
+    plan["summary"].update({
+        "tcn_needed": sum(1 for item in candidates if not item.get("dated_tcn")),
+        "stage2_candidates": sum(1 for item in candidates if str(item.get("stage") or "").startswith("2")),
+        "stage3_tags_outstanding": sum(1 for item in candidates if str(item.get("stage") or "").startswith("3")),
+    })
     for ex in excluded:
         if ex["reason"].startswith("PM "):
             c = ex["cycle"]
@@ -263,7 +274,10 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
                                   if ex["reason"].startswith("PM Hold") else "Remove",
                                   "lat": coords[site][0] if site in coords else None,
                                   "lon": coords[site][1] if site in coords else None})
-    return _present(plan, coords)
+    next_cutoff = min((planner.tcn_cutoff(day) for day in schedule_dates
+                       if planner.tcn_cutoff(day) > business_now.replace(tzinfo=None)), default=None)
+    cutoff_text = next_cutoff.replace(tzinfo=business_now.tzinfo).isoformat() if next_cutoff else ""
+    return _present(plan, coords, cutoff_text)
 
 
 @frappe.whitelist()
@@ -274,7 +288,16 @@ def get_reference_towns():
         return json.load(handle)
 
 
-def _present(plan, coords):
+def _tcn_status(stop, cluster):
+    provisional = {str(day)[:10] for day in stop.get("provisional_days", [])}
+    scheduled_day = str(stop.get("day") or cluster.get("day_start") or "")[:10]
+    due_for = (scheduled_day if scheduled_day in provisional else "") if scheduled_day else (min(provisional) if provisional else "")
+    return {"needs_tcn": bool(due_for),
+            "tcn_due_at": str(planner.tcn_cutoff(due_for)) if due_for else "",
+            "tcn_due_for": due_for}
+
+
+def _present(plan, coords, next_cutoff_at=""):
     trips = []
     for cluster in plan["clusters"]:
         days = cluster.get("days") or []
@@ -290,14 +313,19 @@ def _present(plan, coords):
                                  "reason": s["reason"], "leg_km": s["leg_km"] if s["order"] > 1 else None,
                                  "value": s.get("value"), "value_source": s.get("value_source", ""), "decision": s.get("decision", ""),
                                  "day": s.get("day", ""),
-                                 "class": planner.CLASS_LABEL[planner.priority_class(s)], "must": bool(s.get("must"))}
+                                 "class": planner.CLASS_LABEL[planner.priority_class(s)], "must": bool(s.get("must")),
+                                 **_tcn_status(s, cluster),
+                                 "has_tags": bool(s.get("has_tags")), "visit_count": s.get("visit_count", 0)}
                                 for s in cluster["stops"] if s["site"] in coords]})
     extra = [{"site": s["site"], "cycle": s["cycle"], "project": s["project"], "tier": s["tier"],
               "kind": s.get("kind") or "Committed later", "window": s.get("window"), "reason": s["reason"],
               "lat": coords[s["site"]][0] if s["site"] in coords else None,
               "lon": coords[s["site"]][1] if s["site"] in coords else None,
-              "must": bool(s.get("must")), "decision": s.get("decision", "")}
+              "must": bool(s.get("must")), "decision": s.get("decision", ""),
+              "needs_tcn": bool(s.get("needs_tcn")), "tcn_due_at": s.get("tcn_due_at", ""),
+              "tcn_due_for": s.get("tcn_due_for", ""), "has_tags": bool(s.get("has_tags")),
+              "visit_count": s.get("visit_count", 0)}
              for s in plan["later"] + plan["unplaced"]]
     return {"summary": plan["summary"], "params": plan["params"], "trips": trips, "other": extra,
             "teams": plan.get("teams", []), "team_positions": plan.get("team_positions", []),
-            "tiers": planner.TIER_LABEL, "has_coordinates": bool(coords)}
+            "tiers": planner.TIER_LABEL, "has_coordinates": bool(coords), "next_cutoff_at": next_cutoff_at}

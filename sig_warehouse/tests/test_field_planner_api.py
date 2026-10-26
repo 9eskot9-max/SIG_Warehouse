@@ -1,9 +1,10 @@
 import importlib.util
 import sys
 import unittest
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
+from zoneinfo import ZoneInfo
 
 APP_ROOT = Path(__file__).resolve().parents[2]
 if str(APP_ROOT) not in sys.path:
@@ -28,6 +29,8 @@ def load_api(roles, can_read=True, setup_json="{}", visits=(), sessions=(), posi
 
     frappe.throw = throw
     frappe.utils = SimpleNamespace(nowdate=lambda: "2026-10-24", now_datetime=lambda: "2026-10-26 08:00:00",
+                                   get_datetime_in_timezone=lambda name: datetime(2026, 10, 26, 8, 0,
+                                                                                 tzinfo=timezone.utc).astimezone(ZoneInfo(name)),
                                    getdate=lambda v: v if isinstance(v, date) else date.fromisoformat(str(v)[:10]),
                                    add_days=lambda d, n: d + __import__("datetime").timedelta(days=n))
     frappe.DoesNotExistError = LookupError
@@ -58,7 +61,7 @@ def load_api(roles, can_read=True, setup_json="{}", visits=(), sessions=(), posi
 
     def get_all(doctype, **kwargs):
         calls.append(("get_all", doctype, tuple(kwargs.get("fields", ()))))
-        return [Row(name="Z1", site_latitude=24.7, site_longitude=46.7)]
+        return store.get(doctype, [])
 
     frappe.get_list, frappe.get_all = get_list, get_all
     def get_doc(data):
@@ -85,6 +88,16 @@ def load_api(roles, can_read=True, setup_json="{}", visits=(), sessions=(), posi
 
 
 class FieldPlannerApiTests(unittest.TestCase):
+    def test_cutoff_clock_uses_explicit_riyadh_timezone(self):
+        api, _ = load_api(["SIG Field Ops"])
+        self.assertEqual("2026-10-26 11:00:00+03:00", api._riyadh_now().isoformat(sep=" "))
+
+    def test_a_tcn_covered_scheduled_day_is_not_badged_from_another_provisional_day(self):
+        api, _ = load_api(["SIG Field Ops"])
+        stop = {"day": "2026-10-27", "provisional_days": [date(2026, 10, 28)]}
+        self.assertEqual({"needs_tcn": False, "tcn_due_at": "", "tcn_due_for": ""}, api._tcn_status(stop, {}))
+        self.assertTrue(api._tcn_status({"provisional_days": [date(2026, 10, 28)]}, {})["needs_tcn"])
+
     def test_roles_outside_the_page_audience_are_refused(self):
         api, _ = load_api(["Employee"])
         with self.assertRaises(PermissionError):
@@ -104,7 +117,7 @@ class FieldPlannerApiTests(unittest.TestCase):
         self.assertEqual((24.7, 46.7), (result["trips"][0]["stops"][0]["lat"], result["trips"][0]["stops"][0]["lon"]))
         self.assertIn(result["trips"][0]["stops"][0]["class"], ("Must", "Priority", "Normal"))
         self.assertEqual([("get_list", "SIG Site", ("name", "site_latitude", "site_longitude"))], [c for c in calls if c[1] == "SIG Site"])
-        self.assertFalse([c for c in calls if c[0] == "get_all"])
+        self.assertFalse([c for c in calls if c[0] == "get_all" and c[1] == "SIG Site"])
 
     def test_setup_teams_set_the_team_count_names_and_starting_positions(self):
         import json

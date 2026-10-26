@@ -115,6 +115,11 @@
 .sig-planner-trip>header span{color:#60798b;font-size:12px}
 .sig-planner-stop{display:grid;grid-template-columns:minmax(0,1fr) minmax(210px,.55fr);gap:18px;padding:14px 16px;border-bottom:1px solid #edf1f4}
 .sig-planner-stop:last-of-type{border-bottom:0}
+.sig-planner-visit-scope{padding:7px 9px;border-left:2px solid #d9e5ed;margin-top:7px;background:#f8fbfd}
+.sig-planner-visit-scope.is-selected{background:#eaf4fb;box-shadow:inset 0 0 0 1px #80b5d1}
+.sig-planner-schedule .sig-planner-visit-scope{background:transparent;border-left:0;border-bottom:1px solid #edf1f4;margin:0;padding:7px 0}
+.sig-planner-schedule .sig-planner-visit-scope.is-selected{background:#eaf4fb}
+.sig-planner-schedule .sig-planner-visit-scope:last-child{border-bottom:0}
 .sig-planner-stop small,.sig-planner-schedule td small,.sig-planner-review td small{display:block;margin-top:4px;color:#697f8f;font-size:12px}
 .sig-planner-site-link{color:#1d628a;font-weight:700;text-decoration:none}.sig-planner-site-link:hover{text-decoration:underline}
 .sig-planner-badges{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:7px}

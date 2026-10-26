@@ -58,6 +58,20 @@ class WalkTests(unittest.TestCase):
         self.assertAlmostEqual(expect, res[2], places=3)
         self.assertGreater(res[0], 0)
 
+    def test_actual_stop_day_cannot_spill_past_its_tcn_eligible_date(self):
+        coords = {"R1": RIYADH, "R2": NEAR}
+        tuesday = [date(2026, 10, 27)]
+        first = trip("R1", coords, work_sites=5)
+        for stop in first["stops"]:
+            stop["eligible_days"] = [date(2026, 10, 27), date(2026, 10, 28)]
+        first_model = ct._trip_model(first, 0, coords, WEEK, 5, P)
+        second = trip("R1", coords, work_sites=2)
+        second["stops"][0].update(eligible_days=tuesday, tcn_days=tuesday)
+        second["stops"][1].update(site="R2", eligible_days=tuesday, tcn_days=tuesday, leg_km=0)
+        second_model = ct._trip_model(second, 1, coords, WEEK, 5, P)
+        second_model["first"] = first_model["last"]
+        self.assertIsNone(ct._walk([first_model, second_model], 5, P))
+
 
 class StartTests(unittest.TestCase):
     def test_a_team_pays_the_drive_from_where_it_stands(self):
