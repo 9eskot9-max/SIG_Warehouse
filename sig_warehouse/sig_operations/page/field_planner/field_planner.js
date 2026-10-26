@@ -531,8 +531,9 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             '<button type="button" class="btn btn-primary" data-action="refresh">' + __('Refresh') + '</button></div></section>' +
             '<div class="sig-planner-metrics" id="sig-planner-metrics"></div>' +
             '<section class="sig-planner-teams" id="sig-planner-teams"></section><section class="sig-planner-context"><div><div class="sig-planner-context-title">' +
-            '<i id="sig-planner-team-dot"></i><h3 id="sig-planner-team-name"></h3></div><p id="sig-planner-team-context"></p></div>' +
+            '<i id="sig-planner-team-dot"></i><h3 id="sig-planner-team-name"></h3>' +
             (canUpdatePosition() ? '<button type="button" class="btn btn-default sig-planner-update-main" data-action="position">' + __('Update position') + '</button>' : '') +
+            '</div><p id="sig-planner-team-context"></p></div>' +
             '</section><section class="sig-planner-map-card"><div class="sig-planner-live-map-controls">' +
             '<div class="sig-planner-map-segment"><button data-map-base="street" aria-pressed="' + (view.base === 'street') + '">' + __('Road map') +
             '</button><button data-map-base="drawing" aria-pressed="' + (view.base === 'drawing') + '">' + __('Drawing') + '</button></div>' +
