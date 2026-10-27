@@ -190,7 +190,8 @@ def update_team_position(team_leader, site):
 
 @frappe.whitelist()
 def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=None, project=None, capture_trace=0,
-                   search_seed=None, search_iters=None, search_seconds=None, search_accept_equal=False):
+                   search_seed=None, search_iters=None, search_seconds=None, search_accept_equal=False,
+                   search_peer_objective=None, search_peer_travel_allowance_hours=0.0):
     """Return the weekly plan: TCN windows are options, trips are placed on the teams that exist, the rest lapse."""
     _require_access()
     business_now = _riyadh_now()
@@ -372,7 +373,9 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
     clustered = planner.plan_week(candidates, coords, start, overrides, schedule_singletons=True, trace=trace)
     plan = continuity.schedule_continuity(clustered, coords, start, overrides, starts, names, trace=trace,
                                          search_seed=search_seed, search_iters=search_iters,
-                                         search_seconds=search_seconds, search_accept_equal=search_accept_equal)
+                                         search_seconds=search_seconds, search_accept_equal=search_accept_equal,
+                                         search_peer_objective=search_peer_objective,
+                                         search_peer_travel_allowance_hours=search_peer_travel_allowance_hours)
     if trace is not None:
         trace["inputs"]["coordinates_used"] = {site: [lat, lon] for site, (lat, lon) in coords.items()}
         trace["diagnostics"] = []
@@ -492,9 +495,10 @@ def _call_openai_schedule_picker(api_key, candidates):
     instructions = (
         "Choose only among the supplied ERP-generated feasible schedules. Never invent sites, teams, dates, "
         "TCN approvals, travel estimates, or assignments. Preserve Must, dated TCN windows, priority, and "
-        "scheduled scope coverage before considering travel and team continuity. Compare the supplied ERP "
-        "objective and metrics; prefer a lower-travel or more regionally coherent option only when it does "
-        "not sacrifice a higher-priority objective component. Flag stale or missing position/evidence and "
+        "scheduled scope coverage before considering travel and team continuity. Every supplied candidate "
+        "preserves identical Must, TCN-window, priority-class/site and gross-value outcomes and falls inside "
+        "the ERP travel allowance. Prefer lower travel and more regionally coherent team routes. Flag stale or "
+        "missing position/evidence and "
         "material tradeoffs. If the scenarios are effectively tied or the supplied facts cannot support a "
         "safe choice, set needs_human_review true. Reasons must refer only to supplied fields."
     )
@@ -552,12 +556,17 @@ def recommend_field_plan(week_start=None, teams=None, scope_hours=None, diameter
         frappe.throw("Configure the Field Planner OpenAI key in the server-side secret settings first.")
     base_args = {"week_start": week_start, "teams": teams, "scope_hours": scope_hours,
                  "diameter_km": diameter_km, "project": project}
-    seeds = [continuity.SEARCH["seed"], continuity.SEARCH["seed"] + 1, continuity.SEARCH["seed"] + 2]
+    seeds = [continuity.SEARCH["seed"] + offset for offset in range(6)]
     generated = []
     input_hash = None
+    baseline_objective = None
+    peer_travel_allowance = None
     for index, seed in enumerate(seeds):
+        peer_objective = baseline_objective if index > 0 else None
         data = get_field_plan(**dict(base_args, capture_trace=1, search_seed=seed,
-                                     search_accept_equal=(index > 0)))
+                                     search_accept_equal=(index > 0),
+                                     search_peer_objective=peer_objective,
+                                     search_peer_travel_allowance_hours=peer_travel_allowance or 0.0))
         current_hash = _planner_input_hash(data)
         if not current_hash or not data.get("decision_trace"):
             frappe.throw("A traceable ERP snapshot is required; the ERP plan is unchanged.")
@@ -565,6 +574,11 @@ def recommend_field_plan(week_start=None, teams=None, scope_hours=None, diameter
             frappe.throw("Planner inputs changed while alternatives were being generated. Refresh and try again.")
         input_hash = current_hash
         signature = _schedule_signature(data)
+        objective = data.get("scheduler_objective")
+        if index == 0 and objective is not None and len(objective) > 4:
+            baseline_objective = tuple(objective)
+            baseline_travel_hours = max(0.0, -float(objective[4]))
+            peer_travel_allowance = min(1.0, max(0.25, baseline_travel_hours * 0.05))
         if all(signature != row["signature"] for row in generated):
             candidate_id = "BASELINE" if index == 0 else "VARIANT_" + str(index)
             generated.append({"signature": signature, "candidate_id": candidate_id, "data": data,
@@ -575,11 +589,19 @@ def recommend_field_plan(week_start=None, teams=None, scope_hours=None, diameter
               if row["summary"].get("objective") is not None]
     if len(scored) < 2:
         frappe.throw("ERP could not score enough alternatives for AI review. The baseline is unchanged.")
-    best_objective = max(score for score, _row in scored)
-    eligible = [row for score, row in scored if score == best_objective]
+    best_priority = max(score[:4] for score, _row in scored if len(score) >= 5)
+    priority_peers = [(score, row) for score, row in scored if score[:4] == best_priority]
+    best_travel_score = max(score[4] for score, _row in priority_peers)
+    eligible = [row for score, row in priority_peers
+                if score[4] >= best_travel_score - (peer_travel_allowance or 0.0)]
     if len(eligible) < 2:
-        frappe.throw("ERP's existing priority order leaves one best schedule; no AI tie-break is needed.")
-    candidates = [row["summary"] for row in eligible]
+        frappe.throw("ERP did not find two distinct schedules with equal priority outcomes inside the travel allowance. No AI schedule was selected.")
+    candidates = []
+    for row in eligible:
+        summary = row["summary"]
+        objective = tuple(summary.get("objective") or ())
+        summary["travel_slack_hours"] = round(best_travel_score - objective[4], 3) if len(objective) > 4 else None
+        candidates.append(summary)
     candidate_set_hash = hashlib.sha256(json.dumps(candidates, sort_keys=True, separators=(",", ":"),
                                              default=str).encode("utf-8")).hexdigest()
     cache_key = "sig_field_planner_ai_choice:" + input_hash + ":" + candidate_set_hash
@@ -594,7 +616,11 @@ def recommend_field_plan(week_start=None, teams=None, scope_hours=None, diameter
     audit = {"schema": "sig-field-planner-ai-selection/v1",
              "run_id": selected["data"]["decision_trace"].get("run_id"),
              "input_hash": input_hash, "candidate_set_hash": candidate_set_hash,
-             "erp_best_objective": list(best_objective),
+             "erp_best_priority_objective": list(best_priority),
+             "objective_component_labels": ["Must trips", "TCN windows met", "priority-class-weighted sites",
+                                             "gross value", "lower travel hours"],
+             "best_travel_hours": -best_travel_score,
+             "maximum_travel_slack_hours": peer_travel_allowance,
              "model": model, "reasoning_effort": "high", "response_id": response_id,
              "selected_candidate_id": choice["selected_candidate_id"],
              "ranked_candidate_ids": choice["ranked_candidate_ids"], "needs_human_review": choice["needs_human_review"],

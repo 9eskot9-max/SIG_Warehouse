@@ -248,7 +248,8 @@ def _best_insert(routes, trip, teams, days_n, params, starts, trace=None):
 
 
 def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, names=None, trace=None,
-                        search_seed=None, search_iters=None, search_seconds=None, search_accept_equal=False):
+                        search_seed=None, search_iters=None, search_seconds=None, search_accept_equal=False,
+                        search_peer_objective=None, search_peer_travel_allowance_hours=0.0):
     """starts: one (lat, lon) or None per team, where that team stands when the week opens; it also sets the number of
     teams. names: team number (1-based) -> display name (the leader)."""
     params = dict(fp.DEFAULTS)
@@ -267,6 +268,9 @@ def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, n
     if search_seconds is not None:
         search["seconds"] = max(0.0, min(float(search_seconds), SEARCH["seconds"]))
     search["accept_equal_scores"] = bool(search_accept_equal)
+    peer_objective = tuple(search_peer_objective) if search_peer_objective else None
+    peer_travel_allowance = max(0.0, float(search_peer_travel_allowance_hours or 0.0))
+    search["accept_bounded_priority_peers"] = bool(search_accept_equal and peer_objective is not None)
     starts = list(starts or []) + [None] * (teams - len(starts or []))
     live = [c for c in plan["clusters"] if c["kind"] != "Deferred"]
     waiting = [c for c in plan["clusters"] if c["kind"] == "Deferred"]
@@ -283,9 +287,12 @@ def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, n
                                      "search_components": ["Must trips", "TCN dates met", "priority-class × sites", "gross value", "lower travel"],
                                      "priority_order": ["Must", "TCN dates met", "priority-class × site count",
                                                         "gross value", "lower travel"],
-                                     "search_logging": "All initial team/order insertion alternatives are retained. Search records strict objective improvements and counts optional equal-score route perturbations; rejected randomized trials are not retained."},
+                                     "search_logging": "All initial team/order insertion alternatives are retained. Search records strict objective improvements and counts optional bounded-priority peer perturbations; rejected randomized trials are not retained.",
+                                     "peer_objective": list(peer_objective) if peer_objective else None,
+                                     "peer_travel_allowance_hours": peer_travel_allowance},
                       "initial_placement": [], "improvement": {"attempted_moves": 0, "accepted_changes": [],
-                                                                  "equal_score_moves": 0},
+                                                                  "equal_score_moves": 0,
+                                                                  "bounded_priority_peer_moves": 0},
                       "travel_estimates": []})
 
     routes = [[] for _ in range(teams)]
@@ -344,13 +351,19 @@ def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, n
         score = _objective(new, days_n, params, starts)
         strict_improvement = score is not None and (current is None or score > current)
         equal_move = (search_accept_equal and score is not None and score == current and rng.random() < 0.15)
-        if strict_improvement or equal_move:
+        peer_move = (search_accept_equal and peer_objective is not None and score is not None
+                     and score[:4] == peer_objective[:4]
+                     and score[4] >= peer_objective[4] - peer_travel_allowance
+                     and score != current and rng.random() < 0.15)
+        if strict_improvement or equal_move or peer_move:
             old_routes = routes
             old_score = current
             routes, current = new, score
             if trace is not None:
                 if equal_move and not strict_improvement:
                     trace["improvement"]["equal_score_moves"] += 1
+                elif peer_move and not strict_improvement:
+                    trace["improvement"]["bounded_priority_peer_moves"] += 1
                 else:
                     trace_started = time.monotonic()
                     component_labels = ["Must trips", "TCN dates met", "priority-class × sites", "gross value", "lower travel"]
