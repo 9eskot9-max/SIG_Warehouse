@@ -43,6 +43,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                 currentTrace = plan.decision_trace || currentTrace;
                 const selected = (payload.candidate_summaries || []).find(x => x.candidate_id === recommendation.selected_candidate_id) || {};
                 const metrics = selected.metrics || {};
+                const changes = selected.change_summary || {};
                 const metric = (label, value) => '<span class="sig-planner-ai-metric"><b>' + esc(value == null ? '—' : value) + '</b> ' + esc(label) + '</span>';
                 const routeRows = (plan.trips || []).filter(t => t.team != null && t.stops && t.stops.length).map(t => {
                     const team = (plan.teams || []).find(x => Number(x.team) === Number(t.team));
@@ -53,12 +54,22 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                 const reasonList = (recommendation.reasons || []).map(x => '<li>' + esc(x) + '</li>').join('');
                 const warningList = [].concat(recommendation.warnings || [], recommendation.tradeoffs || [],
                     recommendation.unsupported_assumptions || []).map(x => '<li>' + esc(x) + '</li>').join('');
+                const changeRows = [];
+                (changes.added_scopes || []).forEach(x => changeRows.push(__('Add {0} on {1} · {2}', [esc(x.site), esc(x.day || ''), esc(x.team || '')])));
+                (changes.team_changes || []).forEach(x => changeRows.push(__('Move {0}: {1} → {2}', [esc(x.site), esc(x.from_team), esc(x.to_team)])));
+                (changes.date_changes || []).forEach(x => changeRows.push(__('Move {0}: {1} → {2}', [esc(x.site), esc(x.from_day), esc(x.to_day)])));
+                if (changes.added_count > (changes.added_scopes || []).length) changeRows.push(__('Plus {0} more added scopes', [changes.added_count - changes.added_scopes.length]));
+                if (changes.team_change_count > (changes.team_changes || []).length) changeRows.push(__('Plus {0} more team changes', [changes.team_change_count - changes.team_changes.length]));
+                if (changes.date_change_count > (changes.date_changes || []).length) changeRows.push(__('Plus {0} more date changes', [changes.date_change_count - changes.date_changes.length]));
+                const changeList = changeRows.length ? '<h4>' + __('Changes from current ERP plan') + '</h4><ul>' +
+                    changeRows.slice(0, 12).map(x => '<li>' + x + '</li>').join('') +
+                    '<li>' + __('Estimated travel change: {0} h · {1} km', [esc(changes.travel_delta_hours), esc(changes.relocation_delta_km)]) + '</li></ul>' : '';
                 const body = '<div class="sig-planner-ai-result"><p><b>' + __('ERP scenario') + ' ' + esc(recommendation.selected_candidate_id) + '</b> · ' +
                     (recommendation.needs_human_review ? '<span class="text-warning">' + __('PM review recommended') + '</span>' : __('Recommendation only')) +
                     '</p><div class="sig-planner-ai-metrics">' + metric(__('scheduled sites'), metrics.sites_scheduled) +
                     metric(__('Must left unscheduled'), metrics.must_lapsed) + metric(__('TCN dates met'), (metrics.windows_met || 0) + ' / ' + (metrics.windows_total || 0)) +
                     metric(__('travel hours'), metrics.travel_h) + metric(__('team-days'), (metrics.loaded_team_days || 0) + ' / ' + (metrics.capacity_team_days || 0)) +
-                    '</div>' + (reasonList ? '<h4>' + __('Why this schedule') + '</h4><ul>' + reasonList + '</ul>' : '') +
+                    '</div>' + changeList + (reasonList ? '<h4>' + __('Why this schedule') + '</h4><ul>' + reasonList + '</ul>' : '') +
                     (warningList ? '<h4>' + __('Tradeoffs and review points') + '</h4><ul>' + warningList + '</ul>' : '') +
                     '<div class="sig-planner-table-wrap"><table class="table table-bordered"><thead><tr><th>' + __('Team') + '</th><th>' + __('Start') + '</th><th>' + __('Proposed stops') +
                     '</th></tr></thead><tbody>' + (routeRows || '<tr><td colspan="3">' + __('No scheduled stops') + '</td></tr>') + '</tbody></table></div>' +

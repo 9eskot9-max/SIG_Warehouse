@@ -10,6 +10,7 @@ import frappe
 
 from sig_warehouse.sig_warehouse import continuity
 from sig_warehouse.sig_warehouse import field_planner as planner
+from sig_warehouse.sig_warehouse import field_planner_ai
 
 PLANNER_ROLES = {"System Manager", "Projects Manager", "Projects User", "SIG Field Ops"}
 CYCLE_FIELDS = ["name", "site", "site_id", "project", "po", "erp_project", "stage", "terminal", "tcn_at", "mir_at",
@@ -459,7 +460,7 @@ def _ai_schedule_summary(candidate_id, data):
         route = team_routes.setdefault(team, []) if team else None
         trip_sites = []
         for stop in trip.get("stops") or []:
-            trip_sites.append({"site": stop.get("site"), "day": stop.get("day"), "priority": stop.get("class"),
+            trip_sites.append({"cycle": stop.get("cycle"), "site": stop.get("site"), "day": stop.get("day"), "priority": stop.get("class"),
                                "must": bool(stop.get("must")), "needs_tcn": bool(stop.get("needs_tcn")),
                                "tcn_due_for": stop.get("tcn_due_for") or None, "tags_complete": bool(stop.get("has_tags"))})
         if team and trip_sites:
@@ -468,7 +469,7 @@ def _ai_schedule_summary(candidate_id, data):
     for route in team_routes.values():
         route.sort(key=lambda item: str(item.get("days", [""])[0] or ""))
     summary = data.get("summary") or {}
-    return {"candidate_id": candidate_id, "objective": data.get("scheduler_objective"),
+    result = {"candidate_id": candidate_id, "objective": data.get("scheduler_objective"),
             "metrics": {key: summary.get(key) for key in ("trips_scheduled", "trips_lapsed", "trips_waiting",
                 "sites_scheduled", "sites_lapsed", "value_scheduled", "must_lapsed", "windows_met",
                 "windows_total", "loaded_team_days", "capacity_team_days", "travel_h", "work_h", "reloc_km")},
@@ -477,6 +478,81 @@ def _ai_schedule_summary(candidate_id, data):
             "scheduled_stops": schedule,
             "unplaced_sites": sorted({str(item.get("site") or "") for item in data.get("other") or []
                                        if item.get("kind") == "Unplaced"})}
+    result["metrics"]["must_scheduled"] = sum(bool(stop.get("must")) for stop in schedule)
+    result["metrics"]["priority_weighted_sites"] = (data.get("scheduler_objective") or [0, 0, 0])[2]
+    return field_planner_ai.add_movement_context(result, data)
+
+
+def _candidate_change_summary(baseline, candidate):
+    def assigned(summary):
+        return {str(row.get("cycle")): row for row in summary.get("scheduled_stops") or [] if row.get("cycle")}
+    before, after = assigned(baseline), assigned(candidate)
+    added = [after[key] for key in sorted(after.keys() - before.keys())]
+    lost = [before[key] for key in sorted(before.keys() - after.keys())]
+    reassigned, date_changed = [], []
+    for key in sorted(before.keys() & after.keys()):
+        if before[key].get("team") != after[key].get("team"):
+            reassigned.append({"cycle": key, "site": after[key].get("site"),
+                               "from_team": before[key].get("team"), "to_team": after[key].get("team")})
+        if before[key].get("day") != after[key].get("day"):
+            date_changed.append({"cycle": key, "site": after[key].get("site"),
+                                 "from_day": before[key].get("day"), "to_day": after[key].get("day")})
+    return {"added_scopes": added[:12], "added_count": len(added),
+            "no_longer_scheduled": lost[:12], "removed_count": len(lost),
+            "team_changes": reassigned[:12], "team_change_count": len(reassigned),
+            "date_changes": date_changed[:12], "date_change_count": len(date_changed),
+            "travel_delta_hours": round(float(candidate.get("metrics", {}).get("travel_h") or 0) -
+                                         float(baseline.get("metrics", {}).get("travel_h") or 0), 2),
+            "relocation_delta_km": round(float(candidate.get("metrics", {}).get("reloc_km") or 0) -
+                                           float(baseline.get("metrics", {}).get("reloc_km") or 0), 1)}
+
+
+def _scheduled_assignments(data):
+    return {str(stop.get("cycle")): {"site": stop.get("site"), "day": str(stop.get("day") or "")[:10],
+                                      "team": str(trip.get("team") or "")}
+            for trip in data.get("trips") or [] if trip.get("status") == "Scheduled"
+            for stop in trip.get("stops") or [] if stop.get("cycle")}
+
+
+def _preserves_baseline_outcomes(baseline, candidate):
+    """Keep every baseline scheduled scope and every achieved dated TCN date intact."""
+    before, after = _scheduled_assignments(baseline), _scheduled_assignments(candidate)
+    if not before.keys() <= after.keys():
+        return False
+    decisions = {str(row.get("cycle")): row for row in
+                 ((baseline.get("decision_trace") or {}).get("candidate_decisions") or []) if row.get("cycle")}
+    for cycle, prior in before.items():
+        decision = decisions.get(cycle) or {}
+        checks = decision.get("planning_day_checks") or []
+        dated_days = {str(row.get("date") or "")[:10] for row in checks
+                      if row.get("status") == "eligible_dated_tcn"}
+        # If the baseline already met a dated TCN, retain that scope on an evidenced date.
+        if prior["day"] in dated_days and after[cycle]["day"] not in dated_days:
+            return False
+        if decision.get("must") and after[cycle]["day"] != prior["day"]:
+            return False
+    return True
+
+
+def _select_ai_candidates(eligible, baseline):
+    """Keep the AI comparison small while retaining fill, route-efficiency, and diversity options."""
+    selected = [baseline]
+    fill = [row for row in eligible if row["candidate_id"].startswith("SCOPE_FILL_")]
+    selected.extend(fill[:3])
+    route_variants = [row for row in eligible if row is not baseline and
+                      not row["candidate_id"].startswith("SCOPE_FILL_")]
+    if route_variants:
+        best_travel = min(route_variants, key=lambda row: float((row["summary"].get("metrics") or {}).get("travel_h") or 0))
+        selected.append(best_travel)
+        baseline_assignments = _scheduled_assignments(baseline["data"])
+        def difference(row):
+            assignment = _scheduled_assignments(row["data"])
+            return sum(assignment.get(cycle) != value for cycle, value in baseline_assignments.items())
+        most_different = max(route_variants, key=difference)
+        if most_different is not best_travel:
+            selected.append(most_different)
+    # Preserve arrival order and uniqueness; baseline + 3 fill checkpoints + 2 route peers.
+    return list({row["candidate_id"]: row for row in selected}.values())[:6]
 
 
 def _call_openai_schedule_picker(api_key, candidates):
@@ -493,14 +569,17 @@ def _call_openai_schedule_picker(api_key, candidates):
               }, "required": ["selected_candidate_id", "ranked_candidate_ids", "needs_human_review",
                               "reasons", "warnings", "tradeoffs", "unsupported_assumptions"]}
     instructions = (
-        "Choose only among the supplied ERP-generated feasible schedules. Never invent sites, teams, dates, "
-        "TCN approvals, travel estimates, or assignments. Preserve Must, dated TCN windows, priority, and "
-        "scheduled scope coverage before considering travel and team continuity. Every supplied candidate "
-        "preserves identical Must, TCN-window, priority-class/site and gross-value outcomes and falls inside "
-        "the ERP travel allowance. Prefer lower travel and more regionally coherent team routes. Flag stale or "
-        "missing position/evidence and "
-        "material tradeoffs. If the scenarios are effectively tied or the supplied facts cannot support a "
-        "safe choice, set needs_human_review true. Reasons must refer only to supplied fields."
+        "Choose only among the supplied ERP-generated and route-validated schedules. Never invent sites, teams, "
+        "dates, TCN approvals, travel estimates, or assignments. First preserve every Must scope and dated TCN "
+        "window achieved by the baseline. Every scope already scheduled by the baseline remains scheduled in "
+        "every candidate. Then consider added eligible scopes, priority class, work/travel balance, "
+        "and regional continuity. Read each candidate's change_summary and inter_trip_road_estimates: town-mesh "
+        "legs are estimates, direct fallbacks are less reliable, and within-trip legs are straight-line estimates. "
+        "An added scope still needs its stated TCN by the ERP cutoff; never call it approved. Flag changed dates, "
+        "stale/unknown starting positions, long reposition legs, missing coordinates, estimated values, and "
+        "material tradeoffs. Do not prefer a plan for a tiny travel improvement if it changes Must dates or team "
+        "assignments without a clear operational benefit. If options are effectively tied or evidence cannot "
+        "support a safe choice, set needs_human_review true. Reasons must refer only to supplied fields."
     )
     body = {"model": "gpt-6-luna", "reasoning": {"effort": "high"}, "store": False,
             # High reasoning effort counts toward the response token budget. Keep enough
@@ -598,24 +677,41 @@ def recommend_field_plan(week_start=None, teams=None, scope_hours=None, diameter
             candidate_id = "BASELINE" if index == 0 else "VARIANT_" + str(index)
             generated.append({"signature": signature, "candidate_id": candidate_id, "data": data,
                               "summary": _ai_schedule_summary(candidate_id, data)})
+    if generated:
+        for candidate_id, data in field_planner_ai.scope_fill_variants(generated[0]["data"]):
+            signature = _schedule_signature(data)
+            if all(signature != row["signature"] for row in generated):
+                generated.append({"signature": signature, "candidate_id": candidate_id, "data": data,
+                                  "summary": _ai_schedule_summary(candidate_id, data)})
     if len(generated) < 2:
         frappe.throw("The ERP search did not produce a distinct feasible alternative. No AI schedule was selected.")
     scored = [(tuple(row["summary"].get("objective") or ()), row) for row in generated
               if row["summary"].get("objective") is not None]
     if len(scored) < 2:
         frappe.throw("ERP could not score enough alternatives for AI review. The baseline is unchanged.")
-    best_priority = max(score[:4] for score, _row in scored if len(score) >= 5)
-    priority_peers = [(score, row) for score, row in scored if score[:4] == best_priority]
-    best_travel_score = max(score[4] for score, _row in priority_peers)
-    eligible = [row for score, row in priority_peers
-                if score[4] >= best_travel_score - (peer_travel_allowance or 0.0)]
+    baseline = next((row for _score, row in scored if row["candidate_id"] == "BASELINE"), scored[0][1])
+    baseline_metrics = baseline["summary"].get("metrics") or {}
+    eligible = []
+    for _score, row in scored:
+        metrics = row["summary"].get("metrics") or {}
+        if (not _preserves_baseline_outcomes(baseline["data"], row["data"]) or
+                int(metrics.get("must_scheduled") or 0) < int(baseline_metrics.get("must_scheduled") or 0) or
+                int(metrics.get("windows_met") or 0) < int(baseline_metrics.get("windows_met") or 0) or
+                int(metrics.get("priority_weighted_sites") or 0) < int(baseline_metrics.get("priority_weighted_sites") or 0)):
+            continue
+        eligible.append(row)
+    if baseline not in eligible:
+        eligible.insert(0, baseline)
     if len(eligible) < 2:
-        frappe.throw("ERP did not find two distinct schedules with equal priority outcomes inside the travel allowance. No AI schedule was selected.")
+        frappe.throw("ERP did not find a distinct route-validated alternative that preserves baseline Must, TCN, and priority outcomes. No AI schedule was selected.")
+    eligible = _select_ai_candidates(eligible, baseline)
     candidates = []
+    baseline_summary = baseline["summary"]
     for row in eligible:
         summary = row["summary"]
         objective = tuple(summary.get("objective") or ())
-        summary["travel_slack_hours"] = round(best_travel_score - objective[4], 3) if len(objective) > 4 else None
+        summary["change_summary"] = _candidate_change_summary(baseline_summary, summary)
+        summary["travel_delta_hours"] = summary["change_summary"]["travel_delta_hours"]
         candidates.append(summary)
     candidate_set_hash = hashlib.sha256(json.dumps(candidates, sort_keys=True, separators=(",", ":"),
                                              default=str).encode("utf-8")).hexdigest()
@@ -631,11 +727,10 @@ def recommend_field_plan(week_start=None, teams=None, scope_hours=None, diameter
     audit = {"schema": "sig-field-planner-ai-selection/v1",
              "run_id": selected["data"]["decision_trace"].get("run_id"),
              "input_hash": input_hash, "candidate_set_hash": candidate_set_hash,
-             "erp_best_priority_objective": list(best_priority),
-             "objective_component_labels": ["Must trips", "TCN windows met", "priority-class-weighted sites",
-                                             "gross value", "lower travel hours"],
-             "best_travel_hours": -best_travel_score,
-             "maximum_travel_slack_hours": peer_travel_allowance,
+             "erp_baseline_objective": list(baseline["summary"].get("objective") or []),
+             "candidate_generation": "seeded route variants plus ERP-validated single-scope insertions",
+             "hard_outcome_gate": ["Must scopes scheduled >= baseline", "dated TCN windows met >= baseline",
+                                   "priority-weighted scheduled scopes >= baseline"],
              "model": model, "reasoning_effort": "high", "response_id": response_id,
              "selected_candidate_id": choice["selected_candidate_id"],
              "ranked_candidate_ids": choice["ranked_candidate_ids"], "needs_human_review": choice["needs_human_review"],
