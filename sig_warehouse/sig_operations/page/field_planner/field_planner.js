@@ -23,6 +23,19 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
     let currentTrace = null;
     let planRequestSequence = 0;
     filters.week_start = frappe.datetime.add_days(frappe.datetime.get_today(), 1);
+    filters.mode = 'DC';
+    root.on('click', '[data-planner-back-dc]', () => {
+        filters.mode = 'DC'; filters.teams = ''; filters.scope_hours = ''; filters.diameter_km = ''; filters.project = '';
+        load();
+    });
+    root.on('change', '[data-planner-mode]', (e) => {
+        const next = e.currentTarget.value === 'Incident' ? 'Incident' : 'DC';
+        if (next === filters.mode) return;
+        filters.mode = next;
+        filters.teams = ''; filters.scope_hours = ''; filters.diameter_km = ''; filters.project = '';
+        currentTrace = null;
+        load();
+    });
     root.on('click', '[data-export-trace]', () => downloadTrace('json'));
     root.on('click', '[data-export-trace-csv]', () => downloadTrace('csv'));
 
@@ -672,8 +685,8 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         const openSettings = () => {
             const fields = [
                 {fieldtype: 'Date', fieldname: 'week_start', label: __('Plan starts'), default: filters.week_start, reqd: 1},
-                {fieldtype: 'Int', fieldname: 'teams', label: __('Project teams (blank uses Setup)'), default: filters.teams || data.params.teams},
-                {fieldtype: 'Float', fieldname: 'scope_hours', label: __('Hours per site'), default: filters.scope_hours || data.params.scope_hours},
+                {fieldtype: 'Int', fieldname: 'teams', label: __(filters.mode === 'Incident' ? 'Incident teams (blank uses Setup)' : 'DC teams (blank uses Setup)'), default: filters.teams || data.params.teams},
+                {fieldtype: 'Float', fieldname: 'scope_hours', label: __(filters.mode === 'Incident' ? 'Hours per Incident site (provisional average)' : 'Hours per site'), default: filters.scope_hours || data.params.scope_hours},
                 {fieldtype: 'Float', fieldname: 'diameter_km', label: __('Trip diameter · km'), default: filters.diameter_km || data.params.diameter_km},
                 {fieldtype: 'HTML', fieldname: 'day_length', options: '<p class="text-muted">' +
                     __('Workday length: {0} hours, controlled by planner setup.', [esc(data.params.day_hours)]) + '</p>'},
@@ -702,15 +715,20 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             const n = Number(p.team_no) || 0, c = n ? TEAM_COLORS[(n - 1) % TEAM_COLORS.length] : '#8997a1';
             return '<tr><td><span class="sig-planner-team-label" style="--team:' + c + '"><i></i>' + esc(positionName(p)) + '</span></td><td>' +
                 esc(p.site || '—') + '</td><td>' + esc(p.seen_at || '—') + '</td><td>' + esc(p.source || '—') + '</td><td>' +
-                esc(positionState(p)) + '</td><td>' + (p.state !== 'Incident' && canUpdatePosition() ?
+                esc(positionState(p)) + '</td><td>' + (filters.mode === 'DC' && p.state !== 'Incident' && canUpdatePosition() ?
                     '<button type="button" class="btn btn-default btn-xs sig-planner-position-update" data-team-no="' + n + '">' + __('Update') + '</button>' : '') +
                 '</td></tr>';
         }).join('');
+        const classificationWarnings = data.mode_classification_warnings || [];
+        const classificationWarning = classificationWarnings.length ? '<p class="alert alert-warning">' +
+            __('{0} scopes were left out because their linked ERP Project could not be classified for this mode.', [classificationWarnings.length]) +
+            ' ' + __('Check the Project read access for your role.') + '</p>' : '';
         projectControl = null;
         root.html('<div class="sig-planner-shell">' +
-            '<section class="sig-planner-toolbar"><div class="sig-planner-toolbar-title"><h2>' + __('Plan for tomorrow') +
+            '<section class="sig-planner-toolbar"><div class="sig-planner-toolbar-title"><h2>' + (filters.mode === 'Incident' ? __('Incident plan') : __('Plan for tomorrow')) +
             '</h2><p>' + esc(fmtDates(horizon[0] || '')) + ' – ' + esc(fmtDates(horizon[horizon.length - 1] || '')) +
             '</p></div><div class="sig-planner-controls">' +
+            '<label>' + __('Mode') + '<select data-planner-mode><option value="DC" ' + (filters.mode === 'DC' ? 'selected' : '') + '>DC</option><option value="Incident" ' + (filters.mode === 'Incident' ? 'selected' : '') + '>Incident</option></select></label>' +
             '<label>' + __('Plan starts') + '<input type="date" readonly value="' + esc(filters.week_start) + '"></label>' +
             '<label class="sig-planner-project-control">' + __('Project / PO') + '<div class="sig-planner-project-link"></div></label>' +
             '<button type="button" class="btn btn-default" data-action="settings">' + __('Planning settings') + '</button>' +
@@ -722,7 +740,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                 '<button type="button" class="btn btn-default" data-export-trace-csv>' + __('Export trace CSV') + '</button></div></section>' : '') +
             '<section class="sig-planner-teams" id="sig-planner-teams"></section><section class="sig-planner-context"><div><div class="sig-planner-context-title">' +
             '<i id="sig-planner-team-dot"></i><h3 id="sig-planner-team-name"></h3>' +
-            (canUpdatePosition() ? '<button type="button" class="btn btn-default sig-planner-update-main" data-action="position">' + __('Update position') + '</button>' : '') +
+            (filters.mode === 'DC' && canUpdatePosition() ? '<button type="button" class="btn btn-default sig-planner-update-main" data-action="position">' + __('Update position') + '</button>' : '') +
             '</div><p id="sig-planner-team-context"></p></div>' +
             '</section><section class="sig-planner-map-card"><div class="sig-planner-live-map-controls">' +
             '<div class="sig-planner-map-segment"><button data-map-base="street" aria-pressed="' + (view.base === 'street') + '">' + __('Road map') +
@@ -743,7 +761,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             '<div id="sig-planner-site-suggestions" class="sig-planner-suggest" role="listbox"></div></div>' +
             '<span class="sig-planner-map-key">' + __('Ring = reported start · numbered pin = proposed stop') + '</span>' +
             '<button type="button" class="sig-planner-expand" data-action="toggle-map-size">' + __('Expand map') + '</button></div></div>' +
-            '<div class="sig-planner-mapbody"></div><div class="sig-planner-sitebox"></div></section>' +
+            classificationWarning + '<div class="sig-planner-mapbody"></div><div class="sig-planner-sitebox"></div></section>' +
             '<div class="sig-planner-tabs" role="tablist"><button role="tab" data-tab="team" aria-selected="true">' + __('Team plan') +
             '</button><button role="tab" data-tab="overall" aria-selected="false">' + __('Overall schedule') + ' <span id="sig-planner-schedule-count"></span></button>' +
             '<button role="tab" data-tab="review" aria-selected="false">' + __('Unplaced & review') + ' <span id="sig-planner-review-count"></span></button>' +
@@ -771,7 +789,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             '</h3><p>' + __('Posted visits, WhatsApp reports and PM updates remain separately identified.') + '</p></div></div><div class="sig-planner-table-wrap">' +
             '<div class="sig-planner-position-table"><table class="sig-planner-positions"><thead><tr><th>' + __('Team') + '</th><th>' + __('Last site') + '</th><th>' + __('Last seen · Riyadh') +
             '</th><th>' + __('Source') + '</th><th>' + __('Position status') + '</th><th></th></tr></thead><tbody>' + renderPositionRows() + '</tbody></table></div></div></section>' +
-            '<footer class="sig-planner-footer"><span>' + __('A visit does not remove an open Stage 2/3 scope from planning · Incident teams are not scheduled') +
+            '<footer class="sig-planner-footer"><span>' + (filters.mode === 'Incident' ? __('Incident workload: {0} hours per site · {1}.', [esc(data.params.scope_hours), filters.scope_hours ? __('custom setting') : __('provisional average')]) : __('A visit does not remove an open Stage 2/3 scope from planning · Incident work is planned in Incident mode.')) +
             '</span><span>' + __('Road connections are proposed sequence, not calculated driving routes.') + '</span></footer></div>');
 
         projectControl = frappe.ui.form.make_control({parent: root.find('.sig-planner-project-link')[0],
@@ -1195,7 +1213,13 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                 const cutoff = r.message && r.message.next_cutoff_at ? Date.parse(r.message.next_cutoff_at) : NaN;
                 if (Number.isFinite(cutoff) && cutoff > Date.now()) cutoffRefreshTimer = setTimeout(load, Math.min(cutoff - Date.now() + 1000, 2147483000));
                 render(r.message);
-            }, error: () => { if (requestSequence === planRequestSequence) { if (captureThisRun) captureTrace = false; root.html(`<p class="sig-planner-foot">${__('Could not load the field plan.')}</p>`); } },
+            }, error: () => { if (requestSequence === planRequestSequence) { if (captureThisRun) captureTrace = false;
+                const incidentHint = filters.mode === 'Incident' ? __('Check that Excel Setup contains enabled Incident teams and that linked ERP Projects are readable.') : '';
+                root.html('<section class="sig-planner-toolbar"><div class="sig-planner-toolbar-title"><h2>' +
+                    (filters.mode === 'Incident' ? __('Incident plan unavailable') : __('Could not load the field plan')) +
+                    '</h2><p>' + incidentHint + '</p></div><button type="button" class="btn btn-default" data-planner-back-dc>' +
+                    __('Return to DC mode') + '</button></section>');
+            } },
         }));
     }
     wrapper.__sigFieldPlannerRefresh = () => {

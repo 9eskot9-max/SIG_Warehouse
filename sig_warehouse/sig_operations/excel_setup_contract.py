@@ -30,7 +30,7 @@ REQUIRED = {
     "teams": ("id", "leader"),
 }
 KINDS = {"purpose_reason", "csv_remarks", "tms_implementer"}
-# Project teams are planned by the Field Planner; Incident teams are labelled and never planned.
+# Project (DC) and Incident teams are planned in separate Field Planner modes.
 TEAM_ARCHETYPES = ("Project", "Incident")
 WORKBOOK_DATASETS = {
     "RV80": ("projects", "builder_profiles", "builder_contacts", "project_builder_links", "tag_definitions", "builder_defaults"),

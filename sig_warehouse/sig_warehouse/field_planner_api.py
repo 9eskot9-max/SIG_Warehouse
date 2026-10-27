@@ -119,10 +119,10 @@ def _projects():
         return []
 
 
-def _position_team_roster():
-    """Enabled Project teams, keyed by the Employee ID recorded in Field Visits."""
+def _position_team_roster(archetype="Project"):
+    """Enabled teams of one archetype, keyed by the Employee ID recorded in Field Visits."""
     return {row["leader"]: row for row in _team_setup()
-            if row["archetype"] == "Project"}
+            if row["archetype"] == archetype}
 
 
 def _latest_manual_positions(leaders):
@@ -168,7 +168,7 @@ def _require_position_manager():
 def update_team_position(team_leader, site):
     """Append a PM-confirmed last-known site for one enabled Project team."""
     _require_position_manager()
-    roster = _position_team_roster()
+    roster = _position_team_roster("Project")
     team_leader = str(team_leader or "").strip()
     site = str(site or "").strip()
     if team_leader not in roster:
@@ -190,7 +190,7 @@ def update_team_position(team_leader, site):
 
 
 @frappe.whitelist()
-def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=None, project=None, capture_trace=0,
+def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=None, project=None, mode="DC", capture_trace=0,
                    search_seed=None, search_iters=None, search_seconds=None, search_accept_equal=False,
                    search_peer_objective=None, search_peer_travel_allowance_hours=0.0):
     """Return the weekly plan: TCN windows are options, trips are placed on the teams that exist, the rest lapse."""
@@ -198,12 +198,28 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
     business_now = _riyadh_now()
     today = business_now.date()
     start = frappe.utils.getdate(week_start) if week_start else frappe.utils.add_days(today, 1)
-    overrides = {"teams": int(_number(teams, 0)) or None, "scope_hours": _number(scope_hours, 0) or None,
+    mode = "Incident" if str(mode or "DC").strip().lower() == "incident" else "DC"
+    team_archetype = "Incident" if mode == "Incident" else "Project"
+    all_teams = _team_setup()
+    team_setup = [team for team in all_teams if team["archetype"] == team_archetype]
+    if mode == "Incident" and not team_setup:
+        frappe.throw("No enabled Incident teams are configured in Excel Setup.")
+    roster_team_count = len(team_setup) if team_setup else planner.DEFAULTS["teams"]
+    requested_teams = int(_number(teams, 0)) or None
+    requested_scope_hours = _number(scope_hours, 0) or None
+    default_scope_hours = 6.0 if mode == "Incident" else planner.DEFAULTS["scope_hours"]
+    overrides = {"teams": requested_teams, "scope_hours": requested_scope_hours or default_scope_hours,
                  "diameter_km": _number(diameter_km, 0) or None}
     configured_travel_mode = str(getattr(frappe, "conf", {}).get("sig_field_planner_travel_mode", "town_mesh")).lower()
     overrides["travel_mode"] = configured_travel_mode if configured_travel_mode in ("town_mesh", "legacy") else "town_mesh"
     overrides = {key: value for key, value in overrides.items() if value}
-    params = dict(planner.DEFAULTS, **overrides)
+    params = dict(planner.DEFAULTS, **overrides, planning_mode=mode)
+    if requested_teams is None:
+        params["teams"] = roster_team_count
+    schedule_overrides = dict(overrides, teams=params["teams"])
+    scope_basis = ("page override: %.1f hours per site" % float(params["scope_hours"]) if requested_scope_hours else
+                   "provisional Incident default: %.1f hours per site" % float(params["scope_hours"]) if mode == "Incident" else
+                   "DC planner default: %.1f hours per site" % float(params["scope_hours"]))
     schedule_dates = planner.planning_days(start, params["work_days"])
     trace_enabled = _trace_export_enabled()
     trace = None
@@ -214,14 +230,16 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
                                 "Rejected randomized optimizer trials are counted but not individually retained.",
                                 "Application revision and authenticated user identity are not stamped."],
                  "inputs": {"parameters": params,
-                            "parameter_sources": {"teams": "page override" if overrides.get("teams") else "planner default until roster is loaded",
-                                                  "scope_hours": "page override" if overrides.get("scope_hours") else "planner default",
+                            "parameter_sources": {"teams": "page override" if requested_teams else "enabled mode roster" if team_setup else "planner fallback",
+                                                  "scope_hours": "page override" if requested_scope_hours else ("provisional Incident default" if mode == "Incident" else "planner default"),
                                                   "diameter_km": "page override" if overrides.get("diameter_km") else "planner default",
                                                   "travel_mode": "site config" if configured_travel_mode in ("town_mesh", "legacy") else "planner default",
                                                   "other parameters": "SIG Warehouse field_planner.DEFAULTS"},
                             "schedule_dates": [str(day) for day in schedule_dates],
-                            "selected_project": project or "All projects", "erp_policy": "Stage 2 scopes plus Stage 3 scopes with Tags outstanding; dated TCNs constrain dates; other dates remain provisional through the preceding-workday 14:00 cutoff.",
-                            "candidate_scope": "Open, non-terminal SIG Site Cycles in stages 2 - Plan and 3 - Handover"},
+                            "selected_project": project or "All projects", "planning_mode": mode,
+                            "scope_hours_basis": scope_basis,
+                            "erp_policy": "Stage 2 scopes plus Stage 3 scopes with Tags outstanding; dated TCNs constrain dates; other dates remain provisional through the preceding-workday 14:00 cutoff.",
+                            "candidate_scope": "Open, non-terminal SIG Site Cycles in stages 2 - Plan and 3 - Handover, matching the selected mode"},
                  "candidate_decisions": [], "evidence_summary": {}}
 
     filters = {"terminal": 0, "stage": ["in", ["2 - Plan", "3 - Handover"]]}
@@ -233,6 +251,22 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
         agreement = frappe.db.get_value("Project", project, "custom_agreement_no")
         cycles = [c for c in cycles if c.get("erp_project") == project
                   or (agreement and str(c.get("po") or "").strip() == str(agreement).strip())]
+    project_index = planner.index_projects(_projects())
+    mode_cycles, mode_classification_warnings = [], []
+    for cycle in cycles:
+        labels = "|".join(str(cycle.get(key) or "") for key in ("project", "po", "erp_project")).lower()
+        linked_project = str(cycle.get("erp_project") or "").strip()
+        linked_record_readable = bool(linked_project and project_index.get(linked_project.lower()))
+        cycle_text = planner.project_text(cycle, project_index)
+        is_incident = "incident" in labels or "incident" in cycle_text
+        if linked_project and not linked_record_readable and "incident" not in labels:
+            mode_classification_warnings.append({"cycle": cycle.get("name"),
+                "site": str(cycle.get("site_id") or cycle.get("site") or "").upper(),
+                "reason": "Linked ERP Project is unavailable to this account; planner mode cannot safely classify this scope."})
+            continue
+        if is_incident == (mode == "Incident"):
+            mode_cycles.append(cycle)
+    cycles = mode_cycles
     names = [cycle["name"] for cycle in cycles]
     events, visits = [], []
     if names:
@@ -259,7 +293,7 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
     # Tags outstanding. A visit is evidence, not a declaration that the scope
     # no longer needs field work.
     candidates, excluded = planner.build_candidates(cycles, windows, visit_days, today, params,
-                                                    planner.index_projects(_projects()), "plan_hold", decisions,
+                                                    project_index, "plan_hold", decisions,
                                                     erp_policy=True, schedule_dates=schedule_dates, now=business_now.replace(tzinfo=None))
 
     if trace is not None:
@@ -314,7 +348,9 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
                                      "excluded_cycles": len(excluded), "dated_tcn_cycles": sum(bool(windows.get(c["name"])) for c in cycles),
                                      "cycles_with_mir": sum(bool(c.get("mir_at")) for c in cycles),
                                      "cycles_with_tags_complete": sum(bool(c.get("tags_at")) for c in cycles),
-                                     "cycles_with_visit_evidence": sum(bool(visit_days.get(c["name"])) for c in cycles)}
+                                     "cycles_with_visit_evidence": sum(bool(visit_days.get(c["name"])) for c in cycles),
+                                     "unresolved_mode_classification": len(mode_classification_warnings)}
+        trace["mode_classification_warnings"] = mode_classification_warnings
         trace["evidence_records"] = {
             "tcn_events": [{"id": event.get("name"), "cycle": event.get("cycle"), "occurred_at": str(event.get("occurred_at") or ""),
                             "recorded_at": str(event.get("recorded_at") or "")} for event in events],
@@ -322,10 +358,11 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
                               "status": visit.get("status") or ""} for visit in trace_visits],
         }
 
-    all_teams = _team_setup()
-    team_setup = [t for t in all_teams if t["archetype"] == "Project"]     # Incident teams are never planned
     team_visits = []
-    manual_positions = _latest_manual_positions([t["leader"] for t in team_setup])
+    # PM-entered start positions belong to DC planning only. Incident mode
+    # starts from the latest field visit and must not inherit an older DC override.
+    manual_positions = (_latest_manual_positions([t["leader"] for t in team_setup])
+                        if mode == "DC" else {})
     if all_teams:
         team_visits = [dict(v) for v in frappe.get_all(
             "SIG Field Visit", filters={"employee": ["in", [t["leader"] for t in all_teams]],
@@ -352,11 +389,13 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
                 coords[(row.name or "").upper()] = (float(row.site_latitude), float(row.site_longitude))
 
     positions = planner.team_positions(team_setup, team_visits, coords, today)
-    for position in positions:
-        _set_manual_position(position, manual_positions.get(position["leader"]), coords, today)
-    positions += [{"leader": t["leader"], "team": t["team"], "phone": t["phone"], "site": "", "seen_at": "",
-                   "on_site": False, "age_days": None, "state": "Incident", "lat": None, "lon": None}
-                  for t in all_teams if t["archetype"] == "Incident"]
+    if mode == "DC":
+        for position in positions:
+            _set_manual_position(position, manual_positions.get(position["leader"]), coords, today)
+    if mode == "DC":
+        positions += [{"leader": t["leader"], "team": t["team"], "phone": t["phone"], "site": "", "seen_at": "",
+                       "on_site": False, "age_days": None, "state": "Incident", "lat": None, "lon": None}
+                      for t in all_teams if t["archetype"] == "Incident"]
     if trace is not None:
         trace["inputs"]["team_positions"] = [{"leader": p.get("leader"), "team": p.get("team"), "site": p.get("site"),
                                                "seen_at": p.get("seen_at"), "source": p.get("source"),
@@ -371,8 +410,8 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
         starts = [(p["lat"], p["lon"]) if p["state"] == "Current" else None for p in planned][:count]
         starts += [None] * (count - len(starts))
         names = {i + 1: p["team"] for i, p in enumerate(planned[:count])}
-    clustered = planner.plan_week(candidates, coords, start, overrides, schedule_singletons=True, trace=trace)
-    plan = continuity.schedule_continuity(clustered, coords, start, overrides, starts, names, trace=trace,
+    clustered = planner.plan_week(candidates, coords, start, schedule_overrides, schedule_singletons=True, trace=trace)
+    plan = continuity.schedule_continuity(clustered, coords, start, schedule_overrides, starts, names, trace=trace,
                                          search_seed=search_seed, search_iters=search_iters,
                                          search_seconds=search_seconds, search_accept_equal=search_accept_equal,
                                          search_peer_objective=search_peer_objective,
@@ -405,6 +444,12 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
                        if planner.tcn_cutoff(day) > business_now.replace(tzinfo=None)), default=None)
     cutoff_text = next_cutoff.replace(tzinfo=business_now.tzinfo).isoformat() if next_cutoff else ""
     result = _present(plan, coords, cutoff_text)
+    result["planning_mode"] = mode
+    result["params"]["planning_mode"] = mode
+    result["summary"]["planning_mode"] = mode
+    result["summary"]["scope_hours_per_site"] = float(params["scope_hours"])
+    result["summary"]["scope_hours_basis"] = scope_basis
+    result["mode_classification_warnings"] = mode_classification_warnings
     result["scheduler_objective"] = plan.get("objective")
     result["trace_export_enabled"] = trace_enabled
     if trace is not None:
@@ -638,7 +683,7 @@ def _call_openai_schedule_picker(api_key, candidates):
 
 
 @frappe.whitelist(methods=["POST"])
-def recommend_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=None, project=None):
+def recommend_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=None, project=None, mode="DC"):
     """Compare same-input ERP schedules and return an AI recommendation; never saves or publishes the choice."""
     _require_access()
     if not _site_config_enabled("sig_field_planner_ai_selection_enabled"):
@@ -649,7 +694,7 @@ def recommend_field_plan(week_start=None, teams=None, scope_hours=None, diameter
     if not api_key:
         frappe.throw("Configure the Field Planner OpenAI key in the server-side secret settings first.")
     base_args = {"week_start": week_start, "teams": teams, "scope_hours": scope_hours,
-                 "diameter_km": diameter_km, "project": project}
+                 "diameter_km": diameter_km, "project": project, "mode": mode}
     seeds = [continuity.SEARCH["seed"] + offset for offset in range(6)]
     generated = []
     input_hash = None
