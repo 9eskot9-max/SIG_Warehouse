@@ -503,7 +503,9 @@ def _call_openai_schedule_picker(api_key, candidates):
         "safe choice, set needs_human_review true. Reasons must refer only to supplied fields."
     )
     body = {"model": "gpt-6-luna", "reasoning": {"effort": "high"}, "store": False,
-            "max_output_tokens": 900,
+            # High reasoning effort counts toward the response token budget. Keep enough
+            # room for the schema-constrained JSON choice after reasoning is complete.
+            "max_output_tokens": 3000,
             "input": [{"role": "system", "content": instructions},
                       {"role": "user", "content": json.dumps({"candidates": candidates}, separators=(",", ":"))}],
             "text": {"format": {"type": "json_schema", "name": "planner_schedule_choice", "strict": True,
@@ -529,6 +531,19 @@ def _call_openai_schedule_picker(api_key, candidates):
     try:
         choice = json.loads(output_text)
     except (TypeError, ValueError):
+        output_types = sorted({str(part.get("type") or "unknown")
+                               for item in payload.get("output") or []
+                               for part in item.get("content") or []})
+        details = payload.get("incomplete_details") or {}
+        # Keep provider text and candidate data out of Error Log; these fields are
+        # sufficient to distinguish refusal, token exhaustion and an empty response.
+        frappe.log_error(json.dumps({"status": payload.get("status"),
+                                     "incomplete_reason": details.get("reason"),
+                                     "output_item_types": sorted({str(item.get("type") or "unknown")
+                                                                   for item in payload.get("output") or []}),
+                                     "content_types": output_types,
+                                     "output_text_length": len(output_text)}, separators=(",", ":")),
+                         "Field Planner AI unreadable response")
         frappe.throw("AI schedule review returned an unreadable choice. The ERP plan is unchanged.")
     if choice.get("selected_candidate_id") not in candidate_ids:
         frappe.throw("AI selected a schedule outside the ERP candidate set. The ERP plan is unchanged.")
