@@ -248,7 +248,7 @@ def _best_insert(routes, trip, teams, days_n, params, starts, trace=None):
 
 
 def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, names=None, trace=None,
-                        search_seed=None, search_iters=None, search_seconds=None):
+                        search_seed=None, search_iters=None, search_seconds=None, search_accept_equal=False):
     """starts: one (lat, lon) or None per team, where that team stands when the week opens; it also sets the number of
     teams. names: team number (1-based) -> display name (the leader)."""
     params = dict(fp.DEFAULTS)
@@ -266,6 +266,7 @@ def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, n
         search["iters"] = max(0, min(int(search_iters), SEARCH["iters"]))
     if search_seconds is not None:
         search["seconds"] = max(0.0, min(float(search_seconds), SEARCH["seconds"]))
+    search["accept_equal_scores"] = bool(search_accept_equal)
     starts = list(starts or []) + [None] * (teams - len(starts or []))
     live = [c for c in plan["clusters"] if c["kind"] != "Deferred"]
     waiting = [c for c in plan["clusters"] if c["kind"] == "Deferred"]
@@ -282,8 +283,9 @@ def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, n
                                      "search_components": ["Must trips", "TCN dates met", "priority-class × sites", "gross value", "lower travel"],
                                      "priority_order": ["Must", "TCN dates met", "priority-class × site count",
                                                         "gross value", "lower travel"],
-                                     "search_logging": "All initial team/order insertion alternatives are retained. Search records attempted-move count and accepted objective improvements; rejected randomized search trials are not retained."},
-                      "initial_placement": [], "improvement": {"attempted_moves": 0, "accepted_changes": []},
+                                     "search_logging": "All initial team/order insertion alternatives are retained. Search records strict objective improvements and counts optional equal-score route perturbations; rejected randomized trials are not retained."},
+                      "initial_placement": [], "improvement": {"attempted_moves": 0, "accepted_changes": [],
+                                                                  "equal_score_moves": 0},
                       "travel_estimates": []})
 
     routes = [[] for _ in range(teams)]
@@ -340,27 +342,32 @@ def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, n
             new[t].insert(rng.randrange(len(new[t]) + 1), trip)
         evals += 1
         score = _objective(new, days_n, params, starts)
-        if score is not None and (current is None or score > current):
+        strict_improvement = score is not None and (current is None or score > current)
+        equal_move = (search_accept_equal and score is not None and score == current and rng.random() < 0.15)
+        if strict_improvement or equal_move:
             old_routes = routes
             old_score = current
             routes, current = new, score
             if trace is not None:
-                trace_started = time.monotonic()
-                component_labels = ["Must trips", "TCN dates met", "priority-class × sites", "gross value", "lower travel"]
-                first_changed = next((index for index, (before, after) in enumerate(zip(old_score or (), score))
-                                      if before != after), None)
-                old_assignment = _route_trace_snapshot(old_routes, days_n, params, starts, work_dates)
-                new_assignment = _route_trace_snapshot(routes, days_n, params, starts, work_dates)
-                trace["improvement"]["accepted_changes"].append({
-                    "evaluation": evals, "objective_before": list(old_score) if old_score is not None else None,
-                    "objective_after": list(score),
-                    "first_improved_component": component_labels[first_changed] if first_changed is not None else "",
-                    "trip_changes": [{"trip": trip_id, "before": old_assignment.get(trip_id),
-                                      "after": new_assignment.get(trip_id)}
-                                     for trip_id in sorted(set(old_assignment) | set(new_assignment))
-                                     if old_assignment.get(trip_id) != new_assignment.get(trip_id)],
-                })
-                trace_overhead += time.monotonic() - trace_started
+                if equal_move and not strict_improvement:
+                    trace["improvement"]["equal_score_moves"] += 1
+                else:
+                    trace_started = time.monotonic()
+                    component_labels = ["Must trips", "TCN dates met", "priority-class × sites", "gross value", "lower travel"]
+                    first_changed = next((index for index, (before, after) in enumerate(zip(old_score or (), score))
+                                          if before != after), None)
+                    old_assignment = _route_trace_snapshot(old_routes, days_n, params, starts, work_dates)
+                    new_assignment = _route_trace_snapshot(routes, days_n, params, starts, work_dates)
+                    trace["improvement"]["accepted_changes"].append({
+                        "evaluation": evals, "objective_before": list(old_score) if old_score is not None else None,
+                        "objective_after": list(score),
+                        "first_improved_component": component_labels[first_changed] if first_changed is not None else "",
+                        "trip_changes": [{"trip": trip_id, "before": old_assignment.get(trip_id),
+                                          "after": new_assignment.get(trip_id)}
+                                         for trip_id in sorted(set(old_assignment) | set(new_assignment))
+                                         if old_assignment.get(trip_id) != new_assignment.get(trip_id)],
+                    })
+                    trace_overhead += time.monotonic() - trace_started
             placed_ids = {x["id"] for r in routes for x in r}
             for k in list(lapsed):
                 if k in placed_ids:

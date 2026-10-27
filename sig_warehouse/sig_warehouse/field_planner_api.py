@@ -190,7 +190,7 @@ def update_team_position(team_leader, site):
 
 @frappe.whitelist()
 def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=None, project=None, capture_trace=0,
-                   search_seed=None, search_iters=None, search_seconds=None):
+                   search_seed=None, search_iters=None, search_seconds=None, search_accept_equal=False):
     """Return the weekly plan: TCN windows are options, trips are placed on the teams that exist, the rest lapse."""
     _require_access()
     business_now = _riyadh_now()
@@ -372,7 +372,7 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
     clustered = planner.plan_week(candidates, coords, start, overrides, schedule_singletons=True, trace=trace)
     plan = continuity.schedule_continuity(clustered, coords, start, overrides, starts, names, trace=trace,
                                          search_seed=search_seed, search_iters=search_iters,
-                                         search_seconds=search_seconds)
+                                         search_seconds=search_seconds, search_accept_equal=search_accept_equal)
     if trace is not None:
         trace["inputs"]["coordinates_used"] = {site: [lat, lon] for site, (lat, lon) in coords.items()}
         trace["diagnostics"] = []
@@ -556,7 +556,8 @@ def recommend_field_plan(week_start=None, teams=None, scope_hours=None, diameter
     generated = []
     input_hash = None
     for index, seed in enumerate(seeds):
-        data = get_field_plan(**dict(base_args, capture_trace=1, search_seed=seed))
+        data = get_field_plan(**dict(base_args, capture_trace=1, search_seed=seed,
+                                     search_accept_equal=(index > 0)))
         current_hash = _planner_input_hash(data)
         if not current_hash or not data.get("decision_trace"):
             frappe.throw("A traceable ERP snapshot is required; the ERP plan is unchanged.")
