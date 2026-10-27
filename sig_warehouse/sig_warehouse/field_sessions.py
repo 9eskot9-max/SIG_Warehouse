@@ -31,6 +31,9 @@ STREAM_BY_GROUP = {
 ACTIVITIES = {"SURVEY", "INSTALL", "HANDOVER", "WARRANTY", "DISMANTLE", "SNAG"}
 ACTIVITY_ALIAS = {"HO": "HANDOVER", "INSTALLATION": "INSTALL", "IMPLEMENT": "INSTALL"}
 
+# Accept mixed alphanumeric site IDs such as Z8D011 as well as the legacy
+# letter-prefix IDs and numeric-hyphen IDs. The site master lookup below decides
+# whether a captured candidate is linked; syntax alone must not discard a visit.
 _SITE = re.compile(r"(?<![A-Za-z0-9])([A-Za-z0-9]{4,12}|\d{3}-\d{2}-\d{3})(?![A-Za-z0-9])")
 _SITE_TOKEN = re.compile(r"(?<![A-Za-z0-9])([A-Za-z0-9-]{3,32})(?![A-Za-z0-9])")
 _CMD = re.compile(r"(?<![A-Za-z])(start|end)(?![A-Za-z])", re.I)
@@ -44,13 +47,13 @@ def parse_ts(s):
     return datetime.strptime(s[:19], "%Y-%m-%d %H:%M:%S")
 
 
-# ---------------------------------------------------------------- classify
 def _site_lookup(known_sites):
     if isinstance(known_sites, dict):
         return known_sites
-    return {str(site).upper(): str(site) for site in (known_sites or [])}
+    return {str(x).upper(): str(x) for x in (known_sites or [])}
 
 
+# ---------------------------------------------------------------- classify
 def classify_text(text, known_sites=None):
     """-> (kind, site, activity_raw, activity_code); kind is START | END | OTHER."""
     t = (text or "").strip()
@@ -61,8 +64,10 @@ def classify_text(text, known_sites=None):
         return "OTHER", None, None, None
     kind = m.group(1).upper()
     rest = t[:m.start()] + " " + t[m.end():]
-    lookup = _site_lookup(known_sites)
     site = None
+    # Prefer exact IDs from ERP's Site master, including IDs whose characters
+    # don't fit a generic code pattern.
+    lookup = _site_lookup(known_sites)
     for sm in _SITE_TOKEN.finditer(rest):
         registered = lookup.get(sm.group(1).upper())
         if registered:
@@ -71,6 +76,8 @@ def classify_text(text, known_sites=None):
     if site is None:
         for sm in _SITE.finditer(rest):
             candidate = sm.group(1).upper()
+            # Site IDs are alphanumeric identifiers, not ordinary words or dates.
+            # Keep numeric-hyphen IDs supported by the older grammar.
             if re.fullmatch(r"\d{3}-\d{2}-\d{3}", candidate) or (
                     any(c.isalpha() for c in candidate) and any(c.isdigit() for c in candidate)):
                 site = candidate
@@ -121,6 +128,10 @@ def assemble(messages, now, known_sites=None, reparse_from=None):
     seen = set()
     site_lookup = _site_lookup(known_sites)
     reparse_cutoff = parse_ts(reparse_from) if isinstance(reparse_from, str) else reparse_from
+
+    # Re-parse stored raw text when an earlier feed version failed to capture a
+    # site key. This lets the normal rolling reassembly recover recent messages
+    # after parser rules improve without requiring a historical import.
     prepared = []
     for msg in messages:
         if (reparse_cutoff and msg.get("at") >= reparse_cutoff and
@@ -191,19 +202,18 @@ def assemble(messages, now, known_sites=None, reparse_from=None):
                 elif len(mine) > 1:
                     new_exc(msg, "AMBIGUOUS_END_TARGET", "several open sessions at this site for this reporter")
                     continue
-                else:
+                elif not same:
+                    # If Start lacked a parseable site, a single site-less open
+                    # session from this reporter can safely inherit the End's code.
                     unresolved = [s for s in opens if s["reporter"] == msg["reporter"] and not s["site"]]
                     if len(unresolved) == 1:
                         target = unresolved[0]
                         target["site"] = msg["site"]
-                    elif len(unresolved) > 1:
-                        new_exc(msg, "AMBIGUOUS_END_TARGET", "several unresolved open sessions for this reporter")
-                        continue
-                    elif len(same) == 1:
-                        target, diag = same[0], "END_REPORTER_DIFFERENT"
-                    elif len(same) > 1:
-                        new_exc(msg, "AMBIGUOUS_END_TARGET", "several open sessions at this site")
-                        continue
+                elif len(same) == 1 and not mine:
+                    target, diag = same[0], "END_REPORTER_DIFFERENT"
+                elif len(same) > 1:
+                    new_exc(msg, "AMBIGUOUS_END_TARGET", "several open sessions at this site")
+                    continue
             else:
                 mine = [s for s in opens if s["reporter"] == msg["reporter"]]
                 if len(mine) == 1:

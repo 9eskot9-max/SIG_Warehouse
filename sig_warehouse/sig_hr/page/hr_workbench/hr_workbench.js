@@ -28,6 +28,17 @@ frappe.pages['hr-workbench'].on_page_load = function (wrapper) {
         {variant: 'blue', title: __('Custody ledger balances'), description: __('Every 1322 custody ledger with its employee, balance, and last posting.'), icon: 'book', doctype: ONB, report: 'SIG Custody Ledger Balances', route: ['query-report', 'SIG Custody Ledger Balances']}
     ];
 
+    // Keep punches distinct from finalized Attendance documents: the WhatsApp pipe currently
+    // lands in Employee Checkin, while Auto Attendance / the Attendance register is a separate
+    // HR process. These links expose the existing records without implying that punches were
+    // already reconciled into Attendance.
+    const attendance = [
+        {variant: 'cyan', title: __('Employee check-ins'), description: __('Recorded attendance punches from WhatsApp and office sign-in.'), icon: 'clock-o', doctype: 'Employee Checkin', route: ['List', 'Employee Checkin', 'List']},
+        {variant: 'blue', title: __('Office sign-ins today'), description: __('Expected office sign-ins, first IN, last OUT, leave, and current status.'), icon: 'calendar-check-o', doctype: 'Employee Checkin', report: 'SIG Attendance Today', route: ['query-report', 'SIG Attendance Today']},
+        {variant: 'slate', title: __('Attendance dashboard'), description: __('Daily attendance totals and trends from finalized Attendance records.'), icon: 'bar-chart', doctype: 'Attendance', route: ['dashboard-view', 'Attendance']},
+        {variant: 'slate', title: __('Monthly attendance sheet'), description: __('The standard monthly Attendance register.'), icon: 'table', doctype: 'Attendance', report: 'Monthly Attendance Sheet', route: ['query-report', 'Monthly Attendance Sheet']}
+    ];
+
     const attention = [
         {variant: 'bad', title: __('Iqama expired'), description: __('Active employees past their Iqama expiry (from the monthly Muqeem upload).'), doctype: 'Employee', route: ['List', 'Employee', 'List'], routeOptions: {status: 'Active', custom_iqama_expiry_date: ['<', today]},
             metric: {key: 'iqama-expired', filters: [ACTIVE, ['Employee', 'custom_iqama_expiry_date', '<', today]]}},
@@ -111,6 +122,7 @@ frappe.pages['hr-workbench'].on_page_load = function (wrapper) {
                 <span class="sig-hr-header-mark" aria-hidden="true"><i class="fa fa-users"></i></span></div>
         </header>
         ${section(__('Daily people work'), __('Open the employee records and the onboarding checks.'), daily, false)}
+        ${section(__('Attendance'), __('Review recorded punches, office sign-ins, and the standard attendance register.'), attendance)}
         ${section(__('Needs attention'), __('Counts that need action today.'), attention)}
         ${section(__('Compliance'), __('Renewal queues filtered by expiry date, and your open tasks.'), compliance)}
         ${section(__('Data quality'), __('Gaps that block WhatsApp, logins, or custody postings.'), quality)}
