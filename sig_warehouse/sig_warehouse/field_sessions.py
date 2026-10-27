@@ -31,7 +31,8 @@ STREAM_BY_GROUP = {
 ACTIVITIES = {"SURVEY", "INSTALL", "HANDOVER", "WARRANTY", "DISMANTLE", "SNAG"}
 ACTIVITY_ALIAS = {"HO": "HANDOVER", "INSTALLATION": "INSTALL", "IMPLEMENT": "INSTALL"}
 
-_SITE = re.compile(r"(?<![A-Za-z0-9])([A-Za-z]{1,4}\d{3,5}(?:[A-Za-z]\d{0,2})?|\d{3}-\d{2}-\d{3})(?![A-Za-z0-9])")
+_SITE = re.compile(r"(?<![A-Za-z0-9])([A-Za-z0-9]{4,12}|\d{3}-\d{2}-\d{3})(?![A-Za-z0-9])")
+_SITE_TOKEN = re.compile(r"(?<![A-Za-z0-9])([A-Za-z0-9-]{3,32})(?![A-Za-z0-9])")
 _CMD = re.compile(r"(?<![A-Za-z])(start|end)(?![A-Za-z])", re.I)
 
 
@@ -44,7 +45,13 @@ def parse_ts(s):
 
 
 # ---------------------------------------------------------------- classify
-def classify_text(text):
+def _site_lookup(known_sites):
+    if isinstance(known_sites, dict):
+        return known_sites
+    return {str(site).upper(): str(site) for site in (known_sites or [])}
+
+
+def classify_text(text, known_sites=None):
     """-> (kind, site, activity_raw, activity_code); kind is START | END | OTHER."""
     t = (text or "").strip()
     if not t or len(t) > MAX_TEXT:
@@ -54,9 +61,21 @@ def classify_text(text):
         return "OTHER", None, None, None
     kind = m.group(1).upper()
     rest = t[:m.start()] + " " + t[m.end():]
-    sm = _SITE.search(rest)
-    site = sm.group(1).upper() if sm else None
-    if site is None and len(re.findall(r"\w+", t)) > 3:
+    lookup = _site_lookup(known_sites)
+    site = None
+    for sm in _SITE_TOKEN.finditer(rest):
+        registered = lookup.get(sm.group(1).upper())
+        if registered:
+            site = registered
+            break
+    if site is None:
+        for sm in _SITE.finditer(rest):
+            candidate = sm.group(1).upper()
+            if re.fullmatch(r"\d{3}-\d{2}-\d{3}", candidate) or (
+                    any(c.isalpha() for c in candidate) and any(c.isdigit() for c in candidate)):
+                site = candidate
+                break
+    if site is None and len(re.findall(r"\w+", t)) > 3 and m.start() > 0:
         return "OTHER", None, None, None      # "Please start the activity" is conversation, not a command
     act_raw = act_code = None
     if kind == "START":
@@ -71,7 +90,7 @@ def classify_text(text):
     return kind, site, act_raw, act_code
 
 
-def parse_row(row):
+def parse_row(row, known_sites=None):
     """Inbox row (ReceivedAt, Payload, MsgId, Conversation, MsgType) -> message dict or None."""
     received, payload, msgid, conv, mtype = row
     stream = STREAM_BY_GROUP.get(conv)
@@ -84,7 +103,7 @@ def parse_row(row):
     except (ValueError, AttributeError):
         return None
     text = (m.get("text") or m.get("caption") or "") if mtype == "text" else ""
-    kind, site, act_raw, act_code = classify_text(text) if mtype == "text" else ("MEDIA", None, None, None)
+    kind, site, act_raw, act_code = classify_text(text, known_sites) if mtype == "text" else ("MEDIA", None, None, None)
     phone = str(user.get("phone") or re.sub(r"\D", "", str(user.get("id") or "")) or "")
     return {
         "msg_key": msgid, "at": parse_ts(received), "stream": stream, "group": conv,
@@ -94,12 +113,23 @@ def parse_row(row):
 
 
 # ---------------------------------------------------------------- assemble
-def assemble(messages, now, known_sites=None):
+def assemble(messages, now, known_sites=None, reparse_from=None):
     """Messages -> (sessions, exceptions). Sessions: COMPLETED / AUTO_CLOSED / OPEN."""
     sessions, exceptions = [], []
     open_by_stream = {}       # stream -> list of open sessions
     last_closed = {}          # (stream, reporter, site) -> session
     seen = set()
+    site_lookup = _site_lookup(known_sites)
+    reparse_cutoff = parse_ts(reparse_from) if isinstance(reparse_from, str) else reparse_from
+    prepared = []
+    for msg in messages:
+        if (reparse_cutoff and msg.get("at") >= reparse_cutoff and
+                msg.get("kind") in ("START", "END") and not msg.get("site") and msg.get("text")):
+            kind, site, _, _ = classify_text(msg["text"], site_lookup)
+            if kind == msg["kind"] and site:
+                msg = dict(msg)
+                msg["site"] = site
+        prepared.append(msg)
 
     def new_exc(msg, code, note=""):
         exceptions.append({"code": code, "msg_key": msg["msg_key"], "at": fmt(msg["at"]), "stream": msg["stream"], "site": msg["site"],
@@ -120,7 +150,7 @@ def assemble(messages, now, known_sites=None):
             elif at - s["last_activity"] > timedelta(hours=GRACE_HOURS):
                 close(s, s["last_activity"], "AUTO_CLOSED", "START_WITHOUT_END")
 
-    for msg in sorted(messages, key=lambda m: (m["at"], m["msg_key"])):
+    for msg in sorted(prepared, key=lambda m: (m["at"], m["msg_key"])):
         if msg["msg_key"] in seen:
             continue
         seen.add(msg["msg_key"])
@@ -135,9 +165,6 @@ def assemble(messages, now, known_sites=None):
                     s["photos"] += 1
 
         if msg["kind"] == "START":
-            if not msg["site"]:
-                new_exc(msg, "START_UNRESOLVED_SITE", "Start with no site code")
-                continue
             dup = next((s for s in opens if s["reporter"] == msg["reporter"] and s["site"] == msg["site"]
                         and msg["at"] - s["start_at"] <= timedelta(minutes=DUP_START_MIN)), None)
             if dup:
@@ -161,11 +188,22 @@ def assemble(messages, now, known_sites=None):
                 mine = [s for s in same if s["reporter"] == msg["reporter"]]
                 if len(mine) == 1:
                     target = mine[0]
-                elif len(same) == 1 and not mine:
-                    target, diag = same[0], "END_REPORTER_DIFFERENT"
-                elif len(same) > 1:
-                    new_exc(msg, "AMBIGUOUS_END_TARGET", "several open sessions at this site")
+                elif len(mine) > 1:
+                    new_exc(msg, "AMBIGUOUS_END_TARGET", "several open sessions at this site for this reporter")
                     continue
+                else:
+                    unresolved = [s for s in opens if s["reporter"] == msg["reporter"] and not s["site"]]
+                    if len(unresolved) == 1:
+                        target = unresolved[0]
+                        target["site"] = msg["site"]
+                    elif len(unresolved) > 1:
+                        new_exc(msg, "AMBIGUOUS_END_TARGET", "several unresolved open sessions for this reporter")
+                        continue
+                    elif len(same) == 1:
+                        target, diag = same[0], "END_REPORTER_DIFFERENT"
+                    elif len(same) > 1:
+                        new_exc(msg, "AMBIGUOUS_END_TARGET", "several open sessions at this site")
+                        continue
             else:
                 mine = [s for s in opens if s["reporter"] == msg["reporter"]]
                 if len(mine) == 1:
@@ -193,8 +231,9 @@ def assemble(messages, now, known_sites=None):
     for st in list(open_by_stream):
         expire(st, now)
     for s in sessions:
-        if known_sites is not None and s["site"] not in known_sites:
-            s["diagnostics"].append("UNRESOLVED_SITE")
+        if not s["site"] or (known_sites is not None and s["site"] not in known_sites):
+            if "UNRESOLVED_SITE" not in s["diagnostics"]:
+                s["diagnostics"].append("UNRESOLVED_SITE")
     return sessions, exceptions
 
 

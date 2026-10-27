@@ -102,8 +102,9 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
         const cyc = row.cycle;
         const projectLine = cyc ? (cyc.is_temporary ? '—' : `${esc(cyc.project)}${cyc.wo ? ' · ' + esc(cyc.wo) : ''}`) : `<span class="text-muted">${__('no cycle yet')}</span>`;
         const when = `${dt(row.start_at)}${row.end_at ? '–' + timeOnly(row.end_at) : ''}`;
+        const siteLabel = row.site_linked ? row.site : (row.site ? `${row.site} (${__('Unresolved')})` : __('Unresolved site'));
         return `<tr class="sig-sv-row" data-name="${esc(row.name)}">
-            <td><b>${esc(row.site)}</b><br><span class="text-muted small">${projectLine}</span></td>
+            <td><b>${esc(siteLabel)}</b><br><span class="text-muted small">${projectLine}</span></td>
             <td>${esc(row.reporter_name)}<br><span class="text-muted small">${when}</span></td>
             <td>${row.hours != null ? row.hours + 'h' : '—'}<br><span class="text-muted small">${row.photo_count} ${__('photos')}</span></td>
             <td>${esc(row.activity_code || 'UNSPECIFIED')}<br><span class="text-muted small">${esc(row.stream_label)}</span></td>

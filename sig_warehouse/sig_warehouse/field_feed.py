@@ -89,7 +89,9 @@ def _upsert_sessions(sessions, trusted_from, sites, emp_by_phone):
         if not emp:
             diags.append("NO_EMPLOYEE_FOR_PHONE")
         started = fs.fmt(s["start_at"])
-        if started <= ERP_LAST_VISIT and s["status"] != "OPEN":
+        if "UNRESOLVED_SITE" in diags:
+            disposition = "REVIEW"
+        elif started <= ERP_LAST_VISIT and s["status"] != "OPEN":
             disposition = "IN_ERP_WINDOW"
         elif "AMBIGUOUS_SESSION_OWNER" in diags or "END_REPORTER_DIFFERENT" in diags or "BARE_END_PROJECT_FALLBACK" in diags:
             disposition = "REVIEW"
@@ -104,8 +106,13 @@ def _upsert_sessions(sessions, trusted_from, sites, emp_by_phone):
             "activity_code": s["activity_code"], "photo_count": s["photos"], "diagnostics": ",".join(diags),
             "disposition": disposition, "start_msg": s["start_msg"], "end_msg": s["end_msg"],
         }
-        if frappe.db.exists("SIG Field Session", s["session_key"]):
-            existing = frappe.db.get_value("SIG Field Session", s["session_key"],
+        existing_name = frappe.db.exists("SIG Field Session", s["session_key"])
+        if not existing_name:
+            existing_name = frappe.db.get_value("SIG Field Session",
+                                                {"stream": s["stream"], "group": s["group"],
+                                                 "start_msg": s["start_msg"]}, "name")
+        if existing_name:
+            existing = frappe.db.get_value("SIG Field Session", existing_name,
                                            ["posted", "corrected_by", "diagnostics"], as_dict=True)
             if existing.posted or existing.corrected_by:
                 continue  # posted or PM-corrected (site_visits.py) sessions are immutable here;
@@ -114,7 +121,7 @@ def _upsert_sessions(sessions, trusted_from, sites, emp_by_phone):
                 if "CYCLE_ATTRIBUTION_EXCEPTION" not in values["diagnostics"]:
                     values["diagnostics"] = (values["diagnostics"] + ",CYCLE_ATTRIBUTION_EXCEPTION").strip(",")
                 values["disposition"] = "REVIEW"
-            frappe.db.set_value("SIG Field Session", s["session_key"], values, update_modified=False)
+            frappe.db.set_value("SIG Field Session", existing_name, values, update_modified=False)
         else:
             frappe.get_doc(dict(doctype="SIG Field Session", session_key=s["session_key"], **values)).insert(
                 ignore_permissions=True)
@@ -160,6 +167,8 @@ def post_session(name, force=False, cycle_hint=None):
     s = frappe.get_doc("SIG Field Session", name)
     if s.posted:
         return {"result": "already_posted"}
+    if not s.site_key:
+        return {"result": "not_eligible", "reason": "UNRESOLVED_SITE"}
     attribution_review = bool(cycle_hint and s.disposition == "REVIEW" and
                               "CYCLE_ATTRIBUTION_EXCEPTION" in (s.diagnostics or ""))
     if not force and (s.status != "COMPLETED" or (s.disposition != "PENDING" and not attribution_review)):
@@ -285,11 +294,13 @@ def run_feed(rebuild=False):
         cursor = int(st.get("feed_cursor") or 0)
         if not cursor:
             cursor = fs.first_row_at_or_after(BACKFILL_FROM + " 00:00:00")
+        sites = set(frappe.get_all("SIG Site", pluck="name", limit_page_length=0))
+        site_lookup = {str(site).upper(): str(site) for site in sites}
         rows, last_n, caught_up, last_row_at = [], cursor, True, None
         for n, row in fs.fetch_rows(cursor):
             last_n = n
             last_row_at = row[0]
-            msg = fs.parse_row(row)
+            msg = fs.parse_row(row, known_sites=site_lookup)
             if msg and msg["kind"] in ("START", "END", "MEDIA"):
                 rows.append(msg)
             if n - cursor >= MAX_ROWS_PER_RUN:
@@ -306,8 +317,9 @@ def run_feed(rebuild=False):
         window_start = "2000-01-01 00:00:00" if full else fs.fmt(ref - timedelta(hours=WINDOW_HOURS))
         trusted_from = "2000-01-01 00:00:00" if full else fs.fmt(ref - timedelta(hours=WINDOW_HOURS - 24))
         window = _load_window(window_start)
-        sites = set(frappe.get_all("SIG Site", pluck="name", limit_page_length=0))
-        sessions, exceptions = fs.assemble(window, ref, known_sites=sites)
+        sessions, exceptions = fs.assemble(
+            window, ref, known_sites=sites,
+            reparse_from=fs.fmt(ref - timedelta(hours=WINDOW_HOURS)))
         touched = _upsert_sessions(sessions, trusted_from, sites, _employee_by_phone())
         for e in exceptions:
             if e["at"] >= trusted_from and frappe.db.exists("SIG Field Message", e["msg_key"]):
