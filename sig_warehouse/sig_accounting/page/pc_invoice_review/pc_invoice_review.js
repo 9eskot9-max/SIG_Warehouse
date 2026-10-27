@@ -13,7 +13,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
     const q = (sel) => el.querySelector(sel);
 
     const CATEGORIES = ['Fuel/Disel', 'Hotel Rent', 'Food expenses', 'Equipment Rental', 'Car Maintanence', 'Construction/Operational Material', 'Vehicle OIL change', 'Vehicle Other Misc.', 'Drinking water', 'Medical expenses', 'Phone bill', 'Trailer Rent', 'Dyna Rent', 'Work Labor', 'Car Spare Parts', 'Others', 'Air-Ticket', 'Bus Ticket', 'Fax', 'Iqama fees', 'Office rental', 'Stationaries', 'Taxi', 'Train ticket', 'VISA fees', 'Xerox Copy', 'Fork Lift Rent', 'Pickup Rent', 'Office - Housekeeping', 'Warehouse misc.'];
-    const FIELDS = ['name', 'modified', 'employee_name', 'transaction_date', 'amount', 'purpose', 'transaction_category', 'has_vat', 'vat_amount', 'supplier_vat_number', 'merchant', 'invoice_number', 'details', 'source_id', 'source_media_url', 'source_row_url'];
+    const FIELDS = ['name', 'modified', 'employee_name', 'transaction_date', 'amount', 'purpose', 'transaction_category', 'has_vat', 'vat_amount', 'supplier_vat_number', 'merchant', 'invoice_number', 'details', 'source_id', 'source_media_url', 'source_row_url', 'archive_status', 'last_archive_error'];
     const VAT_RATE = 0.15;
     const REVIEWERS = ['System Manager', 'Accounts User', 'Accounts Manager', 'Operations User', 'Operations Manager', 'SIG PC Clearance'];
     const FINANCE = ['System Manager', 'Accounts User', 'Accounts Manager', 'SIG Finance Viewer'];
@@ -308,16 +308,17 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
         return `<article class="sig-pc-card-review" data-name="${esc(x.name)}"><div class="sig-pc-photo">${viewer(x.source_media_url)}</div><div class="sig-pc-side">
             <div class="sig-pc-title">${__('Receipt details')}</div>
             ${dup}
+            ${x.archive_status === 'Failed' ? `<p class="sig-pc-error" data-archive-error>${__('Previous archive attempt failed.')}${x.last_archive_error ? ` ${esc(x.last_archive_error)}` : ''}</p>` : ''}
             ${field('amount', __('Amount (incl. VAT)'), x.amount, 'number', ' step="0.01" min="0"')}
             <label class="sig-pc-vat"><input data-f="has_vat" type="checkbox"${Number(x.has_vat) ? ' checked' : ''}> ${__('VAT invoice')} <span class="sig-pc-vat-amount"></span></label><p class="sig-pc-vatwarn"></p>
             <div class="sig-pc-field"><label>${__('Transaction category')}</label><select data-f="transaction_category" class="form-control input-sm"><option value="">${__('Choose category…')}</option>${options}</select>${isSuggested(x) ? `<p class="sig-pc-suggest">${__('Suggested from the receipt source. Check it, then confirm.')}</p>` : ''}</div>
             <div class="sig-pc-field"><label>${__('Notes')}</label><textarea data-f="details" class="form-control input-sm" rows="2">${esc(x.details || x.invoice_number || '')}</textarea></div>
             <details class="sig-pc-more"${x.supplier_vat_number || x.merchant ? ' open' : ''}><summary>${__('Merchant evidence')}</summary>
                 ${field('merchant', __('Merchant'), x.merchant)}${field('supplier_vat_number', __('Supplier VAT number (15 digits)'), x.supplier_vat_number, 'text', ' inputmode="numeric" maxlength="15"')}</details>
-            <div class="sig-pc-actions"><button type="button" class="btn btn-primary sig-pc-confirm">${__('Confirm')}</button><button type="button" class="btn btn-danger sig-pc-reject">${__('Reject')}</button></div>
+            <div class="sig-pc-actions"><button type="button" class="btn btn-default sig-pc-archive"${x.archive_status === 'Archived' ? ' disabled' : ''}>${x.archive_status === 'Archived' ? __('Receipt archived') : __('Archive now')}</button><button type="button" class="btn btn-primary sig-pc-confirm">${__('Confirm')}</button><button type="button" class="btn btn-danger sig-pc-reject">${__('Reject')}</button></div>
             <div class="sig-pc-msg"></div>
             <div class="sig-pc-links">${x.source_media_url ? `<a href="${esc(x.source_media_url)}" target="_blank" rel="noopener">${__('Open receipt')}</a> · ` : ''}${x.source_row_url ? `<a href="${esc(x.source_row_url)}" target="_blank" rel="noopener">${__('Source row')}</a> · ` : ''}<a href="#" data-route="${esc(JSON.stringify(['Form', 'SIG PC Transaction', x.name]))}">${__('Open record')}</a></div>
-            <p class="sig-pc-hint">${__('Previous/Next never change a receipt. Only Confirm or Reject does. Keys: ← → navigate, Ctrl+Enter confirm, + − 0 zoom, R rotate, F fit.')}</p></div></article>`;
+            <p class="sig-pc-hint">${__('Confirm archives and verifies the receipt before creating its draft Journal Entry. Previous/Next never change a receipt. Keys: ← → navigate, Ctrl+Enter confirm, + − 0 zoom, R rotate, F fit.')}</p></div></article>`;
     }
 
     // ---- card behaviour -----------------------------------------------------------------------
@@ -341,6 +342,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
         c.addEventListener('change', () => refreshVat(c));
         c.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); confirmTx(x, c); } });
         refreshVat(c);
+        c.querySelector('.sig-pc-archive').addEventListener('click', () => archiveTx(x, c));
         c.querySelector('.sig-pc-confirm').addEventListener('click', () => confirmTx(x, c));
         c.querySelector('.sig-pc-reject').addEventListener('click', () => rejectBox(x, c));
         wireViewer(c);
@@ -361,7 +363,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
         v.expected_modified = x.modified;
         showMsg(c, '');
         setBusy(c, true);
-        c.querySelector('.sig-pc-confirm').textContent = __('Confirming…');
+        c.querySelector('.sig-pc-confirm').textContent = __('Archiving receipt…');
         try {
             const result = await call('sig_warehouse.sig_warehouse.pc_journal.confirm_receipt', v);
             frappe.show_alert({message: __('Draft Journal Entry created: {0}', [result.journal_entry]), indicator: 'green'});
@@ -371,6 +373,26 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
             setBusy(c, false);
             c.querySelector('.sig-pc-confirm').textContent = __('Confirm');
             showMsg(c, `<div class="sig-pc-error"><strong>${__('Not confirmed. Nothing was saved.')}</strong>\n${esc(e.message)}</div>`);
+        }
+    }
+
+    async function archiveTx(x, c) {
+        if (S.busy) return;
+        S.busy = true;
+        const button = c.querySelector('.sig-pc-archive');
+        button.disabled = true; button.textContent = __('Archiving…');
+        try {
+            await call('sig_warehouse.sig_warehouse.pc_journal.archive_existing_receipt', {transaction_id: x.name});
+            x.archive_status = 'Archived';
+            x.last_archive_error = '';
+            c.querySelector('[data-archive-error]')?.remove();
+            button.textContent = __('Receipt archived');
+            frappe.show_alert({message: __('Receipt image archived and verified.'), indicator: 'green'});
+        } catch (e) {
+            button.disabled = false; button.textContent = __('Archive now');
+            showMsg(c, `<div class="sig-pc-error">${esc(e.message || __('Receipt archive failed.'))}</div>`);
+        } finally {
+            S.busy = false;
         }
     }
 

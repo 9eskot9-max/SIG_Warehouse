@@ -11,6 +11,7 @@ import frappe
 from frappe.utils import get_datetime, now_datetime
 
 from .pc_clearance_rules import CATEGORY_ACCOUNTS, journal_lines, legacy_cycle_period, money, request_digest, source_key
+from .pc_archive import archived_media, ensure_archived
 from .pc_review_routing import load_matrix, phone_index, phone_key
 from .pc_funding import _cycles, _employee_for_report, cycle_membership
 
@@ -22,7 +23,8 @@ REVIEWERS = FINANCE | {"Operations User", "Operations Manager", "SIG PC Clearanc
 EDIT_FIELDS = ("amount", "has_vat", "merchant", "supplier_vat_number", "invoice_number", "details")
 FIELDS = ["name", "modified", "employee_name", "transaction_date", "amount", "purpose",
           "transaction_category", "has_vat", "vat_amount", "supplier_vat_number", "merchant",
-          "invoice_number", "details", "source_id", "source_media_url"]
+          "invoice_number", "details", "source_id", "source_media_url", "archive_status",
+          "archive_attempts", "last_archive_error"]
 
 
 def _deny(message):
@@ -211,7 +213,7 @@ def transaction_status_report(employee=None, from_date=None, to_date=None, cycle
         TRANSACTION,
         fields=["name", "employee_name", "transaction_date", "amount",
                 "transaction_category", "closure_status", "reviewed_by", "reviewed_at",
-                "journal_entry", "source_media_url"],
+                "journal_entry", "source_media_url", "archive_status"],
         filters=filters,
         order_by="employee_name asc, transaction_date asc, name asc",
         limit_page_length=0,
@@ -285,6 +287,7 @@ def transaction_status_report(employee=None, from_date=None, to_date=None, cycle
             "reviewed_by": reviewer_name,
             "reviewed_at": row.reviewed_at,
             "source_media_url": row.source_media_url,
+            "archive_status": row.archive_status,
             "review_group": review_group.get("label") if review_group else "Unassigned",
             "review_group_lead": review_group.get("lead") if review_group else None,
             "cycle_key": cycle_info["cycle_key"],
@@ -292,6 +295,29 @@ def transaction_status_report(employee=None, from_date=None, to_date=None, cycle
             "cycle_allocation_status": cycle_info["cycle_allocation_status"],
         })
     return result
+
+
+@frappe.whitelist(methods=["POST"])
+def archive_existing_receipt(transaction_id):
+    """Backfill a receipt through the same reviewer and Employee scope checks."""
+    context = _context()
+    doc = frappe.get_doc(TRANSACTION, transaction_id)
+    employee = _authorize(doc, context)
+    if not doc.source_media_url and not (doc.sync_archive_locator and doc.archive_sha256):
+        frappe.throw("No receipt source or verified archive object is linked.")
+    ensure_archived(doc, employee)
+    return {"ok": True, "archive_status": doc.archive_status}
+
+
+@frappe.whitelist(methods=["POST"])
+def archived_receipt_media(transaction_id):
+    """Serve a private archived receipt only to an authorized PC reviewer."""
+    context = _context()
+    doc = frappe.get_doc(TRANSACTION, transaction_id)
+    employee = _authorize(doc, context)
+    if doc.archive_status != "Archived":
+        frappe.throw("Receipt image is not archived yet.")
+    return archived_media(doc, employee)
 
 
 def _locked_receipt(transaction_id):
@@ -410,6 +436,8 @@ def confirm_receipt(transaction_id, expected_modified=None, transaction_category
             frappe.throw(str(exc))
         if start <= str(doc.transaction_date)[:10] <= end:
             frappe.throw("An older cycle journal covers this receipt date. Finance must check overlap first: " + legacy_name)
+    # Confirm only after the source is durably archived and read-back verified.
+    ensure_archived(doc, employee, commit_state=False)
     journal = frappe.get_doc({
         "doctype": "Journal Entry", "voucher_type": "Journal Entry", "company": company,
         "posting_date": doc.transaction_date, "custom_pc_receipt": doc.name,

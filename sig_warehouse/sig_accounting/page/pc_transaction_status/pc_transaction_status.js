@@ -12,7 +12,7 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
     const isPdf = (url) => /\.pdf(?:[?#]|$)/i.test(url) || /[?&]\w*=pdf(?:&|$)/i.test(url);
     const status = (row) => row.finance_status === 'Pending Review' ? __('Pending Manager') : __(row.finance_status || 'Unknown');
     const total = (rows) => rows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
-    const state = {rows: [], employees: new Map(), employee: '', selected: '', search: '', status: '', cycles: [], cycleKey: '', applied: {scope: 'all'}, request: 0, loading: false};
+    const state = {rows: [], employees: new Map(), employee: '', selected: '', search: '', status: '', cycles: [], cycleKey: '', applied: {scope: 'all'}, request: 0, loading: false, archiveRequest: 0, archiveUrl: null};
     const view = {s: 1, x: 0, y: 0, r: 0, mode: 'page'};
 
     root.html('<header class="sig-pc-status-head">' +
@@ -149,6 +149,7 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
             [__('Status'), badge(status(row))],
             [__('Approved by'), esc(row.reviewed_by || '—')],
             [__('Reviewed on'), esc(date(row.reviewed_at))],
+            [__('Receipt archive'), badge(row.archive_status || 'Pending')],
             [__('Journal Entry status'), esc(row.journal_status || '—')],
             [__('Petty Cash cycle'), esc(row.cycle_label || '—') + (row.cycle_allocation_status === 'Awaiting allocation' ? '<small>' + __('Finance allocation required') + '</small>' : '')],
             [__('PC review delegation'), esc(row.review_group || __('Unassigned')) + (row.review_group_lead ? '<small>' + __('Lead') + ': ' + esc(row.review_group_lead) + '</small>' : '')],
@@ -164,17 +165,60 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
     }
     function renderSelected() {
         const rows = visibleRows(), index = rows.findIndex((row) => row.name === state.selected), row = rows[index];
+        state.archiveRequest += 1;
+        if (state.archiveUrl) URL.revokeObjectURL(state.archiveUrl);
+        state.archiveUrl = null;
         q('.sig-pc-status-context').innerHTML = '<div><strong>' + esc(state.employees.get(state.employee) || '—') + '</strong> <span>' +
             (row ? __('Transaction {0} of {1}', [index + 1, rows.length]) + ' · ' + date(row.transaction_date) : __('No transaction selected')) + '</span></div>' +
             '<div><button class="btn btn-default btn-sm" data-prev ' + (index <= 0 ? 'disabled' : '') + '>' + __('← Previous') + '</button> <button class="btn btn-default btn-sm" data-next ' + (index < 0 || index === rows.length - 1 ? 'disabled' : '') + '>' + __('Next →') + '</button></div>';
         q('.sig-pc-status-selected').innerHTML = row ? '<div class="sig-pc-status-photo">' + viewer(row.source_media_url) + '</div>' +
             '<div class="sig-pc-status-side"><h3>' + __('Transaction status') + '</h3>' + detail(row) +
-            (row.source_media_url ? '<a href="' + esc(row.source_media_url) + '" target="_blank" rel="noopener">' + __('Open original receipt') + '</a>' : '') + '</div>' :
+            (row.source_media_url ? '<a data-open-receipt href="' + esc(row.source_media_url) + '" target="_blank" rel="noopener">' + __('Open receipt') + '</a>' : '') +
+            (row.archive_status === 'Archived' ? '' : (row.source_media_url ? '<p><button type="button" class="btn btn-default btn-sm" data-archive>' + __('Archive receipt') + '</button></p>' : '')) +
+            '<div class="sig-pc-status-message" data-archive-message role="status"></div></div>' :
             '<div class="sig-pc-status-empty">' + __('No transactions match this selection.') + '</div>';
         Object.assign(view, {s: 1, x: 0, y: 0, r: 0, mode: 'page'});
         wireViewer(q('.sig-pc-status-selected'));
+        const archiveButton = q('[data-archive]');
+        if (archiveButton) archiveButton.addEventListener('click', () => archiveReceipt(row, archiveButton));
+        if (row && row.archive_status === 'Archived') loadArchivedMedia(row, state.archiveRequest);
         el.querySelectorAll('[data-select]').forEach((button) => button.setAttribute('aria-selected', String(button.dataset.select === state.selected)));
         el.querySelectorAll('[data-row]').forEach((tr) => tr.classList.toggle('is-selected', tr.dataset.row === state.selected));
+    }
+    async function loadArchivedMedia(row, request) {
+        try {
+            const response = await frappe.call({method: 'sig_warehouse.sig_warehouse.pc_journal.archived_receipt_media',
+                type: 'POST', args: {transaction_id: row.name}});
+            if (request !== state.archiveRequest || state.selected !== row.name) return;
+            const payload = response.message || {};
+            if (!payload.data || !payload.mime_type) throw new Error(__('Archived receipt response was incomplete.'));
+            const binary = atob(payload.data), bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+            state.archiveUrl = URL.createObjectURL(new Blob([bytes], {type: payload.mime_type}));
+            const media = q('.sig-pc-status-pdf, .sig-pc-status-vstage img');
+            if (media) media.src = state.archiveUrl;
+            const link = q('[data-open-receipt]');
+            if (link) { link.href = state.archiveUrl; link.textContent = __('Open archived receipt'); }
+        } catch (error) {
+            if (request === state.archiveRequest && state.selected === row.name) {
+                const message = q('[data-archive-message]');
+                if (message) message.textContent = error.message || __('Could not load archived receipt.');
+            }
+        }
+    }
+    async function archiveReceipt(row, button) {
+        const message = q('[data-archive-message]');
+        button.disabled = true; button.textContent = __('Archiving…');
+        if (message) message.textContent = '';
+        try {
+            await frappe.call({method: 'sig_warehouse.sig_warehouse.pc_journal.archive_existing_receipt',
+                type: 'POST', args: {transaction_id: row.name}});
+            row.archive_status = 'Archived';
+            renderSelected();
+        } catch (error) {
+            button.disabled = false; button.textContent = __('Archive receipt');
+            if (message) message.textContent = error.message || __('Could not archive receipt.');
+        }
     }
     function select(name, scroll) {
         state.selected = name; renderSelected();
