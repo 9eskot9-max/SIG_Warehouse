@@ -15,6 +15,7 @@ DEFAULTS = {
     "fill_km": 60.0,          # a site may join a committed trip when this close to a member
     "cluster_size": 6,        # soft cap on sites per proposed trip
     "scope_hours": 2.0,       # on-site time per site; one flat default until measured
+    "planning_mode": "DC",
     "day_hours": 11.0,        # productive field hours in a team-day
     "speed_kmh": 60.0,        # travel speed inside a trip
     "teams": 4,               # teams available this week
@@ -154,7 +155,7 @@ def tcn_cutoff(day):
     return datetime.combine(previous_workday(day), datetime.min.time()).replace(hour=14)
 
 
-def erp_candidate(cycle, window, mark="", schedule_dates=None, now=None):
+def erp_candidate(cycle, window, mark="", schedule_dates=None, now=None, params=None):
     """Classify an ERP field-work scope and calculate the days it can still be planned.
 
     ERP planning intentionally differs from the legacy Excel choice flow: open Stage 2 work is
@@ -167,9 +168,14 @@ def erp_candidate(cycle, window, mark="", schedule_dates=None, now=None):
     if cycle.get("terminal") in (1, True, "1") or stage.startswith("5"):
         return None, "Closed", [], []
     labels = (str(cycle.get("project") or "") + "|" + str(cycle.get("po") or "") + "|" +
+              str(cycle.get("erp_project") or "") + "|" +
               str(cycle.get("project_text") or "")).lower()
-    if any(key and key in labels for key in DEFAULTS.get("exclude_projects") or ()):
-        return None, "Not planned: Incident (civil work)", [], []
+    is_incident = "incident" in labels
+    mode = str((params or DEFAULTS).get("planning_mode") or "DC").strip().lower()
+    if mode == "incident" and not is_incident:
+        return None, "Not planned: outside Incident mode", [], []
+    if mode != "incident" and is_incident:
+        return None, "Not planned: Incident scope; use Incident mode", [], []
     if mark in ("Hold", "Remove"):
         return None, "Held by PM" if mark == "Hold" else "Removed by PM", [], []
     if stage.startswith("1"):
@@ -745,7 +751,7 @@ def build_candidates(cycles, windows, visit_days, today, params, project_index=N
         mark = "" if has_log else (c.get(mark_field) or "")
         eligible_days, provisional_days = [], []
         if erp_policy:
-            tier, reason, eligible_days, provisional_days = erp_candidate(c, win, mark, schedule_dates, now)
+            tier, reason, eligible_days, provisional_days = erp_candidate(c, win, mark, schedule_dates, now, params)
             # A dated PM Must raises priority; it never changes the TCN cutoff.
             if dec and dec["action"] == "Must" and tier:
                 reason = "PM Must · " + reason
