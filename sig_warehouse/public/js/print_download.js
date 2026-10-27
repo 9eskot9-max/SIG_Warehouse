@@ -50,6 +50,50 @@
         }
     }
 
+    async function share(view) {
+        if (!navigator.share || !navigator.canShare || !window.File) {
+            frappe.msgprint(__('PDF file sharing is not available in this browser. Use Download instead.'));
+            return;
+        }
+
+        try {
+            frappe.show_alert({ message: __('Preparing PDF to share...'), indicator: 'blue' });
+            const url = build_url(view);
+            const res = await fetch(url, { credentials: 'same-origin' });
+            const type = res.headers.get('content-type') || '';
+            if (!res.ok || type.indexOf('pdf') === -1) throw new Error('HTTP ' + res.status + ' ' + type);
+            const file = new File([await res.blob()], file_name(view.frm.doc), { type: 'application/pdf' });
+            const data = { files: [file], title: file.name.replace(/\.pdf$/i, '') };
+            if (!navigator.canShare({ files: data.files })) {
+                frappe.msgprint(__('This browser cannot share PDF files. Use Download instead.'));
+                return;
+            }
+
+            // The second, explicit tap keeps navigator.share() within user activation.
+            const dialog = new frappe.ui.Dialog({
+                title: __('PDF ready'),
+                fields: [{ fieldtype: 'HTML', fieldname: 'message' }],
+                primary_action_label: __('Share PDF'),
+                primary_action: async () => {
+                    dialog.hide();
+                    try {
+                        await navigator.share(data);
+                    } catch (e) {
+                        if (!e || e.name !== 'AbortError') {
+                            console.warn('SIG PDF share failed', e);
+                            frappe.msgprint(__('Could not share this PDF. Use Download instead.'));
+                        }
+                    }
+                }
+            });
+            dialog.fields_dict.message.$wrapper.text(file.name);
+            dialog.show();
+        } catch (e) {
+            console.warn('SIG PDF share preparation failed', e);
+            frappe.msgprint(__('Could not prepare this PDF for sharing. Use Download instead.'));
+        }
+    }
+
     // "<document name> . <party name>.pdf", e.g. "SIG-SINV-26-118 . Client Name.pdf".
     // Falls back to the bare document name when the document has no party field.
     const PARTY_FIELDS = ['customer_name', 'supplier_name', 'party_name', 'employee_name',
@@ -64,8 +108,7 @@
         return base.slice(0, 150) + '.pdf';
     }
 
-    // Download becomes the single blue (primary) button at the far right; Print stays but turns
-    // neutral and sits to its left.
+    // Keep the PDF actions together in the print toolbar.
     function relabel() {
         const $actions = $('#page-print .page-actions');
         const label = (b) => $(b).text().trim();
@@ -77,9 +120,20 @@
             if ($s.length) $s.text(__('Download')); else $dl.text(__('Download'));
         }
         $dl.removeClass('btn-default btn-secondary').addClass('btn-primary');
+        let $share = $actions.find('button[data-sig-pdf-share="1"]');
+        if (!$share.length) {
+            $share = $('<button type="button" class="btn btn-default btn-sm" data-sig-pdf-share="1"></button>');
+            $share.text(__('Share'));
+            $share.on('click', () => {
+                const view = window.__sig_print_view;
+                if (view && view.frm) share(view);
+            });
+        }
+        if ($share.text().trim() !== __('Share')) $share.text(__('Share'));
+        if ($share.prev()[0] !== $dl[0] || $share.parent()[0] !== $dl.parent()[0]) $dl.after($share);
         if ($print.length && !$print.is($dl)) {
             $print.removeClass('btn-primary primary-action').addClass('btn-default');
-            if ($dl.prev()[0] !== $print[0] || $dl.parent()[0] !== $print.parent()[0]) $print.after($dl);
+            if ($print.next()[0] !== $dl[0] || $dl.parent()[0] !== $print.parent()[0]) $print.after($dl);
         }
     }
 
@@ -87,6 +141,16 @@
         const cls = frappe.ui.form && frappe.ui.form.PrintView;
         if (!cls) return false;
         if (!cls.prototype[MARK]) {
+            const show = cls.prototype.show;
+            cls.prototype.show = function () {
+                window.__sig_print_view = this;
+                return show.apply(this, arguments);
+            };
+            const preview = cls.prototype.preview;
+            cls.prototype.preview = function () {
+                window.__sig_print_view = this;
+                return preview.apply(this, arguments);
+            };
             cls.prototype.render_pdf = function () { download(this); };
             cls.prototype[MARK] = true;
         }
