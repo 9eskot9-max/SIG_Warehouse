@@ -1,121 +1,269 @@
-{#- SIG Letter (Infographic) - one print format for every SIG letter. Staged locally, not deployed.
+{#- SIG Letter (Infographic) - one print format for every SIG letter.
+    Look = SIG Tawal Invoice / Quotation (Infographic) family: title + CR/VAT header, gradient rule, meta strip with the
+    reference in blue, From / To party cards with coloured top rules, subject bar, numbered headings, cyan bullets,
+    navy table header with blue accent column, zebra rows, signatory line + verification QR + stamp.
     Built for ERP's wkhtmltopdf: tables for layout (no flex/grid/CSS variables), absolute font URLs, page numbers
-    only inside #footer-html. Palette = SIG_Company_Profile_Handover design system (design/tokens.json).
-    Jinja methods used (hooks.py -> jinja.methods): table_data, items_list, heading_parts, inline_html. -#}
-{%- set _c = {"navy": "#081C44", "blue": "#1E7FFC", "cyan": "#22C7EE", "slate": "#53657D", "pale": "#EEF7FC", "border": "#D5E3F0", "muted": "#6B7F92"} -%}
+    only inside #footer-html, margins via the .print-format CSS rule (Frappe reads margin-* from it for every page).
+    Load ONLY Helvetica Regular: bold is then synthesised (as the Tawal invoice) - Helvetica-Bold.ttf prints far too heavy.
+    Palette: design/tokens.json. Jinja methods (hooks.py -> jinja.methods): table_data, items_list, heading_parts, inline_html. -#}
+{%- set _c = {"navy": "#10365a", "blue": "#1b63a6", "cyan": "#169ebd", "slate": "#536a80", "pale": "#f1f6fa", "border": "#cbd8e4", "muted": "#6b7f92", "deep": "#0f3557", "callout": "#eaf4fb", "text": "#142d49"} -%}
 {%- set _d = frappe.get_doc(doc.doctype, doc.name) -%}
 {%- set _company = frappe.db.get_value("Company", _d.company, ["tax_id"], as_dict=True) or {} -%}
 {%- set _rtl = (_d.language == "Arabic") -%}
-{%- set _payment_reminder = _d.template == "Client Payment Reminder" -%}
-{%- set _date = frappe.utils.formatdate(_d.letter_date, "dd MMM yyyy") if _d.letter_date else "" -%}
+{%- set _date = frappe.utils.formatdate(_d.letter_date, "dd / mm / yyyy") if _d.letter_date else "" -%}
+{%- set _status = "Cancelled" if _d.docstatus == 2 else ("Issued" if _d.docstatus == 1 else "Draft") -%}
 {%- set _sub = frappe.get_all("Version", filters={"ref_doctype": "SIG Letter", "docname": _d.name, "data": ["like", '%["docstatus",0,1]%']}, fields=["owner"], order_by="creation desc", limit=1) -%}
 {%- set _submitter = frappe.db.get_value("User", _sub[0].owner, "full_name") if _sub else (frappe.db.get_value("User", _d.modified_by, "full_name") if _d.docstatus == 1 else "") -%}
-{%- set _signer = "SIG Finance" if _payment_reminder else ((frappe.db.get_value("User", _d.signer, "full_name") if _d.signer else "") or _submitter or "") -%}
+{%- set _signer = (frappe.db.get_value("User", _d.signer, "full_name") if _d.signer else "") or _submitter or "" -%}
+{%- set _signer_user = _d.signer or (_sub[0].owner if _sub else (_d.modified_by if _d.docstatus == 1 else "")) -%}
+{%- set _signer_ar = (frappe.db.get_value("Employee", {"user_id": _signer_user}, "custom_arabic_name") if _signer_user else "") or "" -%}
+{%- set _signer_show = _signer_ar if (_rtl and _signer_ar) else _signer -%}
+{%- set _co_ar = "شركة صلاح إبراهيم القين للمقاولات" -%}
 {%- set _vqr = frappe.get_all("File", filters={"attached_to_doctype": _d.doctype, "attached_to_name": _d.name, "file_name": ["like", "verify_qr_%"]}, fields=["file_url"], order_by="creation desc", limit_page_length=1) -%}
+{%- set _kind = _d.get("letter_type") or "" -%}
+{%- set _is_contract = (_kind == "Contract") or (_d.subject or "").startswith("عقد") or (_d.subject or "").startswith("Contract") -%}
+{%- set _cstatus = _d.get("contract_status") or ("Awaiting Signature" if _d.docstatus == 1 else "") -%}
+{%- set _signed_on = frappe.utils.formatdate(_d.get("signed_on"), "dd / mm / yyyy") if _d.get("signed_on") else "" -%}
+{%- set _meta = [] -%}
+{%- if _d.related_document %}{% set _ = _meta.append(["Our reference", "مرجعنا", _d.related_document]) %}{% endif -%}
+{%- if _d.project %}{% set _ = _meta.append(["Project", "المشروع", _d.project]) %}{% endif -%}
+{%- macro bullet(item) -%}<li><span class="dot"></span>{{ inline_html(item) | safe }}</li>{%- endmacro -%}
+{%- macro block(row) -%}
+  {%- if row.block_type == "Paragraph" %}<p>{{ inline_html(row.content) | safe }}</p>
+  {%- elif row.block_type == "Note" %}<div class="callout">{{ inline_html(row.content) | safe }}</div>
+  {%- elif row.block_type == "Heading" %}{% set hp = heading_parts(row.content) %}<div class="h">{% if hp[0] %}<svg class="num" width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="10" fill="{{ _c.navy }}"/><text x="{{ 10.5 if hp[0] == "1" else 10 }}" y="{{ 13.9 if hp[0] | length == 1 else 13.6 }}" text-anchor="middle" font-family="SIGLatin,Arial,sans-serif" font-size="{{ 11 if hp[0] | length == 1 else 9 }}" font-weight="bold" fill="#fff">{{ hp[0] }}</text></svg>{{ hp[1] }}{% else %}{{ row.content }}{% endif %}</div>
+  {%- elif row.block_type == "Bullets" %}<ul>{% for item in items_list(row.bullets) %}{{ bullet(item) }}{% endfor %}</ul>
+  {%- elif row.block_type == "Table" and (table_data(row.table_json).cards or (table_data(row.table_json).head and table_data(row.table_json).head[0].startswith("@"))) %}{% set tb0 = table_data(row.table_json) %}{% set cd = tb0.cards if tb0.cards else [] %}{% if not cd %}{% for h in tb0.head %}{% set col = loop.index0 %}{% set lns = [] %}{% for r in tb0.rows %}{% if r[col] %}{% set _ = lns.append(r[col].split(": ", 1)) %}{% endif %}{% endfor %}{% set _ = cd.append({"title": h | replace("@", "", 1), "lines": lns}) %}{% endfor %}{% endif %}<table class="pcards" role="presentation" {% if _rtl %}dir="rtl"{% endif %}><tr>{% for c in cd %}<td class="card pc{{ loop.index }}"><div class="head">{{ inline_html(c.title) | safe }}</div>{% for ln in c.lines %}<div class="kv{% if loop.first %} kv1{% endif %}"><span class="k">{{ inline_html(ln[0]) | safe }}:</span> <span class="v">{{ inline_html(ln[1] | string) | safe }}</span></div>{% endfor %}</td>{% endfor %}</tr></table>
+  {%- elif row.block_type == "Table" %}{% set tb = table_data(row.table_json) %}<table class="t{% if tb.head | length >= 7 %} dense{% endif %}"><thead><tr>{% for cell in tb.head %}<th valign="middle">{{ inline_html(cell) | safe }}</th>{% endfor %}</tr></thead><tbody>{% for r in tb.rows %}<tr>{% for cell in r %}<td valign="middle" style="vertical-align:middle">{{ inline_html(cell | string) | safe }}</td>{% endfor %}</tr>{% endfor %}</tbody></table>
+  {%- endif %}
+{%- endmacro -%}
 
 <style>
-@font-face { font-family:SIGLatin; src:url('{{ frappe.utils.get_url() }}/assets/zatca_integration/fonts/Helvetica.ttf') format('truetype'); font-weight:400; }
-@font-face { font-family:SIGLatin; src:url('{{ frappe.utils.get_url() }}/assets/zatca_integration/fonts/Helvetica-Bold.ttf') format('truetype'); font-weight:700; }
+@font-face { font-family:SIGLatin; src:url('{{ frappe.utils.get_url() }}/assets/zatca_integration/fonts/Helvetica.ttf') format('truetype'); }
 @font-face { font-family:SIGBoutros; src:url('{{ frappe.utils.get_url() }}/files/BoutrosMBCDinkum-Medium.ttf') format('truetype'); }
-.sigl { color:{{ _c.navy }}; font-family:SIGLatin,Arial,Helvetica,sans-serif; font-size:9.5pt; line-height:1.5; width:100%; }
+.print-format { margin-top:12mm; margin-bottom:30mm; margin-left:15mm; margin-right:15mm; }
+html body .print-format { padding:0!important; margin:0 auto!important; width:auto!important; min-height:0; }
+.sigl { color:{{ _c.text }}; font-family:{{ 'SIGBoutros,SIGLatin,Tahoma,Arial,sans-serif' if _rtl else 'SIGLatin,Arial,Helvetica,sans-serif' }}; font-size:{{ '10.5pt' if _rtl else '9.8pt' }}; line-height:{{ '1.75' if _rtl else '1.55' }}; width:100%; -webkit-print-color-adjust:exact; }
+.sigl * { box-sizing:border-box; }
+.sigl b, .sigl strong { font-weight:bold; color:{{ _c.text }}; padding:0 {{ '.3mm 0 1.6mm' if _rtl else '1.2mm 0 .2mm' }}; }  /* the engine drops the space after a bold run (RTL: after the Arabic text) - pad the trailing side */
 .sigl table { width:100%; border-collapse:collapse; }
-.sigl td, .sigl th { padding:0; vertical-align:top; }
-.sigl .ar { font-family:SIGBoutros,Tahoma,Arial,sans-serif; direction:rtl; unicode-bidi:embed; color:{{ _c.slate }}; }
+.sigl td, .sigl th { padding:0; vertical-align:top; border:0; }
+.sigl .ar { font-family:SIGBoutros,Tahoma,Arial,sans-serif; direction:rtl; unicode-bidi:embed; letter-spacing:0; text-transform:none; }
+
+/* header */
+.sigl .top { margin-bottom:5mm; }
 .sigl .top td { vertical-align:middle; }
 .sigl img.logo { width:51mm; display:block; }
-.sigl .title { text-align:right; color:{{ _c.navy }}; font-size:17pt; line-height:1.4; white-space:nowrap; }
-.sigl .title .ar { font-size:12pt; margin-left:2mm; }
+.sigl .title { text-align:right; color:{{ _c.navy }}; font-size:17pt; font-weight:bold; line-height:1.3; white-space:nowrap; }
+.sigl .title .ar { font-size:13pt; margin-left:2mm; }
 .sigl .ids { text-align:right; color:{{ _c.slate }}; font-size:8pt; margin-top:1.5mm; }
-.sigl .dateline { text-align:right; color:{{ _c.slate }}; font-size:8pt; margin-top:1mm; }
-.sigl .sea { height:.8mm; background:{{ _c.blue }}; background:-webkit-linear-gradient(left,#167CF4,#1DACEB 52%,#22C7EE); background:linear-gradient(90deg,#167CF4,#1DACEB 52%,#22C7EE); margin:3mm 0; }
-.sigl .tocard { margin-top:3mm; padding:2.6mm 4mm 2.8mm; background:{{ _c.pale }}; border-top:.6mm solid {{ _c.navy }}; }
-.sigl .lbl { color:{{ _c.muted }}; font-size:7pt; letter-spacing:.055em; text-transform:uppercase; }
-.sigl .lbl .ar { float:right; font-size:7.5pt; letter-spacing:0; text-transform:none; }
-.sigl .tocard .name { font-size:11.5pt; margin-top:1.2mm; }
-.sigl .tocard .att { color:{{ _c.slate }}; font-size:8.5pt; margin-top:.8mm; }
-.sigl .subbar { margin-top:3.4mm; padding:2.6mm 4mm; background:{{ _c.pale }}; border-left:.9mm solid {{ _c.blue }}; font-size:10.5pt; }
-.sigl .subbar .ar { float:right; font-size:8pt; margin-left:4mm; white-space:nowrap; }
-.sigl .body { margin-top:4mm; text-align:{{ 'right' if _rtl else 'justify' }}; }
-.sigl .body p { margin:0 0 2.4mm; }
-.sigl .callout { margin:2mm 0 3mm; padding:2mm 3.5mm; background:{{ _c.pale }}; border-left:.9mm solid {{ _c.cyan }}; }
-.sigl .h { margin:4mm 0 1.4mm; color:{{ _c.navy }}; border-bottom:1px solid {{ _c.border }}; padding-bottom:.8mm; }
-.sigl .num { display:inline-block; width:5.2mm; height:5.2mm; border-radius:50%; background:{{ _c.navy }}; color:#fff; text-align:center; line-height:5.2mm; font-size:7.5pt; margin:0 2.2mm; }
-.sigl ul { margin:.6mm 0 2mm {{ '0' if _rtl else '5mm' }}; padding:0 {{ '5mm' if _rtl else '0' }} 0 0; page-break-inside:avoid; }
-.sigl li { margin:.6mm 0; }
-.sigl .ctl { border:1px solid {{ _c.border }}; border-radius:3mm; overflow:hidden; margin:1.5mm 0 2.5mm; page-break-inside:avoid; }
-.sigl .ctl table { font-size:8.8pt; }
-.sigl .ctl th { background:{{ _c.pale }}; color:{{ _c.navy }}; text-align:{{ 'right' if _rtl else 'left' }}; padding:1.8mm 2.4mm; font-size:7.8pt; font-weight:700; border-bottom:1px solid {{ _c.border }}; }
-.sigl .ctl td { padding:1.7mm 2.4mm; border-bottom:1px solid #EAF1F8; }
-.sigl .ctl tr:last-child td { border-bottom:0; }
-.sigl .sigs { margin-top:6mm; page-break-inside:avoid; }
-.sigl .sigs > tbody > tr > td { vertical-align:top; }
-.sigl .card { border:1px solid {{ _c.border }}; border-top:.6mm solid {{ _c.navy }}; background:#F7FAFD; padding:2.5mm 3mm 2mm; min-height:32mm; }
-.sigl .card.stamp { border-top-color:{{ _c.cyan }}; }
-.sigl .ctitle { color:{{ _c.navy }}; font-size:8pt; letter-spacing:.03em; text-transform:uppercase; }
-.sigl .ctitle .ar { float:right; font-size:7.7pt; letter-spacing:0; text-transform:none; }
-.sigl .cname { font-size:9pt; margin-top:1.5mm; min-height:5mm; }
-.sigl .cline { border-bottom:1px solid #7E93A8; height:12mm; }
-.sigl .ccap { color:{{ _c.slate }}; font-size:6.8pt; margin-top:1mm; }
-.sigl .ccap .ar { float:right; font-size:7pt; }
-.sigl .vqr td { vertical-align:middle; }
-.sigl .vqr img { width:25mm; display:block; }
-.sigl .vqr .k { color:{{ _c.slate }}; font-size:7pt; }
-.sigl .vqr .s { font-size:8pt; margin-top:.8mm; }
-.sig-pdffoot { color:{{ _c.slate }}; font-family:SIGLatin,Arial,sans-serif; font-size:7pt; border-top:1px solid {{ _c.border }}; padding-top:1.8mm; }
-.sig-pdffoot .ar { font-family:SIGBoutros,Tahoma,Arial,sans-serif; direction:rtl; }
-.sig-pdffoot table { width:100%; border-collapse:collapse; }
-.sig-pdffoot td { padding:0; font-size:7pt; vertical-align:middle; }
-.sig-pageno { text-align:center; margin-bottom:1.2mm; }
+.sigl .ids b { color:{{ _c.text }}; }
+.sigl .sep { color:#aebdcb; padding:0 2mm; }
+.sigl .rule { height:.45mm; background:{{ _c.cyan }}; background:-webkit-linear-gradient(left,{{ _c.blue }},{{ _c.cyan }}); background:linear-gradient(90deg,{{ _c.blue }},{{ _c.cyan }}); margin:3mm 0 3.5mm; }
+
+/* meta strip */
+.sigl .meta { margin-bottom:4mm; table-layout:fixed; }
+.sigl .meta td { border-right:1px solid {{ _c.border }}; padding:.5mm 1.6mm; text-align:center; vertical-align:middle; }
+.sigl .meta td:last-child { border-right:0; }
+.sigl .meta .k { font-size:7pt; color:{{ _c.slate }}; }
+.sigl .meta .v { font-size:8.8pt; font-weight:bold; margin-top:.7mm; color:{{ _c.text }}; }
+.sigl .meta .ref .k, .sigl .meta .ref .v { color:{{ _c.navy }}; }
+.sigl .meta .ref .v { font-size:11pt; letter-spacing:.02em; }
+.sigl .pill { white-space:nowrap; display:inline-block; border:1px solid; border-radius:8px; padding:0 2mm; font-size:7.5pt; font-weight:bold; }
+.sigl .pill.draft { color:#8a6d00; background:#fff8e1; border-color:#e6c86b; }
+.sigl .pill.issued { color:#157347; background:#e9f7ef; border-color:#84c99d; }
+.sigl .pill.cancelled { color:#a12622; background:#fff0ef; border-color:#e0a09c; }
+
+/* party cards */
+.sigl .parties { margin:0 0 3.5mm; page-break-inside:avoid; border-collapse:separate; border-spacing:0; table-layout:fixed; }
+.sigl .parties > tbody > tr > td.card { width:50%; }
+.sigl .parties > tbody > tr > td.card.to { border-{{ 'right' if _rtl else 'left' }}:2.5mm solid #fff; }
+.sigl .card { background:{{ _c.pale }}; border-top:.7mm solid {{ _c.navy }}; border-radius:0 0 2mm 2mm; padding:2.4mm 3.5mm 2.8mm; }
+.sigl .card.to { border-top-color:{{ _c.cyan }}; }
+.sigl .card .head { color:{{ _c.navy }}; font-size:7.5pt; font-weight:bold; letter-spacing:.05em; text-transform:uppercase; border-bottom:1px solid {{ _c.border }}; padding-bottom:1mm; margin-bottom:1.6mm; }
+.sigl .card .head .ar { float:right; font-size:8pt; }
+.sigl .card .head .en { float:left; }
+.sigl .card .head span { white-space:nowrap; }
+.sigl .card .head { overflow:hidden; }
+.sigl .card .nm { color:{{ _c.navy }}; font-size:10pt; font-weight:bold; line-height:1.4; }
+.sigl .card .nm-ar { color:{{ _c.navy }}; font-size:9pt; text-align:right; margin-top:.4mm; }
+.sigl .card .dt { color:#476078; font-size:7.8pt; margin-top:1mm; }
+.sigl .card .dt b { color:{{ _c.text }}; }
+
+/* party cards (contracts) */
+.sigl .pcards { margin:1.5mm 0 3mm; border-collapse:separate; border-spacing:0; table-layout:fixed; }
+.sigl .pcards td.card { width:50%; vertical-align:top; padding:2.4mm 3.5mm 3mm; }
+.sigl .pcards td.card.pc1 { border-top-color:{{ _c.navy }}; }
+.sigl .pcards td.card.pc2 { border-top-color:{{ _c.cyan }}; border-{{ 'right' if _rtl else 'left' }}:2.5mm solid #fff; }
+.sigl .pcards .head { font-size:8.6pt; }
+.sigl .pcards .kv { margin-top:1.2mm; font-size:{{ '9.2pt' if _rtl else '8.6pt' }}; line-height:1.5; }
+.sigl .pcards .kv .k { color:{{ _c.slate }}; }
+.sigl .pcards .kv .v { color:{{ _c.text }}; }
+.sigl .pcards .kv1 .v { color:{{ _c.navy }}; font-weight:bold; }
+
+/* subject */
+.sigl .subbar { padding:2.6mm 4mm; background:{{ _c.callout }}; border-left:1mm solid {{ _c.blue }}; font-size:10.5pt; line-height:1.45; page-break-inside:avoid; }
+.sigl .subbar .k { color:{{ _c.blue }}; font-weight:bold; }
+.sigl .subbar .s { color:{{ _c.navy }}; font-weight:bold; }
+.sigl .subbar .ar { float:right; color:{{ _c.slate }}; font-size:8pt; margin-left:4mm; white-space:nowrap; }
+
+/* body */
+.sigl .body { margin-top:4mm; text-align:{{ 'right' if _rtl else 'left' }}; }
+.sigl .body p { margin:0 0 2.4mm 0; padding:0 {{ '2.5mm 0 0' if _rtl else '0' }}; }  /* wkhtmltopdf + Boutros: RTL lines overflow ~1.2mm on the right and get clipped */
+.sigl .callout { margin:1mm 0 3mm; padding:2mm 3.5mm; background:{{ _c.callout }}; border-left:1mm solid {{ _c.cyan }}; color:{{ _c.navy }}; font-weight:bold; page-break-inside:avoid; }
+.sigl .grp { page-break-inside:avoid; }
+.sigl .h { margin:5mm 0 2mm; color:{{ _c.navy }}; font-size:10.5pt; font-weight:bold; border-bottom:1px solid {{ _c.border }}; padding-bottom:1mm; }
+.sigl .num { width:5.4mm; height:5.4mm; vertical-align:-1.2mm; margin:0 {{ '0 0 2.4mm' if _rtl else '2.4mm 0 0' }}; }
+.sigl ul { list-style:none; margin:.6mm 0 2mm; padding:0; }
+.sigl .grp ul { margin-bottom:0; }
+.sigl ul.cont { margin-top:0; }
+.sigl li { page-break-inside:avoid; }
+.sigl li { position:relative; margin:1mm 0; padding:0 {{ '5mm 0 0' if _rtl else '0 0 5mm' }}; }
+.sigl li .dot { position:absolute; top:1.75mm; {{ 'right' if _rtl else 'left' }}:1mm; width:1.7mm; height:1.7mm; border-radius:50%; background:{{ _c.cyan }}; }
+.sigl table.t { margin:2mm 0 3.5mm; font-size:{{ '9.5pt' if _rtl else '8.8pt' }}; page-break-inside:auto; line-height:1.45; }
+.sigl table.t tr { page-break-inside:avoid; }
+.sigl table.t thead { display:table-header-group; }
+.sigl table.t th { background:{{ _c.navy }}; color:#fff; padding:1.6mm 2.2mm; text-align:{{ 'right' if _rtl else 'left' }}; font-size:{{ '8.6pt' if _rtl else '7.9pt' }}; font-weight:bold; border-bottom:.4mm solid {{ _c.cyan }}; vertical-align:middle; }
+.sigl table.t th b { color:#fff; }
+.sigl table.t td { padding:1.4mm 2.2mm; border-bottom:1px solid {{ _c.border }}; vertical-align:middle !important; display:table-cell !important; }
+.sigl table.t tr { vertical-align:middle !important; }
+.sigl table.t td:first-child { color:{{ _c.navy }}; font-weight:bold; }
+.sigl table.t tbody tr:nth-child(even) td { background:#f4f7fa; }
+/* dense tables (7+ columns): one wide table with column rules, smaller type, fixed widths */
+.sigl table.dense { table-layout:fixed; font-size:{{ '7.9pt' if _rtl else '7.4pt' }}; line-height:1.35; }
+.sigl table.dense th { font-size:{{ '7.6pt' if _rtl else '7pt' }}; padding:1.4mm .9mm; text-align:center; border-left:1px solid rgba(255,255,255,.28); }
+.sigl table.dense td { padding:1.3mm 1.3mm 1.3mm 1.1mm; border-left:1px solid {{ _c.border }}; }
+.sigl table.dense th:last-child, .sigl table.dense td:last-child { border-left:0; }
+.sigl table.dense td:nth-child(n+2):nth-child(-n+6) { text-align:center; white-space:nowrap; }
+.sigl table.dense th:nth-child(1) { width:21%; }
+.sigl table.dense th:nth-child(n+2):nth-child(-n+5) { width:12.2%; }
+.sigl table.dense th:nth-child(6) { width:9.6%; }
+.sigl table.dense th:nth-child(7) { width:20.6%; }
+
+/* sign-off */
+.sigl .sign-close p { margin:0 0 2.4mm; }
+.sigl .who .ln .ar, .sigl .stampbox .ar { color:#8193a5; }
+.sigl .who .lb .ar { color:{{ _c.slate }}; }
+.sigl .signoff { margin-top:4mm; page-break-inside:avoid; table-layout:fixed; }
+.sigl .signoff > tbody > tr > td { vertical-align:bottom; }
+.sigl .who { border-top:.6mm solid {{ _c.navy }}; padding-top:2mm; }
+.sigl .who .lb { color:{{ _c.slate }}; font-size:7pt; letter-spacing:.04em; text-transform:uppercase; }
+.sigl .who .lb .ar { float:right; font-size:7.5pt; }
+.sigl .who .n { color:{{ _c.navy }}; font-size:9.5pt; font-weight:bold; margin-top:1mm; min-height:5mm; }
+.sigl .who .tt { color:{{ _c.slate }}; font-size:7.8pt; min-height:2mm; }
+.sigl .who .lb .ar { margin-left:2mm; }
+.sigl .who2 { border-top-color:{{ _c.cyan }}; }
+.sigl .who .ln { margin-top:6mm; border-top:1px solid #aebdcb; padding-top:.8mm; color:#8193a5; font-size:6.5pt; text-align:center; }
+.sigl .stampbox { border:1px dashed #aebdcb; border-radius:2mm; height:24mm; text-align:center; color:#8193a5; font-size:6.8pt; padding-top:18mm; }
+.sigl .qr { text-align:center; }
+.sigl .qr img { width:26mm; height:26mm; display:block; margin:0 auto; }
+.sigl .qr .c { color:{{ _c.slate }}; font-size:6.5pt; margin-top:1mm; }
+
+/* footer (wkhtmltopdf moves it into the bottom margin of every page) */
+.sig-pdffoot { color:{{ _c.slate }}; font-family:SIGLatin,Arial,sans-serif; font-size:6.3pt; line-height:1.4; border-top:1px solid #e3ebf3; padding-top:2mm; }
+.sig-pdffoot .ar { font-family:SIGBoutros,Tahoma,Arial,sans-serif; direction:rtl; unicode-bidi:embed; color:{{ _c.slate }}; }
+.sig-pdffoot .side { padding-top:1mm; white-space:nowrap; color:{{ _c.slate }}; }
+.sig-pdffoot .dot { color:{{ _c.cyan }}; padding:0 1.2mm; }
+.sig-pdffoot .r { color:{{ _c.navy }}; font-weight:bold; }
+.sig-pdffoot .pg { text-align:center; white-space:nowrap; }
+.sig-pdffoot .pg .pl { display:inline-block; background:#eef4f9; color:{{ _c.slate }}; font-size:6.8pt; height:5mm; line-height:5mm; padding:0 1.6mm 0 2.2mm; border:1px solid #dbe6f0; border-right:0; border-radius:2.5mm 0 0 2.5mm; vertical-align:middle; }
+.sig-pdffoot .pg .pl .ar { color:{{ _c.slate }}; }
+.sig-pdffoot .pg .pv { display:inline-block; background:{{ _c.navy }}; color:#fff; font-size:7.6pt; font-weight:bold; height:5mm; line-height:5mm; padding:0 2.6mm 0 2.2mm; border:1px solid {{ _c.navy }}; border-radius:0 2.5mm 2.5mm 0; vertical-align:middle; }
+.sig-pdffoot .pg .pv span { color:#fff; }
+.sig-pdffoot .pg .pv .of { color:#7fc8de; font-weight:normal; padding:0 1mm; }
+.sig-pdffoot .pg .pv .topage { color:#cfe3f1; font-weight:normal; }
 #footer-html { display:none; }
 @media screen { .sigl #footer-html { display:block; margin-top:8mm; } }
 </style>
 
 <div class="sigl">
   <table class="top" role="presentation"><tr>
-    <td><img class="logo" src="{{ frappe.utils.get_url() }}/files/sig_invoice_logo_cropped.png" alt="SIG"></td>
+    <td style="width:45%"><img class="logo" src="{{ frappe.utils.get_url() }}/files/sig_invoice_logo_cropped.png" alt="SIG"></td>
     <td>
-      <div class="title">{{ "Payment Reminder" if _payment_reminder else "Letter" }} <span class="ar">{{ "تذكير بالسداد" if _payment_reminder else "خطاب" }}</span></div>
-      <div class="ids">CR # 7002814189 &nbsp;|&nbsp; VAT # {{ _company.tax_id or "—" }}</div>
-      <div class="dateline">Date · <span class="ar">التاريخ</span> &nbsp; <span dir="ltr" style="unicode-bidi:embed">{{ _date }}</span></div>
+      <div class="title">{% if _d.template == "Client Payment Reminder" %}Payment Reminder <span class="ar">تذكير بالسداد</span>{% elif _is_contract %}Contract <span class="ar">عقد</span>{% else %}Letter <span class="ar">خطاب</span>{% endif %}</div>
+      <div class="ids">CR # <b>7002814189</b><span class="sep">|</span>VAT # <b>{{ _company.tax_id or "—" }}</b></div>
+      <div class="ids">Date · <span class="ar">التاريخ</span> &nbsp; <b dir="ltr" style="unicode-bidi:embed">{{ _date }}</b></div>
+      {%- if _is_contract %}<div class="ids" style="margin-top:1.6mm">{% if _d.docstatus == 2 %}<span class="pill cancelled">Cancelled · <span class="ar">ملغى</span></span>{% elif _cstatus == "Signed" %}<span class="pill issued">Signed by both parties{% if _signed_on %} · {{ _signed_on }}{% endif %} · <span class="ar">موقّع من الطرفين</span></span>{% elif _cstatus == "Terminated" %}<span class="pill cancelled">Terminated · <span class="ar">منتهي</span></span>{% elif _d.docstatus == 1 %}<span class="pill draft">Awaiting second-party signature · <span class="ar">بانتظار توقيع الطرف الثاني</span></span>{% else %}<span class="pill draft">Draft · <span class="ar">مسودة</span></span>{% endif %}</div>{% endif %}
     </td>
   </tr></table>
-  <div class="sea"></div>
+  
+  {%- if _d.template and "Warranty" in _d.template %}
+  <table class="meta" role="presentation"><tr>
+    <td class="ref"><div class="k">Reference · <span class="ar">المرجع</span></div><div class="v">{{ _d.name }}</div></td>
+    <td><div class="k">Date · <span class="ar">التاريخ</span></div><div class="v" dir="ltr">{{ _date }}</div></td>
+    {%- for m in _meta %}<td><div class="k">{{ m[0] }} · <span class="ar">{{ m[1] }}</span></div><div class="v" dir="auto">{{ m[2] }}</div></td>{% endfor %}
+    <td><div class="k">Status · <span class="ar">الحالة</span></div><div class="v"><span class="pill {{ _status | lower }}">{{ _status }}</span></div></td>
+  </tr></table>
+  {%- endif %}
 
-  <div class="tocard">
-    <div class="lbl">To <span class="ar">إلى</span></div>
-    <div class="name" dir="auto">{{ _d.addressee }}</div>
-    {% if _d.attn %}<div class="att">Attn: {{ _d.attn }}</div>{% endif %}
-  </div>
-  {%- if _rtl %}<div class="subbar" dir="rtl"><span style="color:{{ _c.navy }}">الموضوع:</span> {{ _d.subject }}</div>
-  {%- else %}<div class="subbar"><span class="ar">الموضوع</span><span style="color:{{ _c.navy }}">Subject:</span> <span dir="auto">{{ _d.subject }}</span></div>{%- endif %}
-
-  <div class="body" {% if _rtl %}dir="rtl"{% endif %}>
-    {% if _d.greeting %}<p>{{ _d.greeting }}</p>{% endif %}
-    {%- for row in _d.blocks %}
-      {%- if row.block_type == "Paragraph" %}<p>{{ inline_html(row.content) | safe }}</p>
-      {%- elif row.block_type == "Note" %}<div class="callout">{{ inline_html(row.content) | safe }}</div>
-      {%- elif row.block_type == "Heading" %}{% set hp = heading_parts(row.content) %}<div class="h">{% if hp[0] %}<span class="num">{{ hp[0] }}</span>{{ hp[1] }}{% else %}{{ row.content }}{% endif %}</div>
-      {%- elif row.block_type == "Bullets" %}<ul>{% for item in items_list(row.bullets) %}<li>{{ inline_html(item) | safe }}</li>{% endfor %}</ul>
-      {%- elif row.block_type == "Table" %}{% set tb = table_data(row.table_json) %}<div class="ctl"><table><thead><tr>{% for cell in tb.head %}<th>{{ inline_html(cell) | safe }}</th>{% endfor %}</tr></thead><tbody>{% for r in tb.rows %}<tr>{% for cell in r %}<td>{{ inline_html(cell | string) | safe }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div>
-      {%- endif %}
-    {%- endfor %}
-    {% if _d.closing %}<p style="margin-top:3mm">{{ inline_html(_d.closing) | safe }}</p>{% endif %}
-    {% if not _payment_reminder or not _d.closing %}<p>{{ "وتفضلوا بقبول فائق الاحترام والتقدير،" if _rtl else "Yours sincerely," }}</p>{% endif %}
-  </div>
-
-  <table class="sigs" role="presentation"><tr>
-    <td style="width:30%; padding-right:3mm">{% if _vqr %}<table class="vqr" role="presentation"><tr><td style="width:27mm"><img src="{{ frappe.utils.get_url() }}{{ _vqr[0].file_url }}" alt="QR"></td><td><div class="k">Scan to verify <span class="ar">امسح للتحقق</span></div><div class="s">{{ _d.name }}</div></td></tr></table>{% endif %}</td>
-    <td style="width:37%; padding:0 3mm"><div class="card">
-      <div class="ctitle">For Salah Ibrahim Algain Cont. Co. <span class="ar">عن الشركة</span></div>
-      <div class="cname">{{ _signer }}{% if _d.signer_title %}<br><span style="color:{{ _c.slate }};font-size:8pt">{{ _d.signer_title }}</span>{% endif %}</div>
-      <div class="cline"></div>
-      <div class="ccap">Signature &amp; date &mdash; {{ _date }} <span class="ar">التوقيع والتاريخ</span></div>
-    </div></td>
-    <td style="width:33%; padding-left:3mm"><div class="card stamp"><div class="ctitle">Official stamp <span class="ar">الختم الرسمي</span></div></div></td>
+  <table class="parties" role="presentation" {% if _rtl %}dir="rtl"{% endif %}><tr>
+    <td class="card">
+      <div class="head">{% if _is_contract %}{% if _rtl %}<span class="ar">العقد</span><span class="en">Contract</span>{% else %}Contract <span class="ar">العقد</span>{% endif %}{% elif _rtl %}<span class="ar">الموضوع</span><span class="en">Subject</span>{% else %}Subject <span class="ar">الموضوع</span>{% endif %}</div>
+      <div class="nm" dir="auto">{{ _d.subject }}</div>
+    </td>
+    <td class="card to">
+      <div class="head">{% if _is_contract %}{% if _rtl %}<span class="ar">الطرف الثاني</span><span class="en">Second party</span>{% else %}Second party <span class="ar">الطرف الثاني</span>{% endif %}{% elif _rtl %}<span class="ar">إلى</span><span class="en">To</span>{% else %}To <span class="ar">إلى</span>{% endif %}</div>
+      <div class="nm" dir="auto">{{ _d.addressee }}</div>
+      {% if _d.attn %}<div class="dt" dir="auto">{{ 'عناية · Attn' if _rtl else 'Attn' }}: <b>{{ _d.attn }}</b></div>{% endif %}
+    </td>
   </tr></table>
 
+  <div class="body" {% if _rtl %}dir="rtl"{% endif %}>
+    {% if _d.greeting %}<p>{{ inline_html(_d.greeting) | safe }}</p>{% endif %}
+    {%- set ns = namespace(skip=0) %}
+    {%- set n = _d.blocks | length %}
+    {%- for row in _d.blocks %}
+      {%- set nxt = _d.blocks[loop.index] if loop.index < n else none %}
+      {%- set nxt2 = _d.blocks[loop.index + 1] if loop.index + 1 < n else none %}
+      {%- if ns.skip > 0 %}{% set ns.skip = ns.skip - 1 %}
+      {%- elif row.block_type == "Heading" and nxt and nxt.block_type == "Bullets" %}{% set ns.skip = 1 %}{% set its = items_list(nxt.bullets) %}<div class="grp">{{ block(row) }}<ul>{{ bullet(its[0]) }}</ul></div>{% if its | length > 1 %}<ul class="cont">{% for item in its[1:] %}{{ bullet(item) }}{% endfor %}</ul>{% endif %}
+      {%- elif row.block_type == "Heading" and nxt and nxt.block_type == "Paragraph" and nxt2 and nxt2.block_type == "Table" %}{% set ns.skip = 2 %}<div class="grp">{{ block(row) }}{{ block(nxt) }}{{ block(nxt2) }}</div>
+      {%- elif (row.block_type == "Heading" and nxt and nxt.block_type in ["Paragraph", "Note"]) or (row.block_type == "Paragraph" and nxt and nxt.block_type == "Table") or (row.block_type == "Heading" and nxt and nxt.block_type == "Table" and table_data(nxt.table_json).rows | length <= 8) %}{% set ns.skip = 1 %}<div class="grp">{{ block(row) }}{{ block(nxt) }}</div>
+      {%- else %}{{ block(row) }}
+      {%- endif %}
+    {%- endfor %}
+    {%- if not _is_contract %}<div class="sign-close">
+      {% if _d.closing %}<p style="margin-top:3mm">{{ inline_html(_d.closing) | safe }}</p>{% endif %}
+      <p>{{ "وتفضلوا بقبول فائق الاحترام والتقدير،" if _rtl else "Yours sincerely," }}</p>
+    </div>{% endif %}
+  </div>
+
+  {%- if _is_contract %}
+  <table class="signoff" role="presentation" {% if _rtl %}dir="rtl"{% endif %}><tr>
+    <td style="width:34%;padding-{{ 'left' if _rtl else 'right' }}:3mm"><div class="who">
+      <div class="lb">First party <span class="ar">الطرف الأول</span></div>
+      {%- if _rtl %}<div class="n ar" style="font-size:9.2pt;color:{{ _c.navy }}">{{ _co_ar }}</div>
+      {%- else %}<div class="n" dir="ltr">Salah Ibrahim Algain Cont. Co.</div>
+      <div class="n ar" style="font-size:8.6pt;color:{{ _c.navy }};margin-top:.4mm">{{ _co_ar }}</div>{%- endif %}
+      <div class="tt" {% if _rtl %}dir="rtl"{% endif %}>{{ _signer_show }}{% if _d.signer_title %} · {{ _d.signer_title }}{% endif %}</div>
+      <div class="ln">Signature · <span class="ar">التوقيع</span></div>
+    </div></td>
+    <td style="width:28%;padding:0 3mm"><div class="who who2">
+      <div class="lb">Second party <span class="ar">الطرف الثاني</span></div>
+      <div class="n" dir="auto">{{ _d.addressee }}</div>
+      <div class="tt">&nbsp;</div>
+      <div class="ln">Signature · <span class="ar">التوقيع</span></div>
+    </div></td>
+    <td style="width:18%" class="qr">{% if _vqr %}<img src="{{ frappe.utils.get_url() }}{{ _vqr[0].file_url }}" alt="QR"><div class="c">Scan to verify · <span class="ar">امسح للتحقق</span></div>{% endif %}</td>
+    <td style="width:20%;padding-{{ 'right' if _rtl else 'left' }}:3mm"><div class="stampbox" style="height:22mm;padding-top:16mm">Official stamp · <span class="ar">الختم الرسمي</span></div></td>
+  </tr></table>
+  {%- else %}
+  <table class="signoff" role="presentation"><tr>
+    <td style="width:40%"><div class="who">
+      <div class="lb">{% if _rtl %}<span class="ar" style="float:none">عن {{ _co_ar }}</span>{% else %}For Salah Ibrahim Algain Cont. Co. <span class="ar">عن الشركة</span>{% endif %}</div>
+      <div class="n" {% if _rtl %}dir="rtl" style="text-align:right"{% endif %}>{{ _signer_show }}</div>
+      {% if _d.signer_title %}<div class="tt">{{ _d.signer_title }}</div>{% endif %}
+      <div class="ln">Signature &amp; date · <span class="ar">التوقيع والتاريخ</span></div>
+    </div></td>
+    <td style="width:30%" class="qr">{% if _vqr %}<img src="{{ frappe.utils.get_url() }}{{ _vqr[0].file_url }}" alt="QR"><div class="c">Scan to verify · <span class="ar">امسح للتحقق</span></div>{% endif %}</td>
+    <td style="width:30%"><div class="stampbox">Official stamp · <span class="ar">الختم الرسمي</span></div></td>
+  </tr></table>
+  {%- endif %}
+
   <div id="footer-html"><div class="sig-pdffoot">
-    <div class="sig-pageno">Ref {{ _d.name }} &nbsp;·&nbsp; Page <span class="page"></span> of <span class="topage"></span> &nbsp;·&nbsp; <span class="ar">صفحة <span class="page"></span> من <span class="topage"></span></span></div>
-    <table role="presentation"><tr><td>9073 Olaya St., Olaya Dist., Riyadh</td><td style="text-align:center">info@sigtele.com</td><td class="ar" style="text-align:right">9073، شارع العليا، حي العليا، الرياض</td></tr></table>
+    <div class="side" style="float:left;width:40%;text-align:left">9073 Olaya St., Olaya Dist., Riyadh<span class="dot">•</span>info@sigtele.com</div>
+    <div class="side" style="float:right;width:40%;text-align:right">Reference · <span class="ar">رقم مرجعي</span> <span class="r" dir="ltr" style="direction:ltr;unicode-bidi:bidi-override">{{ _d.name }}</span><span class="dot">•</span><span class="ar">9073، شارع العليا، حي العليا، الرياض</span></div>
+    <div class="pg"><span class="pl">Page · <span class="ar">صفحة</span></span><span class="pv"><span class="page"></span><span class="of">/</span><span class="topage"></span></span></div>
+    <div style="clear:both"></div>
   </div></div>
 </div>
