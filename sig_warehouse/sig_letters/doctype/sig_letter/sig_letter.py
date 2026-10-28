@@ -36,6 +36,12 @@ def make_from_template(template, context=None):
     """
     if not frappe.has_permission("SIG Letter Template", "read", template):
         frappe.throw("You do not have permission to use this letter template.", frappe.PermissionError)
+
+    return _template_payload(template, context)
+
+
+def _template_payload(template, context=None):
+    """Render a SIG Letter Template for an authorized server-side workflow."""
     tpl = frappe.get_doc("SIG Letter Template", template)
     if tpl.disabled:
         frappe.throw(f"Template {template} is disabled")

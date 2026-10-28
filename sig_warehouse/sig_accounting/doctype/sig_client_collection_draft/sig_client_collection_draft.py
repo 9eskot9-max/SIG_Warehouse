@@ -14,7 +14,7 @@ class SIGClientCollectionDraft(Document):
             frappe.throw(_("Reminder status is managed by the send workflow."))
         if old and old.status != "Draft":
             locked = (
-                "naming_series", "customer", "company", "letter_date", "letter_type", "language", "channel",
+                "naming_series", "customer", "company", "letter_date", "letter_type", "language", "channel", "sig_letter",
                 "recipient_whatsapp", "recipient_email", "currency", "total_outstanding",
                 "is_overdue", "subject", "greeting", "letter_body", "whatsapp_message", "closing",
             )

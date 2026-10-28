@@ -1,0 +1,19 @@
+{
+  "template_name": "Client Payment Reminder",
+  "letter_type": "General",
+  "language": "English",
+  "default_addressee": "{{ customer_name }}",
+  "subject": "{{ subject }}",
+  "greeting": "{{ greeting }}",
+  "closing": "{{ closing }}",
+  "variables": [
+    {"key": "customer_name", "label": "Customer"},
+    {"key": "subject", "label": "Subject"},
+    {"key": "greeting", "label": "Greeting"},
+    {"key": "letter_body", "label": "Reminder text"},
+    {"key": "closing", "label": "Closing"}
+  ],
+  "blocks": [
+    {"type": "p", "text": "{{ letter_body }}"}
+  ]
+}

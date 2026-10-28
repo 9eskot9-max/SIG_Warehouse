@@ -6,10 +6,11 @@
 {%- set _d = frappe.get_doc(doc.doctype, doc.name) -%}
 {%- set _company = frappe.db.get_value("Company", _d.company, ["tax_id"], as_dict=True) or {} -%}
 {%- set _rtl = (_d.language == "Arabic") -%}
+{%- set _payment_reminder = _d.template == "Client Payment Reminder" -%}
 {%- set _date = frappe.utils.formatdate(_d.letter_date, "dd MMM yyyy") if _d.letter_date else "" -%}
 {%- set _sub = frappe.get_all("Version", filters={"ref_doctype": "SIG Letter", "docname": _d.name, "data": ["like", '%["docstatus",0,1]%']}, fields=["owner"], order_by="creation desc", limit=1) -%}
 {%- set _submitter = frappe.db.get_value("User", _sub[0].owner, "full_name") if _sub else (frappe.db.get_value("User", _d.modified_by, "full_name") if _d.docstatus == 1 else "") -%}
-{%- set _signer = (frappe.db.get_value("User", _d.signer, "full_name") if _d.signer else "") or _submitter or "" -%}
+{%- set _signer = "SIG Finance" if _payment_reminder else ((frappe.db.get_value("User", _d.signer, "full_name") if _d.signer else "") or _submitter or "") -%}
 {%- set _vqr = frappe.get_all("File", filters={"attached_to_doctype": _d.doctype, "attached_to_name": _d.name, "file_name": ["like", "verify_qr_%"]}, fields=["file_url"], order_by="creation desc", limit_page_length=1) -%}
 
 <style>
@@ -73,7 +74,7 @@
   <table class="top" role="presentation"><tr>
     <td><img class="logo" src="{{ frappe.utils.get_url() }}/files/sig_invoice_logo_cropped.png" alt="SIG"></td>
     <td>
-      <div class="title">Letter <span class="ar">خطاب</span></div>
+      <div class="title">{{ "Payment Reminder" if _payment_reminder else "Letter" }} <span class="ar">{{ "تذكير بالسداد" if _payment_reminder else "خطاب" }}</span></div>
       <div class="ids">CR # 7002814189 &nbsp;|&nbsp; VAT # {{ _company.tax_id or "—" }}</div>
       <div class="dateline">Date · <span class="ar">التاريخ</span> &nbsp; <span dir="ltr" style="unicode-bidi:embed">{{ _date }}</span></div>
     </td>
@@ -99,7 +100,7 @@
       {%- endif %}
     {%- endfor %}
     {% if _d.closing %}<p style="margin-top:3mm">{{ inline_html(_d.closing) | safe }}</p>{% endif %}
-    <p>{{ "وتفضلوا بقبول فائق الاحترام والتقدير،" if _rtl else "Yours sincerely," }}</p>
+    {% if not _payment_reminder or not _d.closing %}<p>{{ "وتفضلوا بقبول فائق الاحترام والتقدير،" if _rtl else "Yours sincerely," }}</p>{% endif %}
   </div>
 
   <table class="sigs" role="presentation"><tr>

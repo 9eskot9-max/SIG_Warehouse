@@ -16,6 +16,8 @@ from frappe.utils import getdate, now_datetime, today
 ALLOWED = {"Accounts User", "Accounts Manager", "System Manager"}
 DOCTYPE = "SIG Client Collection Draft"
 PRINT_FORMAT = "SIG Client Payment Reminder"
+SIG_LETTER_TEMPLATE = "Client Payment Reminder"
+SIG_LETTER_PRINT_FORMAT = "SIG Letter (Infographic)"
 LETTER_TYPES = {"Invoice Delivery", "Friendly Reminder", "Overdue Reminder"}
 LANGUAGES = {"English", "Arabic", "Bilingual"}
 CHANNELS = {"WhatsApp", "Email", "WhatsApp + Email"}
@@ -77,6 +79,84 @@ def _load_invoices(names):
 
 def _money(amount, currency):
     return frappe.utils.fmt_money(amount, currency=currency)
+
+
+def _sync_sig_letter(doc, letter_name=None):
+    """Create or refresh this draft's restricted, system-generated SIG Letter."""
+    _guard()
+    from sig_warehouse.sig_letters import blocks as block_model
+    from sig_warehouse.sig_letters.doctype.sig_letter.sig_letter import _template_payload
+
+    customer_name = frappe.db.get_value("Customer", doc.customer, "customer_name") or doc.customer
+    closing = (doc.closing or "").replace("\n", "<br>")
+    template_data = _template_payload(SIG_LETTER_TEMPLATE, {
+        "customer_name": customer_name,
+        "subject": doc.subject or "Payment Reminder",
+        "greeting": doc.greeting or "",
+        "letter_body": (doc.letter_body or "").replace("\n", "<br>"),
+        "closing": closing,
+    })
+    table_head = (
+        ["رقم الفاتورة", "تاريخ الاستحقاق", "الرصيد المستحق"]
+        if doc.language == "Arabic" else
+        ["Invoice / رقم الفاتورة", "Due date / تاريخ الاستحقاق", "Outstanding / الرصيد المستحق"]
+        if doc.language == "Bilingual" else
+        ["Invoice", "Due date", "Outstanding"]
+    )
+    table_rows = [[
+        row.sales_invoice,
+        frappe.utils.formatdate(row.due_date, "dd MMM yyyy") if row.due_date else "—",
+        _money(row.outstanding_amount, doc.currency),
+    ] for row in doc.invoices]
+    total_text = (
+        "إجمالي الرصيد المستحق: {0}".format(_money(doc.total_outstanding, doc.currency))
+        if doc.language == "Arabic" else
+        "Total outstanding / إجمالي الرصيد المستحق: {0}".format(_money(doc.total_outstanding, doc.currency))
+        if doc.language == "Bilingual" else
+        "Total outstanding: {0}".format(_money(doc.total_outstanding, doc.currency))
+    )
+    blocks = list(template_data.get("blocks") or [])
+    blocks.extend([
+        block_model.block_to_row({"type": "table", "head": table_head, "rows": table_rows}),
+        block_model.block_to_row({"type": "note", "text": total_text}),
+    ])
+    values = {
+        **template_data,
+        "language": doc.language,
+        "letter_date": doc.letter_date,
+        "company": doc.company,
+        "party_type": "Customer",
+        "party": doc.customer,
+        "related_doctype": DOCTYPE,
+        "related_document": doc.name,
+        "signer": frappe.session.user,
+        "signer_title": "Finance",
+        "subject": doc.subject or "Payment Reminder",
+        "greeting": doc.greeting or "",
+        "closing": closing,
+        "blocks": blocks,
+    }
+    if letter_name:
+        letter = frappe.get_doc("SIG Letter", letter_name)
+        if letter.related_doctype != DOCTYPE or letter.related_document != doc.name or letter.template != SIG_LETTER_TEMPLATE:
+            frappe.throw(_("The linked SIG Letter does not belong to this reminder."), frappe.PermissionError)
+        if letter.docstatus != 0:
+            frappe.throw(_("The linked SIG Letter is already submitted and cannot be refreshed."))
+        letter.update(values)
+    else:
+        letter = frappe.get_doc(values)
+    letter.insert(ignore_permissions=True) if not letter_name else letter.save(ignore_permissions=True)
+    return letter.name
+
+
+def _reminder_letter_pdf(doc):
+    if not doc.sig_letter:
+        # Preserve delivery for pre-integration drafts that have no linked letter.
+        return _pdf_bytes(DOCTYPE, doc.name, PRINT_FORMAT)
+    letter = frappe.get_doc("SIG Letter", doc.sig_letter)
+    if letter.related_doctype != DOCTYPE or letter.related_document != doc.name or letter.template != SIG_LETTER_TEMPLATE:
+        frappe.throw(_("The linked SIG Letter does not belong to this reminder."), frappe.PermissionError)
+    return _pdf_bytes("SIG Letter", letter.name, SIG_LETTER_PRINT_FORMAT)
 
 
 def _build_letter(customer_name, invoices, currency, total, letter_type, language):
@@ -196,7 +276,9 @@ def create_draft(invoice_names, send_to="", send_to_email="", channel="WhatsApp"
         "invoices": invoices,
     })
     doc.insert()
-    return {"name": doc.name, "status": doc.status, "invoice_count": len(invoices)}
+    doc.sig_letter = _sync_sig_letter(doc)
+    doc.save()
+    return {"name": doc.name, "status": doc.status, "invoice_count": len(invoices), "sig_letter": doc.sig_letter}
 
 
 @frappe.whitelist()
@@ -323,7 +405,7 @@ def _maytapi_send(doc, invoice_docs):
         doc, "whatsapp:text", "WhatsApp", "Reminder text", destination,
         lambda: send({"to_number": destination, "type": "text", "message": doc.whatsapp_message}),
     ) and ok
-    letter_pdf = _pdf_bytes(DOCTYPE, doc.name, PRINT_FORMAT)
+    letter_pdf = _reminder_letter_pdf(doc)
     letter_payload = {
         "to_number": destination,
         "type": "media",
@@ -354,7 +436,7 @@ def _maytapi_send(doc, invoice_docs):
 def _email_send(doc, invoice_docs):
     attachments = [{
         "fname": _pdf_filename(doc.name + "-Payment-Reminder"),
-        "fcontent": _pdf_bytes(DOCTYPE, doc.name, PRINT_FORMAT),
+        "fcontent": _reminder_letter_pdf(doc),
     }]
     for inv in invoice_docs:
         attachments.append({"fname": _pdf_filename(inv.name), "fcontent": _pdf_bytes("Sales Invoice", inv.name)})
@@ -423,6 +505,8 @@ def send_draft(name):
     if doc.status not in ("Draft", "Partially Sent", "Failed"):
         frappe.throw(_("This reminder cannot be sent from its current status."))
     invoice_docs = _validate_snapshot(doc)
+    if doc.status == "Draft":
+        doc.sig_letter = _sync_sig_letter(doc, doc.sig_letter)
     doc.status = "Sending"
     doc.last_attempt_at = now_datetime()
     doc.last_error = ""
