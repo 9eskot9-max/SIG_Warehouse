@@ -32,6 +32,24 @@
   const debugPanel = document.querySelector('#debug-panel'), debugOutput = document.querySelector('#debug-output');
   let debugLines = [];
   function logDebug(key, value) { debugLines.push(`${new Date().toISOString()} ${key}: ${String(value).slice(0, 300)}`); debugOutput.textContent = debugLines.join('\n'); debugPanel.hidden = false; }
+  function getErpError(payload) {
+    if (!payload || typeof payload !== 'object') return 'Request rejected';
+    let message = '';
+    if (typeof payload.exception === 'string') message = payload.exception.split('\n')[0];
+    if (!message && typeof payload.message === 'string') message = payload.message;
+    let serverMessages = payload._server_messages;
+    if (typeof serverMessages === 'string') { try { serverMessages = JSON.parse(serverMessages); } catch (_) { serverMessages = []; } }
+    if (!message && Array.isArray(serverMessages)) {
+      for (const raw of serverMessages) {
+        try { const item = typeof raw === 'string' ? JSON.parse(raw) : raw; if (item && item.message) { message = item.message; break; } }
+        catch (_) {}
+      }
+    }
+    message = String(message || 'Request rejected').replace(/\s+/g, ' ').slice(0, 240);
+    const type = String(payload.exc_type || '').replace(/[^A-Za-z0-9_.]/g, '').slice(0, 80);
+    if (message.includes('Traceback') || message.includes('File "')) message = 'Server-side error';
+    return type ? `${type}: ${message}` : message;
+  }
   document.querySelector('#copy-debug').addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(debugLines.join('\n')); status.textContent = 'Debug details copied.'; }
     catch (_) { status.textContent = 'Could not access clipboard; select and copy the debug details above.'; }
@@ -69,7 +87,7 @@
         logDebug('erp_http_status', response.status);
         const payload = await response.json();
         const result = payload.message || payload;
-        if (!response.ok) { logDebug('erp_error', result.error || (typeof result === 'string' ? result : 'Request rejected')); throw new Error(typeof result === 'string' ? result : (result.error || 'ERP lookup request failed.')); }
+        if (!response.ok) { const detail = typeof result === 'string' ? result : getErpError(payload); logDebug('erp_error', detail); throw new Error(`ERP lookup failed (HTTP ${response.status}). Open Debug details for the error.`); }
         if (!result || !Array.isArray(result.sites)) { logDebug('erp_response', 'Expected a sites list; received an unexpected response.'); throw new Error('ERP returned an unexpected site lookup response.'); }
         logDebug('matching_sites', result.sites.length);
         sites.replaceChildren();
