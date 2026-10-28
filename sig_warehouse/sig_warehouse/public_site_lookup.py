@@ -27,6 +27,8 @@ def nearby_sites(latitude=None, longitude=None):
             if row.site_latitude is None or row.site_longitude is None or not row.site_id:
                 continue
             slat, slon = float(row.site_latitude), float(row.site_longitude)
+            if slat == 0 and slon == 0:
+                continue
             a = (math.sin(math.radians(slat-lat)/2)**2 + math.cos(math.radians(lat)) *
                  math.cos(math.radians(slat)) * math.sin(math.radians(slon-lon)/2)**2)
             meters = 12742000 * math.asin(min(1, math.sqrt(a)))
