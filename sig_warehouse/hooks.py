@@ -20,7 +20,10 @@ after_migrate = "sig_warehouse.after_migrate.run"
 # app_include_js alone is sufficient (it is what actually makes the file
 # reach the Kanban board too) and carries the cache-busting ?v= query, so
 # doctype_js is dropped rather than kept as a second copy.
-doctype_js = {"SIG PC Transaction": "public/js/pc_transaction.js"}
+doctype_js = {
+    "SIG PC Transaction": "public/js/pc_transaction.js",
+    "SIG Client Collection Draft": "public/js/client_collection_draft.js",
+}
 
 # The legacy short names remain valid for old bookmarks; they use the same
 # native draft-JE writer. Overrides run before Server Script dispatch in v15.
