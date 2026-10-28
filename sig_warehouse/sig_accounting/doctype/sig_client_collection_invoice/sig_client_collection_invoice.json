@@ -1,0 +1,18 @@
+{
+ "doctype": "DocType",
+ "name": "SIG Client Collection Invoice",
+ "module": "SIG Accounting",
+ "istable": 1,
+ "field_order": ["sales_invoice","posting_date","due_date","currency","invoice_total","outstanding_amount"],
+ "fields": [
+  {"fieldname":"sales_invoice","fieldtype":"Link","label":"Sales Invoice","options":"Sales Invoice","reqd":1,"in_list_view":1,"read_only":1},
+  {"fieldname":"posting_date","fieldtype":"Date","label":"Posting Date","read_only":1,"in_list_view":1},
+  {"fieldname":"due_date","fieldtype":"Date","label":"Due Date","read_only":1,"in_list_view":1},
+  {"fieldname":"currency","fieldtype":"Link","label":"Currency","options":"Currency","read_only":1},
+  {"fieldname":"invoice_total","fieldtype":"Currency","label":"Invoice Total","options":"currency","read_only":1},
+  {"fieldname":"outstanding_amount","fieldtype":"Currency","label":"Outstanding","options":"currency","read_only":1,"in_list_view":1}
+ ],
+ "permissions": [],
+ "links": [],
+ "states": []
+}

@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: Arial, sans-serif; color: #18333b; font-size: 11pt; }
+    .letter { padding: 10mm 8mm; }
+    .brand { color: #087f8c; font-size: 18pt; font-weight: bold; border-bottom: 2px solid #087f8c; padding-bottom: 7px; }
+    .meta { color: #64777b; font-size: 9pt; margin: 14px 0 24px; }
+    h1 { font-size: 17pt; margin: 0 0 20px; }
+    .body { white-space: pre-line; line-height: 1.65; }
+    table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+    th, td { border: 1px solid #cbd7d9; padding: 8px; text-align: left; }
+    th { background: #edf5f5; }
+    .total { font-weight: bold; text-align: right; padding: 10px 2px; }
+    .footer { margin-top: 28px; color: #64777b; font-size: 9pt; }
+    .rtl { direction: rtl; text-align: right; }
+  </style>
+</head>
+<body>
+  <div class="letter {{ 'rtl' if doc.language == 'Arabic' else '' }}">
+    <div class="brand">SIG</div>
+    <div class="meta">{{ doc.company }} · {{ doc.letter_date }}</div>
+    <h1>{{ doc.subject | e }}</h1>
+    <div class="body">{{ doc.greeting | e }}</div>
+    <div class="body">{{ doc.letter_body | e }}</div>
+    <table>
+      <thead><tr><th>{{ 'رقم الفاتورة' if doc.language == 'Arabic' else 'Invoice' }}</th><th>{{ 'تاريخ الاستحقاق' if doc.language == 'Arabic' else 'Due date' }}</th><th>{{ 'الرصيد المستحق' if doc.language == 'Arabic' else 'Outstanding' }}</th></tr></thead>
+      <tbody>
+        {% for row in doc.invoices %}
+        <tr><td>{{ row.sales_invoice | e }}</td><td>{{ row.due_date or '—' }}</td><td>{{ frappe.utils.fmt_money(row.outstanding_amount, currency=doc.currency) }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="total">{{ 'الإجمالي المستحق' if doc.language == 'Arabic' else 'Total outstanding' }}: {{ frappe.utils.fmt_money(doc.total_outstanding, currency=doc.currency) }}</div>
+    <div class="body">{{ doc.closing | e }}</div>
+    <div class="footer">{{ doc.name }} · {{ doc.customer }}</div>
+  </div>
+</body>
+</html>
