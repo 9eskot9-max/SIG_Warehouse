@@ -25,7 +25,6 @@ WINDOW_HOURS = 72                       # re-assembly window; results are truste
 RIYADH = timezone(timedelta(hours=3))
 POST_BATCH = 25                          # sessions posted per run
 STALE_HOURS = 24                         # no Inbox row at all for this long raises an alert
-DEFAULT_WH = "\u0645\u0633\u062a\u0648\u062f\u0639 \u0627\u0644\u0645\u0632\u0627\u062d\u0645\u064a\u0629 - SIG"
 # group stream -> the project label the RV80 evidence events used on Site Cycles (5g / Capex-9 / incident)
 STREAM_PROJECT = {"ti5g": "5g", "ticpx": "Capex-9", "ticpx2": "Capex", "tiinc": "incident"}
 
@@ -149,8 +148,7 @@ def _call_evidence(payload):
 def _ensure_site(site):
     if frappe.db.exists("SIG Site", site):
         return False
-    frappe.get_doc({"doctype": "SIG Site", "site_id": site, "site_name": site,
-                    "default_warehouse": DEFAULT_WH}).insert(ignore_permissions=True)
+    frappe.get_doc({"doctype": "SIG Site", "site_id": site, "site_name": site}).insert(ignore_permissions=True)
     return True
 
 

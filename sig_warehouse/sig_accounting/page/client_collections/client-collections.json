@@ -1,0 +1,3 @@
+{
+ "doctype":"Page","name":"client-collections","page_name":"client-collections","title":"Client Collections","module":"SIG Accounting","standard":"Yes","roles":[{"role":"Accounts User"},{"role":"Accounts Manager"},{"role":"System Manager"}]
+}
