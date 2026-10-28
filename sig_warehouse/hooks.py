@@ -94,6 +94,7 @@ scheduler_events = {
     ],
     "cron": {
         "*/15 * * * *": ["sig_warehouse.sig_warehouse.field_feed.run_feed"],
+        "*/5 * * * *": ["sig_warehouse.sig_operations.app_connections.dispatch_pending"],
     },
     # HR email request replies (WhatsApp Inbox -> SIG Employee Onboarding.proposed_email, for HR review only).
     "hourly": [
@@ -124,6 +125,10 @@ override_doctype_dashboards = {
 }
 
 doc_events = {
+    "ToDo": {
+        "after_insert": "sig_warehouse.sig_operations.app_connections.on_todo_after_insert",
+        "on_update": "sig_warehouse.sig_operations.app_connections.on_todo_after_update",
+    },
     "Journal Entry": {
         "before_insert": "sig_warehouse.sig_warehouse.pc_journal.guard_legacy_cycle",
         "validate": "sig_warehouse.sig_warehouse.pc_funding.validate_journal_entry",

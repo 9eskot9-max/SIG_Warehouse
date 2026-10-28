@@ -1,98 +1,65 @@
-# App Connections: Todoist
+# ERP tasks in Todoist
 
-Local development only. Page: `/app/app-connections`, owned by SIG Operations.
-It connects each authenticated System User through Todoist OAuth and lets them choose
-a project. It does not yet synchronize ToDos or Operations stage work.
+## Current production setup — 29 October 2026
 
-## Current OAuth setup state — 2026-10-28
+The `/app/app-connections` page and per-user OAuth connection are deployed on
+`neosys.frappe.cloud` in SIG Warehouse commit `d8b5165bad418fd78e4d464cd52afbdd983e44a2`.
+ERP user `9eskot9@gmail.com` authorized the existing **SIG ERP Automation for Todoist**
+app and selected the **Inbox** project. The Todoist developer page reports one authorized
+user. The OAuth scopes are `data:read,task:add`: the app can read projects/tasks and add
+tasks; it cannot edit or complete existing Todoist tasks.
 
-- The Todoist developer app **SIG ERP Automation for Todoist** exists under the
-  `9eskot9` Todoist account. Its service URL and the HTTPS ERP callback below are
-  configured in Todoist. Todoist reports zero authorized users; OAuth consent has
-  not been granted.
-- `/app/app-connections` was checked on production and returns **Page app-connections
-  not found**. The page, DocType and backend are local only; there are no production
-  Todoist credentials or connection records configured.
-- The OAuth client secret appeared in the browser accessibility output during setup.
-  Before entering any credential into ERP, the account owner must reset the secret
-  in Todoist and use only the new secret. Do not copy the previously displayed value.
-  The reset is an owner handoff because it changes an authentication credential.
-- The local authorization request is limited to `data:read,task:add`. Before OAuth
-  consent, present those scopes and the specific account access to the user. Do not
-  authorize until the app is deployed, its replacement secret is safely configured,
-  and the consent request is reviewed.
+The task-delivery implementation in this worktree is **not yet deployed**. Until its
+release is complete, connecting the account alone does not forward ERP tasks.
 
-## Setup for a later release
+## Task delivery behavior in this change
 
-1. Keep the existing Todoist app registration, confirm the callback and minimum scopes,
-   and use the freshly rotated secret. Do not create a duplicate app registration.
-2. Register the exact HTTPS callback
-   `https://neosys.frappe.cloud/api/method/sig_warehouse.sig_operations.app_connections.callback`.
-3. Set `todoist_client_id` and `todoist_client_secret` in Frappe site configuration
-   using the hosting platform's secret-management mechanism. Never commit either value.
-   Ensure Frappe's configured public host resolves to the registered HTTPS site.
-4. Migrate the app to install the Page and SIG App Connection DocType. The new DocType
-   has no directly granted roles; server methods identify the current System User and
-   access only that user's record. Frappe Password fields protect tokens at rest.
-5. Complete the permission regression gate and actual-user acceptance before release.
-   New Page audience: authenticated System Users (Page role All; endpoints reject
-   guests and Website Users). No existing permissions or workspaces are changed.
-   Baseline, migration repeatability, role/linked workflow, OAuth callback, token
-   refresh, disconnect and Arabic acceptance: NOT TESTED against a Frappe site.
+- Newly inserted ERP `ToDo` records assigned to `9eskot9@gmail.com` create one durable
+  `SIG Todoist Outbox` row and are queued for the user's selected project. Other users'
+  tasks are not exported. Existing ToDos are not backfilled.
+- The ToDo description is converted from HTML to plain text, bounded to 500 characters,
+  and redacts credentials, email addresses, long phone/account-like numbers and IBAN-like
+  identifiers. Only the ToDo ID and its ERP route are included as the description/link;
+  linked-record contents and attachments are not exported.
+- The SNB runner sends only two explicit issue categories to ERP: failed `import_erpnext`
+  phases and import rows skipped for review. The ERP endpoint accepts only those categories,
+  a validated run ID and a bounded skipped-row count from the API identity
+  `9eskot9@gmail.com`. It creates an ERP ToDo assigned to that user and an outbox row.
+  Tracebacks, bank/beneficiary data, transaction details and report contents are not sent.
+- Each outbox row has a unique source key. Delivery runs asynchronously, stores the
+  Todoist task ID and status, retries known rate-limit/transient cases, and leaves uncertain
+  remote outcomes in **Unknown** for reconciliation instead of blindly replaying them.
+  The App Connections page shows the user's latest delivery results.
+- Delivery is one way. ERP remains authoritative. Completing, editing or deleting a task
+  in Todoist does not change or close its ERP ToDo/issue. No historical task backfill or
+  issue auto-closure is performed.
 
-The local OAuth request uses the narrower `data:read,task:add` scopes: project
-listing needs read access and the planned SNB error notification needs task creation.
-It does not request full `data:read_write` access. Selecting a project is an ERP-side
-preference, not a Todoist-enforced restriction. Disconnect deletes the locally stored
-credentials; users should also revoke ERP's access from Todoist's integrations settings
-if they want provider-side revocation.
+## Access and data boundaries
 
-Task synchronization must be designed and implemented separately: bind ERP and
-Todoist IDs, retry safely, account for Todoist's one-assignee rule, and preserve
-evidence-based closure of Operations stage tasks. A connected account alone does
-not create or synchronize tasks.
+- The existing App Connections Page keeps its deployed `All` role. Server methods require
+  an enabled signed-in System User and return only that user's connection and delivery rows.
+- The outbox DocType has no direct role permissions. Internal hooks and background workers
+  access it with server-side permission bypass; no user-facing outbox route is added.
+- The SNB issue intake additionally requires the exact ERP user `9eskot9@gmail.com` and
+  ignores client-supplied task text. The local runner reads existing ERP API credentials
+  from the ignored secret file at runtime and never logs them.
+- The selected Todoist project is an ERP-side default for task destination, not a restriction
+  on what the OAuth grant can access. Disconnecting removes ERP's stored tokens; revoke the
+  app separately in Todoist integrations settings to end provider-side access.
 
-## Integration error routing requested 28 October 2026
+## Release and acceptance record
 
-**Status: design only; not deployed or active.** The owner wants selected ERP
-integration failures to appear as Todoist tasks in the account connected by ERP
-user `9eskot9@gmail.com`. Production read-back did not find `SIG App Connection`.
-The local connection page has no task writer or error-routing implementation.
-The owner selected **SNB-to-ERP automation errors** as the first category; do not
-route every Error Log or historical error automatically.
+The permission snapshot must include `SIG App Connection`, `SIG Todoist Outbox` and `ToDo`
+in both effective and source DocType coverage. The declared permission delta for this
+feature is no change to the existing Page or ToDo matrices and a new outbox DocType with no
+role grants. Confirm the new DocType installs with an empty permission list; inspect the
+new ToDo hook and SNB endpoint as permission writers. Required actual-user acceptance is
+the fresh `9eskot9@gmail.com` session opening App Connections and confirming a newly created
+ToDo is queued/delivered to Inbox. Do not create production test work without authorization.
+Arabic route behavior, ordinary non-target user visibility, retries, timeout reconciliation
+and real delivery remain NOT TESTED until evidenced.
 
-The existing `run_snb_agent.mjs` records `import_erpnext` phase failures and
-`erp_skipped` counts in the local agent run report. A skipped count can coexist
-with an otherwise successful phase. The local pure adapter
-`ERPNext/scripts/snb/todoist_issue_candidates.mjs` derives sanitized candidates
-for these two conditions and ignores dry-run and plan-only reports; its three
-local checks pass. Its hash deduplicates the same category within the same run,
-not the same transaction across different runs. It is not wired to the runner,
-ERP, an outbox, or Todoist. Transaction-level deduplication needs the SNB row's
-stable idempotency key and reconciliation against the existing unresolved queue.
+The user's live OAuth authorization and project selection are confirmed. The delivery
+feature itself remains pending its code deployment and actual-user task-flow acceptance.
 
-1. Install the connection page and DocType through the normal release and access
-   gate. Register a Todoist OAuth application and configure its credentials in
-   protected site configuration. The owner signs in to ERP as the intended
-   System User, authorizes their own Todoist account and selects the destination
-   project. Do not store a personal token or OAuth secret in source control.
-2. Add a durable ERP integration-issue record with a stable source/event key,
-   category, occurrence count, last-seen time, owner, status, Todoist task ID,
-   last delivery result and retry/review state. The ERP issue is authoritative;
-   selecting a Todoist project does not change source-system permissions.
-3. Register explicit adapters for the selected integration failures. Create or
-   update one issue per stable key, and send only a short sanitized summary and
-   an ERP link. Do not send tracebacks, credentials, customer data, bank data,
-   invoice content or private attachment URLs to Todoist.
-4. Use an asynchronous, idempotent outbox. Persist the Todoist task ID and remote
-   result; repeated errors update the existing issue. Treat timeouts after a
-   possible remote write as **unknown** and reconcile before retrying, rather
-   than silently creating a duplicate. Surface failed or disconnected delivery
-   in ERP. No historical backfill or automatic closure is implied.
-5. Define access, allowed categories, ownership and resolution behavior in ERP;
-   closing a Todoist task must not silently mark a financial or operational
-   source event resolved. Verify the actual ERP user and Todoist account,
-   OAuth lifecycle, project selection, retry and role boundaries before use.
-
-Todoist's current API uses `/api/v1/tasks`; see the
-[Todoist API documentation](https://developer.todoist.com/api/v1/).
+Todoist API: [official API v1 documentation](https://developer.todoist.com/api/v1/).

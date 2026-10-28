@@ -1,0 +1,29 @@
+{
+ "doctype": "DocType",
+ "name": "SIG Todoist Outbox",
+ "module": "SIG Operations",
+ "autoname": "hash",
+ "track_changes": 0,
+ "fields": [
+  {"fieldname": "source_key", "fieldtype": "Data", "label": "Source Key", "reqd": 1, "unique": 1, "read_only": 1},
+  {"fieldname": "source_type", "fieldtype": "Select", "label": "Source Type", "options": "ERP ToDo\nSNB import issue", "reqd": 1, "read_only": 1},
+  {"fieldname": "source_name", "fieldtype": "Data", "label": "Source Name", "read_only": 1},
+  {"fieldname": "recipient", "fieldtype": "Link", "label": "ERP User", "options": "User", "reqd": 1, "read_only": 1},
+  {"fieldname": "task_content", "fieldtype": "Small Text", "label": "Todoist Task Content", "reqd": 1, "read_only": 1},
+  {"fieldname": "task_description", "fieldtype": "Long Text", "label": "Todoist Task Description", "read_only": 1},
+  {"fieldname": "delivery_status", "fieldtype": "Select", "label": "Delivery Status", "options": "Pending\nSending\nWaiting\nRetry\nDelivered\nUnknown\nBlocked", "default": "Pending", "reqd": 1},
+  {"fieldname": "attempt_count", "fieldtype": "Int", "label": "Attempt Count", "default": 0, "read_only": 1},
+  {"fieldname": "next_attempt_at", "fieldtype": "Datetime", "label": "Next Attempt At", "read_only": 1},
+  {"fieldname": "last_attempt_at", "fieldtype": "Datetime", "label": "Last Attempt At", "read_only": 1},
+  {"fieldname": "todoist_task_id", "fieldtype": "Data", "label": "Todoist Task ID", "read_only": 1},
+  {"fieldname": "request_id", "fieldtype": "Data", "label": "Request ID", "reqd": 1, "unique": 1, "read_only": 1},
+  {"fieldname": "last_http_status", "fieldtype": "Int", "label": "Last HTTP Status", "read_only": 1},
+  {"fieldname": "last_error", "fieldtype": "Small Text", "label": "Last Delivery Error", "read_only": 1}
+ ],
+ "permissions": [],
+ "field_order": [
+  "source_key", "source_type", "source_name", "recipient", "task_content", "task_description",
+  "delivery_status", "attempt_count", "next_attempt_at", "last_attempt_at", "todoist_task_id",
+  "request_id", "last_http_status", "last_error"
+ ]
+}
