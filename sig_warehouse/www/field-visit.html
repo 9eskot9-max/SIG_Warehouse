@@ -30,6 +30,16 @@
   const manualSite = document.querySelector('#manual-site');
   function setStart() { start.href = 'https://wa.me/?text=' + encodeURIComponent(sites.value + ' start'); }
   sites.addEventListener('change', setStart);
+  function requestPosition(onSuccess, onFailure) {
+    navigator.geolocation.getCurrentPosition(onSuccess, (error) => {
+      if (error.code === error.TIMEOUT || error.code === error.POSITION_UNAVAILABLE) {
+        status.textContent = 'Precise location is taking too long. Trying network location…';
+        navigator.geolocation.getCurrentPosition(onSuccess, onFailure, { enableHighAccuracy: false, timeout: 45000, maximumAge: 0 });
+        return;
+      }
+      onFailure(error);
+    }, { enableHighAccuracy: true, timeout: 25000, maximumAge: 0 });
+  }
   document.querySelector('#manual-start').addEventListener('click', () => {
     const site = manualSite.value.trim().toUpperCase();
     if (!/^[A-Z0-9-]{3,32}$/.test(site)) { status.textContent = 'Enter a valid site ID using letters, numbers or hyphens.'; manualSite.focus(); return; }
@@ -39,7 +49,7 @@
     match.hidden = true;
     if (!navigator.geolocation) { status.textContent = 'Location is not available in this browser.'; return; }
     locate.disabled = true; status.textContent = 'Finding your location…';
-    navigator.geolocation.getCurrentPosition(async (position) => {
+    requestPosition(async (position) => {
       try {
         status.textContent = 'Checking ERP sites…';
         const response = await fetch('/api/method/sig_warehouse.sig_warehouse.public_site_lookup.nearby_sites', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Frappe-CSRF-Token': csrfToken }, body: JSON.stringify({ latitude: position.coords.latitude, longitude: position.coords.longitude }) });
@@ -58,6 +68,6 @@
         setStart(); match.hidden = false;
       } catch (error) { status.textContent = error.message || 'Could not find sites.'; }
       finally { locate.disabled = false; }
-    }, (error) => { status.textContent = `Location unavailable: ${error.message}. Try again or enter the site ID below.`; locate.disabled = false; }, { enableHighAccuracy: true, timeout: 60000, maximumAge: 0 });
+    }, (error) => { status.textContent = `Location unavailable: ${error.message}. Try again or enter the site ID below.`; locate.disabled = false; });
   });
 </script></body></html>
