@@ -34,6 +34,13 @@ function sig_send_client_reminder(frm) {
             });
             const result = response.message || {};
             await frm.reload_doc();
+            if (result.queued) {
+                frappe.msgprint({
+                    title: __('Reminder queued'),
+                    message: __('ERP accepted the request for background processing. Refresh the draft in a moment to see whether WhatsApp or email accepted each item.'),
+                });
+                return;
+            }
             frappe.msgprint({
                 title: __('Reminder delivery status'),
                 message: __('Status: {0}. Accepted components: {1}; failed components: {2}.', [

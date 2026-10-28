@@ -408,7 +408,7 @@ def _final_status(doc):
 
 @frappe.whitelist()
 def send_draft(name):
-    """Explicitly send a saved draft; retries only delivery components not accepted before."""
+    """Queue an explicit send; retries only components not accepted before."""
     _guard()
     frappe.db.sql("select name from `tabSIG Client Collection Draft` where name=%s for update", name)
     doc = frappe.get_doc(DOCTYPE, name)
@@ -428,24 +428,65 @@ def send_draft(name):
     doc.save(ignore_permissions=True)
     frappe.db.commit()
 
-    # The delivery child table is a durable per-component idempotency ledger.
-    # A retried draft skips text/PDFs/email already accepted by their provider.
-    channel_errors = []
-    if doc.channel in ("WhatsApp", "WhatsApp + Email"):
-        try:
-            _maytapi_send(doc, invoice_docs)
-        except Exception as exc:
-            channel_errors.append("WhatsApp: " + str(exc)[:900])
-    if doc.channel in ("Email", "WhatsApp + Email"):
-        try:
-            _email_send(doc, invoice_docs)
-        except Exception as exc:
-            channel_errors.append("Email: " + str(exc)[:900])
-    doc.reload()
-    result = _final_status(doc)
-    if channel_errors:
-        doc.last_error = "\n".join(filter(None, [doc.last_error, *channel_errors]))[:2000]
+    try:
+        frappe.enqueue(
+            "sig_warehouse.client_collections.process_send_draft",
+            queue="long",
+            timeout=1200,
+            job_name="client-collection-send-" + doc.name + "-" + frappe.generate_hash(length=8),
+            name=doc.name,
+        )
+    except Exception as exc:
+        # The parent was committed as Sending before enqueue. If enqueue itself
+        # fails, restore a visible retryable state instead of stranding it.
+        doc.reload()
+        doc.status = "Failed"
+        doc.last_error = _("Could not queue reminder delivery: {0}").format(str(exc)[:800])
+        doc.last_attempt_at = now_datetime()
+        doc.flags.collection_dispatch = True
         doc.save(ignore_permissions=True)
         frappe.db.commit()
-        result["error"] = doc.last_error
-    return result
+        return {"status": "Failed", "accepted": 0, "failed": 1, "total": 0, "error": doc.last_error}
+
+    return {"status": "Sending", "queued": True, "message": _("Reminder delivery was queued. Refresh the draft to see component results.")}
+
+
+def process_send_draft(name):
+    """Deliver a queued draft outside the browser request and persist its result."""
+    doc = frappe.get_doc(DOCTYPE, name)
+    if doc.status != "Sending":
+        return {"status": doc.status, "message": "Draft is no longer queued for delivery."}
+
+    channel_errors = []
+    try:
+        invoice_docs = _validate_snapshot(doc)
+        if doc.channel in ("WhatsApp", "WhatsApp + Email"):
+            try:
+                _maytapi_send(doc, invoice_docs)
+            except Exception as exc:
+                channel_errors.append("WhatsApp: " + str(exc)[:900])
+        if doc.channel in ("Email", "WhatsApp + Email"):
+            try:
+                _email_send(doc, invoice_docs)
+            except Exception as exc:
+                channel_errors.append("Email: " + str(exc)[:900])
+        doc.reload()
+        result = _final_status(doc)
+        if channel_errors:
+            doc.last_error = "\n".join(filter(None, [doc.last_error, *channel_errors]))[:2000]
+            doc.save(ignore_permissions=True)
+            frappe.db.commit()
+            result["error"] = doc.last_error
+        return result
+    except Exception as exc:
+        # Covers pre-dispatch failures such as a stale invoice snapshot or a
+        # PDF/setup error. The worker should leave a visible terminal result.
+        doc.reload()
+        doc.status = "Failed"
+        doc.last_attempt_at = now_datetime()
+        doc.last_error = str(exc)[:2000]
+        doc.flags.collection_dispatch = True
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        frappe.log_error(frappe.get_traceback(), "Client Collection background delivery failed: " + name)
+        return {"status": "Failed", "accepted": 0, "failed": 1, "error": doc.last_error}

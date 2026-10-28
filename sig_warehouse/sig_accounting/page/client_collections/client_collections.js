@@ -66,8 +66,13 @@ frappe.pages['client-collections'].on_page_load = function (wrapper) {
       frappe.confirm(
         __('Send this reminder and invoice PDF copies to {0} using {1}?', [frappe.utils.escape_html(to), frappe.utils.escape_html(d.channel)]),
         () => frappe.call('sig_warehouse.client_collections.send_draft', {name}).then(result => {
-          const status = (result.message || {}).status || __('Unknown');
-          frappe.msgprint({title: __('Delivery status'), message: __('Provider status: {0}. See the draft delivery history for each message and attachment.', [frappe.utils.escape_html(status)])});
+          const response = result.message || {};
+          if (response.queued) {
+            frappe.msgprint({title: __('Reminder queued'), message: __('ERP accepted the request for background processing. Refresh the draft in a moment to see whether WhatsApp or email accepted each item.')});
+          } else {
+            const status = response.status || __('Unknown');
+            frappe.msgprint({title: __('Delivery status'), message: __('Provider status: {0}. See the draft delivery history for each message and attachment.', [frappe.utils.escape_html(status)])});
+          }
           refresh_drafts();
         })
       );

@@ -37,3 +37,4 @@ sig_warehouse.sig_warehouse.patches.v1_0.grant_projects_manager_site_read
 sig_warehouse.sig_warehouse.patches.v1_0.add_planner_must_option
 sig_warehouse.sig_warehouse.patches.v1_0.align_field_planner_role_access
 sig_warehouse.sig_warehouse.patches.v1_0.install_client_collection_reminder_format
+sig_warehouse.sig_warehouse.patches.v1_0.add_planner_critical_fields
