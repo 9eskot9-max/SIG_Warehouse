@@ -12,6 +12,7 @@
   <p>Start finds your nearest site and opens a WhatsApp message for your field group.</p>
   <button id="locate">Start visit | بدء الزيارة</button>
   <p id="status" class="note" aria-live="polite"></p>
+  <details id="debug-panel" hidden><summary>Debug details</summary><pre id="debug-output" style="white-space:pre-wrap;overflow-wrap:anywhere;font:13px ui-monospace,monospace"></pre><button id="copy-debug" type="button" class="end">Copy debug details</button></details>
   <div id="match" hidden>
     <label for="sites">Nearby ERP sites</label><select id="sites"></select>
     <a id="start" class="start" target="_blank" rel="noopener noreferrer">Start visit | بدء الزيارة</a>
@@ -28,12 +29,20 @@
   const locate = document.querySelector('#locate'), status = document.querySelector('#status');
   const match = document.querySelector('#match'), sites = document.querySelector('#sites'), start = document.querySelector('#start');
   const manualSite = document.querySelector('#manual-site');
+  const debugPanel = document.querySelector('#debug-panel'), debugOutput = document.querySelector('#debug-output');
+  let debugLines = [];
+  function logDebug(key, value) { debugLines.push(`${new Date().toISOString()} ${key}: ${String(value).slice(0, 300)}`); debugOutput.textContent = debugLines.join('\n'); debugPanel.hidden = false; }
+  document.querySelector('#copy-debug').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(debugLines.join('\n')); status.textContent = 'Debug details copied.'; }
+    catch (_) { status.textContent = 'Could not access clipboard; select and copy the debug details above.'; }
+  });
   function setStart() { start.href = 'https://wa.me/?text=' + encodeURIComponent(sites.value + ' start'); }
   sites.addEventListener('change', setStart);
   function requestPosition(onSuccess, onFailure) {
     navigator.geolocation.getCurrentPosition(onSuccess, (error) => {
       if (error.code === error.TIMEOUT || error.code === error.POSITION_UNAVAILABLE) {
         status.textContent = 'Precise location is taking too long. Trying network location…';
+        logDebug('gps_fallback', `retrying approximate location after code ${error.code}`);
         navigator.geolocation.getCurrentPosition(onSuccess, onFailure, { enableHighAccuracy: false, timeout: 45000, maximumAge: 0 });
         return;
       }
@@ -47,15 +56,22 @@
   });
   locate.addEventListener('click', () => {
     match.hidden = true;
-    if (!navigator.geolocation) { status.textContent = 'Location is not available in this browser.'; return; }
+    debugLines = []; debugPanel.hidden = true; debugOutput.textContent = '';
+    logDebug('page', location.pathname); logDebug('secure_context', window.isSecureContext);
+    if (!navigator.geolocation) { status.textContent = 'Location is not available in this browser.'; logDebug('gps', 'Geolocation API unavailable'); return; }
     locate.disabled = true; status.textContent = 'Finding your location…';
     requestPosition(async (position) => {
       try {
+        logDebug('gps', `success; accuracy ±${Math.round(position.coords.accuracy)} m`);
         status.textContent = 'Checking ERP sites…';
+        logDebug('erp_lookup', 'request started');
         const response = await fetch('/api/method/sig_warehouse.sig_warehouse.public_site_lookup.nearby_sites', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Frappe-CSRF-Token': csrfToken }, body: JSON.stringify({ latitude: position.coords.latitude, longitude: position.coords.longitude }) });
+        logDebug('erp_http_status', response.status);
         const payload = await response.json();
         const result = payload.message || payload;
-        if (!response.ok) throw new Error(result.error || 'Could not find sites.');
+        if (!response.ok) { logDebug('erp_error', result.error || (typeof result === 'string' ? result : 'Request rejected')); throw new Error(typeof result === 'string' ? result : (result.error || 'ERP lookup request failed.')); }
+        if (!result || !Array.isArray(result.sites)) { logDebug('erp_response', 'Expected a sites list; received an unexpected response.'); throw new Error('ERP returned an unexpected site lookup response.'); }
+        logDebug('matching_sites', result.sites.length);
         sites.replaceChildren();
         for (const site of result.sites) {
           const option = document.createElement('option'); option.value = site.id;
@@ -66,8 +82,8 @@
         const accuracy = Math.round(position.coords.accuracy);
         status.textContent = `Nearest site: ${result.sites[0].id} (${result.sites[0].meters} m). GPS accuracy: ±${accuracy} m.${accuracy > 100 ? ' Location accuracy is low.' : ''} Check the site, then tap Start visit.`;
         setStart(); match.hidden = false;
-      } catch (error) { status.textContent = error.message || 'Could not find sites.'; }
+      } catch (error) { logDebug('lookup_failure', `${error.name || 'Error'}: ${error.message || 'unknown error'}`); status.textContent = error.message || 'Could not find sites.'; }
       finally { locate.disabled = false; }
-    }, (error) => { status.textContent = `Location unavailable: ${error.message}. Try again or enter the site ID below.`; locate.disabled = false; });
+    }, (error) => { logDebug('gps_failure', `code ${error.code || 'unknown'}: ${error.message || 'unknown error'}`); status.textContent = `Location unavailable: ${error.message}. Try again or enter the site ID below.`; locate.disabled = false; });
   });
 </script></body></html>
