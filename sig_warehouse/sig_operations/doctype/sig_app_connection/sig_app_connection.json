@@ -1,0 +1,57 @@
+{
+ "doctype": "DocType",
+ "name": "SIG App Connection",
+ "module": "SIG Operations",
+ "autoname": "field:user",
+ "track_changes": 0,
+ "fields": [
+  {
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "label": "User",
+   "options": "User",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "todoist_user_id",
+   "fieldtype": "Data",
+   "label": "Todoist User ID"
+  },
+  {
+   "fieldname": "access_token",
+   "fieldtype": "Password",
+   "label": "Access Token"
+  },
+  {
+   "fieldname": "refresh_token",
+   "fieldtype": "Password",
+   "label": "Refresh Token"
+  },
+  {
+   "fieldname": "expires_at",
+   "fieldtype": "Datetime",
+   "label": "Expires At"
+  },
+  {
+   "fieldname": "project_id",
+   "fieldtype": "Data",
+   "label": "Todoist Project ID"
+  },
+  {
+   "fieldname": "project_name",
+   "fieldtype": "Data",
+   "label": "Todoist Project Name"
+  }
+ ],
+ "permissions": [],
+ "field_order": [
+  "user",
+  "todoist_user_id",
+  "access_token",
+  "refresh_token",
+  "expires_at",
+  "project_id",
+  "project_name"
+ ]
+}

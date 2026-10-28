@@ -1,0 +1,13 @@
+{
+ "doctype": "Page",
+ "name": "app-connections",
+ "page_name": "app-connections",
+ "title": "App Connections",
+ "module": "SIG Operations",
+ "standard": "Yes",
+ "roles": [
+  {
+   "role": "All"
+  }
+ ]
+}
