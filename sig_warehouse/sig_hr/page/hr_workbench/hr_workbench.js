@@ -2,14 +2,13 @@
 // RTL from frappe.boot.lang. ERPNext documents and reports remain authoritative; the only action here is the
 // HR email request (HR Manager / System Manager), which never changes a User or Employee.
 frappe.pages['hr-workbench'].on_page_load = function (wrapper) {
-    const page = frappe.ui.make_app_page({parent: wrapper, title: '', single_column: true});
-    $(wrapper).find('.page-head').hide();
+    const page = frappe.ui.make_app_page({parent: wrapper, title: __('SIG HR'), single_column: true});
     // Same escape hatch as the Warehouse workbench: the sidebar's SIG HR entry is redirected here by
     // warehouse_workspace_redirect.js; this opens the native workspace once without redirecting back.
-    const openOriginalWorkspace = () => {
+    page.add_inner_button(__('Original HR Workspace'), () => {
         window.sessionStorage.setItem('sig_hr_allow_native_workspace_once', '1');
         frappe.set_route('Workspaces', 'SIG HR');
-    };
+    });
     const language = String(frappe.boot?.lang || 'en').toLowerCase();
     const root = $('<main class="sig-hr-home"></main>')
         .attr('dir', language.startsWith('ar') ? 'rtl' : 'ltr')
@@ -28,15 +27,8 @@ frappe.pages['hr-workbench'].on_page_load = function (wrapper) {
         {variant: 'blue', title: __('Custody ledger balances'), description: __('Every 1322 custody ledger with its employee, balance, and last posting.'), icon: 'book', doctype: ONB, report: 'SIG Custody Ledger Balances', route: ['query-report', 'SIG Custody Ledger Balances']}
     ];
 
-    // Keep punches distinct from finalized Attendance documents: the WhatsApp pipe currently
-    // lands in Employee Checkin, while Auto Attendance / the Attendance register is a separate
-    // HR process. These links expose the existing records without implying that punches were
-    // already reconciled into Attendance.
     const attendance = [
-        {variant: 'cyan', title: __('Employee check-ins'), description: __('Recorded attendance punches from WhatsApp and office sign-in.'), icon: 'clock-o', doctype: 'Employee Checkin', route: ['List', 'Employee Checkin', 'List']},
-        {variant: 'blue', title: __('Office sign-ins today'), description: __('Expected office sign-ins, first IN, last OUT, leave, and current status.'), icon: 'calendar-check-o', doctype: 'Employee Checkin', report: 'SIG Attendance Today', route: ['query-report', 'SIG Attendance Today']},
-        {variant: 'slate', title: __('Attendance dashboard'), description: __('Daily attendance totals and trends from finalized Attendance records.'), icon: 'bar-chart', doctype: 'Attendance', route: ['dashboard-view', 'Attendance']},
-        {variant: 'slate', title: __('Monthly attendance sheet'), description: __('The standard monthly Attendance register.'), icon: 'table', doctype: 'Attendance', report: 'Monthly Attendance Sheet', route: ['query-report', 'Monthly Attendance Sheet']}
+        {variant: 'blue', title: __('Attendance'), description: __('Daily attendance and employee history.'), icon: 'calendar-check-o', doctype: 'Employee Checkin', route: ['hr-attendance']}
     ];
 
     const attention = [
@@ -118,11 +110,10 @@ frappe.pages['hr-workbench'].on_page_load = function (wrapper) {
             <div><div class="sig-hr-eyebrow">${__('Human Resources')}</div>
                 <h1>${__('HR workbench')}</h1>
                 <p>${__('Daily people work, compliance, and the link between employees and finance.')}</p></div>
-            <div class="sig-hr-header-actions"><button type="button" class="btn btn-default sig-hr-native-workspace">${__('Original HR Workspace')}</button>
-                <span class="sig-hr-header-mark" aria-hidden="true"><i class="fa fa-users"></i></span></div>
+            <span class="sig-hr-header-mark" aria-hidden="true"><i class="fa fa-users"></i></span>
         </header>
         ${section(__('Daily people work'), __('Open the employee records and the onboarding checks.'), daily, false)}
-        ${section(__('Attendance'), __('Review recorded punches, office sign-ins, and the standard attendance register.'), attendance)}
+        ${section(__('Attendance'), __('Review daily attendance and employee history.'), attendance)}
         ${section(__('Needs attention'), __('Counts that need action today.'), attention)}
         ${section(__('Compliance'), __('Renewal queues filtered by expiry date, and your open tasks.'), compliance)}
         ${section(__('Data quality'), __('Gaps that block WhatsApp, logins, or custody postings.'), quality)}
@@ -139,7 +130,6 @@ frappe.pages['hr-workbench'].on_page_load = function (wrapper) {
         if (routeOptions) frappe.route_options = routeOptions;
         if (Array.isArray(route) && route.length) frappe.set_route(...route);
     });
-    root.find('.sig-hr-native-workspace').on('click', openOriginalWorkspace);
 
     function openEmailRequest() {
         const M = 'sig_warehouse.sig_hr.email_request.send_email_requests';
