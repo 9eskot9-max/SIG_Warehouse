@@ -9,7 +9,7 @@
  "sort_field": "modified",
  "sort_order": "DESC",
  "field_order": [
-  "naming_series", "status", "customer", "company", "letter_date", "letter_type", "language", "channel",
+  "naming_series", "status", "send_reminder_button", "customer", "company", "letter_date", "letter_type", "language", "channel",
   "section_recipients", "recipient_whatsapp", "recipient_email", "section_invoices", "invoices", "currency",
   "total_outstanding", "is_overdue", "section_letter", "subject", "greeting", "letter_body", "whatsapp_message", "closing", "section_delivery",
   "deliveries", "last_attempt_at", "last_error"
@@ -17,6 +17,7 @@
  "fields": [
   {"fieldname":"naming_series","fieldtype":"Select","label":"Series","options":"CCREM-.YYYY.-.#####","default":"CCREM-.YYYY.-.#####","reqd":1,"hidden":1},
   {"fieldname":"status","fieldtype":"Select","label":"Status","options":"Draft\nSending\nQueued\nPartially Sent\nFailed","default":"Draft","read_only":1,"in_list_view":1},
+  {"fieldname":"send_reminder_button","fieldtype":"Button","label":"Send Reminder"},
   {"fieldname":"customer","fieldtype":"Link","label":"Customer","options":"Customer","reqd":1,"in_list_view":1},
   {"fieldname":"company","fieldtype":"Link","label":"Company","options":"Company","reqd":1},
   {"fieldname":"letter_date","fieldtype":"Date","label":"Letter Date","reqd":1},
