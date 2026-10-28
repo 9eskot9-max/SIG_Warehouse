@@ -1,4 +1,4 @@
-"""Permission-filtered attendance events for the HR attendance page."""
+"""Read-only, company-wide attendance view for authorized HR audiences."""
 import csv
 import io
 
@@ -14,11 +14,15 @@ def _data(date=None, employee=None):
     filters = {"status": "Active"}
     if employee:
         filters["name"] = employee
-    employees = frappe.get_list("Employee", filters=filters,
+    # Employee User Permissions intentionally keep normal HR forms and other
+    # Employee-linked records scoped to the current user. This one read-only
+    # dashboard is explicitly company-wide for the HR roles above, so use
+    # get_all only after both role and DocType-read checks have passed.
+    employees = frappe.get_all("Employee", filters=filters,
         fields=["name", "employee_name", "department", "custom_office_signin"],
         order_by="employee_name asc", limit_page_length=0)
     ids = [e.name for e in employees]
-    logs = frappe.get_list("Employee Checkin", filters={"employee": ["in", ids],
+    logs = frappe.get_all("Employee Checkin", filters={"employee": ["in", ids],
         "time": ["between", [str(day) + " 00:00:00", str(add_days(day, 1)) + " 00:00:00"]]},
         fields=["name", "employee", "time", "log_type"], order_by="time asc", limit_page_length=0) if ids else []
     grouped = {e.name: [] for e in employees}
@@ -57,9 +61,11 @@ def get_history(employee, from_date, to_date):
         frappe.throw("Choose a valid date range of up to 367 days.")
     frappe.has_permission("Employee", "read", throw=True)
     frappe.has_permission("Employee Checkin", "read", throw=True)
-    if not frappe.get_list("Employee", filters={"name": employee}, pluck="name", limit_page_length=1):
-        frappe.throw("Employee is not accessible.", frappe.PermissionError)
-    return frappe.get_list("Employee Checkin", filters={"employee": employee,
+    if not frappe.get_all("Employee", filters={"name": employee}, pluck="name", limit_page_length=1):
+        frappe.throw("Employee was not found.", frappe.DoesNotExistError)
+    # Keep this bypass confined to this role-checked attendance endpoint;
+    # the Employee User Permission remains intact for all other workflows.
+    return frappe.get_all("Employee Checkin", filters={"employee": employee,
         "time": ["between", [str(start) + " 00:00:00", str(add_days(end, 1)) + " 00:00:00"]]},
         fields=["name", "time", "log_type"], order_by="time desc", limit_page_length=0)
 
