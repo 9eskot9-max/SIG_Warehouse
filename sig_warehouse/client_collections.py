@@ -278,6 +278,7 @@ def _dispatch_component(doc, key, channel, component, recipient, sender):
     row.attempts = int(row.attempts or 0) + 1
     row.attempted_at = now_datetime()
     row.error = ""
+    doc.flags.collection_dispatch = True
     doc.save(ignore_permissions=True)
     frappe.db.commit()
     try:
@@ -289,6 +290,7 @@ def _dispatch_component(doc, key, channel, component, recipient, sender):
     except Exception as exc:
         row.status = "Failed"
         row.error = str(exc)[:1000]
+    doc.flags.collection_dispatch = True
     doc.save(ignore_permissions=True)
     frappe.db.commit()
     return row.status in DONE_STATUSES

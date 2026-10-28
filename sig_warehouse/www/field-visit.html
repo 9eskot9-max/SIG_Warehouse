@@ -45,27 +45,45 @@
     catch (_) { status.textContent = 'Could not access clipboard; select and copy the debug details above.'; }
   });
   function requestPosition(onSuccess, onFailure) {
-    navigator.geolocation.getCurrentPosition(onSuccess, (error) => {
-      if (error.code === error.TIMEOUT || error.code === error.POSITION_UNAVAILABLE) {
-        status.textContent = 'Precise location is taking too long. Trying network location…';
-        logDebug('gps_fallback', `retrying approximate location after code ${error.code}`);
-        navigator.geolocation.getCurrentPosition(onSuccess, onFailure, { enableHighAccuracy: false, timeout: 45000, maximumAge: 0 });
+    const uncertain = (error) => error.code === error.TIMEOUT || error.code === error.POSITION_UNAVAILABLE;
+    const approximate = (error) => {
+      if (!uncertain(error)) { onFailure(error); return; }
+      status.textContent = 'Precise location is taking too long. Trying network location…';
+      logDebug('gps_fallback', `approximate fix after code ${error.code}`);
+      navigator.geolocation.getCurrentPosition(onSuccess, onFailure,
+        { enableHighAccuracy: false, timeout: 10000, maximumAge: 15000 });
+    };
+
+    // A recent, accurate cached fix avoids waiting for a new satellite lock on repeat visits.
+    navigator.geolocation.getCurrentPosition((position) => {
+      const ageMs = Math.max(0, Date.now() - position.timestamp);
+      if (position.coords.accuracy <= 75 && ageMs <= 30000) {
+        logDebug('gps_source', `recent fix; age ${Math.round(ageMs / 1000)}s; accuracy ±${Math.round(position.coords.accuracy)} m`);
+        onSuccess(position);
         return;
       }
-      onFailure(error);
-    }, { enableHighAccuracy: true, timeout: 25000, maximumAge: 0 });
+
+      status.textContent = 'Refreshing your location…';
+      logDebug('gps_refresh', `cached fix not precise enough (±${Math.round(position.coords.accuracy)} m); requesting fresh GPS`);
+      navigator.geolocation.getCurrentPosition(onSuccess, approximate,
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+    }, approximate, { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 });
   }
   locate.addEventListener('click', () => {
     debugLines = []; debugPanel.hidden = true; debugOutput.textContent = '';
     logDebug('page', location.pathname); logDebug('secure_context', window.isSecureContext);
     if (!navigator.geolocation) { status.textContent = 'Location is not available in this browser.'; logDebug('gps', 'Geolocation API unavailable'); return; }
     locate.disabled = true; status.textContent = 'Finding your location…';
+    const gpsStarted = performance.now();
     requestPosition(async (position) => {
       try {
+        logDebug('gps_elapsed_ms', Math.round(performance.now() - gpsStarted));
         logDebug('gps', `success; accuracy ±${Math.round(position.coords.accuracy)} m`);
         status.textContent = 'Checking ERP sites…';
         logDebug('erp_lookup', 'request started');
+        const lookupStarted = performance.now();
         const response = await fetch('/api/method/sig_warehouse.sig_warehouse.public_site_lookup.nearby_sites', { method: 'POST', credentials: 'omit', headers: { 'Content-Type': 'application/json', 'X-Frappe-CSRF-Token': csrfToken }, body: JSON.stringify({ latitude: position.coords.latitude, longitude: position.coords.longitude }) });
+        logDebug('erp_lookup_ms', Math.round(performance.now() - lookupStarted));
         logDebug('erp_http_status', response.status);
         const payload = await response.json();
         const result = payload.message || payload;

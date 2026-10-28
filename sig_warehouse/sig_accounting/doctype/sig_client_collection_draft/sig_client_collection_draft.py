@@ -16,9 +16,14 @@ class SIGClientCollectionDraft(Document):
             locked = (
                 "naming_series", "customer", "company", "letter_date", "letter_type", "language", "channel",
                 "recipient_whatsapp", "recipient_email", "currency", "total_outstanding",
-                "is_overdue", "subject", "greeting", "letter_body", "whatsapp_message", "closing", "invoices",
+                "is_overdue", "subject", "greeting", "letter_body", "whatsapp_message", "closing",
             )
             changed = [field for field in locked if old.get(field) != self.get(field)]
+            invoice_fields = ("sales_invoice", "posting_date", "due_date", "currency", "invoice_total", "outstanding_amount")
+            old_invoices = [tuple(row.get(field) for field in invoice_fields) for row in old.get("invoices", [])]
+            new_invoices = [tuple(row.get(field) for field in invoice_fields) for row in self.get("invoices", [])]
+            if old_invoices != new_invoices:
+                changed.append("invoices")
             if changed:
                 frappe.throw(_("This reminder has already been sent or attempted. Create a new draft to change recipient or content."))
             log_fields = ("delivery_key", "channel", "component", "recipient", "status", "attempts", "attempted_at", "message_id", "queue_reference", "error")
