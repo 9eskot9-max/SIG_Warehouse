@@ -16,6 +16,9 @@
     <label for="sites">Nearby ERP sites</label><select id="sites"></select>
     <a id="start" class="start" target="_blank" rel="noopener noreferrer">Start visit | بدء الزيارة</a>
   </div>
+  <label for="manual-site">Or enter a site ID | أو أدخل رمز الموقع</label>
+  <input id="manual-site" type="text" maxlength="32" autocomplete="off" placeholder="e.g. ZMK003" style="box-sizing:border-box;width:100%;padding:12px;font:inherit;border:1px solid #a9bbc5;border-radius:8px;margin-top:8px">
+  <button id="manual-start" type="button" class="end">Start with this site | بدء بهذا الموقع</button>
   <a class="end" href="https://wa.me/?text=start" target="_blank" rel="noopener noreferrer">Start without a matched site | بدء دون تحديد الموقع</a>
   <a class="end" href="https://wa.me/?text=end" target="_blank" rel="noopener noreferrer">End visit | إنهاء الزيارة</a>
   <p class="note">Choose the same field group for both messages, then send the message in WhatsApp. A start without a site needs review in ERP.</p>
@@ -24,12 +27,17 @@
   const csrfToken = "{{ frappe.session.csrf_token }}";
   const locate = document.querySelector('#locate'), status = document.querySelector('#status');
   const match = document.querySelector('#match'), sites = document.querySelector('#sites'), start = document.querySelector('#start');
+  const manualSite = document.querySelector('#manual-site');
   function setStart() { start.href = 'https://wa.me/?text=' + encodeURIComponent(sites.value + ' start'); }
   sites.addEventListener('change', setStart);
+  document.querySelector('#manual-start').addEventListener('click', () => {
+    const site = manualSite.value.trim().toUpperCase();
+    if (!/^[A-Z0-9-]{3,32}$/.test(site)) { status.textContent = 'Enter a valid site ID using letters, numbers or hyphens.'; manualSite.focus(); return; }
+    window.location.href = 'https://wa.me/?text=' + encodeURIComponent(site + ' start');
+  });
   locate.addEventListener('click', () => {
     match.hidden = true;
     if (!navigator.geolocation) { status.textContent = 'Location is not available in this browser.'; return; }
-    const whatsapp = window.open('about:blank', '_blank');
     locate.disabled = true; status.textContent = 'Finding your location…';
     navigator.geolocation.getCurrentPosition(async (position) => {
       try {
@@ -44,13 +52,12 @@
           option.textContent = `${site.id}${site.name !== site.id ? ' — ' + site.name : ''} (${site.meters} m)`;
           sites.append(option);
         }
-        if (!result.sites.length) { if (whatsapp) whatsapp.close(); status.textContent = `No ERP site found within ${result.radius} m. Try again or report your visit in the field group.`; return; }
-        status.textContent = `Nearest site: ${result.sites[0].id} (${result.sites[0].meters} m). GPS accuracy: ±${Math.round(position.coords.accuracy)} m. Check the site before sending.`;
+        if (!result.sites.length) { status.textContent = `No ERP site found within ${result.radius} m. Try again or enter the site ID below.`; return; }
+        const accuracy = Math.round(position.coords.accuracy);
+        status.textContent = `Nearest site: ${result.sites[0].id} (${result.sites[0].meters} m). GPS accuracy: ±${accuracy} m.${accuracy > 100 ? ' Location accuracy is low.' : ''} Check the site, then tap Start visit.`;
         setStart(); match.hidden = false;
-        if (whatsapp) whatsapp.location.replace(start.href);
-        else status.textContent += ' Your browser blocked the window; use the Start visit link below.';
-      } catch (error) { if (whatsapp) whatsapp.close(); status.textContent = error.message || 'Could not find sites.'; }
+      } catch (error) { status.textContent = error.message || 'Could not find sites.'; }
       finally { locate.disabled = false; }
-    }, (error) => { if (whatsapp) whatsapp.close(); status.textContent = `Location unavailable: ${error.message}. Try again or start without a site below.`; locate.disabled = false; }, { enableHighAccuracy: false, timeout: 30000, maximumAge: 60000 });
+    }, (error) => { status.textContent = `Location unavailable: ${error.message}. Try again or enter the site ID below.`; locate.disabled = false; }, { enableHighAccuracy: true, timeout: 60000, maximumAge: 0 });
   });
 </script></body></html>
