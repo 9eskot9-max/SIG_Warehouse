@@ -9,7 +9,7 @@
 </head>
 <body><main>
   <h1>Field Visit | زيارة الموقع</h1>
-  <p>Start finds your nearest site and opens a WhatsApp message for your field group.</p>
+  <p>Start finds your nearest ERP site. Confirm it, then open WhatsApp to send the start message.</p>
   <button id="locate">Start visit | بدء الزيارة</button>
   <p id="status" class="note" aria-live="polite"></p>
   <details id="debug-panel" hidden><summary>Debug details</summary><pre id="debug-output" style="white-space:pre-wrap;overflow-wrap:anywhere;font:13px ui-monospace,monospace"></pre><button id="copy-debug" type="button" class="end">Copy debug details</button></details>
@@ -17,18 +17,13 @@
     <label for="sites">Nearby ERP sites</label><select id="sites"></select>
     <a id="start" class="start" target="_blank" rel="noopener noreferrer">Start visit | بدء الزيارة</a>
   </div>
-  <label for="manual-site">Or enter a site ID | أو أدخل رمز الموقع</label>
-  <input id="manual-site" type="text" maxlength="32" autocomplete="off" placeholder="e.g. ZMK003" style="box-sizing:border-box;width:100%;padding:12px;font:inherit;border:1px solid #a9bbc5;border-radius:8px;margin-top:8px">
-  <button id="manual-start" type="button" class="end">Start with this site | بدء بهذا الموقع</button>
-  <a class="end" href="https://wa.me/?text=start" target="_blank" rel="noopener noreferrer">Start without a matched site | بدء دون تحديد الموقع</a>
   <a class="end" href="https://wa.me/?text=end" target="_blank" rel="noopener noreferrer">End visit | إنهاء الزيارة</a>
-  <p class="note">Choose the same field group for both messages, then send the message in WhatsApp. A start without a site needs review in ERP.</p>
+  <p class="note">Choose the same field group for both messages, then send the message in WhatsApp.</p>
 </main>
 <script>
   const csrfToken = "{{ frappe.session.csrf_token }}";
   const locate = document.querySelector('#locate'), status = document.querySelector('#status');
   const match = document.querySelector('#match'), sites = document.querySelector('#sites'), start = document.querySelector('#start');
-  const manualSite = document.querySelector('#manual-site');
   const debugPanel = document.querySelector('#debug-panel'), debugOutput = document.querySelector('#debug-output');
   let debugLines = [];
   function logDebug(key, value) { debugLines.push(`${new Date().toISOString()} ${key}: ${String(value).slice(0, 300)}`); debugOutput.textContent = debugLines.join('\n'); debugPanel.hidden = false; }
@@ -67,11 +62,6 @@
       onFailure(error);
     }, { enableHighAccuracy: true, timeout: 25000, maximumAge: 0 });
   }
-  document.querySelector('#manual-start').addEventListener('click', () => {
-    const site = manualSite.value.trim().toUpperCase();
-    if (!/^[A-Z0-9-]{3,32}$/.test(site)) { status.textContent = 'Enter a valid site ID using letters, numbers or hyphens.'; manualSite.focus(); return; }
-    window.location.href = 'https://wa.me/?text=' + encodeURIComponent(site + ' start');
-  });
   locate.addEventListener('click', () => {
     match.hidden = true;
     debugLines = []; debugPanel.hidden = true; debugOutput.textContent = '';
@@ -83,7 +73,7 @@
         logDebug('gps', `success; accuracy ±${Math.round(position.coords.accuracy)} m`);
         status.textContent = 'Checking ERP sites…';
         logDebug('erp_lookup', 'request started');
-        const response = await fetch('/api/method/sig_warehouse.sig_warehouse.public_site_lookup.nearby_sites', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Frappe-CSRF-Token': csrfToken }, body: JSON.stringify({ latitude: position.coords.latitude, longitude: position.coords.longitude }) });
+        const response = await fetch('/api/method/sig_warehouse.sig_warehouse.public_site_lookup.nearby_sites', { method: 'POST', credentials: 'omit', headers: { 'Content-Type': 'application/json', 'X-Frappe-CSRF-Token': csrfToken }, body: JSON.stringify({ latitude: position.coords.latitude, longitude: position.coords.longitude }) });
         logDebug('erp_http_status', response.status);
         const payload = await response.json();
         const result = payload.message || payload;
