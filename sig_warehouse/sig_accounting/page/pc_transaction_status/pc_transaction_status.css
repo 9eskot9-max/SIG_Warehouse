@@ -74,20 +74,12 @@
 
 /* Interactive Desk: mirror PC Review; the print document remains below the workbench. */
 .sig-pc-status [hidden] { display:none!important; }
-.sig-pc-status-stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:10px 0; }
-.sig-pc-status-stat { display:flex; align-items:baseline; gap:10px; padding:8px 14px; border:1px solid var(--border-color); border-inline-start:4px solid var(--sig-blue); border-radius:10px; background:var(--card-bg); }
-.sig-pc-status-stat strong { color:var(--sig-navy); font-size:19px; }
-.sig-pc-status-stat span { color:var(--text-muted); font-size:12px; }
-.sig-pc-status-stat:nth-child(2) { border-inline-start-color:#a88400; }
-.sig-pc-status-stat:nth-child(3) { border-inline-start-color:#1a7a3d; }
-.sig-pc-status-stat:nth-child(4) { border-inline-start-color:#a4211f; }
 .sig-pc-status-context { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin:10px 0; padding:10px 12px; border:1px solid var(--border-color); border-radius:9px; background:var(--card-bg); scroll-margin-top:65px; }
 .sig-pc-status-context strong { color:var(--sig-navy); }
 .sig-pc-status-context span { color:var(--text-muted); font-size:12px; }
 .sig-pc-status-workarea { display:grid; grid-template-columns:240px minmax(0,1fr); gap:14px; align-items:start; }
 .sig-pc-status-queue { min-width:0; overflow:hidden; border:1px solid var(--border-color); border-radius:9px; background:var(--card-bg); }
 .sig-pc-status-queue>select,.sig-pc-status-queue>input { width:calc(100% - 14px); height:32px; margin:7px 7px 0; padding:4px 7px; border:0; border-radius:6px; color:var(--text-color); background:var(--control-bg); }
-.sig-pc-status-queue-summary { padding:9px 10px; color:var(--sig-navy); font-size:11px; font-weight:600; background:var(--sig-pale); margin-top:8px; }
 .sig-pc-status-queue-list { height:max(360px,calc(100vh - 400px)); overflow:auto; }
 .sig-pc-status-day { padding:6px 10px; background:#f4f7fa; color:var(--sig-navy); font-size:12px; font-weight:700; }
 .sig-pc-status-queue-item { display:flex; flex-direction:column; gap:3px; width:100%; padding:9px 10px; border:0; border-bottom:1px solid #edf0f4; border-inline-start:3px solid transparent; color:var(--text-color); background:transparent; text-align:start; cursor:pointer; }
@@ -133,7 +125,6 @@
 @media screen and (max-width:800px) {
     .sig-pc-status { padding:12px; }
     .sig-pc-status-workarea { grid-template-columns:200px minmax(0,1fr); }
-    .sig-pc-status-stats { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
 @media screen and (max-width:600px) {
     .sig-pc-status-workarea { grid-template-columns:1fr; }
@@ -144,7 +135,7 @@
     .sig-pc-status-viewer,.sig-pc-status-pdf { height:65vh; }
 }
 @media print {
-    .sig-pc-status-head,.sig-pc-status-stats,.sig-pc-status-context,.sig-pc-status-workarea,
+    .sig-pc-status-head,.sig-pc-status-context,.sig-pc-status-workarea,
     .sig-pc-status-filters,.sig-pc-status-cycle-note,.sig-pc-status-message,
     .sig-pc-status-report-section>h2,.sig-pc-status-report-section>p,.sig-pc-status-screen-only { display:none!important; }
     .sig-pc-status-report-section { margin:0; }

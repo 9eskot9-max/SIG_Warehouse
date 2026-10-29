@@ -18,13 +18,12 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
     root.html('<header class="sig-pc-status-head">' +
         '<div><div class="sig-pc-status-eyebrow">' + __('Accounts') + '</div><h1>' + __('Petty Cash Status') + '</h1><p data-subtitle>' + __('Review approval and accounting status') + '</p></div>' +
         '<div class="sig-pc-status-actions"><button class="btn btn-default" data-review>' + __('Open PC Review') + '</button><button class="btn btn-default" data-refresh>' + __('Refresh') + '</button><button class="btn btn-primary" data-print disabled>' + __('Print report') + '</button></div></header>' +
-        '<section class="sig-pc-status-stats" aria-label="' + __('Transaction totals') + '"></section>' +
         '<section class="sig-pc-status-context" aria-live="polite"></section>' +
         '<section class="sig-pc-status-workarea"><aside class="sig-pc-status-queue" aria-label="' + __('Employee transactions') + '">' +
         '<label class="sr-only" for="pc-status-employee">' + __('Employee') + '</label><select id="pc-status-employee" data-employee><option value="">' + __('Loading employees…') + '</option></select>' +
         '<input type="search" data-search placeholder="' + __('Search receipts…') + '" aria-label="' + __('Search receipts') + '">' +
         '<select data-status aria-label="' + __('Transaction status') + '"><option value="">' + __('All statuses') + '</option></select>' +
-        '<div class="sig-pc-status-queue-summary"></div><div class="sig-pc-status-queue-list" role="listbox" aria-label="' + __('Transactions') + '"></div></aside>' +
+        '<div class="sig-pc-status-queue-list" role="listbox" aria-label="' + __('Transactions') + '"></div></aside>' +
         '<article class="sig-pc-status-selected" aria-label="' + __('Selected transaction') + '"><div class="sig-pc-status-empty">' + __('Loading transactions…') + '</div></article></section>' +
         '<section class="sig-pc-status-report-section"><h2>' + __('Transaction register') + '</h2><p>' + __('Select a period for this employee. Select a row to inspect its receipt above.') + '</p>' +
         '<section class="sig-pc-status-filters"><label>' + __('Transactions') + '<select data-scope><option value="all">' + __('All transactions') + '</option><option value="cycle">' + __('Cycle') + '</option><option value="range">' + __('Date range') + '</option></select></label>' +
@@ -133,10 +132,7 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
     function render() {
         const rows = visibleRows(), all = employeeRows();
         if (!rows.some((row) => row.name === state.selected)) state.selected = rows[0]?.name || '';
-        q('[data-subtitle]').textContent = (state.employees.get(state.employee) || __('No assigned employees')) + ' · ' + __('{0} transactions', [all.length]) + ' · ' + money(total(all)) + ' SAR';
-        q('.sig-pc-status-stats').innerHTML = ['Pending Review', 'Pending Finance', 'Posted', 'Rejected'].map((value) =>
-            '<div class="sig-pc-status-stat"><strong>' + all.filter((row) => row.finance_status === value).length + '</strong><span>' + esc(status({finance_status: value})) + '</span></div>').join('');
-        q('.sig-pc-status-queue-summary').textContent = __('{0} transactions', [rows.length]) + ' · ' + money(total(rows)) + ' SAR';
+        q('[data-subtitle]').textContent = state.employees.get(state.employee) || __('No assigned employees');
         let lastDate = '';
         q('.sig-pc-status-queue-list').innerHTML = rows.map((row) => {
             const day = row.transaction_date;
