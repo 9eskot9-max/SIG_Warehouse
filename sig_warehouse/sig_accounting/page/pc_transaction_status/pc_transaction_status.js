@@ -58,6 +58,7 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
     }
     async function load() {
         const scope = q('[data-scope]').value;
+        if (scope !== 'cycle') state.cycles = [];
         const args = {};
         if (state.employee) args.employee = state.employee;
         if (scope === 'cycle' && !state.employee) {
@@ -101,8 +102,13 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
             const rows = await frappe.call({method: 'sig_warehouse.sig_warehouse.pc_journal.transaction_status_report', type: 'POST', args}).then((response) => response.message || []);
             if (request !== state.request) return;
             rows.forEach((row) => { if (row.employee_key) state.employees.set(row.employee_key, row.employee_name); });
-            state.rows = rows;
             if (!state.employee) state.employee = [...state.employees.keys()][0] || '';
+            if (scope !== 'cycle' && state.employee) {
+                state.cycles = await frappe.call({method: 'sig_warehouse.sig_warehouse.pc_funding.get_funding_cycles', type: 'POST', args: {employee: state.employee}})
+                    .then((response) => response.message || []);
+                if (request !== state.request) return;
+            }
+            state.rows = rows;
             state.applied = {scope, from: args.from_date, to: args.to_date, cycleKey: args.cycle_key || ''};
             state.selected = ''; state.search = ''; state.status = '';
             q('[data-search]').value = '';
@@ -233,13 +239,42 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
         const selectedCycle = state.cycles.find((cycle) => cycle.cycle_key === state.applied.cycleKey);
         const period = selectedCycle ? date(selectedCycle.funding_date) + (selectedCycle.end_date ? ' — ' + date(selectedCycle.end_date) : ' — ' + __('Current')) :
             state.applied.scope === 'range' ? date(state.applied.from) + ' — ' + date(state.applied.to) : __('All dates');
+        const cyclesByKey = new Map(state.cycles.map((cycle) => [cycle.cycle_key, cycle]));
+        const grouped = new Map(), unallocated = [];
+        rows.forEach((row) => {
+            if (row.cycle_key && cyclesByKey.has(row.cycle_key)) {
+                if (!grouped.has(row.cycle_key)) grouped.set(row.cycle_key, []);
+                grouped.get(row.cycle_key).push(row);
+            } else unallocated.push(row);
+        });
+        const segments = [];
+        const receiptRow = (row, index) => '<tr data-row="' + esc(row.name) + '"><td>' + (index + 1) + '</td><td>' + esc(date(row.transaction_date)) + '</td><td>' + esc(row.transaction_category || '—') + '</td><td class="sig-pc-status-money">' + esc(money(row.amount)) + '</td><td>' + badge(status(row)) + '</td><td>' + esc(row.reviewed_by || '—') + '</td><td>' + esc(row.journal_status || '—') + '</td><td>' + esc(row.cycle_label || '—') + '</td><td class="sig-pc-status-screen-only"><button data-select="' + esc(row.name) + '" data-jump class="sig-pc-status-view-receipt">' + __('View') + '</button></td></tr>';
+        state.cycles.forEach((cycle) => {
+            const cycleRows = (grouped.get(cycle.cycle_key) || []).slice().sort((a, b) => String(a.transaction_date).localeCompare(String(b.transaction_date)));
+            if (!cycleRows.length) return;
+            const firstDate = cycleRows[0].transaction_date || cycle.funding_date;
+            const approved = cycleRows.filter((row) => row.review_status === 'Closed')
+                .reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+            const balance = (Number(cycle.principal) || 0) - approved;
+            const topup = '<tr class="sig-pc-status-cycle-topup"><td>—</td><td>' + esc(date(cycle.funding_date)) + '</td><td>' + __('PC Top-up') + '</td><td class="sig-pc-status-money">' + esc(money(cycle.principal)) + '</td><td>—</td><td>—</td><td>' + esc(__(cycle.journal_status || '—')) + '</td><td>' + esc(__('Cycle from {0}', [date(cycle.funding_date)])) + '</td><td class="sig-pc-status-screen-only"></td></tr>';
+            const summary = '<tr class="sig-pc-status-cycle-summary"><td colspan="9"><div class="sig-pc-status-cycle-summary-grid">' +
+                '<div><span>' + __('Total') + '</span><strong>' + esc(money(total(cycleRows))) + ' SAR</strong></div>' +
+                '<div><span>' + __('Total Approved') + '</span><strong>' + esc(money(approved)) + ' SAR</strong></div>' +
+                '<div class="sig-pc-status-cycle-balance"><span>' + __('Balance') + '</span><strong>' + esc(money(balance)) + ' SAR</strong></div>' +
+                '</div></td></tr>';
+            const content = topup + cycleRows.map((row) => receiptRow(row, rows.indexOf(row))).join('') + summary;
+            segments.push({date: String(cycle.funding_date || firstDate), content});
+        });
+        unallocated.forEach((row) => segments.push({date: String(row.transaction_date || ''), content: receiptRow(row, rows.indexOf(row))}));
+        segments.sort((a, b) => a.date.localeCompare(b.date));
+        const renderedRows = segments.map((segment) => segment.content).join('');
         q('.sig-pc-printdoc').innerHTML = '<div class="sig-pc-status-brand"><div class="sig-pc-status-brand-mark">SIG</div><div><strong>SIG</strong><span>' + __('Petty Cash') + '</span></div><div class="sig-pc-status-document-title"><h2>' + __('Petty Cash Transaction Status') + '</h2></div></div>' +
-            '<div class="sig-pc-status-meta"><div><small>' + __('Employee') + '</small><strong>' + esc(state.employees.get(state.employee) || '—') + '</strong></div><div><small>' + (selectedCycle ? __('Petty Cash cycle') : __('Period')) + '</small><strong>' + esc(period) + '</strong>' + (selectedCycle ? '<small>' + __('Funding') + ': ' + money(selectedCycle.principal) + ' SAR · ' + __(selectedCycle.journal_status) + '</small>' : '') + '</div><div><small>' + __('Generated') + '</small><strong>' + esc(date(frappe.datetime.get_today())) + '</strong></div></div>' +
+            '<div class="sig-pc-status-meta"><div><small>' + __('Employee') + '</small><strong>' + esc(state.employees.get(state.employee) || '—') + '</strong></div><div><small>' + (selectedCycle ? __('Petty Cash cycle') : __('Period')) + '</small><strong>' + esc(period) + '</strong></div><div><small>' + __('Generated') + '</small><strong>' + esc(date(frappe.datetime.get_today())) + '</strong></div></div>' +
             '<p class="sig-pc-status-selection-note">' + esc([state.status ? status({finance_status: state.status}) : __('All statuses'), state.search ? __('Search: {0}', [state.search]) : ''].filter(Boolean).join(' · ')) + '</p>' +
-            '<div class="sig-pc-status-table-wrap"><table class="sig-pc-status-table"><thead><tr><th>#</th><th>' + __('Date') + '</th><th>' + __('Category') + '</th><th>' + __('Amount (incl. VAT)') + '</th><th>' + __('Status') + '</th><th>' + __('Approved by') + '</th><th>' + __('Journal Entry status') + '</th><th>' + __('Petty Cash cycle') + '</th><th class="sig-pc-status-screen-only">' + __('Receipt') + '</th></tr></thead><tbody>' +
-            (rows.map((row, index) => '<tr data-row="' + esc(row.name) + '"><td>' + (index + 1) + '</td><td>' + esc(date(row.transaction_date)) + '</td><td>' + esc(row.transaction_category || '—') + '</td><td class="sig-pc-status-money">' + esc(money(row.amount)) + '</td><td>' + badge(status(row)) + '</td><td>' + esc(row.reviewed_by || '—') + '</td><td>' + esc(row.journal_status || '—') + '</td><td>' + esc(row.cycle_label || '—') + '</td><td class="sig-pc-status-screen-only"><button data-select="' + esc(row.name) + '" data-jump class="sig-pc-status-view-receipt">' + __('View') + '</button></td></tr>').join('') ||
+            '<div class="sig-pc-status-table-wrap"><table class="sig-pc-status-table"><thead><tr><th>#</th><th>' + __('Date') + '</th><th>' + __('Category') + '</th><th>' + __('Amount (SAR)') + '</th><th>' + __('Status') + '</th><th>' + __('Approved by') + '</th><th>' + __('Journal Entry status') + '</th><th>' + __('Petty Cash cycle') + '</th><th class="sig-pc-status-screen-only">' + __('Receipt') + '</th></tr></thead><tbody>' +
+            (renderedRows ||
             '<tr><td colspan="9" class="sig-pc-status-empty">' + __('No transactions match this selection.') + '</td></tr>') +
-            '</tbody><tfoot><tr><th colspan="3">' + __('Total (SAR)') + '</th><th class="sig-pc-status-money">' + esc(money(total(rows))) + '</th><td colspan="4">' + __('{0} transactions', [rows.length]) + '</td><td class="sig-pc-status-screen-only"></td></tr></tfoot></table></div><section class="sig-pc-status-receipts"></section>' +
+            '</tbody><tfoot><tr><th colspan="3">' + __('Receipt total (SAR)') + '</th><th class="sig-pc-status-money">' + esc(money(total(rows))) + '</th><td colspan="4">' + __('{0} transactions', [rows.length]) + '</td><td class="sig-pc-status-screen-only"></td></tr></tfoot></table></div><section class="sig-pc-status-receipts"></section>' +
             '<footer class="sig-pc-status-foot">' + __('Draft Journal Entries are pending Finance review; Submitted means posted.') + '</footer>';
     }
 

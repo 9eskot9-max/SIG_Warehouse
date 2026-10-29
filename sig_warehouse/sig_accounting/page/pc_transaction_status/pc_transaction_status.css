@@ -155,3 +155,12 @@
 
 .sig-pc-status-selection-note { margin:0 0 10px; color:#697586; font-size:11px; }
 .sig-pc-status-table [data-row] { cursor:pointer; }
+.sig-pc-status-table .sig-pc-status-cycle-topup td { background:#28649d; color:#fff; font-weight:700; border-top:2px solid #28649d; border-bottom:1px solid #28649d; }
+.sig-pc-status-table .sig-pc-status-cycle-summary td { padding:10px 12px; background:#eef4fa; border-top:1px solid #c9d9e8; border-bottom:2px solid #c9d9e8; }
+.sig-pc-status-cycle-summary-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+.sig-pc-status-cycle-summary-grid>div { min-width:0; padding-inline-start:12px; border-inline-start:1px solid #d1ddea; }
+.sig-pc-status-cycle-summary-grid>div:first-child { padding-inline-start:0; border-inline-start:0; }
+.sig-pc-status-cycle-summary-grid span { display:block; color:#637a95; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+.sig-pc-status-cycle-summary-grid strong { display:block; margin-top:2px; color:#19365c; font-size:14px; font-variant-numeric:tabular-nums; }
+.sig-pc-status-cycle-summary-grid .sig-pc-status-cycle-balance strong { color:#24623c; }
+@media print { .sig-pc-status-cycle-summary-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } .sig-pc-status-cycle-summary-grid strong { font-size:12px; } }
