@@ -406,7 +406,7 @@ def sig_check_dispatch_status(operation_id):
 
 
 @frappe.whitelist()
-def sig_add_mr_line(mr, item_code, qty, uom=None, site=None, project=None):
+def sig_add_mr_line(mr, item_code, qty, uom=None, site=None, project=None, from_wh=None):
     """Append a new line to an already-submitted Material Issue MR, so the
     Issue dialog can offer 'add an item that wasn't on the original request'
     without a separate MR-editing flow. A direct child-row insert (not
@@ -433,7 +433,9 @@ def sig_add_mr_line(mr, item_code, qty, uom=None, site=None, project=None):
     if mr_doc.material_request_type != "Material Issue":
         return {"result": "exception", "reason": "Not a Material Issue request"}
 
-    warehouse = mr_doc.set_warehouse
+    # Use the same selected source as the subsequent dispatch. Older callers
+    # that do not supply it retain the original header-warehouse behavior.
+    warehouse = WH_MAP.get(from_wh, from_wh) if from_wh else mr_doc.set_warehouse
     if not warehouse:
         return {"result": "exception", "reason": "MR has no warehouse set"}
     _authorize(mr_doc, warehouse)

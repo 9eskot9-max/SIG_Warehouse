@@ -268,7 +268,8 @@
                     try {
                         res = (await frappe.call({
                             method: 'sig_warehouse.sig_warehouse.dispatch_operation.sig_add_mr_line',
-                            args: { mr: frm.doc.name, item_code: $row.data('item'), qty, uom: $row.data('uom') },
+                            args: { mr: frm.doc.name, item_code: $row.data('item'), qty,
+                                    uom: $row.data('uom'), from_wh: fromWarehouse },
                             freeze: true, freeze_message: __('Adding {0}...', [$row.data('item')]),
                         })).message || {};
                     } catch (e) {
