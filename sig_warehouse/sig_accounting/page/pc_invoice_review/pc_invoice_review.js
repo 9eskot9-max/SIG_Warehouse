@@ -192,6 +192,10 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
         <section class="sig-pc-stats"></section>
         <section class="sig-pc-review"><div class="sig-pc-empty">${__('Loading…')}</div></section>
         <section class="sig-pc-section">
+            <div class="sig-pc-section-heading"><h2>${__('Journal Entry status')}</h2><p>${__('Status of confirmed receipts and their linked journals.')}</p></div>
+            <div class="sig-pc-journal-status">${__('Loading…')}</div>
+        </section>
+        <section class="sig-pc-section">
             <div class="sig-pc-section-heading"><h2>${__('Finance handoff and records')}</h2><p>${__('Confirmed receipts create draft clearance journals for Finance. Open them from here.')}</p></div>
             <div class="sig-pc-grid">${LINKS.filter(canOpen).map(linkCard).join('')}</div>
         </section>
@@ -199,7 +203,21 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
 
     root.on('click', '[data-nav]', function () { go(NAV.filter(canOpen)[Number($(this).data('nav'))]); });
     root.on('click', '[data-link]', function () { go(LINKS[Number($(this).data('link'))]); });
-    root.on('click', '.sig-pc-refresh', () => load());
+    root.on('click', '.sig-pc-refresh', () => { load(); loadJournalStatus(); });
+    root.on('click', '[data-journal-status]', () => frappe.set_route('pc-transaction-status'));
+    async function loadJournalStatus() {
+        const container = q('.sig-pc-journal-status');
+        try {
+            const rows = await call('sig_warehouse.sig_warehouse.pc_journal.transaction_status_report', {});
+            const journals = (rows || []).filter((row) => row.journal_entry || row.journal_status === 'Link mismatch');
+            const counts = ['Draft', 'Submitted', 'Cancelled', 'Link mismatch'].map((status) =>
+                `${esc(__(status))}: <strong>${journals.filter((row) => row.journal_status === status).length}</strong>`).join(' · ');
+            container.innerHTML = `<p>${counts}</p><button type="button" class="sig-pc-ghost" data-journal-status>${esc(__('View receipt and journal details'))}</button>`;
+        } catch (error) {
+            container.textContent = __('Journal Entry status could not be loaded.') + ' ' + (error.message || '');
+        }
+    }
+    loadJournalStatus();
     root.on('click', '[data-route]', function (e) { e.preventDefault(); frappe.set_route(...JSON.parse($(this).attr('data-route'))); });
     loadMetrics();
 

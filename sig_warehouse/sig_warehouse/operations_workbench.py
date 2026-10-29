@@ -397,6 +397,10 @@ def _cycle_view(row, project, today, operational=None):
                      "stage": "2 - Plan" if stage == "2 - Plan" else "3 - Handover",
                      "closes_on": "Tags evidence"})
     if not closed and stage == "3 - Handover":
+        if not row.get("ho_at") and not row.get("asbuilt_at") and not row.get("invoice_at"):
+            work.append({"key": "handover_documents", "label": "Handover documents",
+                         "owner_role": "either", "stage": "3 - Handover",
+                         "closes_on": "Handover document evidence (GCL/FIS/MGCL)"})
         if operational.get("applicable") and not operational.get("closed"):
             work.append({"key": "asbuilt_operational", "label": "As-Built Operational",
                          "owner_role": "warehouse", "stage": "3 - Handover",
