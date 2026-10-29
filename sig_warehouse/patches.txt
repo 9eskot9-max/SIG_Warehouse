@@ -43,3 +43,5 @@ sig_warehouse.sig_warehouse.patches.v1_0.pr_owner_submit_limit
 sig_warehouse.sig_warehouse.patches.v1_0.pr_po_issuer_draft_access
 sig_warehouse.sig_warehouse.patches.v1_0.pr_unlimited_draft_staging
 sig_warehouse.sig_warehouse.patches.v1_0.pr_invoice_price_true_up
+sig_warehouse.sig_warehouse.patches.v1_0.pr_submission_policy_revision2
+sig_warehouse.sig_warehouse.patches.v1_0.pr_invoice_price_true_up_revision2
