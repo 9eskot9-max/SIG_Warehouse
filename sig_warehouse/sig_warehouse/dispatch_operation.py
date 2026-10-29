@@ -175,7 +175,7 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
         row.name: row for row in frappe.get_all(
             "Material Request Item", filters={"name": ["in", mri_names], "parent": mr},
             fields=["name", "item_code", "uom", "qty", "stock_qty", "conversion_factor",
-                    "custom_qty_remaining", "custom_site"],
+                    "custom_qty_remaining", "custom_site", "project"],
         )
     }
     requested_by_mri = {}
@@ -227,6 +227,8 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
             # consumption is materials expense, not a stock adjustment (accountant, 2026-10-04)
             "expense_account": MATERIALS_EXPENSE_ACCOUNT,
         }
+        if row.project:
+            detail["project"] = row.project
         # Site is recorded at the Stock Entry detail grain.  The before_insert
         # hook mirrors it to the Stock Entry header only when all lines agree,
         # preserving correct search behavior without inventing a site for a
@@ -318,6 +320,30 @@ def sig_dispatch_mr(operation_id, mr, from_wh, posting_date=None, dispatched_to=
     }
 
 
+def _mr_source_context(items, project=None):
+    """Resolve only an unambiguous source project and alias from MR lines."""
+    rows = list(items or [])
+    project = str(project or "").strip()
+    projects = {str(row.get("project") or "").strip() for row in rows} - {""}
+    if project:
+        rows = [row for row in rows if str(row.get("project") or "").strip() == project]
+        if not rows:
+            return None, None, "PROJECT_NOT_ON_MR"
+    elif len(projects) > 1:
+        return None, None, "AMBIGUOUS_MR_PROJECT"
+    elif projects:
+        project = next(iter(projects))
+
+    aliases = {}
+    for row in rows:
+        alias = str(row.get("custom_source_project_name") or "").strip()
+        if alias:
+            aliases.setdefault(alias.casefold(), alias)
+    if len(aliases) > 1:
+        return None, None, "AMBIGUOUS_MR_ALIAS"
+    return project or None, next(iter(aliases.values()), None), None
+
+
 def _notify_dispatch_whatsapp(lines, stock_entry_name):
     """Best-effort DN notification resolved from the governed PO + alias stream.
 
@@ -346,6 +372,14 @@ def _notify_dispatch_whatsapp(lines, stock_entry_name):
         ) or {}
         mr_name = first_item.get("parent")
         project_alias = str(first_item.get("custom_source_project_name") or "").strip()
+        if not project_alias and mr_name:
+            mr_items = frappe.get_all(
+                "Material Request Item", filters={"parent": mr_name, "parenttype": "Material Request"},
+                fields=["project", "custom_source_project_name"],
+            )
+            _, project_alias, context_error = _mr_source_context(mr_items)
+            if context_error:
+                return skipped("MR source context is ambiguous: %s" % context_error)
         if not project_alias:
             return skipped("dispatched line has no project alias")
 
@@ -443,6 +477,11 @@ def sig_add_mr_line(mr, item_code, qty, uom=None, site=None, project=None, from_
     if not frappe.db.exists("Item", item_code):
         return {"result": "exception", "reason": "UNKNOWN_ITEM", "item": item_code}
 
+    source_project, source_alias, context_error = _mr_source_context(mr_doc.items, project)
+    if context_error:
+        return {"result": "exception", "reason": context_error,
+                "detail": "Review the request's project and alias before adding this item."}
+
     # Material Request Item has mandatory stock_uom/conversion_factor fields.
     # The dialog normally supplies the item's stock UOM, but this endpoint is
     # also callable directly and must not rely on the client-side item-detail
@@ -476,7 +515,7 @@ def sig_add_mr_line(mr, item_code, qty, uom=None, site=None, project=None, from_
         "stock_qty": qty * conversion_factor,
         "warehouse": warehouse, "schedule_date": frappe.utils.nowdate(),
         "cost_center": "Main - SIG", "custom_site": site or mr_doc.get("custom_site"),
-        "project": project,
+        "project": source_project, "custom_source_project_name": source_alias,
     })
     row.insert(ignore_permissions=True)
     frappe.db.commit()
