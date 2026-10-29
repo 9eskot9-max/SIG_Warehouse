@@ -79,7 +79,7 @@ has_permission = {
 # every board redraw.
 app_include_js = [
     "/assets/sig_warehouse/js/material_request_list.js?v=20260929-2",
-    "/assets/sig_warehouse/js/material_request.js?v=20260929-2",
+    "/assets/sig_warehouse/js/material_request.js?v=20261029-dispatch-wh",
     "/assets/sig_warehouse/js/stock_entry.js?v=20260929-2",
     "/assets/sig_warehouse/js/warehouse_workspace_redirect.js?v=20261018-1",
     "/assets/sig_warehouse/js/print_download.js?v=20261027-share-1",
