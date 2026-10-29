@@ -41,3 +41,5 @@ sig_warehouse.sig_warehouse.patches.v1_0.integrate_client_payment_reminder_lette
 sig_warehouse.sig_warehouse.patches.v1_0.add_planner_critical_fields
 sig_warehouse.sig_warehouse.patches.v1_0.pr_owner_submit_limit
 sig_warehouse.sig_warehouse.patches.v1_0.pr_po_issuer_draft_access
+sig_warehouse.sig_warehouse.patches.v1_0.pr_unlimited_draft_staging
+sig_warehouse.sig_warehouse.patches.v1_0.pr_invoice_price_true_up

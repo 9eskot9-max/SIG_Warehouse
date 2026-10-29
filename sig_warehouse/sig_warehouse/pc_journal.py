@@ -276,6 +276,7 @@ def transaction_status_report(employee=None, from_date=None, to_date=None, cycle
         result.append({
             "name": row.name,
             "employee_key": resolved_employee.name if resolved_employee else row.employee_name,
+            "employee_id": resolved_employee.name if resolved_employee else None,
             "employee_name": resolved_employee.employee_name if resolved_employee else row.employee_name,
             "transaction_date": row.transaction_date,
             "amount": row.amount,

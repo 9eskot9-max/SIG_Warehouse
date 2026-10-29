@@ -12,7 +12,7 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
     const isPdf = (url) => /\.pdf(?:[?#]|$)/i.test(url) || /[?&]\w*=pdf(?:&|$)/i.test(url);
     const status = (row) => row.finance_status === 'Pending Review' ? __('Pending Manager') : __(row.finance_status || 'Unknown');
     const total = (rows) => rows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
-    const state = {rows: [], employees: new Map(), employee: '', selected: '', search: '', status: '', cycles: [], cycleKey: '', applied: {scope: 'all'}, request: 0, loading: false, archiveRequest: 0, archiveUrl: null};
+    const state = {rows: [], employees: new Map(), employeeIds: new Map(), employee: '', selected: '', search: '', status: '', cycles: [], cycleKey: '', applied: {scope: 'all'}, request: 0, loading: false, archiveRequest: 0, archiveUrl: null};
     const view = {s: 1, x: 0, y: 0, r: 0, mode: 'page'};
 
     root.html('<header class="sig-pc-status-head">' +
@@ -76,6 +76,12 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
         q('.sig-pc-status-selected').setAttribute('aria-busy', 'true');
         try {
             if (scope === 'cycle') {
+                if (!state.employeeIds.get(state.employee)) {
+                    state.cycles = []; state.cycleKey = '';
+                    q('[data-cycle]').innerHTML = '<option value="">' + __('Employee link required') + '</option>';
+                    message(__('This sender could not be matched uniquely to an active Employee; funding cycles are unavailable.'));
+                    return;
+                }
                 state.cycles = await frappe.call({method: 'sig_warehouse.sig_warehouse.pc_funding.get_funding_cycles', type: 'POST', args: {employee: state.employee}})
                     .then((response) => response.message || []);
                 const cycleSelect = q('[data-cycle]');
@@ -100,13 +106,13 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
             }
             const rows = await frappe.call({method: 'sig_warehouse.sig_warehouse.pc_journal.transaction_status_report', type: 'POST', args}).then((response) => response.message || []);
             if (request !== state.request) return;
-            rows.forEach((row) => { if (row.employee_key) state.employees.set(row.employee_key, row.employee_name); });
+            rows.forEach((row) => {
+                if (row.employee_key) {
+                    state.employees.set(row.employee_key, row.employee_name);
+                    state.employeeIds.set(row.employee_key, row.employee_id || '');
+                }
+            });
             if (!state.employee) state.employee = [...state.employees.keys()][0] || '';
-            if (scope !== 'cycle' && state.employee) {
-                state.cycles = await frappe.call({method: 'sig_warehouse.sig_warehouse.pc_funding.get_funding_cycles', type: 'POST', args: {employee: state.employee}})
-                    .then((response) => response.message || []);
-                if (request !== state.request) return;
-            }
             state.rows = rows;
             state.applied = {scope, from: args.from_date, to: args.to_date, cycleKey: args.cycle_key || ''};
             state.selected = ''; state.search = ''; state.status = '';
@@ -117,9 +123,21 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
             q('[data-status]').innerHTML = '<option value="">' + __('All statuses') + '</option>' +
                 [...new Set(employeeRows().map((row) => row.finance_status))].sort().map((value) => '<option value="' + esc(value) + '">' + esc(status({finance_status: value})) + '</option>').join('');
             message(''); render();
+            if (scope !== 'cycle' && state.employeeIds.get(state.employee)) {
+                try {
+                    state.cycles = await frappe.call({method: 'sig_warehouse.sig_warehouse.pc_funding.get_funding_cycles', type: 'POST', args: {employee: state.employee}})
+                        .then((response) => response.message || []);
+                    if (request !== state.request) return;
+                    render();
+                } catch (error) {
+                    if (request !== state.request) return;
+                    message(__('Transactions loaded, but funding cycles could not be loaded.'));
+                }
+            } else if (scope !== 'cycle' && state.employee) {
+                message(__('This sender could not be matched uniquely to an active Employee; funding cycles are unavailable.'));
+            }
         } catch (error) {
             if (request !== state.request) return;
-            state.rows = [];
             render();
             message(error.message || __('Unable to load petty-cash status.'));
         } finally {
@@ -345,10 +363,14 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
     let resizeTimer;
     window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (vstage()) layout(true); }, 120); });
 
-    q('[data-scope]').addEventListener('change', () => { state.cycleKey = ''; updateScopeControls(); });
+    q('[data-scope]').addEventListener('change', () => { state.cycleKey = ''; updateScopeControls(); if (q('[data-scope]').value === 'cycle') load(); });
     q('[data-apply]').addEventListener('click', load);
     q('[data-refresh]').addEventListener('click', load);
-    q('[data-employee]').addEventListener('change', (event) => { state.employee = event.target.value; state.cycleKey = ''; load(); });
+    q('[data-employee]').addEventListener('change', (event) => {
+        state.employee = event.target.value; state.cycleKey = '';
+        if (q('[data-scope]').value === 'cycle' && !state.employeeIds.get(state.employee)) q('[data-scope]').value = 'all';
+        load();
+    });
     q('[data-cycle]').addEventListener('change', (event) => { state.cycleKey = event.target.value; updateScopeControls(); if (state.cycleKey) load(); });
     q('[data-search]').addEventListener('input', (event) => { state.search = event.target.value; render(); });
     q('[data-status]').addEventListener('change', (event) => { state.status = event.target.value; render(); });
