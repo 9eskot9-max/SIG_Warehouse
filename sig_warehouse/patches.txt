@@ -39,3 +39,5 @@ sig_warehouse.sig_warehouse.patches.v1_0.align_field_planner_role_access
 sig_warehouse.sig_warehouse.patches.v1_0.install_client_collection_reminder_format
 sig_warehouse.sig_warehouse.patches.v1_0.integrate_client_payment_reminder_letters
 sig_warehouse.sig_warehouse.patches.v1_0.add_planner_critical_fields
+sig_warehouse.sig_warehouse.patches.v1_0.pr_owner_submit_limit
+sig_warehouse.sig_warehouse.patches.v1_0.pr_po_issuer_draft_access
