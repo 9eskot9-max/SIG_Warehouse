@@ -9,7 +9,7 @@
  "fields": [
   {"fieldname": "cycle", "fieldtype": "Link", "in_list_view": 1, "label": "Cycle", "options": "SIG Site Cycle", "reqd": 1},
   {"fieldname": "site_key", "fieldtype": "Data", "in_list_view": 1, "label": "Site", "read_only": 1},
-  {"fieldname": "action", "fieldtype": "Select", "in_list_view": 1, "label": "Decision", "options": "\nMust\nHold\nRemove", "reqd": 1},
+  {"fieldname": "action", "fieldtype": "Select", "in_list_view": 1, "label": "Decision", "options": "\nMust\nHold\nRemove\nClear", "reqd": 1},
   {"fieldname": "reason", "fieldtype": "Data", "label": "Note"},
   {"fieldname": "until", "fieldtype": "Date", "label": "Hold until", "read_only": 1},
   {"fieldname": "decided_by", "fieldtype": "Data", "label": "Decided by", "read_only": 1},

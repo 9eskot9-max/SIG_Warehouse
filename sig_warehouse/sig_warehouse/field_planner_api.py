@@ -84,7 +84,7 @@ def set_plan_decision(cycle, action="", reason=""):
     doc = frappe.get_doc({
         "doctype": "SIG Plan Decision", "cycle": cycle,
         "site_key": frappe.db.get_value("SIG Site Cycle", cycle, "site_key"),
-        "action": action, "reason": (reason or "")[:140],
+        "action": action or "Clear", "reason": (reason or "")[:140],
         "until": frappe.utils.add_days(today, 30) if action == "Hold" else None,
         "decided_by": frappe.session.user, "decided_at": frappe.utils.now_datetime(),
     })
@@ -275,9 +275,11 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
         visits = frappe.get_all("SIG Field Visit", filters={"cycle": ["in", names]}, fields=["name", "cycle", "start_at", "status"],
                                 limit_page_length=0)
     windows = planner.tcn_windows(events, params["tcn_gap_days"])
-    visit_days = {}
+    visit_days, visit_times = {}, {}
     for visit in visits:
         visit_days.setdefault(visit.cycle, set()).add(frappe.utils.getdate(visit.start_at))
+        if visit.start_at:
+            visit_times.setdefault(visit.cycle, []).append(visit.start_at)
     # The scheduler uses visit counts from get_all. Downloadable trace detail must
     # still obey the caller's record permissions.
     trace_visits = []
@@ -294,7 +296,8 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
     # no longer needs field work.
     candidates, excluded = planner.build_candidates(cycles, windows, visit_days, today, params,
                                                     project_index, "plan_hold", decisions,
-                                                    erp_policy=True, schedule_dates=schedule_dates, now=business_now.replace(tzinfo=None))
+                                                    erp_policy=True, schedule_dates=schedule_dates, now=business_now.replace(tzinfo=None),
+                                                    visit_times=visit_times)
 
     if trace is not None:
         candidates_by_cycle = {item["cycle"]: item for item in candidates}

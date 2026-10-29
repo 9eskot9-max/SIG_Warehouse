@@ -55,6 +55,25 @@ def _date(value):
     return date.fromisoformat(str(value)[:10])
 
 
+def _after(value, reference):
+    """Compare timestamps when both have time information; otherwise compare dates."""
+    if not value or not reference:
+        return False
+    def timestamp(v):
+        if isinstance(v, datetime):
+            return v
+        if isinstance(v, date) or len(str(v)) <= 10:
+            return None
+        try:
+            return datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    left, right = timestamp(value), timestamp(reference)
+    if left is not None and right is not None and (left.utcoffset() is None) == (right.utcoffset() is None):
+        return left > right
+    return _date(value) > _date(reference)
+
+
 def team_positions(leaders, visits, coords, today, max_age_days=14):
     """Where each team (= its leader) stands: the site of the leader's latest check-in or check-out.
 
@@ -698,7 +717,7 @@ def priority_class(item):
 def active_decision(entries, cycle, last_visit, today, params):
     """The PM decision that applies today, or None. entries are the cycle's log lines, newest first.
 
-    A blank line clears. Hold and Remove are cancelled by a TCN issued after the decision (PMs request TCNs on
+    A Clear or legacy blank line clears. Hold and Remove are cancelled by a TCN issued after the decision (PMs request TCNs on
     purpose). Must ends after must_days, on a reported visit after the decision, or when HO documents exist.
     """
     today = _date(today)
@@ -706,15 +725,16 @@ def active_decision(entries, cycle, last_visit, today, params):
         return None
     latest = entries[0]
     action = latest.get("action") or ""
-    if action in ("", "Blank"):
+    if action in ("", "Blank", "Clear"):
         return None
     created = _date(latest.get("created"))
     tcn = _date(cycle.get("tcn_at"))
     if action == "Must":
-        if (today - created).days >= params["must_days"] or cycle.get("ho_at") or (last_visit and last_visit > created):
+        visits = last_visit if isinstance(last_visit, (list, tuple, set)) else [last_visit]
+        if (today - created).days >= params["must_days"] or cycle.get("ho_at") or any(_after(v, latest.get("created")) for v in visits):
             return None
         return {"action": "Must", "reason": latest.get("reason") or "", "until": ""}
-    if tcn and tcn > created:
+    if tcn and _after(cycle.get("tcn_at"), latest.get("created")):
         return None
     until = _date(latest.get("until")) or created + timedelta(days=params["hold_days"])
     if action == "Hold":
@@ -725,7 +745,7 @@ def active_decision(entries, cycle, last_visit, today, params):
 
 
 def build_candidates(cycles, windows, visit_days, today, params, project_index=None, mark_field="plan_hold", decisions=None,
-                     erp_policy=False, schedule_dates=None, now=None):
+                     erp_policy=False, schedule_dates=None, now=None, visit_times=None):
     """Classify open Plan/Handover cycles into candidate rows, shared by the ERP page and the Excel export.
 
     Returns (candidates, excluded). Each candidate carries the value the choice uses: the SAR gross value of the
@@ -740,7 +760,9 @@ def build_candidates(cycles, windows, visit_days, today, params, project_index=N
         if project_index is not None:
             c["project_text"] = project_text(c, project_index)
         win = windows.get(c["name"])
-        last_visit = max(visit_days.get(c["name"], ()), default=None) or _date(c.get("last_visit_at"))
+        last_visit = list((visit_times or {}).get(c["name"], ()))
+        last_visit.extend(visit_days.get(c["name"], ()))
+        last_visit.append(c.get("last_visit_at"))
         dec = active_decision((decisions or {}).get(c["name"], []), c, last_visit, today, params)
         if dec and dec["action"] in ("Hold", "Remove"):
             why = "PM Hold until %s" % dec["until"] if dec["action"] == "Hold" else "PM Remove"
@@ -775,7 +797,7 @@ def build_candidates(cycles, windows, visit_days, today, params, project_index=N
             "value": value if value is not None else median,
             "value_source": "ERP" if value is not None else "estimated (median)",
             "has_mir": bool(c.get("mir_at")),
-            "must": (dec["action"] == "Must") if has_log else (c.get(mark_field) or "") == "Must",
+            "must": bool(dec and dec["action"] == "Must") if has_log else (c.get(mark_field) or "") == "Must",
             "decision": dec["action"] if dec else "", "_c": c,
         })
         if erp_policy:
