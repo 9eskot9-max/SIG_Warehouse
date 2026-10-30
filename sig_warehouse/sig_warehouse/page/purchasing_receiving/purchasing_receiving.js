@@ -36,6 +36,11 @@ frappe.pages['purchasing-receiving'].on_page_load = function (wrapper) {
             .catch(() => root.html(`<div class="alert alert-danger">${__('Could not load intakes. Check your access and try Refresh.')}</div><button class="btn btn-default" data-retry>${__('Refresh')}</button>`))
             .finally(() => root.find('[data-retry]').on('click', load));
     }
-    page.set_primary_action(__('New intake'), openIntake, 'add');
+    // This page also renders its own New intake action. Keep the toolbar
+    // enhancement optional so a desk build without the helper cannot abort
+    // page initialization before the intake list is rendered.
+    if (typeof page.set_primary_action === 'function') {
+        page.set_primary_action(__('New intake'), openIntake);
+    }
     load();
 };
