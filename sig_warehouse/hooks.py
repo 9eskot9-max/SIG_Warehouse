@@ -151,6 +151,9 @@ doc_events = {
         "on_cancel": "sig_warehouse.sig_warehouse.rollup.on_material_request_cancel",
         "on_update_after_submit": "sig_warehouse.sig_warehouse.rollup.on_material_request_update_after_submit",
     },
+    "Request for Quotation": {
+        "validate": "sig_warehouse.sig_warehouse.rfq_whatsapp.sync_supplier_contacts",
+    },
 }
 
 # Verification QR (sig_verify): register the app-owned submit hook for configured doctypes.

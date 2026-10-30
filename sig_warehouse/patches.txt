@@ -47,3 +47,4 @@ sig_warehouse.sig_warehouse.patches.v1_0.pr_submission_policy_revision2
 sig_warehouse.sig_warehouse.patches.v1_0.pr_invoice_price_true_up_revision2
 sig_warehouse.sig_warehouse.patches.v1_0.add_tcn_effective_windows
 sig_warehouse.sig_warehouse.patches.v1_0.add_rfq_delivery_log
+sig_warehouse.sig_warehouse.patches.v1_0.add_rfq_supplier_whatsapp_field

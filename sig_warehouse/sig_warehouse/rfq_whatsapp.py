@@ -15,17 +15,124 @@ def _rfq(name):
     return doc
 
 
+def _phone_digits(value):
+    return re.sub(r"[\s()+-]", "", str(value or ""))
+
+
+def _normalize_phone(value):
+    phone = _phone_digits(value)
+    if not re.fullmatch(r"\d{8,15}", phone):
+        frappe.throw(_("Enter a phone number with country code (8 to 15 digits)."))
+    return phone
+
+
+def _contact_phone(contact):
+    if contact.mobile_no:
+        return contact.mobile_no
+    if contact.phone:
+        return contact.phone
+    primary = next((p.phone for p in contact.phone_nos if p.is_primary_mobile_no), None)
+    return primary or next((p.phone for p in contact.phone_nos if p.phone), "")
+
+
+def _supplier_contacts(supplier):
+    if not frappe.has_permission("Contact", "read"):
+        frappe.throw(_("You do not have permission to read Contacts."), frappe.PermissionError)
+    links = frappe.get_all("Dynamic Link", filters={
+        "parenttype": "Contact", "link_doctype": "Supplier", "link_name": supplier,
+    }, fields=["parent"], limit_page_length=500)
+    contacts = []
+    for name in dict.fromkeys(link.parent for link in links):
+        contact = frappe.get_doc("Contact", name)
+        contact.check_permission("read")
+        contacts.append(contact)
+    return contacts
+
+
+def _legacy_supplier_phone(supplier):
+    if not frappe.db.exists("DocType", "SIG Supplier RFQ Contact"):
+        return ""
+    return frappe.db.get_value("SIG Supplier RFQ Contact", {"supplier": supplier}, "whatsapp_number") or ""
+
+
+def _supplier_phone(supplier, preferred_contact=None):
+    contacts = _supplier_contacts(supplier)
+    whatsapp_contact = next((contact for contact in contacts
+        if contact.first_name == "WhatsApp" and _contact_phone(contact)), None)
+    if whatsapp_contact:
+        return _contact_phone(whatsapp_contact)
+    if preferred_contact:
+        selected = next((contact for contact in contacts if contact.name == preferred_contact), None)
+        if selected and selected.first_name == "WhatsApp" and _contact_phone(selected):
+            return _contact_phone(selected)
+    legacy_phone = _legacy_supplier_phone(supplier)
+    if legacy_phone:
+        return legacy_phone
+    return ""
+
+
+def sync_supplier_contacts(doc, method=None):
+    """Turn numbers entered on native RFQ supplier rows into linked Contacts."""
+    for row in doc.get("suppliers") or []:
+        if not row.supplier or not row.get("custom_whatsapp_number"):
+            continue
+        phone = _normalize_phone(row.custom_whatsapp_number)
+        row.custom_whatsapp_number = phone
+        supplier = frappe.get_doc("Supplier", row.supplier)
+        supplier.check_permission("read")
+        contacts = _supplier_contacts(supplier.name)
+        exact = next((contact for contact in contacts
+            if re.fullmatch(r"\d{8,15}", _phone_digits(_contact_phone(contact)))
+            and _phone_digits(_contact_phone(contact)) == phone), None)
+        if exact:
+            row.contact = exact.name
+            continue
+
+        # Keep a dedicated, clearly labelled WhatsApp contact. Do not overwrite
+        # an existing named supplier representative when a different number is entered.
+        supplier_label = supplier.supplier_name or supplier.name
+        contact = next((candidate for candidate in contacts
+            if candidate.first_name == "WhatsApp" and candidate.last_name == supplier_label), None)
+        if contact:
+            contact.check_permission("write")
+        else:
+            if not frappe.has_permission("Contact", "create"):
+                frappe.throw(_("You need Contact create permission to save this supplier number."), frappe.PermissionError)
+            contact = frappe.new_doc("Contact")
+            contact.first_name = "WhatsApp"
+            contact.last_name = supplier_label
+            contact.company_name = supplier_label
+            contact.append("links", {"link_doctype": "Supplier", "link_name": supplier.name})
+
+        contact.mobile_no = phone
+        primary = next((entry for entry in contact.phone_nos if entry.is_primary_mobile_no), None)
+        if primary:
+            primary.phone = phone
+        else:
+            contact.append("phone_nos", {"phone": phone, "is_primary_mobile_no": 1})
+        if contact.is_new():
+            contact.insert()
+        else:
+            contact.save()
+        row.contact = contact.name
+
+
+@frappe.whitelist()
+def supplier_phone(supplier):
+    supplier_doc = frappe.get_doc("Supplier", supplier)
+    supplier_doc.check_permission("read")
+    return {"phone": _supplier_phone(supplier_doc.name)}
+
+
 @frappe.whitelist()
 def supplier_numbers(name):
     doc = _rfq(name)
-    if not frappe.has_permission("SIG Supplier RFQ Contact", "read"):
-        frappe.throw(_("You do not have access to supplier RFQ contacts."), frappe.PermissionError)
     result = []
     for row in doc.suppliers:
         supplier = frappe.get_doc("Supplier", row.supplier)
         supplier.check_permission("read")
-        contact = frappe.db.get_value("SIG Supplier RFQ Contact", {"supplier": supplier.name}, "whatsapp_number")
-        result.append({"supplier": supplier.name, "phone": contact or ""})
+        result.append({"supplier": supplier.name,
+            "phone": row.get("custom_whatsapp_number") or _supplier_phone(supplier.name, row.contact)})
     from sig_whatsapp.maytapi import _settings
     settings = _settings()
     return {"suppliers": result, "test_mode": bool(settings.test_mode)}
@@ -37,23 +144,10 @@ def save_supplier_number(name, supplier, phone):
     doc.check_permission("write")
     if supplier not in [row.supplier for row in doc.suppliers]:
         frappe.throw(_("Supplier is not on this request for quotation."))
-    phone = re.sub(r"[\s()+-]", "", str(phone or ""))
-    if not re.fullmatch(r"\d{8,15}", phone):
-        frappe.throw(_("Enter a phone number with country code (8 to 15 digits)."))
-    if not frappe.has_permission("SIG Supplier RFQ Contact", "read"):
-        frappe.throw(_("You do not have access to supplier RFQ contacts."), frappe.PermissionError)
-    contact_name = frappe.db.get_value("SIG Supplier RFQ Contact", {"supplier": supplier})
-    if contact_name:
-        contact = frappe.get_doc("SIG Supplier RFQ Contact", contact_name)
-        contact.check_permission("write")
-    else:
-        contact = frappe.new_doc("SIG Supplier RFQ Contact")
-        contact.supplier = supplier
-    contact.whatsapp_number = phone
-    if contact.is_new():
-        contact.insert()
-    else:
-        contact.save()
+    phone = _normalize_phone(phone)
+    row = next((entry for entry in doc.suppliers if entry.supplier == supplier), None)
+    row.custom_whatsapp_number = phone
+    doc.save()
     return {"supplier": supplier, "phone": phone}
 
 
@@ -85,7 +179,16 @@ def send_supplier(name, supplier, retry_failed=0):
     settings = _settings()
     if not settings.enabled:
         frappe.throw(_("Maytapi is disabled."))
-    phone = frappe.db.get_value("SIG Supplier RFQ Contact", {"supplier": supplier}, "whatsapp_number")
+    supplier_row = next((row for row in doc.suppliers if row.supplier == supplier), None)
+    phone = (supplier_row.get("custom_whatsapp_number") if supplier_row else "") or _supplier_phone(supplier, supplier_row.contact if supplier_row else None)
+    if supplier_row and phone and not supplier_row.get("custom_whatsapp_number"):
+        # A number from an older saved RFQ-contact record or linked Supplier
+        # Contact is absorbed into the inline row and native Contact as used.
+        supplier_row.custom_whatsapp_number = _normalize_phone(phone)
+        doc.save()
+        doc.reload()
+        supplier_row = next((row for row in doc.suppliers if row.supplier == supplier), None)
+        phone = supplier_row.get("custom_whatsapp_number") if supplier_row else phone
     requested = normalize_recipient(phone or "")
     destination = normalize_recipient(settings.test_phone_number) if settings.test_mode else requested
     if not requested or not destination:
