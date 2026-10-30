@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "document_type",
+    "supplier_text",
+    "document_reference",
+    "document_date",
+    "purchase_order_reference",
+    "lines",
+    "warnings",
+    "requires_human_review"
+  ],
+  "properties": {
+    "document_type": {
+      "type": "string",
+      "enum": [
+        "supplier_quote",
+        "purchase_order_copy",
+        "supplier_invoice",
+        "delivery_note",
+        "packing_list",
+        "credit_note",
+        "other",
+        "unknown"
+      ]
+    },
+    "supplier_text": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "document_reference": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "document_date": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date"
+    },
+    "purchase_order_reference": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "requires_human_review": {
+      "type": "boolean"
+    },
+    "lines": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "line_no",
+          "item_code_text",
+          "description_text",
+          "ordered_qty",
+          "delivered_qty",
+          "uom_text",
+          "rate",
+          "page",
+          "evidence",
+          "ambiguities"
+        ],
+        "properties": {
+          "line_no": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "item_code_text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description_text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "manufacturer_text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model_text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "specification_text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ordered_qty": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "delivered_qty": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "uom_text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rate": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "page": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "evidence": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 300
+          },
+          "ambiguities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

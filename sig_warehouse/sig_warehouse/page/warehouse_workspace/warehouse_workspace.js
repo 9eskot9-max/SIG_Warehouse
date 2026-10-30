@@ -15,6 +15,21 @@ frappe.pages['warehouse-workspace'].on_page_load = function (wrapper) {
 
     const primary = [
         {
+            title: __('Purchasing & receiving'), variant: 'navy',
+            description: __('Create and track native Item, Purchase Order, and Purchase Receipt drafts.'),
+            icon: 'shopping-cart',
+            doctype: 'SIG Warehouse Intake',
+            permission: 'read',
+            route: ['purchasing-receiving']
+        },
+        {
+            title: __('Complete receipt prices'), variant: 'amber',
+            description: __('Find draft Purchase Receipts with missing item rates and complete them in the native ERP form.'),
+            doctype: 'Purchase Receipt',
+            permission: 'read',
+            route: ['purchase-receipt-pricing']
+        },
+        {
             title: __('Dispatch materials'), variant: 'blue',
             description: __('Review material requests and issue approved items from the dispatch board.'),
             icon: 'truck',
@@ -144,6 +159,12 @@ frappe.pages['warehouse-workspace'].on_page_load = function (wrapper) {
     ];
 
     const controls = [
+        {
+            title: __('AI item prompt and key'), variant: 'slate',
+            description: __('Edit the item extraction prompt and maintain the encrypted OpenAI key.'),
+            doctype: 'SIG AI Prompt Settings',
+            route: ['Form', 'SIG AI Prompt Settings', 'SIG AI Prompt Settings']
+        },
         {
             title: __('Stock reconciliation — controlled'), variant: 'navy',
             description: __('Use for an approved physical-count correction; this is not a routine adjustment shortcut.'),
