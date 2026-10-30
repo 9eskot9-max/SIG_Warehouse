@@ -25,7 +25,7 @@
    "fieldname": "source_line_no",
    "label": "Source Line No",
    "fieldtype": "Int",
-   "in_list_view": 1
+   "description": "Optional reference to the row in the supplier document."
   },
   {
    "fieldname": "source_text",

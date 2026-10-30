@@ -1,3 +1,72 @@
+function sig_intake_find_items(frm) {
+            const dialog = new frappe.ui.Dialog({title: __('Find ERP Items'), fields:[
+                {fieldtype:'Data',fieldname:'query',label:__('Search by item code or name'),reqd:1},
+                {fieldtype:'HTML',fieldname:'results'}
+            ], primary_action_label:__('Search'), primary_action(values) {
+                frappe.call({method:'sig_warehouse.sig_warehouse.warehouse_intake.find_items',args:{text:values.query}})
+                    .then(r => {
+                        const items = r.message || [];
+                        const html = items.map(item => `<button type="button" class="btn btn-default btn-xs" data-code="${frappe.utils.escape_html(item.name)}" data-name="${frappe.utils.escape_html(item.item_name || '')}" data-uom="${frappe.utils.escape_html(item.stock_uom || '')}">${frappe.utils.escape_html(item.name)} · ${frappe.utils.escape_html(item.item_name || '')} · ${frappe.utils.escape_html(item.stock_uom || '')}</button>`).join('<br>') || __('No Items found.');
+                        dialog.fields_dict.results.$wrapper.html(html);
+                        dialog.fields_dict.results.$wrapper.find('[data-code]').on('click', function() {
+                            const row = frm.add_child('lines'); row.item_code = $(this).data('code'); row.item_name = $(this).data('name'); row.description = row.item_name || row.item_code;
+                            row.uom = $(this).data('uom'); row.qty = 1; row.match_status = 'Matched'; frm.refresh_field('lines'); dialog.hide();
+                        });
+                    });
+            }});
+            dialog.show();
+}
+
+function sig_intake_guide(frm) {
+    const field = frm.fields_dict.lines;
+    if (!field || !field.$wrapper) return;
+    frm.wrapper.find('.sig-intake-guide').remove();
+    const guide = $('<div class="sig-intake-guide" style="border:1px solid var(--border-color);border-radius:8px;padding:16px;margin:16px 0;background:var(--card-bg)">' +
+        '<div style="font-weight:600;font-size:15px">' + __('Add items') + '</div>' +
+        '<p class="text-muted" style="margin:6px 0 12px">' + __('Search the item catalogue first. For a new item, paste its description and use AI to suggest the details.') + '</p>' +
+        '<button type="button" class="btn btn-default btn-sm" data-find-item>' + __('Find existing item') + '</button> ' +
+        '<button type="button" class="btn btn-primary btn-sm" data-create-item>' + __('Create item with AI') + '</button> ' +
+        (frm.is_new() ? '<span class="text-muted">' + __('Save this intake first to create a new item with AI.') + '</span>' : '') + '</div>');
+    field.$wrapper.before(guide);
+    guide.find('[data-find-item]').on('click', () => {
+        if (frm.doc.docstatus !== 0 || frm.doc.purchase_order_created || frm.doc.purchase_receipt) { frappe.msgprint(__('Create a new intake to add more items.')); return; }
+        sig_intake_find_items(frm);
+    });
+    guide.find('[data-create-item]').on('click', () => {
+        if (frm.is_new()) { frappe.msgprint(__('Choose an action and save the intake first, then create your item.')); return; }
+        if (frm.doc.docstatus !== 0 || frm.doc.purchase_order_created || frm.doc.purchase_receipt) {
+            frappe.msgprint(__('Create a new intake to add more items.')); return;
+        }
+        sig_intake_add_item(frm);
+    });
+}
+
+function sig_intake_add_item(frm) {
+            const dialog = new frappe.ui.Dialog({title:__('Create item'), fields:[
+                {fieldname:'item_help', fieldtype:'HTML', options:'<p class="text-muted">' + __('Creating an item adds it to the ERP item catalogue. Review the suggested details first.') + '</p>'},
+                {fieldname:'source_text', fieldtype:'Small Text', label:__('Item description from supplier'), description:__('Paste the description or specifications, then select Suggest with AI. Review the result before creating the item.')},
+                {fieldname:'suggest', fieldtype:'Button', label:__('Suggest with AI'), click:() => {
+                    frappe.call({method:'sig_warehouse.sig_warehouse.warehouse_intake.suggest_item',
+                        args:{intake_name:frm.doc.name, source_text:dialog.get_value('source_text')}, freeze:true})
+                        .then(r => { const v=r.message || {}; dialog.set_value('item_name',v.item_name || ''); dialog.set_value('description',v.description || ''); const esc=frappe.utils.escape_html; dialog.fields_dict.ai_details.$wrapper.html('<p class="text-muted">' + __('Supplier code') + ': ' + esc(v.source_code || '—') + ' · ' + __('Suggested unit') + ': ' + esc(v.uom || '—') + '</p>'); });
+                }},
+                {fieldname:'ai_details', fieldtype:'HTML'},
+                {fieldname:'item_code', fieldtype:'Data', label:__('Item code'), reqd:1},
+                {fieldname:'item_name', fieldtype:'Data', label:__('Item name'), reqd:1},
+                {fieldname:'description', fieldtype:'Small Text', label:__('Description'), reqd:1},
+                {fieldname:'item_group', fieldtype:'Link', options:'Item Group', label:__('Item group'), reqd:1},
+                {fieldname:'stock_uom', fieldtype:'Link', options:'UOM', label:__('Stock unit'), reqd:1}
+            ], primary_action_label:__('Create item'), primary_action(values) {
+                frappe.call({method:'sig_warehouse.sig_warehouse.warehouse_intake.create_item',
+                    freeze:true, freeze_message:__('Creating item…'), args:{intake_name:frm.doc.name, item_code:values.item_code, item_name:values.item_name,
+                        description:values.description, item_group:values.item_group, stock_uom:values.stock_uom}})
+                    .then(r => { const item=r.message; const row=frm.add_child('lines');
+                        row.item_code=item.name; row.item_name=item.item_name; row.description=item.description;
+                        row.uom=item.stock_uom; row.qty=1; row.source_text=values.source_text || ''; row.match_status='Matched'; frm.refresh_field('lines'); dialog.hide(); frappe.show_alert({message:__('Item created. Complete the line and save the intake.'), indicator:'green'}); });
+            }});
+            dialog.show();
+}
+
 function sig_intake_submit(frm) {
     frappe.call({method: 'sig_warehouse.sig_warehouse.warehouse_intake.submit_linked_draft',
         args: {intake_name: frm.doc.name}, freeze: true, freeze_message: __('Submitting through ERP controls…')
@@ -45,6 +114,7 @@ frappe.ui.form.on('SIG Warehouse Intake', {
         if (frm.is_new() && !frm.doc.company) frm.set_value('company', frappe.defaults.get_user_default('Company'));
     },
     refresh(frm) {
+        sig_intake_guide(frm);
         if (frm.is_new() || frm.doc.docstatus !== 0) return;
         if (frm.doc.purchase_order_created || frm.doc.purchase_receipt) {
             frm.add_custom_button(__('Open ERP draft'), () => {
@@ -67,29 +137,7 @@ frappe.ui.form.on('SIG Warehouse Intake', {
             ], values => frappe.call({method:'sig_warehouse.sig_warehouse.warehouse_intake.create_supplier',
                 args:{intake_name:frm.doc.name, ...values}}).then(() => frm.reload_doc()), __('Create supplier'), __('Create'));
         }, __('Actions'));
-        frm.add_custom_button(__('Add new item'), () => {
-            const dialog = new frappe.ui.Dialog({title:__('Create item'), fields:[
-                {fieldname:'source_text', fieldtype:'Small Text', label:__('Source text for AI suggestion')},
-                {fieldname:'suggest', fieldtype:'Button', label:__('Suggest with AI'), click:() => {
-                    frappe.call({method:'sig_warehouse.sig_warehouse.warehouse_intake.suggest_item',
-                        args:{intake_name:frm.doc.name, source_text:dialog.get_value('source_text')}, freeze:true})
-                        .then(r => { const v=r.message || {}; dialog.set_value('item_name',v.item_name || ''); dialog.set_value('description',v.description || ''); });
-                }},
-                {fieldname:'item_code', fieldtype:'Data', label:__('Item code'), reqd:1},
-                {fieldname:'item_name', fieldtype:'Data', label:__('Item name'), reqd:1},
-                {fieldname:'description', fieldtype:'Small Text', label:__('Description'), reqd:1},
-                {fieldname:'item_group', fieldtype:'Link', options:'Item Group', label:__('Item group'), reqd:1},
-                {fieldname:'stock_uom', fieldtype:'Link', options:'UOM', label:__('Stock unit'), reqd:1}
-            ], primary_action_label:__('Create item'), primary_action(values) {
-                frappe.call({method:'sig_warehouse.sig_warehouse.warehouse_intake.create_item',
-                    args:{intake_name:frm.doc.name, item_code:values.item_code, item_name:values.item_name,
-                        description:values.description, item_group:values.item_group, stock_uom:values.stock_uom}})
-                    .then(r => { const item=r.message; const row=frm.add_child('lines');
-                        row.item_code=item.name; row.item_name=item.item_name; row.description=item.description;
-                        row.uom=item.stock_uom; row.qty=1; row.match_status='Matched'; frm.refresh_field('lines'); dialog.hide(); });
-            }});
-            dialog.show();
-        }, __('Actions'));
+        frm.add_custom_button(__('Create item with AI'), () => sig_intake_add_item(frm));
         if (frm.doc.intake_type === 'Item Request') {
             frm.add_custom_button(__('Open native Item form'), () => frappe.new_doc('Item'));
             return;
@@ -127,23 +175,6 @@ frappe.ui.form.on('SIG Warehouse Intake', {
                 dialog.show();
             }, __('Actions'));
         }
-        frm.add_custom_button(__('Find Items'), () => {
-            const dialog = new frappe.ui.Dialog({title: __('Find ERP Items'), fields:[
-                {fieldtype:'Data',fieldname:'query',label:__('Search by item code or name'),reqd:1},
-                {fieldtype:'HTML',fieldname:'results'}
-            ], primary_action_label:__('Search'), primary_action(values) {
-                frappe.call({method:'sig_warehouse.sig_warehouse.warehouse_intake.find_items',args:{text:values.query}})
-                    .then(r => {
-                        const items = r.message || [];
-                        const html = items.map(item => `<button type="button" class="btn btn-default btn-xs" data-code="${frappe.utils.escape_html(item.name)}" data-name="${frappe.utils.escape_html(item.item_name || '')}" data-uom="${frappe.utils.escape_html(item.stock_uom || '')}">${frappe.utils.escape_html(item.name)} · ${frappe.utils.escape_html(item.item_name || '')} · ${frappe.utils.escape_html(item.stock_uom || '')}</button>`).join('<br>') || __('No Items found.');
-                        dialog.fields_dict.results.$wrapper.html(html);
-                        dialog.fields_dict.results.$wrapper.find('[data-code]').on('click', function() {
-                            const row = frm.add_child('lines'); row.item_code = $(this).data('code'); row.item_name = $(this).data('name'); row.description = row.item_name || row.item_code;
-                            row.uom = $(this).data('uom'); row.qty = 1; row.match_status = 'Matched'; frm.refresh_field('lines'); dialog.hide();
-                        });
-                    });
-            }});
-            dialog.show();
-        }, __('Actions'));
+        frm.add_custom_button(__('Find existing items'), () => sig_intake_find_items(frm));
     }
 });
