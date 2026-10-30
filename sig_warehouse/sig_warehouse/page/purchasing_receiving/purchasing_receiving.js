@@ -34,7 +34,7 @@ frappe.pages['purchasing-receiving'].on_page_load = function (wrapper) {
         frappe.call({method: 'sig_warehouse.sig_warehouse.warehouse_intake.list_intakes'})
             .then(r => render(r.message || []))
             .catch(() => root.html(`<div class="alert alert-danger">${__('Could not load intakes. Check your access and try Refresh.')}</div><button class="btn btn-default" data-retry>${__('Refresh')}</button>`))
-            .finally(() => root.find('[data-retry]').on('click', load));
+            .then(() => root.find('[data-retry]').on('click', load));
     }
     // This page also renders its own New intake action. Keep the toolbar
     // enhancement optional so a desk build without the helper cannot abort
