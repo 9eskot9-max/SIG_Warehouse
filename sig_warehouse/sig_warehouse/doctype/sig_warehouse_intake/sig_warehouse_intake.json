@@ -1,0 +1,204 @@
+{
+ "doctype": "DocType",
+ "name": "SIG Warehouse Intake",
+ "module": "SIG Warehouse",
+ "autoname": "naming_series:",
+ "track_changes": 1,
+ "title_field": "supplier",
+ "search_fields": "supplier,source_reference,purchase_order,purchase_order_created",
+ "field_order": [
+  "naming_series",
+  "intake_type",
+  "status",
+  "supplier",
+  "company",
+  "currency",
+  "source_reference",
+  "source_date",
+  "source_delivery_note",
+  "purchase_order",
+  "purchase_order_created",
+  "purchase_receipt",
+  "source_file",
+  "source_hash",
+  "payload_hash",
+  "operation_id",
+  "last_error",
+  "lines"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "label": "Series",
+   "fieldtype": "Select",
+   "options": "WINT-.YYYY.-.#####",
+   "default": "WINT-.YYYY.-.#####",
+   "reqd": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "intake_type",
+   "label": "Action",
+   "fieldtype": "Select",
+   "options": "Item Request\nPurchase Order\nReceipt Against PO\nReceipt Without PO",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "status",
+   "label": "Status",
+   "fieldtype": "Select",
+   "options": "New\nNeeds Review\nReady\nDraft Created\nSubmitted\nException\nClosed",
+   "default": "New",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "supplier",
+   "label": "Supplier",
+   "fieldtype": "Link",
+   "options": "Supplier",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "company",
+   "label": "Company",
+   "fieldtype": "Link",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "currency",
+   "label": "Currency",
+   "fieldtype": "Link",
+   "options": "Currency"
+  },
+  {
+   "fieldname": "source_reference",
+   "label": "Source Document Reference",
+   "fieldtype": "Data",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "source_date",
+   "label": "Source Date",
+   "fieldtype": "Date"
+  },
+  {
+   "fieldname": "source_delivery_note",
+   "label": "Supplier Delivery Note",
+   "fieldtype": "Data"
+  },
+  {
+   "fieldname": "purchase_order",
+   "label": "Purchase Order",
+   "fieldtype": "Link",
+   "options": "Purchase Order"
+  },
+  {
+   "fieldname": "purchase_order_created",
+   "label": "Created Purchase Order Draft",
+   "fieldtype": "Link",
+   "options": "Purchase Order",
+   "read_only": 1
+  },
+  {
+   "fieldname": "purchase_receipt",
+   "label": "Created Purchase Receipt Draft",
+   "fieldtype": "Link",
+   "options": "Purchase Receipt",
+   "read_only": 1
+  },
+  {
+   "fieldname": "source_file",
+   "label": "Source File",
+   "fieldtype": "Attach"
+  },
+  {
+   "fieldname": "source_hash",
+   "label": "Source SHA256",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payload_hash",
+   "label": "Payload SHA256",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "operation_id",
+   "label": "Operation ID",
+   "fieldtype": "Data",
+   "unique": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_error",
+   "label": "Last Error",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "lines",
+   "label": "Lines",
+   "fieldtype": "Table",
+   "options": "SIG Warehouse Intake Line"
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1
+  },
+  {
+   "role": "Stock User",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1,
+   "print": 1
+  },
+  {
+   "role": "Stock Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1
+  },
+  {
+   "role": "Warehouse Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1,
+   "print": 1
+  },
+  {
+   "role": "Purchase User",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1,
+   "print": 1
+  },
+  {
+   "role": "Purchase Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1
+  }
+ ]
+}

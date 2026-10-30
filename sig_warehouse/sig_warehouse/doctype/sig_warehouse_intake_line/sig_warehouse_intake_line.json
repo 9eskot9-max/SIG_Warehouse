@@ -1,0 +1,113 @@
+{
+ "doctype": "DocType",
+ "name": "SIG Warehouse Intake Line",
+ "module": "SIG Warehouse",
+ "istable": 1,
+ "editable_grid": 1,
+ "field_order": [
+  "source_line_no",
+  "source_text",
+  "description",
+  "item_code",
+  "item_name",
+  "qty",
+  "uom",
+  "conversion_factor",
+  "rate",
+  "warehouse",
+  "purchase_order_item",
+  "purchase_receipt_item",
+  "match_status",
+  "review_note"
+ ],
+ "fields": [
+  {
+   "fieldname": "source_line_no",
+   "label": "Source Line No",
+   "fieldtype": "Int",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "source_text",
+   "label": "Original Source Text",
+   "fieldtype": "Small Text"
+  },
+  {
+   "fieldname": "description",
+   "label": "Description",
+   "fieldtype": "Small Text",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "item_code",
+   "label": "Item",
+   "fieldtype": "Link",
+   "options": "Item",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "item_name",
+   "label": "Item Name",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "qty",
+   "label": "Quantity",
+   "fieldtype": "Float",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "uom",
+   "label": "UOM",
+   "fieldtype": "Link",
+   "options": "UOM",
+   "reqd": 1
+  },
+  {
+   "fieldname": "conversion_factor",
+   "label": "Conversion Factor",
+   "fieldtype": "Float",
+   "default": 1
+  },
+  {
+   "fieldname": "rate",
+   "label": "Rate",
+   "fieldtype": "Currency"
+  },
+  {
+   "fieldname": "warehouse",
+   "label": "Warehouse",
+   "fieldtype": "Link",
+   "options": "Warehouse",
+   "reqd": 1
+  },
+  {
+   "fieldname": "purchase_order_item",
+   "label": "Purchase Order Item Row",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "purchase_receipt_item",
+   "label": "Purchase Receipt Item Row",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "match_status",
+   "label": "Match Status",
+   "fieldtype": "Select",
+   "options": "\nNeeds Review\nMatched\nNo Match\nAmbiguous",
+   "default": "Needs Review",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "review_note",
+   "label": "Review Note",
+   "fieldtype": "Small Text"
+  }
+ ]
+}

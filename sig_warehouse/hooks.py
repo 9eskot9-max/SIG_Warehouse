@@ -23,6 +23,7 @@ after_migrate = "sig_warehouse.after_migrate.run"
 doctype_js = {
     "SIG PC Transaction": "public/js/pc_transaction.js",
     "SIG Client Collection Draft": "public/js/client_collection_draft.js",
+    "SIG Warehouse Intake": "public/js/warehouse_intake.js",
 }
 
 # The legacy short names remain valid for old bookmarks; they use the same
