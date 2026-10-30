@@ -188,6 +188,14 @@ frappe.pages['warehouse-workspace'].on_page_load = function (wrapper) {
 
     const purchasingDocuments = [
         {
+            title: __('Supplier RFQs'), variant: 'amber', icon: 'file-text-o',
+            description: __('Prepare an ERP quotation request and send its letter to selected suppliers by WhatsApp.'),
+            doctype: 'Request for Quotation',
+            linked_doctypes: ['Supplier'],
+            permission: 'create',
+            route: ['List', 'Request for Quotation']
+        },
+        {
             title: __('Purchase Orders'), variant: 'slate',
             description: __('Purchasing owns the order; use it as receipt context, not a warehouse approval.'),
             doctype: 'Purchase Order',
@@ -218,6 +226,7 @@ frappe.pages['warehouse-workspace'].on_page_load = function (wrapper) {
 
     function allowed(item) {
         if (!frappe.model.can_read(item.doctype)) return false;
+        if ((item.linked_doctypes || []).some((doctype) => !frappe.model.can_read(doctype))) return false;
         if (item.permission === 'write' && !frappe.model.can_write(item.doctype)) return false;
         if (item.permission === 'create' && !frappe.model.can_create(item.doctype)) return false;
         if (item.report) {

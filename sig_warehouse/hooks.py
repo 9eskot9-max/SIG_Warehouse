@@ -21,6 +21,7 @@ after_migrate = "sig_warehouse.after_migrate.run"
 # reach the Kanban board too) and carries the cache-busting ?v= query, so
 # doctype_js is dropped rather than kept as a second copy.
 doctype_js = {
+    "Request for Quotation": "public/js/rfq_whatsapp.js",
     "SIG PC Transaction": "public/js/pc_transaction.js",
     "SIG Client Collection Draft": "public/js/client_collection_draft.js",
     "SIG Warehouse Intake": "public/js/warehouse_intake.js",

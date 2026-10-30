@@ -1,0 +1,20 @@
+{
+ "doctype": "DocType",
+ "name": "SIG Supplier RFQ Contact",
+ "module": "SIG Warehouse",
+ "autoname": "field:supplier",
+ "title_field": "supplier",
+ "search_fields": "supplier,whatsapp_number",
+ "track_changes": 1,
+ "field_order": ["supplier", "whatsapp_number"],
+ "fields": [
+  {"fieldname": "supplier", "fieldtype": "Link", "options": "Supplier", "label": "Supplier", "reqd": 1, "unique": 1, "in_list_view": 1, "in_standard_filter": 1},
+  {"fieldname": "whatsapp_number", "fieldtype": "Data", "label": "RFQ WhatsApp Number", "reqd": 1, "in_list_view": 1}
+ ],
+ "permissions": [
+  {"role": "System Manager", "read": 1, "write": 1, "create": 1},
+  {"role": "Purchase User", "read": 1, "write": 1, "create": 1},
+  {"role": "Purchase Manager", "read": 1, "write": 1, "create": 1},
+  {"role": "Purchase Master Manager", "read": 1, "write": 1, "create": 1}
+ ]
+}
