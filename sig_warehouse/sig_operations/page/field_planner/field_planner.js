@@ -762,14 +762,14 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         root.html('<div class="sig-planner-shell">' +
             '<section class="sig-planner-toolbar"><div class="sig-planner-toolbar-head"><div class="sig-planner-toolbar-title"><h2>' + (filters.mode === 'Incident' ? __('Incident plan') : __('Field plan')) +
             '</h2><p>' + esc(fmtDates(horizon[0] || '')) + ' – ' + esc(fmtDates(horizon[horizon.length - 1] || '')) +
-            '</p></div><div class="sig-planner-toolbar-actions">' +
-            '<button type="button" class="btn btn-default" data-action="settings">' + __('Planning settings') + '</button>' +
-            '<button type="button" class="btn btn-default" data-action="ai-recommend">' + __('AI schedule choice') + '</button>' +
-            '</div></div><div class="sig-planner-controls">' +
+            '</p></div><div class="sig-planner-controls">' +
             '<label>' + __('Mode') + '<select data-planner-mode><option value="DC" ' + (filters.mode === 'DC' ? 'selected' : '') + '>DC</option><option value="Incident" ' + (filters.mode === 'Incident' ? 'selected' : '') + '>Incident</option></select></label>' +
             '<label>' + __('Plan starts') + '<input type="date" readonly value="' + esc(filters.week_start) + '"></label>' +
             '<label class="sig-planner-project-control">' + __('Project / PO') + '<div class="sig-planner-project-link"></div></label>' +
-            '</div><div class="sig-planner-metrics" id="sig-planner-metrics"></div></section>' +
+            '</div><div class="sig-planner-toolbar-actions">' +
+            '<button type="button" class="btn btn-default" data-action="settings">' + __('Planning settings') + '</button>' +
+            '<button type="button" class="btn btn-default" data-action="ai-recommend">' + __('AI schedule choice') + '</button>' +
+            '</div></div><div class="sig-planner-metrics" id="sig-planner-metrics"></div></section>' +
             (data.decision_trace ? '<section class="sig-planner-trace-actions"><span>' + __('Trace captured for this plan') + ' · ' +
                 esc(fmtDates(data.decision_trace.week_start || '')) + ' · ' + esc(data.decision_trace.generated_at_riyadh || '') + '</span><div>' +
                 '<button type="button" class="btn btn-default" data-export-trace>' + __('Export trace JSON') + '</button>' +
