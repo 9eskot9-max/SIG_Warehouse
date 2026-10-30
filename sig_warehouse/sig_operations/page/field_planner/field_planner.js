@@ -16,7 +16,6 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
     const fmtDates = (text) => text.replace(/(\d{4})-(\d{2})-(\d{2})/g, (m, y, mo, d) => `${d}-${MON[Number(mo) - 1]}`);
     const esc = (value) => frappe.utils.escape_html(fmtDates(value == null ? '' : String(value)));
     const filters = {};
-    let positionSiteField = null;
     let projectControl = null;
     let cutoffRefreshTimer = null;
     let captureTrace = false;
@@ -32,7 +31,11 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         const next = e.currentTarget.value === 'Incident' ? 'Incident' : 'DC';
         if (next === filters.mode) return;
         filters.mode = next;
-        filters.teams = ''; filters.scope_hours = ''; filters.diameter_km = ''; filters.project = '';
+        // Mode-specific defaults come from the enabled mode roster and its workload basis.
+        filters.teams = '';
+        filters.scope_hours = '';
+        filters.diameter_km = '';
+        filters.project = '';
         currentTrace = null;
         load();
     });
@@ -67,6 +70,11 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                 const reasonList = (recommendation.reasons || []).map(x => '<li>' + esc(x) + '</li>').join('');
                 const warningList = [].concat(recommendation.warnings || [], recommendation.tradeoffs || [],
                     recommendation.unsupported_assumptions || []).map(x => '<li>' + esc(x) + '</li>').join('');
+                const changedCycles = new Set([].concat(changes.added_scopes || [], changes.date_changes || []).map(x => x.cycle));
+                const deadlineRows = (selected.scheduled_stops || []).filter(x => changedCycles.has(x.cycle) && x.needs_tcn && x.tcn_request_deadline)
+                    .map(x => '<li>' + esc(x.site) + ' · ' + esc(__('visit {0}; request by {1}',
+                        [fmtDates(x.tcn_visit_date || ''), fmtDates(x.tcn_request_deadline)])) +
+                        (x.planned_visit_start && x.planned_visit_end ? ' · ' + esc(__('proposed access {0}–{1}', [x.planned_visit_start.slice(11), x.planned_visit_end.slice(11)])) : '') + '</li>').join('');
                 const changeRows = [];
                 (changes.added_scopes || []).forEach(x => changeRows.push(__('Add {0} on {1} · {2}', [esc(x.site), esc(x.day || ''), esc(x.team || '')])));
                 (changes.team_changes || []).forEach(x => changeRows.push(__('Move {0}: {1} → {2}', [esc(x.site), esc(x.from_team), esc(x.to_team)])));
@@ -82,7 +90,8 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                     '</p><div class="sig-planner-ai-metrics">' + metric(__('scheduled sites'), metrics.sites_scheduled) +
                     metric(__('Must left unscheduled'), metrics.must_lapsed) + metric(__('TCN dates met'), (metrics.windows_met || 0) + ' / ' + (metrics.windows_total || 0)) +
                     metric(__('travel hours'), metrics.travel_h) + metric(__('team-days'), (metrics.loaded_team_days || 0) + ' / ' + (metrics.capacity_team_days || 0)) +
-                    '</div>' + changeList + (reasonList ? '<h4>' + __('Why this schedule') + '</h4><ul>' + reasonList + '</ul>' : '') +
+                    '</div>' + changeList + (deadlineRows ? '<h4>' + __('ERP-calculated TCN request deadlines') + '</h4><ul>' + deadlineRows + '</ul>' : '') +
+                    (reasonList ? '<h4>' + __('Why this schedule') + '</h4><ul>' + reasonList + '</ul>' : '') +
                     (warningList ? '<h4>' + __('Tradeoffs and review points') + '</h4><ul>' + warningList + '</ul>' : '') +
                     '<div class="sig-planner-table-wrap"><table class="table table-bordered"><thead><tr><th>' + __('Team') + '</th><th>' + __('Start') + '</th><th>' + __('Proposed stops') +
                     '</th></tr></thead><tbody>' + (routeRows || '<tr><td colspan="3">' + __('No scheduled stops') + '</td></tr>') + '</tbody></table></div>' +
@@ -182,6 +191,8 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
     const KSA = [[34.95,29.36],[36.07,29.2],[36.5,29.51],[36.74,29.87],[37.5,30.0],[37.67,30.34],[38.0,30.51],[37.0,31.51],[39.0,32.01],[39.2,32.16],[40.4,31.89],[41.89,31.19],[44.71,29.18],[46.57,29.1],[47.46,29.0],[47.71,28.53],[48.42,28.55],[48.81,27.69],[49.3,27.46],[49.47,27.11],[50.15,26.69],[50.21,26.28],[50.11,25.94],[50.24,25.61],[50.53,25.33],[50.66,25.0],[50.81,24.75],[51.11,24.56],[51.39,24.63],[51.58,24.24],[51.62,24.01],[52.0,23.0],[55.01,22.5],[55.21,22.71],[55.67,22.0],[55.0,20.0],[52.0,19.0],[49.12,18.62],[48.18,18.17],[47.47,17.12],[47.0,16.95],[46.75,17.28],[46.37,17.23],[45.4,17.33],[45.22,17.43],[44.06,17.41],[43.79,17.32],[43.38,17.58],[43.12,17.09],[43.22,16.67],[42.78,16.35],[42.65,16.77],[42.35,17.08],[42.27,17.47],[41.76,17.83],[41.22,18.67],[40.94,19.49],[40.25,20.17],[39.8,20.34],[39.14,21.29],[39.02,21.99],[39.07,22.58],[38.49,23.69],[38.03,24.08],[37.49,24.29],[37.15,24.86],[37.21,25.08],[36.93,25.6],[36.64,25.83],[36.25,26.57],[35.64,27.38],[35.13,28.06],[34.63,28.06],[34.79,28.61],[34.83,28.96],[34.95,29.36]];
     const TRIP_COLORS = ['#1e7fff', '#e8590c', '#2b9348', '#9c36b5', '#d6336c', '#0b7285', '#a67c00', '#495057'];
     const TEAM_COLORS = ['#1e7fff', '#e8590c', '#2b9348', '#9c36b5', '#d6336c'];
+    const positionPlace = (p) => p && (p.city || String(p.site || '').replace(/^CITY::/i, '')) || '';
+    const PLANNER_CITY_OPTIONS = ['Riyadh', 'Jeddah', 'Makkah', 'Jizan', 'Abha', 'Madinah', 'Dammam', 'Unizah', 'Hail'];
     const DARK = '#2f3640';
     const TIER_COLORS = {T0: '#1e7fff', T1: '#a4211f', T2: '#c27c00', T3: '#1a7a3d', T4: '#868e96', T5: '#426b8a'};
     const ZONE_COLORS = {Riyadh: '#fbe3c4', Qassim: '#dcefc9', Hail: '#e4dcf2', Madinah: '#f9d7d7', Makkah: '#d3e7f7',
@@ -332,7 +343,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             const color = TEAM_COLORS[((p.team_no || 1) - 1) % TEAM_COLORS.length];
             L.circleMarker([p.lat, p.lon], {radius: 13, color, weight: 3, fillColor: '#fff', fillOpacity: 1,
                 dashArray: p.state === 'Stale' ? '4 4' : null})
-                .bindTooltip('<b>' + esc(p.team || p.leader) + '</b><br>' + esc(p.site || '') + '<br>' + esc(p.source || ''),
+                .bindTooltip('<b>' + esc(p.team || p.leader) + '</b><br>' + esc(positionPlace(p)) + '<br>' + esc(p.source || ''),
                     {className: 'sig-planner-start-tooltip'}).addTo(map);
             bounds.push([p.lat, p.lon]);
         });
@@ -481,7 +492,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                 c.setAttribute('cx', x); c.setAttribute('cy', y); c.setAttribute('r', 8);
                 c.setAttribute('fill', '#fff'); c.setAttribute('stroke', TEAM_COLORS[((p.team_no || 1) - 1) % TEAM_COLORS.length]);
                 c.setAttribute('stroke-width', '2.5'); c.setAttribute('class', 'sig-planner-position-ring');
-                const title = document.createElementNS(ns, 'title'); title.textContent = (p.team || p.leader) + ' · ' + (p.site || '');
+                const title = document.createElementNS(ns, 'title'); title.textContent = (p.team || p.leader) + ' · ' + positionPlace(p);
                 c.appendChild(title); svg.appendChild(c);
             });
         }
@@ -623,6 +634,16 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         view.rows = data.rows;
         if (!view.selectedTeam || !view.teamNames[view.selectedTeam]) view.selectedTeam = view.teams.length ? view.teams[0].team : 1;
         const horizon = workDates(data.summary.week_start, data.params.work_days || 5);
+        const nextDayTcn = data.rows.filter((row) => row.trip_status === 'Scheduled' && row.needs_tcn &&
+            String(row.day || '').slice(0, 10) === String(horizon[0] || '').slice(0, 10));
+        const nextDayTcnPanel = '<details class="sig-planner-tcn-review"><summary>' +
+            esc(__('First planned day: {0} scheduled scopes need a TCN', [nextDayTcn.length])) + '</summary><p>' +
+            esc(__('Proposed access times are planning estimates; use the issued TCN for the actual visit. This list covers scheduled scopes only.')) + '</p>' +
+            (nextDayTcn.length ? '<ul>' + nextDayTcn.map((row) => '<li><a href="/app/sig-site-cycle/' +
+                encodeURIComponent(row.cycle || '') + '">' + esc(row.site) + '</a> · ' + esc(row.project || '') + ' · ' +
+                esc(view.teamNames[row.team] || __('Team {0}', [row.team])) + ' · ' +
+                esc(__('request by {0}', [fmtDates(row.tcn_due_at || '')])) +
+                (row.planned_visit_start && row.planned_visit_end ? ' · ' + esc(__('proposed access {0}–{1} Riyadh', [row.planned_visit_start.slice(11), row.planned_visit_end.slice(11)])) : '') + '</li>').join('') + '</ul>' : '') + '</details>';
         const assigned = () => view.rows.filter((r) => r.trip_status === 'Scheduled');
         const backlog = () => view.rows.filter((r) => r.trip_status !== 'Scheduled');
         const teamRows = (n) => assigned().filter((r) => Number(r.team) === Number(n));
@@ -638,7 +659,9 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             if (r.tier === 'T5') return {label: __('TCN needed'), cls: 'mismatch', line: __('Stage 2 scope; TCN needed before field date')};
             return {label: data.tiers[r.tier] || r.tier || __('Review'), cls: '', line: r.reason || ''};
         };
-        const statusBadge = (r) => { const s = statusFor(r); return '<span class="sig-planner-status ' + s.cls + '">' + esc(s.label) + '</span>'; };
+        const statusBadge = (r) => { const s = statusFor(r); return '<span class="sig-planner-status ' + s.cls + '">' + esc(s.label) + '</span>' +
+            (r.critical ? ' <span class="sig-planner-status mismatch">' + esc(__('Critical · planned {0}–{1} · {2}', [(r.planned_visit_start || '').slice(11), (r.planned_visit_end || '').slice(11), r.tcn_time_status === 'covered' ? __('TCN covers estimate') : r.tcn_time_status === 'conflict' ? __('TCN time conflict') : __('TCN time not verified')])) + '</span>' : '') +
+            (r.tcn_time_review ? ' <span class="sig-planner-status mismatch">' + esc(__('Custom TCN hours · PM review')) + '</span>' : ''); };
         const decisionBadge = (r) => r.decision ? '<span class="sig-planner-status decision">' + esc(r.decision) + '</span>' : '';
         const decisionControl = (r) => '<label class="sig-planner-choice">' + __('PM decision') + '<select class="sig-planner-decide" data-cycle="' +
             esc(r.cycle) + '">' + [['', __('Automatic')], ['Must', __('Must · 14 days')], ['Hold', __('Hold · 30 days')], ['Remove', __('Remove')]]
@@ -647,12 +670,12 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         const canUpdatePosition = () => (frappe.user_roles || []).some((r) => ['Projects Manager', 'System Manager'].includes(r));
         const currentPosition = (n) => view.teamPositions.find((p) => Number(p.team_no) === Number(n));
         const teamPositionSummary = (p) => !p ? __('No position reported') :
-            p.state === 'Incident' ? __('Incident team · not planned') : !p.site ? __('No position reported') :
-                p.state === 'Stale' ? __('Last site: ') + p.site + ' · ' + __('not used') : __('Start: ') + p.site;
+            p.state === 'Incident' ? __('Incident team · not planned') : !positionPlace(p) ? __('No position reported') :
+                p.state === 'Stale' ? __('Last position: ') + positionPlace(p) + ' · ' + __('not used') : __('Start: ') + positionPlace(p);
         const positionName = (p) => p && (p.team || p.leader) || '';
         const positionState = (p) => !p ? __('No position report') : p.state === 'Incident' ? __('Incident team · not planned') :
-            p.state === 'Stale' ? __('Old position · not used') : p.site && (p.lat == null || p.lon == null) ?
-                __('Site has no usable coordinates') : p.site ? __('Current starting point') : __('No visit or position report');
+            p.state === 'Stale' ? __('Old position · not used') : positionPlace(p) && (p.lat == null || p.lon == null) ?
+                __('Starting point has no usable coordinates') : positionPlace(p) ? __('Current starting point') : __('No visit or position report');
         const hasPoint = (r) => r && r.lat != null && r.lon != null && Number(r.lat) !== 0 && Number(r.lon) !== 0;
         const leaderFor = (n) => view.teamNames[n] || __('Team') + ' ' + n;
         const openPosition = (n) => {
@@ -665,16 +688,28 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                 fields: [
                     {fieldtype: 'Select', fieldname: 'team_leader', label: __('Team'), options: options.map((p) => p.leader + ' | ' + positionName(p)),
                         default: current.leader + ' | ' + positionName(current), reqd: 1},
-                    {fieldtype: 'Link', fieldname: 'site', label: __('Current site'), options: 'SIG Site', reqd: 1},
+                    {fieldtype: 'Select', fieldname: 'start_location_type', label: __('Starting point type'), options: 'ERP Site\nCity',
+                        default: current.city ? 'City' : 'ERP Site', reqd: 1},
+                    {fieldtype: 'Link', fieldname: 'site', label: __('ERP Site'), options: 'SIG Site',
+                        depends_on: "eval:doc.start_location_type == 'ERP Site'"},
+                    {fieldtype: 'Select', fieldname: 'city', label: __('City'), options: PLANNER_CITY_OPTIONS.join('\n'),
+                        default: current.city || '', depends_on: "eval:doc.start_location_type == 'City'"},
                     {fieldtype: 'HTML', fieldname: 'note', options: '<p class="text-muted">' +
-                        __('This updates the planner starting point. It does not create a visit or mark work complete.') + '</p>'},
+                        __('This updates the planner starting point. City locations are approximate planning references; it does not create a visit or mark work complete.') + '</p>'},
                 ],
                 primary_action_label: __('Update position'),
                 primary_action(values) {
                     const leader = String(values.team_leader || '').split(' | ')[0];
+                    const isCity = values.start_location_type === 'City';
+                    const city = isCity ? String(values.city || '').trim() : '';
+                    const site = isCity ? '' : String(values.site || '').trim();
+                    if ((isCity && !city) || (!isCity && !site)) {
+                        frappe.msgprint(isCity ? __('Choose a city.') : __('Choose an ERP site.'));
+                        return;
+                    }
                     d.get_primary_btn().prop('disabled', true);
                     frappe.call({method: 'sig_warehouse.sig_warehouse.field_planner_api.update_team_position',
-                        args: {team_leader: leader, site: values.site},
+                        args: {team_leader: leader, site, city},
                         callback: (r) => { d.hide(); frappe.show_alert({message: __('Position updated for {0}; plan recalculated.', [r.message.team]), indicator: 'green'}, 5); load(); },
                         error: () => d.get_primary_btn().prop('disabled', false),
                     });
@@ -714,7 +749,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         const renderPositionRows = () => view.teamPositions.map((p) => {
             const n = Number(p.team_no) || 0, c = n ? TEAM_COLORS[(n - 1) % TEAM_COLORS.length] : '#8997a1';
             return '<tr><td><span class="sig-planner-team-label" style="--team:' + c + '"><i></i>' + esc(positionName(p)) + '</span></td><td>' +
-                esc(p.site || '—') + '</td><td>' + esc(p.seen_at || '—') + '</td><td>' + esc(p.source || '—') + '</td><td>' +
+                esc(positionPlace(p) || '—') + '</td><td>' + esc(p.seen_at || '—') + '</td><td>' + esc(p.source || '—') + '</td><td>' +
                 esc(positionState(p)) + '</td><td>' + (filters.mode === 'DC' && p.state !== 'Incident' && canUpdatePosition() ?
                     '<button type="button" class="btn btn-default btn-xs sig-planner-position-update" data-team-no="' + n + '">' + __('Update') + '</button>' : '') +
                 '</td></tr>';
@@ -725,20 +760,21 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             ' ' + __('Check the Project read access for your role.') + '</p>' : '';
         projectControl = null;
         root.html('<div class="sig-planner-shell">' +
-            '<section class="sig-planner-toolbar"><div class="sig-planner-toolbar-title"><h2>' + (filters.mode === 'Incident' ? __('Incident plan') : __('Plan for tomorrow')) +
+            '<section class="sig-planner-toolbar"><div class="sig-planner-toolbar-head"><div class="sig-planner-toolbar-title"><h2>' + (filters.mode === 'Incident' ? __('Incident plan') : __('Field plan')) +
             '</h2><p>' + esc(fmtDates(horizon[0] || '')) + ' – ' + esc(fmtDates(horizon[horizon.length - 1] || '')) +
-            '</p></div><div class="sig-planner-controls">' +
+            '</p></div><div class="sig-planner-toolbar-actions">' +
+            '<button type="button" class="btn btn-default" data-action="settings">' + __('Planning settings') + '</button>' +
+            '<button type="button" class="btn btn-default" data-action="ai-recommend">' + __('AI schedule choice') + '</button>' +
+            '</div></div><div class="sig-planner-controls">' +
             '<label>' + __('Mode') + '<select data-planner-mode><option value="DC" ' + (filters.mode === 'DC' ? 'selected' : '') + '>DC</option><option value="Incident" ' + (filters.mode === 'Incident' ? 'selected' : '') + '>Incident</option></select></label>' +
             '<label>' + __('Plan starts') + '<input type="date" readonly value="' + esc(filters.week_start) + '"></label>' +
             '<label class="sig-planner-project-control">' + __('Project / PO') + '<div class="sig-planner-project-link"></div></label>' +
-            '<button type="button" class="btn btn-default" data-action="settings">' + __('Planning settings') + '</button>' +
-            '<button type="button" class="btn btn-default" data-action="ai-recommend">' + __('AI schedule choice') + '</button>' +
             '</div><div class="sig-planner-metrics" id="sig-planner-metrics"></div></section>' +
             (data.decision_trace ? '<section class="sig-planner-trace-actions"><span>' + __('Trace captured for this plan') + ' · ' +
                 esc(fmtDates(data.decision_trace.week_start || '')) + ' · ' + esc(data.decision_trace.generated_at_riyadh || '') + '</span><div>' +
                 '<button type="button" class="btn btn-default" data-export-trace>' + __('Export trace JSON') + '</button>' +
                 '<button type="button" class="btn btn-default" data-export-trace-csv>' + __('Export trace CSV') + '</button></div></section>' : '') +
-            '<section class="sig-planner-teams" id="sig-planner-teams"></section><section class="sig-planner-context"><div><div class="sig-planner-context-title">' +
+            classificationWarning + nextDayTcnPanel + '<section class="sig-planner-teams" id="sig-planner-teams"></section><section class="sig-planner-context"><div><div class="sig-planner-context-title">' +
             '<i id="sig-planner-team-dot"></i><h3 id="sig-planner-team-name"></h3>' +
             (filters.mode === 'DC' && canUpdatePosition() ? '<button type="button" class="btn btn-default sig-planner-update-main" data-action="position">' + __('Update position') + '</button>' : '') +
             '</div><p id="sig-planner-team-context"></p></div>' +
@@ -787,7 +823,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             '</th><th>' + __('PM decision') + '</th></tr></thead><tbody id="sig-planner-review-rows"></tbody></table></div></section>' +
             '<section data-panel="positions" class="sig-planner-panel" hidden><div class="sig-planner-panel-heading"><div><h3>' + __('Latest team positions') +
             '</h3><p>' + __('Posted visits, WhatsApp reports and PM updates remain separately identified.') + '</p></div></div><div class="sig-planner-table-wrap">' +
-            '<div class="sig-planner-position-table"><table class="sig-planner-positions"><thead><tr><th>' + __('Team') + '</th><th>' + __('Last site') + '</th><th>' + __('Last seen · Riyadh') +
+            '<div class="sig-planner-position-table"><table class="sig-planner-positions"><thead><tr><th>' + __('Team') + '</th><th>' + __('Starting point') + '</th><th>' + __('Last seen · Riyadh') +
             '</th><th>' + __('Source') + '</th><th>' + __('Position status') + '</th><th></th></tr></thead><tbody>' + renderPositionRows() + '</tbody></table></div></div></section>' +
             '<footer class="sig-planner-footer"><span>' + (filters.mode === 'Incident' ? __('Incident workload: {0} hours per site · {1}.', [esc(data.params.scope_hours), filters.scope_hours ? __('custom setting') : __('provisional average')]) : __('A visit does not remove an open Stage 2/3 scope from planning · Incident work is planned in Incident mode.')) +
             '</span><span>' + __('Road connections are proposed sequence, not calculated driving routes.') + '</span></footer></div>');
@@ -1069,7 +1105,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                 statusBadge(r) + decisionBadge(r) + '<dl><dt>' + __('Plan') + '</dt><dd>' +
                 (r.trip_status === 'Scheduled' ? esc(leaderFor(r.team)) + ' · ' + esc(fmtDates(r.day || r.first_day)) : esc(r.trip_status)) +
                 '</dd><dt>' + __('TCN window') + '</dt><dd>' + esc(r.window || '—') + '</dd><dt>' + __('Why') + '</dt><dd>' +
-                esc(r.reason || s.line) + '</dd><dt>' + __('Team position') + '</dt><dd>' + esc(pos && pos.site || __('No report')) +
+                esc(r.reason || s.line) + '</dd><dt>' + __('Team position') + '</dt><dd>' + esc(positionPlace(pos) || __('No report')) +
                 (pos && pos.seen_at ? ' · ' + esc(pos.seen_at) : '') + '</dd><dt>' + __('Coordinates') + '</dt><dd>' +
                 (canLocate ? esc(Number(r.lat).toFixed(5) + ', ' + Number(r.lon).toFixed(5)) : __('Unavailable')) + '</dd></dl>' + decisionControl(r) + '</div>');
             const bodyTop = root.find('.sig-planner-mapbody').position().top;

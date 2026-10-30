@@ -25,6 +25,12 @@ def _annotate_stop(stop, decision):
     result["tcn_days"] = [str(row["date"])[:10] for row in checks
                            if row.get("status") == "eligible_dated_tcn"]
     result["provisional_days"] = [row["date"] for row in checks if row.get("status") == "eligible_provisional"]
+    result["critical_days"] = [str(day)[:10] for day in decision.get("critical_days") or []]
+    result["critical_source"] = decision.get("critical_source") or "unknown"
+    result["effective_tcn_windows"] = [{"start": row["effective_start"], "end": row["effective_end"], "kind": row.get("kind") or ""}
+                                       for row in decision.get("tcn_windows") or []
+                                       if row.get("effective_start") and row.get("effective_end")]
+    result["tcn_time_review"] = bool(decision.get("tcn_time_review"))
     result["dated_tcn"] = bool(result["tcn_days"])
     result["has_mir"] = bool(decision.get("mir_evidence_present"))
     result["has_tags"] = bool(decision.get("tags_complete"))
@@ -32,6 +38,7 @@ def _annotate_stop(stop, decision):
     result["cycle"] = decision.get("cycle") or result.get("cycle")
     result["tier"] = result.get("tier") or decision.get("tier")
     result["value"] = result.get("value") or decision.get("gross_value") or 0
+    result["value_source"] = result.get("value_source") or decision.get("value_source") or "unknown"
     result["leg_km"] = float(result.get("leg_km") or 0)
     return result
 
@@ -154,6 +161,10 @@ def _render_fill_plan(base, routes, score, week_start, params, starts, teams, ad
                 shown["tcn_due_for"] = day_text if day_text in provisional else ""
                 shown["needs_tcn"] = bool(shown["tcn_due_for"])
                 shown["tcn_due_at"] = str(planner.tcn_cutoff(day_text)) if shown["needs_tcn"] else ""
+                shown["critical"] = day_text in {str(d)[:10] for d in stop.get("critical_days") or []}
+                for key in ("planned_visit_start", "planned_visit_end", "planned_visit_timezone", "planned_visit_is_estimate", "tcn_time_status"):
+                    shown.pop(key, None)
+                shown.update(planner.critical_visit_plan(stop, day_text, params))
                 shown.pop("eligible_days", None)
                 shown.pop("tcn_days", None)
                 shown.pop("provisional_days", None)

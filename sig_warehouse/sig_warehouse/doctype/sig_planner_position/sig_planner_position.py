@@ -2,6 +2,7 @@ import json
 
 import frappe
 from frappe.model.document import Document
+from sig_warehouse.sig_warehouse.planner_position_cities import PLANNER_CITY_COORDS
 
 
 class SIGPlannerPosition(Document):
@@ -19,11 +20,18 @@ class SIGPlannerPosition(Document):
                    if row.get("enabled") and row.get("leader") and (row.get("archetype") or "Project") == "Project"}
         if self.team_leader not in allowed:
             frappe.throw("Select an enabled Project team from Excel Setup.")
-        if not self.site or not frappe.db.exists("SIG Site", self.site):
-            frappe.throw("Select a valid ERP Site.")
-        coordinates = frappe.db.get_value("SIG Site", self.site, ["site_latitude", "site_longitude"], as_dict=True)
-        if not coordinates or coordinates.site_latitude in (None, "") or coordinates.site_longitude in (None, ""):
-            frappe.throw("The selected ERP Site needs coordinates before it can be a planner position.")
+        site = str(self.site or "").strip()
+        city = str(self.city or "").strip()
+        if bool(site) == bool(city):
+            frappe.throw("Choose exactly one starting point: an ERP Site or a city.")
+        if city and city not in PLANNER_CITY_COORDS:
+            frappe.throw("Select a supported planner starting city.")
+        if site:
+            if not frappe.db.exists("SIG Site", site):
+                frappe.throw("Select a valid ERP Site.")
+            coordinates = frappe.db.get_value("SIG Site", site, ["site_latitude", "site_longitude"], as_dict=True)
+            if not coordinates or coordinates.site_latitude in (None, "") or coordinates.site_longitude in (None, ""):
+                frappe.throw("The selected ERP Site needs coordinates before it can be a planner position.")
         self.updated_by = frappe.session.user
         self.updated_at = frappe.utils.now_datetime()
 
