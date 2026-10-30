@@ -30,6 +30,10 @@ frappe.pages['purchase-receipt-pricing'].on_page_load = function (wrapper) {
             .finally(() => root.find('[data-refresh]').on('click', load));
     }
 
-    page.set_primary_action(__('New intake'), () => frappe.new_doc('SIG Warehouse Intake'), 'add');
+    // The page already provides its own navigation. Do not let an optional
+    // toolbar action prevent the receipt queue from rendering.
+    if (typeof page.set_primary_action === 'function') {
+        page.set_primary_action(__('New intake'), () => frappe.new_doc('SIG Warehouse Intake'));
+    }
     load();
 };
