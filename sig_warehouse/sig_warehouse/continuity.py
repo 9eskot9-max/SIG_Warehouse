@@ -13,26 +13,64 @@ from sig_warehouse.sig_warehouse import town_mesh
 SEARCH = {"iters": 4000, "seconds": 3.0, "seed": 20261025}   # seconds is only a safety cap
 
 
-def _constrained_trip_path(trip, day, hour, days_n, params, work_dates):
+def _constrained_trip_path(trip, day, hour, days_n, params, work_dates, occupied_days=None, inner_km_by_day=None):
     """Return the exact day of each stop and trip end, or None if a scope date is invalid."""
     start = day
     stop_days = []
+    if isinstance(occupied_days, dict):
+        visited_sites = {day_index: set(sites) for day_index, sites in occupied_days.items()}
+    else:
+        # Older callers can indicate an occupied day without identifying its site.
+        visited_sites = {day_index: {None} for day_index in (occupied_days or ())}
+    distance_by_day = dict(inner_km_by_day or {})
     for stop in trip["stops"]:
-        hour += float(stop.get("leg_km") or 0) / params["speed_kmh"]
-        day += int(hour // params["day_hours"])
-        hour %= params["day_hours"]
+        remaining = float(stop.get("leg_km") or 0)
+        daily_limit = float(params.get("inner_daily_km", 900.0))
+        speed = float(params["speed_kmh"])
+        if daily_limit <= 0 or speed <= 0:
+            return None
+        while remaining > 1e-9:
+            if day >= days_n:
+                return None
+            available_km = min((params["day_hours"] - hour) * speed,
+                               daily_limit - distance_by_day.get(day, 0.0))
+            if available_km <= 1e-9:
+                day += 1
+                hour = 0.0
+                continue
+            travelled = min(remaining, available_km)
+            distance_by_day[day] = distance_by_day.get(day, 0.0) + travelled
+            remaining -= travelled
+            hour += travelled / speed
+            if hour >= params["day_hours"] - 1e-9 or (remaining > 1e-9 and distance_by_day[day] >= daily_limit - 1e-9):
+                day += 1
+                hour = 0.0
         if day >= days_n:
             return None
         date_text = str(work_dates[day])
+        critical_days = {str(value)[:10] for value in stop.get("critical_days") or []}
+        # Critical work must be the first visit of its workday. Movement to the
+        # site and timing are planning estimates; the issued TCN governs the visit.
+        site = str(stop.get("site") or "").upper()
+        if date_text in critical_days and day in visited_sites and visited_sites[day] != {site}:
+            day += 1
+            hour = 0.0
+            if day >= days_n:
+                return None
+            date_text = str(work_dates[day])
         eligible = {str(value)[:10] for value in stop.get("eligible_days") or []}
         if eligible and date_text not in eligible:
             return None
         stop_days.append(day)
-        hour += params["scope_hours"]
+        visited_sites.setdefault(day, set()).add(site)
+        hour += 2.0 if date_text in critical_days else params["scope_hours"]
         day += int(hour // params["day_hours"])
         hour %= params["day_hours"]
     if day > days_n or (day == days_n and hour > 0):
         return None
+    if inner_km_by_day is not None:
+        inner_km_by_day.clear()
+        inner_km_by_day.update(distance_by_day)
     end = day if hour > 0 else max(start, day - 1)
     return day, hour, (start, min(end, days_n - 1)), stop_days
 
@@ -40,7 +78,7 @@ def _constrained_trip_path(trip, day, hour, days_n, params, work_dates):
 def _trip_model(cluster, index, coords, week, days_n, params):
     stops = cluster["stops"]
     inner_km = sum((s.get("leg_km") or 0) for s in stops)
-    work = len(stops) * params["scope_hours"] + inner_km / params["speed_kmh"]
+    work = sum(2.0 if s.get("critical_days") else params["scope_hours"] for s in stops) + inner_km / params["speed_kmh"]
     window_stops = [s for s in stops if s.get("win_end")]
     win = None
     if window_stops:
@@ -82,6 +120,8 @@ def _walk(route, days_n, params, start=None, diagnostics=None, travel_trace=None
     travel = work = reloc = 0.0
     times = []
     stop_days_by_trip = []
+    occupied_days = {}
+    inner_km_by_day = {}
     for trip in route:
         tr_h = 0.0
         travel_leg = None
@@ -104,10 +144,12 @@ def _walk(route, days_n, params, start=None, diagnostics=None, travel_trace=None
             path = None
             for candidate_day in (i for i in trip["allowed_starts"] if i >= day):
                 candidate_hour = h if candidate_day == day else 0.0
+                candidate_inner_km = dict(inner_km_by_day)
                 path = _constrained_trip_path(trip, candidate_day, candidate_hour, days_n, params,
-                                              trip["work_dates"])
+                                              trip["work_dates"], occupied_days, candidate_inner_km)
                 if path is not None:
                     day, h, trip_span, stop_days = path
+                    inner_km_by_day = candidate_inner_km
                     break
             if path is None:
                 if diagnostics is not None:
@@ -116,6 +158,8 @@ def _walk(route, days_n, params, start=None, diagnostics=None, travel_trace=None
                 return None
             times.append(trip_span)
             stop_days_by_trip.append(stop_days)
+            for stop, day_index in zip(trip["stops"], stop_days):
+                occupied_days.setdefault(day_index, set()).add(str(stop.get("site") or "").upper())
             travel += tr_h
             work += trip["work"]
             if travel_trace is not None and travel_leg is not None:
@@ -311,7 +355,7 @@ def schedule_continuity(plan, coords, week_start, overrides=None, starts=None, n
         if best is None:
             lapsed[trip["id"]] = ("no eligible day remains before the TCN cutoff" if trip.get("allowed_starts") == []
                                   else "no team can reach it inside its TCN window" if trip["win"]
-                                  else "no team-day left this week")
+                                  else "no feasible team route within capacity and eligible dates")
             continue
         _, t, pos = best
         routes[t].insert(pos, trip)

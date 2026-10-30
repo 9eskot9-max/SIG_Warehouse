@@ -11,6 +11,7 @@ import frappe
 from sig_warehouse.sig_warehouse import continuity
 from sig_warehouse.sig_warehouse import field_planner as planner
 from sig_warehouse.sig_warehouse import field_planner_ai
+from sig_warehouse.sig_warehouse.planner_position_cities import PLANNER_CITY_COORDS
 
 PLANNER_ROLES = {"System Manager", "Projects Manager", "Projects User", "SIG Field Ops"}
 CYCLE_FIELDS = ["name", "site", "site_id", "project", "po", "erp_project", "stage", "terminal", "tcn_at", "mir_at",
@@ -131,7 +132,7 @@ def _latest_manual_positions(leaders):
     # Planner audience is explicitly role-gated; per-user Employee Link filters
     # must not hide the other enabled field teams from this aggregate view.
     rows = frappe.get_all("SIG Planner Position", filters={"team_leader": ["in", leaders]},
-                          fields=["team_leader", "site", "updated_at", "updated_by"],
+                          fields=["team_leader", "site", "city", "updated_at", "updated_by"],
                           order_by="updated_at desc", limit_page_length=500)
     latest = {}
     for row in rows:
@@ -140,15 +141,20 @@ def _latest_manual_positions(leaders):
 
 
 def _set_manual_position(position, manual, coords, today):
-    """A newer PM update replaces the displayed last-known site, without editing visit evidence."""
+    """A newer PM update replaces the displayed last-known start, without editing visit evidence."""
     if not manual:
         return
-    site = (manual.get("site") or "").upper()
+    city = str(manual.get("city") or "").strip()
+    site = str(manual.get("site") or "").strip().upper()
+    if city in PLANNER_CITY_COORDS:
+        site = "CITY::" + city.upper()
+        coords[site] = PLANNER_CITY_COORDS[city]
     stamp = str(manual.get("updated_at") or "")[:19]
     if not site or not stamp or site not in coords:
         return
     if stamp >= str(position.get("seen_at") or "")[:19]:
         position["site"] = site
+        position["city"] = city if city in PLANNER_CITY_COORDS else ""
         position["seen_at"] = stamp
         position["on_site"] = False
         position["source"] = "PM update"
@@ -165,28 +171,35 @@ def _require_position_manager():
 
 
 @frappe.whitelist(methods=["POST"])
-def update_team_position(team_leader, site):
-    """Append a PM-confirmed last-known site for one enabled Project team."""
+def update_team_position(team_leader, site=None, city=None):
+    """Append a PM-confirmed last-known ERP site or reference city for one Project team."""
     _require_position_manager()
     roster = _position_team_roster("Project")
     team_leader = str(team_leader or "").strip()
     site = str(site or "").strip()
+    city = str(city or "").strip()
     if team_leader not in roster:
         frappe.throw("Select an enabled Project team from Excel Setup.")
-    if not site or not frappe.db.exists("SIG Site", site):
-        frappe.throw("Select a site from the ERP Site list.")
-    if not frappe.has_permission("SIG Site", "read", site):
-        frappe.throw("You do not have read access to the selected ERP Site.", frappe.PermissionError)
-    coords = frappe.db.get_value("SIG Site", site, ["site_latitude", "site_longitude"], as_dict=True)
-    if not coords or coords.site_latitude in (None, "") or coords.site_longitude in (None, ""):
-        frappe.throw("This Site has no coordinates, so it cannot be used as a planner starting position.")
+    if bool(site) == bool(city):
+        frappe.throw("Choose exactly one starting point: an ERP Site or a city.")
+    if city:
+        if city not in PLANNER_CITY_COORDS:
+            frappe.throw("Select a supported planner starting city.")
+    else:
+        if not frappe.db.exists("SIG Site", site):
+            frappe.throw("Select a site from the ERP Site list.")
+        if not frappe.has_permission("SIG Site", "read", site):
+            frappe.throw("You do not have read access to the selected ERP Site.", frappe.PermissionError)
+        coords = frappe.db.get_value("SIG Site", site, ["site_latitude", "site_longitude"], as_dict=True)
+        if not coords or coords.site_latitude in (None, "") or coords.site_longitude in (None, ""):
+            frappe.throw("This Site has no coordinates, so it cannot be used as a planner starting position.")
     doc = frappe.get_doc({
-        "doctype": "SIG Planner Position", "team_leader": team_leader, "site": site,
+        "doctype": "SIG Planner Position", "team_leader": team_leader, "site": site, "city": city,
         "updated_by": frappe.session.user, "updated_at": frappe.utils.now_datetime(),
     })
     doc.insert()
     return {"name": doc.name, "team_leader": team_leader, "team": roster[team_leader]["team"],
-            "site": site, "updated_at": str(doc.updated_at)}
+            "site": site, "city": city, "updated_at": str(doc.updated_at)}
 
 
 @frappe.whitelist()
@@ -270,8 +283,12 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
     names = [cycle["name"] for cycle in cycles]
     events, visits = [], []
     if names:
+        event_fields = ["name", "cycle", "event_code", "occurred_at", "recorded_at"]
+        for field in ("tcn_window_start", "tcn_window_end", "tcn_window_kind"):
+            if _has_field("SIG Evidence Event", field):
+                event_fields.append(field)
         events = frappe.get_list("SIG Evidence Event", filters={"event_code": "TCN_GENERATED", "cycle": ["in", names]},
-                                 fields=["name", "cycle", "event_code", "occurred_at", "recorded_at"], limit_page_length=0)
+                                 fields=event_fields, limit_page_length=0)
         visits = frappe.get_all("SIG Field Visit", filters={"cycle": ["in", names]}, fields=["name", "cycle", "start_at", "status"],
                                 limit_page_length=0)
     windows = planner.tcn_windows(events, params["tcn_gap_days"])
@@ -291,6 +308,15 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
     for visit in trace_visits:
         trace_visit_days.setdefault(visit.cycle, set()).add(frappe.utils.getdate(visit.start_at))
     decisions = _decisions(names)
+    if cycles and _has_field("SIG Site", "planner_critical_status"):
+        site_codes = sorted({str(c.get("site_id") or "").strip().upper() for c in cycles if c.get("site_id")})
+        if site_codes:
+            site_rows = frappe.get_list("SIG Site", filters={"site_id": ["in", site_codes]},
+                                        fields=["name", "site_id", "planner_critical_status"], limit_page_length=0)
+            critical_codes = {str(row.get("site_id") or "").strip().upper() for row in site_rows
+                              if row.get("planner_critical_status") == "Critical"}
+            for cycle in cycles:
+                cycle["planner_critical_status"] = "Critical" if str(cycle.get("site_id") or "").strip().upper() in critical_codes else "Unknown"
     # ERP Field Planner pools all open Stage 2 scopes, plus Stage 3 scopes with
     # Tags outstanding. A visit is evidence, not a declaration that the scope
     # no longer needs field work.
@@ -334,6 +360,9 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
                 "included": bool(candidate), "tier": candidate.get("tier") if candidate else "",
                 "priority_reason": candidate.get("reason") if candidate else "",
                 "priority_class": planner.CLASS_LABEL[planner.priority_class(candidate)] if candidate else "",
+                "critical_days": [str(day) for day in (candidate.get("critical_days") or [])] if candidate else [],
+                "critical_source": candidate.get("critical_source", "") if candidate else "",
+                "tcn_time_review": bool(candidate.get("tcn_time_review")) if candidate else False,
                 "gross_value": candidate.get("value") if candidate else None,
                 "value_source": candidate.get("value_source", "") if candidate else "",
                 "must": bool(candidate.get("must")) if candidate else False,
@@ -346,6 +375,11 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
                 "mir_evidence_present": bool(cycle.get("mir_at")), "tags_complete": bool(cycle.get("tags_at")),
                 "visit_dates": visits_for_cycle, "visit_count_used": len(visit_days.get(cycle_id, ())),
                 "visit_detail_access": visit_detail_access, "tcn_dates": tcn_dates,
+                "tcn_windows": [{"start": str(run.get("start") or ""), "end": str(run.get("end") or ""),
+                                 "source": run.get("source") or "legacy_date_only",
+                                 "effective_start": run.get("effective_start") or "",
+                                 "effective_end": run.get("effective_end") or "", "kind": run.get("kind") or ""}
+                                for run in window.get("runs", [])],
                 "planning_day_checks": day_checks})
         trace["evidence_summary"] = {"cycles_in_scope": len(cycles), "included_candidates": len(candidates),
                                      "excluded_cycles": len(excluded), "dated_tcn_cycles": sum(bool(windows.get(c["name"])) for c in cycles),
@@ -356,7 +390,10 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
         trace["mode_classification_warnings"] = mode_classification_warnings
         trace["evidence_records"] = {
             "tcn_events": [{"id": event.get("name"), "cycle": event.get("cycle"), "occurred_at": str(event.get("occurred_at") or ""),
-                            "recorded_at": str(event.get("recorded_at") or "")} for event in events],
+                            "recorded_at": str(event.get("recorded_at") or ""),
+                            "effective_start": str(event.get("tcn_window_start") or ""),
+                            "effective_end": str(event.get("tcn_window_end") or ""),
+                            "kind": event.get("tcn_window_kind") or ""} for event in events],
             "cycle_visits": [{"id": visit.get("name"), "cycle": visit.get("cycle"), "start_at": str(visit.get("start_at") or ""),
                               "status": visit.get("status") or ""} for visit in trace_visits],
         }
@@ -401,6 +438,7 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
                       for t in all_teams if t["archetype"] == "Incident"]
     if trace is not None:
         trace["inputs"]["team_positions"] = [{"leader": p.get("leader"), "team": p.get("team"), "site": p.get("site"),
+                                               "city": p.get("city") or "",
                                                "seen_at": p.get("seen_at"), "source": p.get("source"),
                                                "state": p.get("state"), "age_days": p.get("age_days"),
                                                "starting_coordinates": [p.get("lat"), p.get("lon")]
@@ -428,6 +466,10 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
                 "message": "Preliminary cluster loading uses its configured team count, while continuity scheduling uses the enabled roster/override count.",
                 "preliminary_team_count": int(clustered["params"]["teams"]), "continuity_team_count": actual_team_count})
     plan["team_positions"] = positions
+    plan["planning_mode"] = mode
+    plan["summary"]["planning_mode"] = mode
+    plan["summary"]["scope_hours_per_site"] = float(params["scope_hours"])
+    plan["summary"]["scope_hours_basis"] = scope_basis
     plan["summary"].update({
         "tcn_needed": sum(1 for item in candidates if not item.get("dated_tcn")),
         "stage2_candidates": sum(1 for item in candidates if str(item.get("stage") or "").startswith("2")),
@@ -508,9 +550,17 @@ def _ai_schedule_summary(candidate_id, data):
         route = team_routes.setdefault(team, []) if team else None
         trip_sites = []
         for stop in trip.get("stops") or []:
+            day = str(stop.get("day") or "")[:10]
+            needs_tcn = bool(stop.get("needs_tcn"))
             trip_sites.append({"cycle": stop.get("cycle"), "site": stop.get("site"), "day": stop.get("day"), "priority": stop.get("class"),
-                               "must": bool(stop.get("must")), "needs_tcn": bool(stop.get("needs_tcn")),
-                               "tcn_due_for": stop.get("tcn_due_for") or None, "tags_complete": bool(stop.get("has_tags"))})
+                               "must": bool(stop.get("must")), "needs_tcn": needs_tcn,
+                               "tcn_visit_date": day if needs_tcn else None,
+                               "tcn_request_deadline": str(planner.tcn_cutoff(day)) if needs_tcn and day else None,
+                               "tags_complete": bool(stop.get("has_tags")), "critical": bool(stop.get("critical")),
+                               "value": stop.get("value"), "value_source": stop.get("value_source") or "unknown",
+                               "planned_visit_start": stop.get("planned_visit_start", ""), "planned_visit_end": stop.get("planned_visit_end", ""),
+                               "tcn_time_status": stop.get("tcn_time_status", ""),
+                               "critical_note": "Planning estimate; actual visit must follow issued TCN" if stop.get("critical") else ""})
         if team and trip_sites:
             route.append({"days": [trip.get("first_day"), trip.get("last_day")], "sites": trip_sites})
             schedule.extend(dict(site, team="Team " + team) for site in trip_sites)
@@ -623,7 +673,9 @@ def _call_openai_schedule_picker(api_key, candidates):
         "every candidate. Then consider added eligible scopes, priority class, work/travel balance, "
         "and regional continuity. Read each candidate's change_summary and inter_trip_road_estimates: town-mesh "
         "legs are estimates, direct fallbacks are less reliable, and within-trip legs are straight-line estimates. "
-        "An added scope still needs its stated TCN by the ERP cutoff; never call it approved. Flag changed dates, "
+        "For a scope needing a TCN, tcn_visit_date is the workday and tcn_request_deadline is the actual "
+        "preceding-workday request deadline in Riyadh time; never describe the workday as the request deadline "
+        "or call the TCN approved. Flag changed dates, "
         "stale/unknown starting positions, long reposition legs, missing coordinates, estimated values, and "
         "material tradeoffs. Do not prefer a plan for a tiny travel improvement if it changes Must dates or team "
         "assignments without a clear operational benefit. If options are effectively tied or evidence cannot "
@@ -823,6 +875,10 @@ def _present(plan, coords, next_cutoff_at=""):
                                  "reason": s["reason"], "leg_km": s["leg_km"] if s["order"] > 1 else None,
                                  "value": s.get("value"), "value_source": s.get("value_source", ""), "decision": s.get("decision", ""),
                                  "day": s.get("day", ""),
+                                 "critical": str(s.get("day") or "")[:10] in {str(d)[:10] for d in s.get("critical_days") or []},
+                                 "critical_source": s.get("critical_source", "unknown"),
+                                 "tcn_time_review": bool(s.get("tcn_time_review")),
+                                 **planner.critical_visit_plan(s, s.get("day"), plan.get("params") or {}),
                                  "class": planner.CLASS_LABEL[planner.priority_class(s)], "must": bool(s.get("must")),
                                  **_tcn_status(s, cluster),
                                  "has_tags": bool(s.get("has_tags")), "visit_count": s.get("visit_count", 0)}

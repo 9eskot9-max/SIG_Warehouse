@@ -5,10 +5,11 @@
  "creation": "2026-10-26 00:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
- "field_order": ["team_leader", "site", "updated_by", "updated_at"],
+ "field_order": ["team_leader", "site", "city", "updated_by", "updated_at"],
  "fields": [
   {"fieldname": "team_leader", "fieldtype": "Link", "in_list_view": 1, "label": "Team Leader", "options": "Employee", "reqd": 1},
-  {"fieldname": "site", "fieldtype": "Link", "in_list_view": 1, "label": "Current Site", "options": "SIG Site", "reqd": 1},
+  {"fieldname": "site", "fieldtype": "Link", "in_list_view": 1, "label": "Current Site", "options": "SIG Site"},
+  {"fieldname": "city", "fieldtype": "Select", "in_list_view": 1, "label": "Starting City", "options": "Riyadh\nJeddah\nMakkah\nJizan\nAbha\nMadinah\nDammam\nUnizah\nHail"},
   {"fieldname": "updated_by", "fieldtype": "Data", "in_list_view": 1, "label": "Updated By", "read_only": 1},
   {"fieldname": "updated_at", "fieldtype": "Datetime", "in_list_view": 1, "label": "Updated At", "read_only": 1}
  ],

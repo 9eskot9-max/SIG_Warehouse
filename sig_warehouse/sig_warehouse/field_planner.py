@@ -6,7 +6,7 @@ Tiers come from the cycle's next required action, not from the parsed type of th
 """
 import math
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 DEFAULTS = {
     "circuity": 1.3,          # road km per straight-line km; provisional until calibrated
@@ -15,9 +15,10 @@ DEFAULTS = {
     "fill_km": 60.0,          # a site may join a committed trip when this close to a member
     "cluster_size": 6,        # soft cap on sites per proposed trip
     "scope_hours": 2.0,       # on-site time per site; one flat default until measured
-    "planning_mode": "DC",
+    "day_start_hour": 8.0,    # planning estimate in Riyadh, not actual attendance
     "day_hours": 11.0,        # productive field hours in a team-day
     "speed_kmh": 60.0,        # travel speed inside a trip
+    "inner_daily_km": 900.0,  # owner limit for travel within clusters; relocation is tracked separately
     "teams": 4,               # teams available this week
     "work_days": 5,           # Sunday to Thursday
     "load_target": 0.85,      # share of team-days planned, leaving a buffer
@@ -29,8 +30,9 @@ DEFAULTS = {
     "hold_days": 30,          # a PM Hold keeps the site out of the plan this long
     "must_days": 14,          # a PM Must keeps the site first in the plan this long, or until a visit
     "visit_hold_days": 30,    # a visit without HO/GCL is held this long, then comes back (a new TCN returns it sooner)
-    # Civil work is not planned here. A cycle is left out when the text of its project (label, PO, and the ERP
-    # Project it resolves to: name, family) contains one of these.
+    # DC mode excludes Incident scopes. Incident mode explicitly selects those scopes instead.
+    "planning_mode": "DC",
+    # Retain the legacy non-ERP classifier's prior default behavior.
     "exclude_projects": ("incident",),
 }
 
@@ -241,17 +243,41 @@ def tcn_windows(events, gap_days=1):
     export time, so recorded_at stands in for the date.
     """
     days = {}
+    effective = {}
     for event in events:
         if event.get("event_code") not in (None, "TCN_GENERATED"):
             continue
         key = event.get("cycle")
+        start_text = str(event.get("tcn_window_start") or "").strip()
+        end_text = str(event.get("tcn_window_end") or "").strip()
+        if key and start_text and end_text:
+            try:
+                start_dt = datetime.fromisoformat(start_text.replace("Z", "+00:00"))
+                end_dt = datetime.fromisoformat(end_text.replace("Z", "+00:00"))
+                if end_dt > start_dt:
+                    last_day = (end_dt - timedelta(microseconds=1)).date()
+                    effective.setdefault(key, []).append({"start": start_dt.date(), "end": last_day,
+                        "anchor": start_dt.date(), "exports": 1, "source": "rv80_export_v1",
+                        "effective_start": start_text, "effective_end": end_text,
+                        "kind": event.get("tcn_window_kind") or ""})
+                    continue
+            except (TypeError, ValueError):
+                pass
         occurred, recorded = _date(event.get("occurred_at")), _date(event.get("recorded_at"))
         day = occurred if occurred and recorded and occurred > recorded else (recorded or occurred)
         if key and day:
             days.setdefault(key, set()).add(day)
     result = {}
-    for key, values in days.items():
-        ordered = sorted(values)
+    for key in days.keys() | effective.keys():
+        ordered = sorted(days.get(key, ()))
+        precise = effective.get(key, [])
+        if not ordered:
+            run_rows = sorted(precise, key=lambda row: (row["start"], row["end"]))
+            last = run_rows[-1]
+            result[key] = {"start": last["start"], "end": last["end"], "anchor": last["anchor"],
+                           "exports": len(run_rows), "windows": len(run_rows), "runs": run_rows,
+                           "dates": sorted({row["start"] for row in run_rows})}
+            continue
         runs, run = [], [ordered[0]]
         for day in ordered[1:]:
             if (day - run[-1]).days <= gap_days:
@@ -265,8 +291,13 @@ def tcn_windows(events, gap_days=1):
         run_rows = [{"start": part[0], "end": part[-1],
                      "anchor": part[0] + timedelta(days=(part[-1] - part[0]).days // 2),
                      "exports": len(part)} for part in runs]
-        result[key] = {"start": start, "end": end, "anchor": start + timedelta(days=(end - start).days // 2),
-                       "exports": len(last), "windows": len(runs), "runs": run_rows, "dates": ordered}
+        for row in run_rows:
+            row["source"] = "legacy_date_only"
+        run_rows = sorted(run_rows + precise, key=lambda row: (row["start"], row["end"]))
+        latest = run_rows[-1]
+        result[key] = {"start": latest["start"], "end": latest["end"], "anchor": latest["anchor"],
+                       "exports": latest["exports"], "windows": len(run_rows), "runs": run_rows,
+                       "dates": sorted(set(ordered) | {row["start"] for row in precise})}
     return result
 
 
@@ -278,6 +309,37 @@ def window_covers(window, day):
     return any(_date(run["start"]) <= day <= _date(run["end"])
                for run in (window.get("runs") or [window]))
 
+
+
+def critical_visit_plan(stop, day, params):
+    """Estimate the first critical visit and compare it with issued TCN evidence.
+
+    Clock times are a proposal in Riyadh; they do not represent attendance,
+    a booked shift, or permission to enter a site.
+    """
+    day_text = str(day or "")[:10]
+    if not day_text or day_text not in {str(value)[:10] for value in stop.get("critical_days") or []}:
+        return {}
+    local = timezone(timedelta(hours=3))
+    planned_start = datetime.combine(date.fromisoformat(day_text), datetime.min.time(), tzinfo=local) + timedelta(hours=float(params.get("day_start_hour", 8)))
+    planned_end = planned_start + timedelta(hours=2)
+    overlap = False
+    covered = False
+    for item in stop.get("effective_tcn_windows") or []:
+        try:
+            start = datetime.fromisoformat(str(item["start"]).replace("Z", "+00:00"))
+            end = datetime.fromisoformat(str(item["end"]).replace("Z", "+00:00"))
+            start = start.replace(tzinfo=local) if start.tzinfo is None else start.astimezone(local)
+            end = end.replace(tzinfo=local) if end.tzinfo is None else end.astimezone(local)
+            if start.date() <= planned_start.date() <= (end - timedelta(microseconds=1)).date():
+                overlap = True
+                covered = covered or (start <= planned_start and planned_end <= end)
+        except (ValueError, TypeError, KeyError):
+            continue
+    return {"planned_visit_start": planned_start.strftime("%Y-%m-%d %H:%M"),
+            "planned_visit_end": planned_end.strftime("%Y-%m-%d %H:%M"),
+            "planned_visit_timezone": "Asia/Riyadh", "planned_visit_is_estimate": True,
+            "tcn_time_status": "covered" if covered else "conflict" if overlap else "unverified"}
 
 def classify(cycle, window, visit_days, today, params, mark=""):
     """Return (tier or None, reason). None means the cycle is not field work this week."""
@@ -787,6 +849,9 @@ def build_candidates(cycles, windows, visit_days, today, params, project_index=N
                   win["anchor"] if win else (_date(c["planned_start"]) if c.get("planned_start") else None))
         window_label = ", ".join(str(day) for day in dated_days) if erp_policy and dated_days else (
             ("%s to %s" % (win["start"], win["end"])) if win else "")
+        effective_runs = [run for run in (win or {}).get("runs", []) if run.get("effective_start") and run.get("effective_end")]
+        if erp_policy and dated_days and effective_runs:
+            window_label = "; ".join("%s to %s" % (run["effective_start"], run["effective_end"]) for run in effective_runs)
         value = float(c["gross_value"]) if c.get("gross_value") else None
         rows.append({
             "site": (c.get("site_id") or c.get("site") or "").upper(), "cycle": c["name"], "tier": tier,
@@ -802,7 +867,21 @@ def build_candidates(cycles, windows, visit_days, today, params, project_index=N
         })
         if erp_policy:
             item = rows[-1]
+            item["effective_tcn_windows"] = [{"start": run["effective_start"], "end": run["effective_end"], "kind": run.get("kind") or ""} for run in effective_runs]
             item["eligible_days"] = eligible_days
+            critical_kind = "Critical Incident" if str(params.get("planning_mode") or "DC").lower() == "incident" else "Critical Project"
+            critical_windows = [run for run in (win or {}).get("runs", []) if run.get("kind") == critical_kind]
+            site_is_critical = c.get("planner_critical_status") == "Critical"
+            item["critical_days"] = [day for day in eligible_days if site_is_critical or any(
+                _date(run["start"]) <= day <= _date(run["end"]) for run in critical_windows)]
+            item["critical_source"] = "site list" if site_is_critical else ("verified TCN" if critical_windows else "unknown")
+            # The scheduler assigns dates, not clock times. Non-default normal
+            # windows require a PM to check the actual hours before dispatch.
+            item["tcn_time_review"] = any(run.get("kind") == "Normal" and
+                any(_date(run["start"]) <= day <= _date(run["end"]) for day in dated_days) and
+                (datetime.fromisoformat(run["effective_end"].replace("Z", "+00:00")) -
+                 datetime.fromisoformat(run["effective_start"].replace("Z", "+00:00"))) != timedelta(hours=71)
+                for run in effective_runs)
             item["provisional_days"] = provisional_days
             item["needs_tcn"] = bool(provisional_days)
             item["tcn_days"] = dated_days
