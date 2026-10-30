@@ -27,7 +27,7 @@ frappe.pages['purchase-receipt-pricing'].on_page_load = function (wrapper) {
         frappe.call({method: 'sig_warehouse.sig_warehouse.warehouse_intake.list_purchase_receipts_missing_rates'})
             .then(r => render(r.message || []))
             .catch(() => root.html(`<div class="alert alert-danger">${__('Could not load the queue. Check Purchase Receipt read access and refresh.')}</div><button class="btn btn-default" data-refresh>${__('Refresh')}</button>`))
-            .finally(() => root.find('[data-refresh]').on('click', load));
+            .then(() => root.find('[data-refresh]').on('click', load));
     }
 
     // The page already provides its own navigation. Do not let an optional
