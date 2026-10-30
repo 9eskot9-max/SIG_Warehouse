@@ -142,7 +142,7 @@
   },
   {
    "fieldname": "lines",
-   "label": "Lines",
+   "label": "Items",
    "fieldtype": "Table",
    "options": "SIG Warehouse Intake Line"
   }
