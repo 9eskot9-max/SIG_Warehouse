@@ -11,13 +11,13 @@ Branch: `v16-migration` (this repo) / `sig-v16-phase2` (zatca_integration) / `v1
 | 2. Read-only evidence | your PC | your keys | runs `export_metadata.py` and `reconcile.py`, shares the output files (metadata and totals only, secrets redacted) |
 | 3. Trial site (optional) | Frappe Cloud v16 bench | a *separate* trial-only API user | restored copy of a production backup; if you want Claude to test against it, create a read-only or test user on THE TRIAL SITE ONLY and put its key in the cloud environment's secret settings (never in chat) |
 
-Never put production keys or Frappe Cloud account tokens in the cloud environment.
+Credentials are the owner's call: keys placed in the cloud environment are rotated by the owner after the migration work.
 
-## Safety rules for the trial copy (it contains live data and live credentials)
+## Deferred (owner decision, 31 Oct)
 
-Before anything runs on it: disable the scheduler; blank or replace the Maytapi, Todoist, OpenAI/Mistral and email credentials;
-point ZATCA at its sandbox environment; do not run the SNB/TAWAL importers or TX Manager against it.
-Otherwise the copy can send real WhatsApp messages, submit real invoices to ZATCA or push tasks to Todoist.
+Trial-copy sanitising (a script that removed secrets and switched off the scheduler, email and ZATCA on a restored copy) was
+removed from this branch on request. It is recoverable from commit `46e9248` if it is ever wanted. Until then a restored copy keeps
+its live credentials and scheduler, so it can act on real external systems.
 
 ## Status (tested on Frappe 16.54 / ERPNext 16.53 / HRMS 16.53, Python 3.14, Node 24)
 
@@ -83,17 +83,17 @@ Cloud's Version Upgrade needs a bench group that already contains every app inst
 
 ## Order of operations on the copy
 
-1. Restore finishes -> run `sanitize_trial_site.py` immediately (report first, then `APPLY = 1`) and set `pause_scheduler = 1` in the site's Site Config.
+1. Restore finishes.
 2. Read the restore/migrate job log; send it for review.
 3. `export_metadata.py` and `reconcile.py` against production and the copy (see above).
-4. Onboard the copy to the ZATCA sandbox/simulation environment (the sanitizer removes ZATCA credentials on purpose; production credentials must never be used on a copy).
+4. Onboard the copy to the ZATCA sandbox/simulation environment .
 5. Role walkthroughs, then the permission before/after diff.
 
 ## What access Claude needs (and what it does not)
 
 | Access | Needed? | Notes |
 |---|---|---|
-| Trial-site API key (a Frappe user on the COPY) | yes, if you want Claude to test the copy directly | Create it on the copy after sanitizing. It cannot reach Cloud or production. |
+| Trial-site API key (a Frappe user on the COPY) | yes, if you want Claude to test the copy directly | Create it on the copy. It cannot reach Cloud or production. |
 | Frappe Cloud team API key | optional | It is team-wide: it can create, upgrade, restore and **archive (delete) any site in the team, including production**. If used, prefer a separate Cloud user restricted by a Cloud Role (beta) to the trial resources only. The safest alternative is that you click the Cloud steps yourself. |
 | Production site keys | no | Only the read-only exporter/reconcile scripts, run on your PC. |
 
