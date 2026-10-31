@@ -162,3 +162,18 @@ Findings:
 - A standard (B2B) invoice needs a delivery date **before** the invoice date; a simplified invoice also needs a delivery date, or submit fails.
 - The trial company was pointed at the simulation Production CSID (the production CSID `SIG ERPNext Production CSID 2026-08-28` was not used). Before real use on production, the company must reference the real production CSID, which already exists in the database.
 - ZATCA-cleared invoices cannot be cancelled or deleted (credit note only), so the two test invoices remain on the trial.
+
+---
+
+# ZATCA live device onboarding on v16 (1 Nov 2026, owner approved)
+
+A NEW device (EGS unit) was onboarded on ZATCA's production portal from the v16 trial site, using one new-CSID OTP:
+Compliance CSID ISSUED, all six compliance checks PASS, Production CSID ISSUED (active, expires 2027-10-31).
+No real invoice was submitted. The renewal OTPs were not used (the existing production CSID is not due until Aug 2027).
+
+IMPORTANT for the final cutover: restoring a fresh production backup over the v16 site replaces its database, which erases these
+three records (CSR settings, Compliance CSID, Production CSID, including the private key). Choose one before cutover:
+(a) keep the existing production device: after the final restore the company already points at the old CSID, whose invoice counter
+and hash chain continue unbroken (the old v15 site must be closed first, never two systems signing on one device); or
+(b) onboard the new device AFTER the final restore, with fresh OTPs (about 10 minutes).
+Never keep the private key in GitHub.
