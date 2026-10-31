@@ -127,3 +127,19 @@ Findings:
 - Frappe Cloud `bench.deploy_and_update` (release pipeline) needs each site as the exact record from `deploy_information`; the plain `bench.deploy` path worked. A second bench was left "Initialize Bench"-pending on Cloud's side.
 
 Still open: ZATCA sandbox run, role walkthroughs by real users, the asset-capitalisation tool, staff retraining on the v16 interface, a written rollback.
+
+---
+
+# Readiness pass (31 Oct, later)
+
+| Item | State |
+|---|---|
+| Asset capitalisation tool (`sig_capitalize_tool`) | Rebuilt for v16 (draft composite asset, then capitalise). Verified on a v16 bench: submitted asset at stock cost, stock consumed, replay returns duplicate. v15 path unchanged. |
+| `project-progress` Page | Realigned by patch; live on the trial, all 18 pages load without errors. |
+| Material Request hooks | Removed `frappe.db.commit()` (ignored by v16). |
+| ZATCA ledger posting (`zatca_integration` branch `sig-v16-phase2`, commit 47d65c8) | The vendor's `CustomSalesInvoice.get_gl_entries` omitted v16's `set_transaction_currency_and_rate_in_gl_map`, so GL entries had no transaction currency and rate 0. Fixed; verified SAR / 1.0 on a v16 bench. |
+| ZATCA data on the trial copy | 2 Production CSIDs, 3 Compliance CSIDs, CSR settings, 3 environments (Fatoora, Simulation, Sandbox), 56 transactions, Company set to Phase 2. |
+| Trial deployment | Pipeline `bench.deploy_and_update` works when `sites` is the exact record from `deploy_information`; plain `bench.deploy` rebuilds the current pinned release and does not pick up new commits. |
+
+Do not post invoices on the trial copy: ZATCA is enabled there with production credentials.
+Still open: ZATCA sandbox clearance (needs a Fatoora OTP), real-user walkthroughs, the vendor error handler's commit inside `before_submit`, a written rollback, and the production cutover decision.
