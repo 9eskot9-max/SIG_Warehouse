@@ -64,7 +64,7 @@
         // Workspace routes may be reported as a DocType route or just its URL
         // slug depending on how Desk reached the page. The URL is the stable
         // fallback for direct loads and sidebar clicks.
-        const match = window.location.pathname.match(/^\/app\/([^/]+)/i);
+        const match = window.location.pathname.match(/^\/(?:app|desk)\/([^/]+)/i);
         if (match) candidates.push(decodeURIComponent(match[1]));
 
         for (const candidate of candidates) {
