@@ -96,17 +96,17 @@ def transaction_query_conditions(user=None):
     )
 
 
-def transaction_permission(doc, user=None, permission_type=None):
+def transaction_permission(doc, user=None, ptype=None):
     context = _context(user)
     if context["roles"].intersection(FINANCE):
-        return None  # retain the full existing native permission matrix
+        return True  # native DocPerm remains required
     if not context["roles"].intersection(REVIEWERS):
         return False
     if not doc:
-        return None
+        return True
     if not _in_scope(_resolve(doc.employee_name, context), context):
         return False
-    return None  # scope restricts; it never supplies a missing native ptype
+    return True  # native DocPerm remains required
 
 
 def journal_entry_query_conditions(user=None):
@@ -131,7 +131,7 @@ def journal_entry_query_conditions(user=None):
             "where `tabSIG PC Transaction`.`employee_name` in (" + sender_sql + "))")
 
 
-def journal_entry_permission(doc, user=None, permission_type=None):
+def journal_entry_permission(doc, user=None, ptype=None):
     """Deny SIG PC Clearance access outside linked, assigned PC receipts.
 
     Frappe v15 controller hooks can deny a DocPerm but cannot grant one. Creation
@@ -141,13 +141,13 @@ def journal_entry_permission(doc, user=None, permission_type=None):
     context = _context(user)
     roles = context["roles"]
     if "SIG PC Clearance" not in roles:
-        return None
+        return True
     if roles.intersection(FINANCE):
-        return None  # preserve the user's separate, existing finance permissions
-    if permission_type == "read" and roles.intersection({"SIG Finance Viewer", "Auditor"}):
-        return None  # preserve their separate, existing broad read access
+        return True  # preserve the user's separate, existing finance permissions
+    if ptype == "read" and roles.intersection({"SIG Finance Viewer", "Auditor"}):
+        return True  # preserve their separate, existing broad read access
     if not doc:
-        return False if permission_type == "create" else None
+        return False if ptype == "create" else True
 
     receipt_name = doc.get("custom_pc_receipt")
     if not receipt_name:
@@ -155,11 +155,11 @@ def journal_entry_permission(doc, user=None, permission_type=None):
     employee_name = frappe.db.get_value(TRANSACTION, receipt_name, "employee_name")
     if not _in_scope(_resolve(employee_name, context), context):
         return False
-    if permission_type == "create":
+    if ptype == "create":
         allowed_create = getattr(frappe.flags, "sig_pc_journal_create_receipt", None)
         if allowed_create != receipt_name:
             return False
-    return None  # retain the native ptype after the scoped controller check
+    return True  # retain the native ptype after the scoped controller check
 
 
 @frappe.whitelist(methods=["POST"])

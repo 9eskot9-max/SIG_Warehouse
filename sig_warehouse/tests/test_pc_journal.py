@@ -109,6 +109,8 @@ def app(monkeypatch):
     fake.get_doc = get_doc
     fake.db = types.SimpleNamespace(sql=sql, exists=lambda *args: False,
                                     escape=lambda value: "'" + value.replace("'", "''") + "'")
+    # Archive behavior has its own tests; accounting tests use an already archived receipt.
+    monkeypatch.setattr(module, "ensure_archived", lambda *args, **kwargs: None)
     monkeypatch.setattr(module, "_context", lambda user=None: context)
     monkeypatch.setattr(module, "_cycles", lambda employee, context: [])
     monkeypatch.setattr(module, "_accounts", lambda *args: ("SIG", "EXPENSE", "CUSTODY", "Main"))
@@ -370,7 +372,7 @@ def test_native_query_scopes_before_pagination_and_direct_read_agrees(app):
                                            Record(employee_name="966500000000")]
     condition = module.transaction_query_conditions()
     assert "966598366060" in condition and "966500000000" not in condition
-    assert module.transaction_permission(receipt) is None  # native read still required
+    assert module.transaction_permission(receipt) is True  # native read still required
     assert module.transaction_permission(Record(employee_name="966500000000")) is False
     context["actor"].name = "HR-EMP-00013"
     assert module.transaction_query_conditions() == "1=0"
@@ -381,7 +383,7 @@ def test_native_finance_access_is_preserved(app):
     module, _, receipt, context = app
     context["roles"] = {"Accounts User"}
     assert module.transaction_query_conditions() == ""
-    assert module.transaction_permission(receipt) is None
+    assert module.transaction_permission(receipt) is True
 
 
 def test_pc_clearance_journal_access_is_receipt_scoped_and_create_is_endpoint_only(app):
@@ -394,19 +396,19 @@ def test_pc_clearance_journal_access_is_receipt_scoped_and_create_is_endpoint_on
     fake.db.get_value = lambda doctype, name, field: (
         receipt.employee_name if doctype == "SIG PC Transaction" and name == receipt.name else None)
     linked = Record(custom_pc_receipt=receipt.name)
-    assert module.journal_entry_permission(linked, permission_type="read") is None
-    assert module.journal_entry_permission(Record(custom_pc_receipt="OTHER"), permission_type="read") is False
-    assert module.journal_entry_permission(Record(custom_pc_receipt=receipt.name), permission_type="create") is False
+    assert module.journal_entry_permission(linked, ptype="read") is True
+    assert module.journal_entry_permission(Record(custom_pc_receipt="OTHER"), ptype="read") is False
+    assert module.journal_entry_permission(Record(custom_pc_receipt=receipt.name), ptype="create") is False
     fake.flags.sig_pc_journal_create_receipt = receipt.name
-    assert module.journal_entry_permission(linked, permission_type="create") is None
-    assert module.journal_entry_permission(Record(custom_pc_receipt=receipt.name), permission_type="write") is None
+    assert module.journal_entry_permission(linked, ptype="create") is True
+    assert module.journal_entry_permission(Record(custom_pc_receipt=receipt.name), ptype="write") is True
     context["actor"].name = "HR-EMP-00013"
-    assert module.journal_entry_permission(linked, permission_type="read") is False
+    assert module.journal_entry_permission(linked, ptype="read") is False
 
 
 def test_pc_clearance_create_without_document_is_denied(app):
     module, _, _, _ = app
-    assert module.journal_entry_permission(None, permission_type="create") is False
+    assert module.journal_entry_permission(None, ptype="create") is False
 
 
 def test_legacy_cycle_writer_detects_receipt_path_overlap(app):
@@ -535,3 +537,32 @@ def test_pc_je_permission_patch_fails_closed_on_matrix_drift(monkeypatch, app):
     with pytest.raises(RuntimeError, match="matrix changed"):
         module.execute()
     assert writes == []
+
+
+@pytest.mark.parametrize("role", ["System Manager", "Accounts User", "Accounts Manager"])
+def test_journal_finance_roles_are_not_restricted_by_pc_hook(app, role):
+    module, _, _, context = app
+    context["roles"] = {"SIG PC Clearance", role}
+    assert module.journal_entry_permission(Record(), user="reviewer@example.com", ptype="create") is True
+
+
+@pytest.mark.parametrize("role", ["SIG Finance Viewer", "Auditor"])
+def test_journal_viewer_and_auditor_read_remains_broad(app, role):
+    module, _, _, context = app
+    context["roles"] = {"SIG PC Clearance", role}
+    assert module.journal_entry_permission(Record(), user="reviewer@example.com", ptype="read") is True
+    assert module.journal_entry_permission(Record(name="JE-1"), user="reviewer@example.com", ptype="write") is False
+
+
+def test_frappe_keyword_filter_preserves_ptype_for_both_hooks(app):
+    import inspect
+    module, fake, receipt, _ = app
+    fake.db.get_value = lambda doctype, name, field: receipt.employee_name if name == receipt.name else None
+    def frappe_call(method, **kwargs):
+        accepted = inspect.signature(method).parameters
+        return method(**{key: value for key, value in kwargs.items() if key in accepted})
+    linked = Record(custom_pc_receipt=receipt.name)
+    assert frappe_call(module.transaction_permission, doc=receipt, ptype="read", user="reviewer@example.com", debug=False) is True
+    assert frappe_call(module.journal_entry_permission, doc=linked, ptype="create", user="reviewer@example.com", debug=False) is False
+    fake.flags.sig_pc_journal_create_receipt = receipt.name
+    assert frappe_call(module.journal_entry_permission, doc=linked, ptype="create", user="reviewer@example.com", debug=False) is True
