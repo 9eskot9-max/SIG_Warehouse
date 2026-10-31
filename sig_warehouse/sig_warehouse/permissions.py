@@ -32,7 +32,14 @@ APPROVED = {
     "Sales Master Manager": _grants("select"),
     "Purchase Master Manager": _grants("select"),
     "All": _grants("report", "export", "print", "email", "share", "select"),
+    # Shipped by ERPNext v16 (select only, Payment Terms Template lookup). The v16
+    # upgrade patch mirrors it into sites with customised permissions. Reviewed for
+    # the v16 migration; absent on v15, so it is optional below.
+    "HR Manager": _grants("select"),
 }
+
+# Rows that may legitimately be absent (v15 sites have no HR Manager row).
+OPTIONAL_ROLES = {"All", "HR Manager"}
 
 
 def reconcile_payment_terms_template_permissions():
@@ -60,7 +67,7 @@ def reconcile_payment_terms_template_permissions():
             )
         by_role[row.role] = row
 
-    missing = set(APPROVED) - set(by_role) - {"All"}
+    missing = set(APPROVED) - set(by_role) - OPTIONAL_ROLES
     if missing:
         frappe.throw(
             f"{DOCTYPE} permission reconciliation stopped: expected role rows missing: "
