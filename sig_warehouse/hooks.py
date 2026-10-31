@@ -5,6 +5,16 @@ app_description = "ERP-native warehouse workbench: dispatch, returns and custody
 app_email = "it@sigtele.com"
 app_license = "mit"
 
+# Frappe v16 desktop (apps) screen. On v15 this hook feeds the /apps page and is harmless.
+add_to_apps_screen = [
+    {
+        "name": "sig_warehouse",
+        "logo": "/assets/sig_warehouse/images/sig-logo.svg",
+        "title": "SIG Warehouse",
+        "route": "/desk/warehouse-workspace",
+    }
+]
+
 before_migrate = "sig_warehouse.sig_operations.excel_setup.prepare_roles"
 before_install = "sig_warehouse.sig_operations.excel_setup.prepare_roles"
 after_install = "sig_warehouse.sig_warehouse.patches.v1_0.add_excel_setup.execute"
