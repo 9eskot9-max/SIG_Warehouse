@@ -182,6 +182,11 @@ def _ensure_twin(stock_item):
     return code
 
 
+def _creates_target_asset():
+    """True on ERPNext v15 (Asset Capitalization builds the Asset); False on v16."""
+    return frappe.get_meta("Asset Capitalization").has_field("capitalization_method")
+
+
 @frappe.whitelist()
 def sig_capitalize_tool(operation_id, stock_item, warehouse, location, tag=None, remarks=None):
     """Stock -> Asset for one unit: native Asset Capitalization consumes the
@@ -206,15 +211,30 @@ def sig_capitalize_tool(operation_id, stock_item, warehouse, location, tag=None,
     if tag and frappe.db.exists("Asset", {"custom_asset_tag_no": tag, "docstatus": ["<", 2]}):
         return {"result": "exception", "reason": "TAG_IN_USE"}
 
-    ac = frappe.get_doc({
+    twin = _ensure_twin(stock_item)
+    values = {
         "doctype": "Asset Capitalization", "company": COMPANY, "posting_date": frappe.utils.nowdate(),
-        "target_item_code": _ensure_twin(stock_item), "target_qty": 1,
-        "target_asset_location": location, "title": title, "cost_center": "Main - SIG",
-        "capitalization_method": "Create a new composite asset",
+        "target_item_code": twin, "title": title, "cost_center": "Main - SIG",
         "stock_items": [{"item_code": stock_item, "warehouse": warehouse, "stock_qty": 1}],
-    })
+    }
+    if _creates_target_asset():
+        values.update({"target_qty": 1, "target_asset_location": location,
+                       "capitalization_method": "Create a new composite asset"})
+    else:
+        # ERPNext v16 no longer creates the target asset: capitalise into a draft composite asset.
+        target = frappe.get_doc({
+            "doctype": "Asset", "company": COMPANY, "item_code": twin, "asset_type": "Composite Asset",
+            "location": location, "purchase_date": frappe.utils.nowdate(),
+            "available_for_use_date": frappe.utils.nowdate(), "asset_owner": "Company",
+            "calculate_depreciation": 0, "net_purchase_amount": 0, "additional_asset_cost": 0,
+        })
+        target.insert()
+        values["target_asset"] = target.name
+    ac = frappe.get_doc(values)
     ac.insert()
     ac.submit()
+    # ERPNext rewrites the title on validate; restore the operation key the replay check relies on.
+    frappe.db.set_value("Asset Capitalization", ac.name, "title", title, update_modified=False)
     asset = ac.target_asset
     if asset:
         # ERPNext leaves the created Asset as a draft; no depreciation is set for tools, so submit it.

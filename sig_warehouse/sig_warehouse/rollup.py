@@ -413,12 +413,11 @@ def on_material_request_submit(doc, method=None):
     # gap let a real dispatch's cap-check see remaining=0 on a brand-new MR
     # and refuse every dispatch attempt (found live, Stage 2 proving pack).
     recompute_mr_dispatch_state(doc.name)
-    frappe.db.commit()
+    # No explicit commit: Frappe v16 ignores commits inside document hooks; the request commits.
 
 
 def on_material_request_cancel(doc, method=None):
     recompute_mr_dispatch_state(doc.name)
-    frappe.db.commit()
 
 
 def set_display_title(doc, method=None):
@@ -432,7 +431,6 @@ def set_display_title(doc, method=None):
 
 def on_material_request_update_after_submit(doc, method=None):
     recompute_mr_dispatch_state(doc.name)
-    frappe.db.commit()
 
 
 def recompute_return_state(se_name):
