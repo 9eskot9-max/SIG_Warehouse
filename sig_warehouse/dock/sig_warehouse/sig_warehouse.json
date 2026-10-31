@@ -1,0 +1,48 @@
+{
+ "app": "sig_warehouse",
+ "creation": "2026-11-01 00:00:00",
+ "docstatus": 0,
+ "doctype": "Dock",
+ "idx": 0,
+ "modified": "2026-11-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "mount_on": "erpnext",
+ "name": "sig_warehouse",
+ "owner": "Administrator",
+ "standard": 1,
+ "user": "",
+ "items": [
+  {
+   "added": 0,
+   "hidden": 0,
+   "icon": "wallet-soft",
+   "link_to": "SIG Accounting",
+   "link_type": "Workspace",
+   "title": "SIG Finance"
+  },
+  {
+   "added": 0,
+   "hidden": 0,
+   "icon": "users-soft",
+   "link_to": "SIG HR",
+   "link_type": "Workspace",
+   "title": "SIG HR"
+  },
+  {
+   "added": 0,
+   "hidden": 0,
+   "icon": "automation-cycle-soft",
+   "link_to": "SIG Operations",
+   "link_type": "Workspace",
+   "title": "SIG Operations"
+  },
+  {
+   "added": 0,
+   "hidden": 0,
+   "icon": "data-table-soft",
+   "link_to": "SIG Warehouse",
+   "link_type": "Workspace",
+   "title": "SIG Warehouse"
+  }
+ ]
+}
