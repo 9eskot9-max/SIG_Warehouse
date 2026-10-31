@@ -177,3 +177,29 @@ three records (CSR settings, Compliance CSID, Production CSID, including the pri
 and hash chain continue unbroken (the old v15 site must be closed first, never two systems signing on one device); or
 (b) onboard the new device AFTER the final restore, with fresh OTPs (about 10 minutes).
 Never keep the private key in GitHub.
+
+# SIG rail entries on v16 (1 Nov 2026)
+SIG Finance, SIG HR, SIG Operations and SIG Warehouse appear on ERPNext's left rail through
+`sig_warehouse/dock/sig_warehouse/sig_warehouse.json` (a Dock with `mount_on: erpnext`). Verified on the
+trial: each opens its workbench (`/desk/accounts/finance-workbench`, `/desk/sig-hr/hr-workbench`,
+`/desk/sig-warehouse/operations-workbench`, `/desk/sig-warehouse/warehouse-workspace`).
+Two things were needed:
+* Frappe Cloud applied the code change as "Update Site Pull" **without migrating**, so the Dock row was not
+  created until a Migrate was run. After the cutover restore, always run Migrate.
+* A dock pin takes its shell from the module of the workspace it opens. The `SIG HR` workspace sat in the
+  HRMS-owned "HR" module and was dropped; patch `move_sig_hr_workspace_to_sig_module` moves it to "SIG HR".
+The rail clips icons at short window heights, so on a small screen scroll the rail.
+
+# Pending before cutover (ordered)
+1. Staff walkthrough on the trial by real users (planner, PC clearance, purchasing, finance workbench).
+2. Decide the final site name / domain; update external callers (Maytapi webhook, Todoist OAuth redirect,
+   RV80-WH VBA, TX Manager URLs).
+3. Freeze v15 (nobody working), take a fresh offsite backup, restore it onto the v16 site, run **Migrate**
+   (patches, Dock sync), keep the scheduler off until reconcile passes, then enable it.
+4. `reconcile.py snapshot` on v15 and on v16 (same backup moment), `compare` must say IDENTICAL.
+5. ZATCA (Option A): the restored company keeps its production CSID; verify with one real invoice after
+   cutover. Ask Frappe support to set the bench timezone to Asia/Riyadh (UTC 00:00-03:00 invoice-date rule).
+6. Written rollback: v15 stays untouched and restorable for 2 weeks; if v16 fails, point users back.
+7. After cutover: rename branches (main -> version-15, v16-migration -> main), change the Cloud bench
+   branch, rotate the Frappe Cloud API key/secret that was pasted in chat.
+8. Production definitions export (1,739 records) is kept local, not committed (repo is public).
