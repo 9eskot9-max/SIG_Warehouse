@@ -143,3 +143,22 @@ Still open: ZATCA sandbox run, role walkthroughs by real users, the asset-capita
 
 Do not post invoices on the trial copy: ZATCA is enabled there with production credentials.
 Still open: ZATCA sandbox clearance (needs a Fatoora OTP), real-user walkthroughs, the vendor error handler's commit inside `before_submit`, a written rollback, and the production cutover decision.
+
+---
+
+# ZATCA on v16: simulation result (1 Nov 2026, trial site only)
+
+| Step | Result |
+|---|---|
+| Simulation CSR (new device, Simulation Portal) | generated |
+| Compliance CSID (OTP from the Fatoora Simulation Portal) | ISSUED |
+| ZATCA compliance checks: standard and simplified invoice, credit note, debit note | all 6 PASS, no errors |
+| Simulation Production CSID | ISSUED, active, expires 2027-10-31 |
+| Standard (B2B) VAT invoice via normal submit | CLEARED, status PASS, 0 warnings |
+| Simplified (B2C) VAT invoice via normal submit | REPORTED, status PASS, 0 warnings |
+
+Findings:
+- ZATCA compares the invoice issue date with the current date in **UTC**. The site runs on Riyadh time, so invoices posted between 00:00 and 03:00 Riyadh are dated "tomorrow" in ZATCA's eyes and are rejected (BR-KSA-04). The v16 bench server clock is UTC (Frappe Cloud has no setting for it). Fix options: ask Frappe Cloud support to set the bench server time zone, or avoid submitting invoices in that window. Production v15 has the same exposure.
+- A standard (B2B) invoice needs a delivery date **before** the invoice date; a simplified invoice also needs a delivery date, or submit fails.
+- The trial company was pointed at the simulation Production CSID (the production CSID `SIG ERPNext Production CSID 2026-08-28` was not used). Before real use on production, the company must reference the real production CSID, which already exists in the database.
+- ZATCA-cleared invoices cannot be cancelled or deleted (credit note only), so the two test invoices remain on the trial.
