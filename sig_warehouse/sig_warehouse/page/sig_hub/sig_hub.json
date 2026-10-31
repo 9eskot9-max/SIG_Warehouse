@@ -1,0 +1,20 @@
+{
+ "content": null,
+ "creation": "2026-11-01 00:00:00.000000",
+ "docstatus": 0,
+ "idx": 0,
+ "modified": "2026-11-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "SIG Warehouse",
+ "name": "sig-hub",
+ "owner": "Administrator",
+ "page_name": "sig-hub",
+ "roles": [
+  {"role": "All"}
+ ],
+ "script": null,
+ "standard": "Yes",
+ "style": null,
+ "title": "SIG",
+ "doctype": "Page"
+}

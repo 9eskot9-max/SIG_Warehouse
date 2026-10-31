@@ -59,12 +59,14 @@
         if (String(route[0] || '').toLowerCase() === 'workspaces' && route[1]) {
             candidates.push(route[1]);
         }
-        if (route[0]) candidates.push(route[0]);
+        // Frappe v16 prefixes page routes with the sidebar name (e.g. /desk/sig-warehouse/<page>), so only a
+        // single-segment route is the workspace home; a longer route is already a specific page.
+        if (route.length === 1 && route[0]) candidates.push(route[0]);
 
         // Workspace routes may be reported as a DocType route or just its URL
         // slug depending on how Desk reached the page. The URL is the stable
         // fallback for direct loads and sidebar clicks.
-        const match = window.location.pathname.match(/^\/(?:app|desk)\/([^/]+)/i);
+        const match = window.location.pathname.match(/^\/(?:app|desk)\/([^/]+)\/?$/i);
         if (match) candidates.push(decodeURIComponent(match[1]));
 
         for (const candidate of candidates) {
