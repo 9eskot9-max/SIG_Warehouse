@@ -12,7 +12,56 @@ add_to_apps_screen = [
         "logo": "/assets/sig_warehouse/images/sig-logo.svg",
         "title": "SIG Warehouse",
         "route": "/desk/warehouse-workspace",
-    }
+    },
+    {
+        "name": "sig_warehouse",
+        "logo": "/assets/sig_warehouse/images/sig-logo.svg",
+        "title": "SIG - My Work",
+        "route": "/desk/sig-my-work",
+        "has_permission": "sig_warehouse.apps_screen.my_work",
+    },
+    {
+        "name": "sig_warehouse",
+        "logo": "/assets/sig_warehouse/images/sig-logo.svg",
+        "title": "SIG Accounting",
+        "route": "/desk/sig-accounting",
+        "has_permission": "sig_warehouse.apps_screen.accounting",
+    },
+    {
+        "name": "sig_warehouse",
+        "logo": "/assets/sig_warehouse/images/sig-logo.svg",
+        "title": "SIG HR",
+        "route": "/desk/sig-hr",
+        "has_permission": "sig_warehouse.apps_screen.hr",
+    },
+    {
+        "name": "sig_warehouse",
+        "logo": "/assets/sig_warehouse/images/sig-logo.svg",
+        "title": "SIG Operations",
+        "route": "/desk/sig-operations",
+        "has_permission": "sig_warehouse.apps_screen.operations",
+    },
+    {
+        "name": "sig_warehouse",
+        "logo": "/assets/sig_warehouse/images/sig-logo.svg",
+        "title": "SIG Petty Cash",
+        "route": "/desk/sig-petty-cash",
+        "has_permission": "sig_warehouse.apps_screen.petty_cash",
+    },
+    {
+        "name": "sig_warehouse",
+        "logo": "/assets/sig_warehouse/images/sig-logo.svg",
+        "title": "SIG Projects",
+        "route": "/desk/sig-projects",
+        "has_permission": "sig_warehouse.apps_screen.projects",
+    },
+    {
+        "name": "sig_warehouse",
+        "logo": "/assets/sig_warehouse/images/sig-logo.svg",
+        "title": "SIG Assets",
+        "route": "/desk/sig-assets",
+        "has_permission": "sig_warehouse.apps_screen.assets",
+    },
 ]
 
 before_migrate = "sig_warehouse.sig_operations.excel_setup.prepare_roles"
