@@ -99,3 +99,31 @@ Cloud's Version Upgrade needs a bench group that already contains every app inst
 
 Add any key as an environment secret (cloud environment menu -> Edit -> secrets), never in chat. A new session picks secrets up, so
 continue from this runbook in a new session on this repository.
+
+---
+
+# Level 2 results (31 Oct 2026, trial copy on Frappe Cloud)
+
+Setup: private bench group `bench-51214` ("neoweb-v16-trial", Version 16, Falkenstein-3) built from the branches above
+(frappe/erpnext/hrms 16, drive `main`, insights `version-3`, telephony `develop`, sheets `main`, ZATCA `sig-v16-phase2`, SIG apps `v16-migration`).
+Trial site `neosys-v16-trial.frappe.cloud` restored from the 31 Oct offsite production backup (Frappe 16.54, ERPNext/HRMS 16.53).
+Production was only read (admin login, GET requests); nothing on it was changed.
+
+| Check | Result |
+|---|---|
+| Cloud build of all 11 apps on v16 | pass (about 6.5 min) |
+| Restore + `Migrate Site` on real data | pass, 142 patches, no traceback; `after_migrate` guards passed |
+| Record counts vs production (created up to the backup time), 17 doctypes | identical |
+| GL Entry: 40,086 rows, 175 accounts, debit/credit per account | identical; total SAR 506,603,294.85 each side |
+| Stock Ledger Entry: 7,684 rows, 485 items, qty and value | identical; stock value SAR 6,017,358.53 |
+| Permission rows (Custom DocPerm) | 612 -> 624: 12 added (Email Account, Currency, Project, Role, Task), 0 removed, 0 changed |
+| 18 custom Pages in a headless browser | 17 clean; `project-progress` raised 500 (fixed by patch `realign_project_progress_page`, commit 6957f6a) |
+| 15 read-only server methods on real data | 10 ok, 3 need arguments, 2 petty-cash endpoints return 403 for Administrator exactly as on production |
+
+Findings:
+- `project-progress`: the database Page record pointed at ERPNext's Projects module; v16's page loader lists that folder unguarded. Patch added.
+- Cloud's restore enables the scheduler automatically. The trial's scheduler was paused (`pause_scheduler = 1`).
+- Production runs ZATCA from `sig-v15-phase2-base`, which lacks the 26 Aug delivery-date commit that `sig-v16-phase2` includes: decide whether production should have it.
+- Frappe Cloud `bench.deploy_and_update` (release pipeline) needs each site as the exact record from `deploy_information`; the plain `bench.deploy` path worked. A second bench was left "Initialize Bench"-pending on Cloud's side.
+
+Still open: ZATCA sandbox run, role walkthroughs by real users, the asset-capitalisation tool, staff retraining on the v16 interface, a written rollback.
