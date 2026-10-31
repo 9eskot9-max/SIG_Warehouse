@@ -3,9 +3,50 @@ import base64
 import json
 import urllib.error
 import urllib.request
+import re
 
 import frappe
 from frappe import _
+
+
+def _safe_failure_context(exc, payload=None, request_id=None):
+    """Log provider diagnostics without storing the uploaded image or extracted data."""
+    parts = []
+    if isinstance(exc, urllib.error.HTTPError):
+        parts.append("http_status=" + str(exc.code))
+        request_id = request_id or (exc.headers.get("x-request-id") if exc.headers else None)
+        try:
+            provider_error = json.loads(exc.read(8192).decode("utf-8")).get("error", {})
+            code = provider_error.get("code") or provider_error.get("type")
+            if isinstance(code, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", code):
+                parts.append("provider_code=" + code)
+        except (ValueError, TypeError, AttributeError):
+            pass
+    elif isinstance(exc, urllib.error.URLError):
+        reason = getattr(exc, "reason", None)
+        parts.append("network_error=" + type(reason).__name__)
+    elif isinstance(exc, TimeoutError):
+        parts.append("timeout")
+    elif isinstance(exc, json.JSONDecodeError):
+        parts.append("response_json_invalid")
+    elif isinstance(exc, ValueError):
+        parts.append("response_validation_failed")
+    else:
+        parts.append("error_type=" + type(exc).__name__)
+
+    if isinstance(payload, dict):
+        status = payload.get("status")
+        if isinstance(status, str):
+            parts.append("response_status=" + status[:40])
+        incomplete = payload.get("incomplete_details")
+        reason = incomplete.get("reason") if isinstance(incomplete, dict) else None
+        if isinstance(reason, str):
+            parts.append("incomplete_reason=" + reason[:40])
+        request_id = request_id or payload.get("id")
+
+    if isinstance(request_id, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,100}", request_id):
+        parts.append("request_id=" + request_id)
+    return "; ".join(parts)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -38,7 +79,8 @@ def read_beneficiary_document(file_name=None, file_base64=None, mime_type=None, 
     )
     type_instructions = {
         "NCB": "Selected type: SNB. Prioritize the account holder name and the exact 14-digit account number. "
-            "Do not confuse the account holder name with the short name.",
+            "Do not confuse the account holder name with the short name. Never convert an IBAN into an account number. "
+            "If only an IBAN is visible, return it in iban and leave account_number empty.",
         "QUICK": "Selected type: QPAY. Prioritize the account holder name and the exact account number or IBAN shown.",
         "LOCAL": "Selected type: Local Saudi bank. Prioritize the complete Saudi IBAN labeled IBAN or ايبان. "
             "Return it in iban with the leading letters SA included and uppercase, with no spaces or hyphens; "
@@ -49,8 +91,8 @@ def read_beneficiary_document(file_name=None, file_base64=None, mime_type=None, 
     prompt = prompt + "\n\n" + type_instructions[bank_type]
     data_url = "data:" + mime + ";base64," + base64.b64encode(raw).decode("ascii")
     attachment = ({"type": "input_file", "filename": name, "file_data": data_url} if mime == "application/pdf"
-        else {"type": "input_image", "image_url": data_url})
-    body = {"model": "gpt-6-luna", "store": False, "max_output_tokens": 300,
+        else {"type": "input_image", "image_url": data_url, "detail": "high"})
+    body = {"model": "gpt-6-luna", "store": False, "reasoning": {"effort": "low"}, "max_output_tokens": 1200,
         "input": [{"role": "system", "content": prompt}, {"role": "user", "content": [
             {"type": "input_text", "text": "Extract beneficiary details from this file named " + name}, attachment,
         ]}],
@@ -60,15 +102,24 @@ def read_beneficiary_document(file_name=None, file_base64=None, mime_type=None, 
                 "required": ["beneficiary_name", "short_name", "account_number", "iban"]}}}}
     req = urllib.request.Request("https://api.openai.com/v1/responses", data=json.dumps(body).encode(),
         headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"}, method="POST")
+    payload = None
+    request_id = None
     try:
         with urllib.request.urlopen(req, timeout=60) as response:
+            request_id = response.headers.get("x-request-id")
             payload = json.loads(response.read().decode("utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("invalid response shape")
         text = payload.get("output_text") or next((part.get("text") for out in payload.get("output", [])
             for part in out.get("content", []) if part.get("type") == "output_text"), "")
         result = json.loads(text)
         if set(result) != {"beneficiary_name", "short_name", "account_number", "iban"}:
             raise ValueError("invalid OCR result")
         return result
-    except (urllib.error.URLError, TimeoutError, ValueError, TypeError, json.JSONDecodeError):
-        frappe.log_error("Beneficiary OCR failed; document, provider response and credentials omitted.", "TX Manager Beneficiary OCR")
+    except (urllib.error.URLError, TimeoutError, ValueError, TypeError, AttributeError, json.JSONDecodeError) as exc:
+        context = _safe_failure_context(exc, payload, request_id)
+        frappe.log_error(
+            title="TX Manager Beneficiary OCR",
+            message="OCR failed; uploaded document, account data and credentials omitted. " + context,
+        )
         frappe.throw(_("OCR could not read this document. Enter the details manually."))
