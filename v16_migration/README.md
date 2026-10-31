@@ -67,3 +67,35 @@ python3 v16_migration/reconcile.py compare prod.json trial.json
 ```
 
 Both tools send GET requests only. Validate `reconcile.py`'s Trial Balance section on the first real run: it was exercised here only on an empty ledger.
+
+---
+
+# Level 2 runbook: trial copy on Frappe Cloud
+
+Production (`neosys.frappe.cloud`, v15) is never touched. Everything below happens on a separate trial site.
+
+## Two ways to get a v16 copy (Frappe Cloud's restore code has no version check, but a v15 backup on a v16 bench is not documented as supported)
+
+1. **Try first:** create a private v16 bench group (frappe, erpnext, hrms and the four SIG apps from the branches above), create a new site on it and restore the latest production backup.
+2. **Cloud-supported fallback (and the real cutover rehearsal):** create a private *v15* bench group with the same apps and commits as production, restore the backup there as the copy, then run **Site -> Actions -> Version Upgrade** on the COPY, selecting the v16 bench group and the SIG branches. Cloud's Version Upgrade is the feature the real cutover would use, so rehearsing it on a copy is the most faithful test.
+
+Cloud's Version Upgrade needs a bench group that already contains every app installed on the site; a missing app is the usual failure.
+
+## Order of operations on the copy
+
+1. Restore finishes -> run `sanitize_trial_site.py` immediately (report first, then `APPLY = 1`) and set `pause_scheduler = 1` in the site's Site Config.
+2. Read the restore/migrate job log; send it for review.
+3. `export_metadata.py` and `reconcile.py` against production and the copy (see above).
+4. Onboard the copy to the ZATCA sandbox/simulation environment (the sanitizer removes ZATCA credentials on purpose; production credentials must never be used on a copy).
+5. Role walkthroughs, then the permission before/after diff.
+
+## What access Claude needs (and what it does not)
+
+| Access | Needed? | Notes |
+|---|---|---|
+| Trial-site API key (a Frappe user on the COPY) | yes, if you want Claude to test the copy directly | Create it on the copy after sanitizing. It cannot reach Cloud or production. |
+| Frappe Cloud team API key | optional | It is team-wide: it can create, upgrade, restore and **archive (delete) any site in the team, including production**. If used, prefer a separate Cloud user restricted by a Cloud Role (beta) to the trial resources only. The safest alternative is that you click the Cloud steps yourself. |
+| Production site keys | no | Only the read-only exporter/reconcile scripts, run on your PC. |
+
+Add any key as an environment secret (cloud environment menu -> Edit -> secrets), never in chat. A new session picks secrets up, so
+continue from this runbook in a new session on this repository.
