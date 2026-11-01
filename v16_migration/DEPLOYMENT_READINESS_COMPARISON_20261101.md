@@ -19,6 +19,8 @@ Read from the signed-in Frappe Cloud dashboards. Both sites showed **Active** at
 | SIG QR Design | main 0089b0b | v16-migration 39ecff6 | One commit ahead; only the Frappe version dependency pin differs |
 | ZATCA Integration | sig-v15-phase2-base 25454a7 | sig-v16-phase2 cbc271a | **Diverged:** 18 production-side and 71 v16-side commits |
 
+Both benches currently show Update Available. The production bench also displays a Frappe Drive security-update notice; the trial bench flags Warehouse. These are separate bench maintenance candidates and were not deployed during this review. The Google Sheets Data Sync app appears in both bench inventories but not in either site's installed-app list; verify it is genuinely unused by the site before deciding its upgrade disposition.
+
 The SIG Warehouse ancestry is favorable: the installed production head 59c7ce3 is the v16 branch's merge base. The trial's installed 1229f4f predates the currently staged fixes. PR [#68](https://github.com/9eskot9-max/SIG_Warehouse/pull/68) includes the Excel Setup PM repair, dispatch field access, ready-MR feed correction and HR export review. It is a draft staging candidate, overlaps PRs #64–#67, and must be integrated once—not combined with those PRs unchanged.
 
 ## Cutover blockers
@@ -36,7 +38,7 @@ The SIG Warehouse ancestry is favorable: the installed production head 59c7ce3 i
 - PR #68 is draft and not deployed. It reports 29 focused local tests passing; this does not prove the whole-bench upgrade, migrations, access acceptance or live workflows.
 - Trial/production backups previously appeared successful, but there is no recorded restore rehearsal or verified recovery.
 - The production site's real user acceptance, full permissions diff, repeat migration, integration cutover, and post-cutover invoice test are **NOT TESTED**.
-- Cloud API site read returned HTTP 403 on a fresh attempt; no Cloud permissions were changed. The versions above were verified through the signed-in dashboard.
+- Cloud API site read returned HTTP 403 on a fresh attempt; no Cloud permissions were changed. The versions above and bench update states were verified through the signed-in dashboard.
 - Do not declare this ready to cut over until blockers 1–6 are closed or the owner explicitly accepts a documented risk with a rollback plan. The actual-user and post-cutover acceptance results must be recorded as PASS/FAIL/NOT TESTED, not inferred from Administrator or API reads.
 
 ## Planned sequence once blockers are cleared
