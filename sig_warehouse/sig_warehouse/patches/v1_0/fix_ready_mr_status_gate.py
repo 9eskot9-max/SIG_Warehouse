@@ -42,4 +42,3 @@ def execute():
     if updated != source:
         frappe.db.set_value('Server Script', name, 'script', updated)
         frappe.clear_cache(doctype='Server Script')
-
