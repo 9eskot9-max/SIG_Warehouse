@@ -50,13 +50,19 @@ def _stock_entry():
     frappe.delete_doc("Custom Field", tab, ignore_permissions=True)
 
 
+def _property_setter(dt, fieldname, prop, value, ptype):
+    if frappe.db.exists("Property Setter", {"doc_type": dt, "field_name": fieldname, "property": prop}):
+        return
+    frappe.get_doc({"doctype": "Property Setter", "doctype_or_field": "DocField", "doc_type": dt,
+                    "field_name": fieldname, "property": prop, "property_type": ptype, "value": value}
+                   ).insert(ignore_permissions=True)
+
+
 def execute():
     for dt, fieldname, props in CF:
         _safe(f"{dt}.{fieldname}", lambda: _apply_cf(dt, fieldname, props))
     _safe("Stock Entry tab", _stock_entry)
     for dt, fieldname, prop, value, ptype in PS:
         if frappe.db.exists("DocType", dt):
-            _safe(f"{dt}.{fieldname}", lambda: frappe.make_property_setter(
-                {"doctype": dt, "doctype_or_field": "DocField", "fieldname": fieldname,
-                 "property": prop, "value": value, "property_type": ptype}))
+            _safe(f"{dt}.{fieldname}", lambda: _property_setter(dt, fieldname, prop, value, ptype))
     frappe.clear_cache()
