@@ -47,4 +47,7 @@ Counts equal for MRs (484 / 428 submitted), invoices, payments, journals, stock,
 7. **External callers** pointing at the old address: Maytapi webhook, Todoist OAuth redirect, RV80-WH VBA, TX Manager. They keep working only if the name swap gives v16 the `neosys` address.
 8. **Staff walkthrough** (planner, petty cash, purchasing, finance, MIR dispatch) and a login test per role.
 9. **Rotate** the Frappe Cloud API key/secret and treat the copied encryption key as exposed in chat.
-10. Keep v15 restorable (`neosys-old`) for two weeks as rollback.
+10. **ERP user API keys** (20 users have one, e.g. RV80-WH, TX Manager, Excel tools): they carried over and should work unchanged on v16 (secrets are encrypted with the copied key). Not yet tested. Only the address must change, and only if v16 does not take the `neosys` name. Until cutover, do not point any tool at the v16 address: it would write to v16 instead of v15. Rotate a key only to retire a person's access.
+11. Keep v15 restorable (`neosys-old`) for two weeks as rollback.
+
+The master white paper is now in the repo at `docs/MASTER-ERP-INTEGRATION.md` (v16 section added).
