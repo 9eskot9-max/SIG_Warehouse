@@ -199,9 +199,17 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         try {
             const poState = await callPoSetup('get_po_setup_state');
             const contacts = poState.contacts || [];
+            const contactName = id => {
+                const contact = contacts.find(item => item.id === id);
+                return contact ? [contact.full_name, contact.serial].filter(Boolean).join(' · ') : (id || __('None'));
+            };
             const rowsHtml = (poState.projects || []).map((row, index) => '<tr data-index="' + index + '">' +
                 '<td>' + esc(row.po) + '</td><td>' + esc(row.project_name || row.project) +
-                '<div class="text-muted">' + esc(row.family) + '</div></td>' +
+                '<div class="text-muted">' + esc(row.family) + '</div>' +
+                (row.needs_reconciliation ? '<div class="es-po-conflict" style="margin-top:8px;padding:8px 10px;border-inline-start:3px solid #e0a100;background:var(--alert-bg,#fff8e1);font-size:12px;line-height:1.45"><strong>' + esc(__('PM mismatch')) +
+                    '</strong><br>' + esc(__('Project: ')) + esc(contactName(row.project_default_contact)) +
+                    '<br>' + esc(__('Active assignment: ')) + esc(contactName(row.assignment_default_contact)) +
+                    '<br><label><input type="checkbox" data-field="resolve_conflict"> ' + esc(__('Confirm the selected PM to align both records')) + '</label></div>' : '') + '</td>' +
                 '<td><input class="form-control" data-field="csv_alias" maxlength="140" value="' + esc(row.csv_alias) + '"></td>' +
                 '<td><select class="form-control" data-field="default_contact"><option value="">' + esc(__('No default')) + '</option>' +
                 (row.default_contact && !contacts.some(contact => contact.id === row.default_contact) ?
@@ -228,7 +236,8 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
                     const rows = Array.from(dialog.fields_dict.settings.$wrapper[0].querySelectorAll('tbody tr')).map(tr => ({
                         project: poState.projects[Number(tr.dataset.index)].project,
                         csv_alias: tr.querySelector('[data-field="csv_alias"]').value,
-                        default_contact: tr.querySelector('[data-field="default_contact"]').value
+                        default_contact: tr.querySelector('[data-field="default_contact"]').value,
+                        resolve_conflict: !!tr.querySelector('[data-field="resolve_conflict"]:checked')
                     }));
                     await callPoSetup('save_po_setup', {rows: JSON.stringify(rows), base_revision: poState.revision, base_hash: poState.hash});
                     dialog.hide(); await load();
@@ -240,3 +249,4 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
     });
     load();
 };
+
