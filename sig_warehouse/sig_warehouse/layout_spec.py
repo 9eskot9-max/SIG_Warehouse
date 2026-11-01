@@ -25,10 +25,6 @@ CF = [
     ("Sales Invoice", "custom_bank_account", {"insert_after": "custom_payment_means", "description": "Blank = default account."}),
     ("Sales Invoice", "custom_section_break_pz7hw", {"collapsible": 1,
                                                      "collapsible_depends_on": "eval:doc.custom_retention_percentage"}),
-    # Stock Entry: the empty first tab becomes a collapsed section.
-    ("Stock Entry", "custom_sig_overview_tab", {"fieldtype": "Section Break", "label": "Return / source information",
-                                                "insert_after": "remarks", "collapsible": 1,
-                                                "collapsible_depends_on": "eval:doc.custom_return_state || doc.custom_source_id"}),
     # Material Request
     ("Material Request", "custom_sig_source_info_section", {"collapsible": 1,
                                                             "collapsible_depends_on": "eval:doc.custom_source_confirmed_by"}),
