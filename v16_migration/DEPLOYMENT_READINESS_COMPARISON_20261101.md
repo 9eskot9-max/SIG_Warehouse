@@ -49,3 +49,9 @@ The SIG Warehouse ancestry is favorable: the installed production head 59c7ce3 i
 4. Schedule Frappe Cloud's in-place Version Upgrade on neosys.frappe.cloud; monitor the site update through completion.
 5. Verify the actual Desk routes and core user roles, linked records, integrations and RV80 read-only connection. Reconcile the PM in ERP before syncing the temporary Hazem value.
 6. Only after the owner-approved post-cutover checks, perform the small live ZATCA invoice test and cancel it as directed; record the result and preserve evidence.
+
+## Follow-up: staged fixes
+
+- The owner confirmed that the nine new HR export rights should remain restricted. Draft Warehouse PR #68 now uses `frappe.get_list` for the ready-MR parent query so caller record permissions apply; its child rows are limited to selected parents. The captured trial source rewrites repeatably and 29 focused local tests pass. Integration-account coverage, migration repeatability and actual-user acceptance remain NOT TESTED.
+- ZATCA draft PR [#1](https://github.com/9eskot9-max/ZATCA_Integration/pull/1) restores the v15 synchronous B2B clearance gate for new invoices. Five isolated tests pass without contacting ZATCA. The live invoice test remains planned after cutover. Historical invoices are already imported and no new import is requested.
+- The empty invoice NaN cause remains unconfirmed. No production deployment or ERP/RV80 PM reconciliation has occurred.
