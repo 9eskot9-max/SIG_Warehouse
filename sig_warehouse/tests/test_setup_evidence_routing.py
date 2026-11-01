@@ -207,4 +207,3 @@ def test_unconfirmed_conflict_is_not_reconciled_by_unrelated_save():
     assert writes == []
     with pytest.raises(ValueError, match='Confirm the PM reconciliation'):
         namespace['save_po_setup']([{'project': 'P', 'csv_alias': '', 'default_contact': 'OTHER'}], 8, 'HASH')
-
