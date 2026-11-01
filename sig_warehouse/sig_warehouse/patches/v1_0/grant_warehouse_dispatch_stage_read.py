@@ -40,4 +40,3 @@ def execute():
                             'parentfield': 'permissions', 'role': role, 'permlevel': 1, 'if_owner': 0,
                             **{ptype: int(ptype == 'read') for ptype in PTYPES}}).insert(ignore_permissions=True)
     frappe.clear_cache(doctype=DOCTYPE)
-
