@@ -49,3 +49,12 @@ An Administrator's new v16 invoice showed `SAR NaN` for outstanding after defaul
 5. After upgrading `neosys.frappe.cloud`, verify the actual Desk routes, user roles and linked forms in fresh sessions, the authorized warehouse workflow, ZATCA sandbox boundaries and production device configuration, and RV80 read-only sync before any separately authorized live transaction. Record PASS / FAIL / NOT TESTED for every audience and workflow. Keep rollback available.
 
 RV80 source already targets `https://neosys.frappe.cloud`; keeping that site name does not require a hostname change. Its installed workbook, API authentication as real users and end-to-end workflows remain to be verified.
+
+
+## Readiness update — 1 November
+
+- Historical invoices are already in ERP; no historical invoice import or resend is planned. The source safeguard review above concerns protecting existing records, not migrating them again. Per owner direction, the small live ZATCA invoice test is deferred until after the v16 production cutover.
+- [Draft PR #64](https://github.com/9eskot9-max/SIG_Warehouse/pull/64) prepares dispatch field access and the ready-MR feed correction. Ten focused local tests pass. The feed currently uses `frappe.get_all`; widening its result set requires audience and record-scope review before deployment. Viewer-only users require separate access-boundary review.
+- [Draft PR #65](https://github.com/9eskot9-max/SIG_Warehouse/pull/65) proposes removing default export permissions on nine HRMS-created rows while retaining the HRMS requested ptypes. HR onboarding/separation and intended export access require actual-user tests. Both PRs modify the patch list and must be coordinated. Neither PR is deployed or accepted.
+- The existing production API user authenticated against the trial and read the item and project catalogues and RV80 setup. This does not verify workbook imports or writes. RV80 source targets the existing production hostname, so an in-place upgrade does not require a hostname change.
+- Dashboard showed both production and trial Active and recent successful backups. A fresh pre-cutover backup, recovery verification, migration rehearsal, access diff and actual-user acceptance remain outstanding.
