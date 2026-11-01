@@ -26,4 +26,3 @@ def test_rewrite_changes_only_the_two_gates_and_is_repeatable():
 def test_unexpected_or_duplicate_gates_fail_closed(source):
     with pytest.raises(ValueError):
         patch.rewrite(source)
-
