@@ -90,4 +90,3 @@ def test_rejects_changed_field_definition(monkeypatch):
     with pytest.raises(ValueError, match='field is missing or changed'):
         patch.execute()
     assert fake.inserted == [] and fake.changed == []
-
