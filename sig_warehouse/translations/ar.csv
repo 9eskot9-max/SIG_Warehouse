@@ -400,4 +400,19 @@ TMS implementer,المنفذ في نظام إدارة المهام
 Direct 1:1,ربط مباشر بنسبة واحد لواحد
 Excluded,مستبعد
 Manual,مراجعة يدوية
+Your personal workspace,مساحة العمل الشخصية
+My Page,صفحتي
+Your priorities and work in one place.,أولوياتك وأعمالك في مكان واحد.
+My focus and open tasks,أولوياتي والمهام المفتوحة
+Add a task,إضافة مهمة
+My employee page,صفحة الموظف الخاصة بي
+Workbenches,مساحات العمل
+No open tasks assigned to you.,لا توجد مهام مفتوحة مسندة إليك.
+No due date,بدون تاريخ استحقاق
+Your tasks could not be loaded.,تعذر تحميل مهامك.
+Tasks are unavailable for your role.,المهام غير متاحة لدورك.
+Workbenches could not be loaded.,تعذر تحميل مساحات العمل.
+No workbench is available for your roles.,لا توجد مساحة عمل متاحة لأدوارك.
+System configuration and administration,إعدادات النظام والإدارة
+Other available SIG tools,أدوات SIG الأخرى المتاحة
 "Import preview: {0} additions, {1} changes, {2} unchanged. Import and publish?",معاينة الاستيراد: {0} إضافات، {1} تغييرات، {2} دون تغيير. هل تريد الاستيراد والنشر؟
