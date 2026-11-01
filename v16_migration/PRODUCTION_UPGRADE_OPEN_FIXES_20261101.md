@@ -60,3 +60,5 @@ RV80 source already targets `https://neosys.frappe.cloud`; keeping that site nam
 - Dashboard showed both production and trial Active and recent successful backups. A fresh pre-cutover backup, recovery verification, migration rehearsal, access diff and actual-user acceptance remain outstanding.
 
 - [Draft PR #66](https://github.com/9eskot9-max/SIG_Warehouse/pull/66) isolates the dispatch field access patch from the feed change in #64; five focused local tests pass. Coordinate overlapping patch registrations; do not merge both unchanged. Neither deployment nor representative-user acceptance has occurred.
+
+- Empty-form timing reproduced again on 1 November: a new unsaved Sales Invoice initially showed SAR 0.00 outstanding; after defaults finished loading and the VAT 15% template appeared, it showed SAR NaN. This associates the issue with default loading, but does not establish the root cause or a fix. No invoice was saved or submitted.
