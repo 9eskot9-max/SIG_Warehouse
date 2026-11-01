@@ -45,13 +45,15 @@ def test_adds_only_level_one_read_and_preserves_matrix(monkeypatch):
     fake = FakeFrappe(rows)
     monkeypatch.setitem(sys.modules, 'frappe', fake)
     patch.execute()
-    row = fake.inserted[0]
-    assert row['role'] == 'Warehouse Manager' and row['permlevel'] == 1 and row['read'] == 1
-    assert all(row[p] == 0 for p in patch.PTYPES if p != 'read')
+    assert {row['role'] for row in fake.inserted} == {'Warehouse Manager', 'Stock User'}
+    for row in fake.inserted:
+        assert row['permlevel'] == 1 and row['read'] == 1
+        assert all(row[p] == 0 for p in patch.PTYPES if p != 'read')
     assert rows == [{'name': 'baseline', 'role': 'Stock User', 'permlevel': 0, 'if_owner': 0, 'read': 1}]
     fake.rows.append({'name': 'added', 'role': 'Warehouse Manager', 'permlevel': 1, 'if_owner': 0, 'read': 1})
+    fake.rows.append({'name': 'added2', 'role': 'Stock User', 'permlevel': 1, 'if_owner': 0, 'read': 1})
     patch.execute()
-    assert len(fake.inserted) == 1 and fake.changed == []
+    assert len(fake.inserted) == 2 and fake.changed == []
 
 
 def test_refuses_first_custom_row(monkeypatch):
@@ -68,7 +70,7 @@ def test_enables_only_read_on_existing_unrestricted_row(monkeypatch):
     monkeypatch.setitem(sys.modules, 'frappe', fake)
     patch.execute()
     assert fake.changed == [(('Custom DocPerm', 'existing', 'read', 1), {'update_modified': False})]
-    assert fake.inserted == []
+    assert len(fake.inserted) == 1 and fake.inserted[0]['role'] == 'Stock User'
 
 
 def test_rejects_duplicate_unrestricted_rows(monkeypatch):
