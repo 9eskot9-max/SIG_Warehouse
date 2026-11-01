@@ -62,3 +62,5 @@ RV80 source already targets `https://neosys.frappe.cloud`; keeping that site nam
 - [Draft PR #66](https://github.com/9eskot9-max/SIG_Warehouse/pull/66) isolates the dispatch field access patch from the feed change in #64; five focused local tests pass. Coordinate overlapping patch registrations; do not merge both unchanged. Neither deployment nor representative-user acceptance has occurred.
 
 - Empty-form timing reproduced again on 1 November: a new unsaved Sales Invoice initially showed SAR 0.00 outstanding; after defaults finished loading and the VAT 15% template appeared, it showed SAR NaN. This associates the issue with default loading, but does not establish the root cause or a fix. No invoice was saved or submitted.
+
+- Cloud control-plane API site reads returned HTTP 401 for the two available credential pairs; the cause has not been established. Dashboard reads confirmed site status, but the workspace deployment guide requires a successful Cloud API read of the exact site, bench and pipeline before a scoped action. Resolve access and repeat that preflight before deployment; do not treat the dashboard view as satisfying the API requirement.
