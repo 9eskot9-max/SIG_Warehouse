@@ -249,4 +249,3 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
     });
     load();
 };
-
