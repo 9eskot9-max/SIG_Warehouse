@@ -12,12 +12,12 @@ SE_SECTION = "custom_sig_return_section"
 
 
 def _safe(label, fn):
+    frappe.db.savepoint("layout_item")
     try:
         fn()
-    except Exception:
-        frappe.db.rollback()
-        print(f"layout: skipped {label}")
-        frappe.log_error(title=f"tidy_form_layouts: {label}")
+    except Exception as exc:
+        frappe.db.rollback(save_point="layout_item")
+        print(f"layout: skipped {label}: {exc!r}"[:300])
 
 
 def _apply_cf(dt, fieldname, props):
