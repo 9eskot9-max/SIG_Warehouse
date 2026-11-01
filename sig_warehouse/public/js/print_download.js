@@ -112,13 +112,38 @@
     function relabel() {
         const $actions = $('#page-print .page-actions');
         const label = (b) => $(b).text().trim();
-        const $print = $actions.find('button').filter((i, b) => label(b) === 'Print' || label(b) === __('Print')).first();
-        let $dl = $actions.find('button').filter((i, b) => ['PDF', 'Download', __('PDF'), __('Download')].includes(label(b))).first();
-        if (!$dl.length) return;
-        if (label($dl) !== __('Download')) {
-            const $s = $dl.find('span').first();
-            if ($s.length) $s.text(__('Download')); else $dl.text(__('Download'));
+        const buttonNames = (b) => [
+            $(b).attr('aria-label'),
+            $(b).attr('title'),
+            $(b).attr('data-label'),
+            $(b).attr('data-original-title'),
+            label(b)
+        ].filter(Boolean).map(s => String(s).trim().toLowerCase());
+        const $buttons = $actions.find('button');
+        const $print = $buttons.filter((i, b) => buttonNames(b).some(s =>
+            ['print', __('Print').toLowerCase()].includes(s))).first();
+        const downloadNames = ['pdf', 'download', __('PDF').toLowerCase(), __('Download').toLowerCase()];
+        let $dl = $buttons.filter((i, b) => buttonNames(b).some(s => downloadNames.includes(s))).first();
+        // Frappe v16 may render the PDF action as an icon-only button. Use its
+        // accessible label or SVG icon metadata when visible button text is absent.
+        if (!$dl.length) {
+            $dl = $buttons.filter((i, b) => {
+                const attrs = [$(b).attr('aria-label'), $(b).attr('title'),
+                    $(b).attr('data-label'), $(b).attr('data-original-title')]
+                    .filter(Boolean).join(' ').toLowerCase();
+                const icon = $(b).find('svg use, svg').map((j, node) =>
+                    [$(node).attr('href'), $(node).attr('xlink:href'), $(node).attr('class')]
+                        .filter(Boolean).join(' ')).get().join(' ').toLowerCase();
+                return /\b(pdf|download)\b/.test(attrs) || /icon-(file-pdf|pdf|download)/.test(icon);
+            }).first();
         }
+        if (!$dl.length) return;
+        if (label($dl) && label($dl) !== __('Download')) {
+            const $label = $dl.find('.btn-label, .button-label, .btn-text').first();
+            if ($label.length) $label.text(__('Download'));
+            else if (!$dl.find('svg, .icon').length) $dl.text(__('Download'));
+        }
+        if (!label($dl) && !$dl.attr('aria-label')) $dl.attr('aria-label', __('Download'));
         $dl.removeClass('btn-default btn-secondary').addClass('btn-primary');
         let $share = $actions.find('button[data-sig-pdf-share="1"]');
         if (!$share.length) {
