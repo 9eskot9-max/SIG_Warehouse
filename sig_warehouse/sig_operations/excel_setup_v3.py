@@ -327,4 +327,3 @@ def save_po_setup(rows, base_revision, base_hash):
         if project_values:
             frappe.db.set_value("Project", project, project_values)
     return {"result": "saved", **_po_setup_state(datasets, allow_conflicts=True)}
-
