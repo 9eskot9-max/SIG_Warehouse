@@ -13,13 +13,13 @@ For an in-place upgrade, existing user accounts and hashed login passwords are e
 | Live today | `neosys.frappe.cloud` | v15 | Still running, scheduler on. Backup taken 1 Nov ~03:14 Riyadh. |
 | New ERP | `neosys-v16-trial.frappe.cloud` | v16 (Frappe 16.54 / ERPNext 16.53 / HRMS 16.53) | Holds a full copy of production data from that backup. Scheduler OFF. |
 
-**Why it still says "trial":** only the site *name* is the trial's. Frappe Cloud does not let anyone change a site's subdomain through the API or dashboard, so the name swap (`neosys` -> `neosys-old`, `neosys-v16-trial` -> `neosys`) must be done by Frappe support. Nothing else about it is a trial: it is the production data on v16. Until the swap and the steps below, v15 stays the system of record.
+**Why the trial hostname remains:** the trial is a separate restored site and is not the production cutover target. The selected direction is an in-place Frappe Cloud Version Upgrade of the existing production site, preserving neosys.frappe.cloud and its production database. Do not rename sites, restore the trial over production, or change external callers as part of this path. See DEPLOYMENT_READINESS_COMPARISON_20261101.md.
 
 ## Branches (GitHub 9eskot9-max/sig_warehouse, also sig_whatsapp, sig_qr_design, zatca_integration)
 - `main` = v15 code (unchanged, still what the live v15 site runs).
 - `v16-migration` = v16 code (zatca_integration: `sig-v16-phase2`). The v16 bench builds from these.
-- After cutover: rename `main` -> `version-15`, `v16-migration` -> `main`, and change the bench branch in Frappe Cloud.
-- Local work: develop on `v16-migration`; do not merge it into `main` while v15 is live. Fix bugs that exist in both on `main` first, then bring them across.
+- Keep the v15 production source and v16 migration source distinct until the in-place Version Upgrade is planned. Use the exact branch/revisions configured on the target bench; a GitHub branch rename is not required to preserve the production hostname.
+- Local work: develop on v16-migration and do not merge it into main while v15 is live. Compare any shared bug fix to both branches and carry it to the intended release explicitly.
 
 ## What changed in the code for v16 (all on `v16-migration`)
 - `pyproject.toml`: `frappe >=16,<17` (all three SIG apps).
@@ -39,22 +39,22 @@ For an in-place upgrade, existing user accounts and hashed login passwords are e
 - Frappe Cloud applies code-only pushes as "Update Site Pull" without migrating. After pushing anything that adds a doctype, patch, dock or workspace, run **Migrate** on the site.
 - Deploy recipe that works: build with `press.api.bench.deploy` (not the combined deploy-and-update, which failed pre-checks), then Site -> Update (skip backups) which migrates.
 - Removed in v16 (expected diffs): Agriculture roles, Dropbox/Google Drive/S3 backup jobs, energy points, Leaderboard and user-profile pages, v15 HR/Payables/Receivables workspaces (replaced).
-- Site config is NOT carried by a restore. The encryption key and custom keys (Todoist client id/secret, field-planner OpenAI key and flags, petty-cash archive token) were copied manually onto the v16 site. Redo this on any new restore.
+- For an in-place Version Upgrade, the production site's database and configuration remain with that site, subject to Cloud's documented upgrade behavior. Preserve the production encryption key and inventory integrations before the upgrade; verify their operation afterward. Trial-specific settings or credentials are not a source to copy over production.
 
 ## Verified (v15 live vs v16 copy)
-Counts equal for MRs (484 / 428 submitted), invoices, payments, journals, stock, items, employees, projects, files, SIG site/cycle/visit/PC/evidence. Users (68), roles per user, role/module profiles, user permissions, custom permissions, custom doctypes (26), server (72) and client (21) scripts, print formats, reports, workflows, templates, settings: identical. All 19 SIG pages load. Colours (number cards, charts, workspaces) and user themes carried over.
+The trial was restored from a production backup dated 1 Nov around 03:14 Riyadh time. At that snapshot, counts matched for MRs (484 / 428 submitted), invoices, payments, journals, stock, items, employees, projects, files, SIG site/cycle/visit/PC/evidence. Users (68), roles per user, role/module profiles, user permissions, custom permissions, custom doctypes (26), server (72) and client (21) scripts, print formats, reports, workflows, templates and settings were reported identical. All 19 SIG pages loaded. These are snapshot comparisons only: production remained active, so do not treat them as current equality or as the production cutover data. An in-place upgrade keeps the live production database; no historical invoice import is planned.
 
-## Pending before you rely on v16 only
-1. **Name swap by Frappe support** (see above). Alternative: attach your own domain to v16.
-2. **Fresh data at cutover.** The copy is from 1 Nov 03:14. Anything entered on v15 since is not in v16. At cutover: stop using v15, take a new backup, restore, Migrate, redo the config copy, re-run the count comparison.
-3. **v15 scheduler/integrations must stop** when v16 goes live (WhatsApp/Maytapi, Todoist sync, ZATCA reporting) or messages will double. Not done yet (deliberately left on).
-4. **Scheduler on v16** is off; turn it on only after (3).
-5. **ZATCA:** company settings and the production device carried over, but one device can talk to ZATCA from one site only. After v15 is stopped, send one real invoice from v16 and confirm it clears. Ask Frappe to set the bench timezone to Asia/Riyadh (invoice-date rule 00:00-03:00).
-6. **Not yet re-tested after the encryption-key copy:** email account, ZATCA, Todoist, Maytapi.
-7. **External callers** pointing at the old address: Maytapi webhook, Todoist OAuth redirect, RV80-WH VBA, TX Manager. They keep working only if the name swap gives v16 the `neosys` address.
-8. **Staff walkthrough** (planner, petty cash, purchasing, finance, MIR dispatch) and a login test per role.
-9. **Rotate** the Frappe Cloud API key/secret and treat the copied encryption key as exposed in chat.
-10. **ERP user API keys** (20 users have one, e.g. RV80-WH, TX Manager, Excel tools): they carried over and should work unchanged on v16 (secrets are encrypted with the copied key). Not yet tested. Only the address must change, and only if v16 does not take the `neosys` name. Until cutover, do not point any tool at the v16 address: it would write to v16 instead of v15. Rotate a key only to retire a person's access.
-11. Keep v15 restorable (`neosys-old`) for two weeks as rollback.
+## Remaining release gates before production Version Upgrade
 
-The master white paper is now in the repo at `docs/MASTER-ERP-INTEGRATION.md` (v16 section added).
+1. **Source comparison:** use DEPLOYMENT_READINESS_COMPARISON_20261101.md for the current installed revision matrix. SIG Warehouse v16 descends from current production Warehouse; the coordinated fixes are staged in draft PR #68 only. ZATCA source is diverged and still needs behavior-equivalence review, especially legacy invoice exclusion, B2B clearance and error handling.
+2. **Unresolved trial defects:** the empty Sales Invoice shows SAR NaN after VAT defaults load. Dispatch field access and HR export are staged but not accepted. The ready-MR fix must first have an approved audience and record scope because the existing method uses frappe.get_all.
+3. **Permissions and migrations:** review all permission writers and complete matrices, preserve role and record scope, extend snapshots, rehearse the migration path twice on a recoverable production copy, and record real-user acceptance. See the local deployment permission guide and learning-loop gate. Administrator success is insufficient.
+4. **Recovery:** take a fresh pre-upgrade production database, files and configuration backup and record its restore reference. Verify a practical rollback path and preserve the production encryption key. Recent dashboard backups do not prove recoverability.
+5. **Integrations:** inventory current production writers (scheduler, WhatsApp/Maytapi, Todoist, ZATCA, RV80 and other clients). Ensure only the upgraded production site acts on shared external services during cutover; verify credentials, callbacks, scheduled tasks and actual callers after the upgrade. The hostname stays neosys.frappe.cloud, so RV80 URL changes are not expected.
+6. **PM reconciliation:** ERP Project and active TAWAL assignment last read as Jawad; RV80 holds a temporary PO-specific Hazem override for WO-2026-0037 / PO 10001274. Deploy the repaired Excel Setup path, explicitly reconcile both ERP defaults to Hazem and read them back before RV80 Sync From ERP.
+7. **Post-cutover acceptance:** in fresh sessions, verify login, key Desk routes, linked forms and affected role workflows, then verify integrations and RV80 read-only sync. Record every audience as PASS / FAIL / NOT TESTED. The owner will run the small live ZATCA invoice test after deployment; no historical invoice import or resend is planned.
+8. **Cutover choice:** perform Frappe Cloud's in-place Version Upgrade of the existing active production site only after the above gates. Do not swap hostnames or restore the trial database over production.
+
+The versioned code, trial behavior, and backups are preparation evidence; they do not by themselves make production ready. Keep v15 rollback available according to the agreed recovery window and confirm final cutover steps in the Cloud dashboard before action.
+
+The master white paper is in docs/MASTER-ERP-INTEGRATION.md.
