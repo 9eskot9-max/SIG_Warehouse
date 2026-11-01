@@ -37,7 +37,7 @@ def _meta_project_fields():
     return meta
 
 
-def _effective_default_contact(project, field_contact):
+def _assignment_default_state(project, field_contact):
     defaults = frappe.get_all("SIG Project PM Assignment",
         filters={"project": project, "active": 1, "is_default": 1},
         fields=["tawal_contact"], limit_page_length=2)
@@ -45,12 +45,22 @@ def _effective_default_contact(project, field_contact):
         frappe.throw("More than one active default TAWAL assignment exists for " + project)
     assigned = str(defaults[0].tawal_contact or "").strip() if defaults else ""
     field_contact = str(field_contact or "").strip()
-    if assigned and field_contact and assigned != field_contact:
+    return {
+        "project_default": field_contact,
+        "assignment_default": assigned,
+        "default_contact": field_contact or assigned,
+        "needs_reconciliation": bool(assigned and field_contact and assigned != field_contact),
+    }
+
+
+def _effective_default_contact(project, field_contact):
+    state = _assignment_default_state(project, field_contact)
+    if state["needs_reconciliation"]:
         frappe.throw("Project default and active TAWAL assignment disagree for " + project + "; reconcile them before syncing")
-    return field_contact or assigned
+    return state["default_contact"]
 
 
-def _configured_project_rows(datasets):
+def _configured_project_rows(datasets, allow_conflicts=False):
     meta = _meta_project_fields()
     project_fields = ["name", "project_name", "custom_default_tawal_contact", "custom_excel_csv_alias"]
     for field in ("custom_agreement_no", "custom_tawal_ba", "custom_po_number",
@@ -84,7 +94,10 @@ def _configured_project_rows(datasets):
         family = next((str(project.get(key) or "").strip() for key in
                        ("custom_project_family", "custom_family")
                        if str(project.get(key) or "").strip()), str(setup_row.get("family") or "").strip())
-        result.append({
+        assignment_state = _assignment_default_state(project.name, project.custom_default_tawal_contact)
+        if assignment_state["needs_reconciliation"] and not allow_conflicts:
+            frappe.throw("Project default and active TAWAL assignment disagree for " + project.name + "; reconcile them before syncing")
+        project_row = {
             "id": str(setup_row["id"]),
             "project": project.name,
             "project_name": project.project_name or project.name,
@@ -92,9 +105,16 @@ def _configured_project_rows(datasets):
             "family": family,
             "upl_revision": str(setup_row.get("upl_revision") or ""),
             "csv_alias": str(project.custom_excel_csv_alias or "").strip(),
-            "default_contact": _effective_default_contact(project.name, project.custom_default_tawal_contact),
+            "default_contact": assignment_state["default_contact"],
             "enabled": True,
-        })
+        }
+        if allow_conflicts:
+            project_row.update({
+                "project_default_contact": assignment_state["project_default"],
+                "assignment_default_contact": assignment_state["assignment_default"],
+                "needs_reconciliation": assignment_state["needs_reconciliation"],
+            })
+        result.append(project_row)
     return sorted(result, key=lambda row: (row["po"].casefold(), row["project"].casefold()))
 
 
@@ -195,8 +215,8 @@ def get_setup_bundle(workbook_type, adapter_version=0, last_revision=0, last_has
     return result
 
 
-def _po_setup_state(datasets):
-    projects = _configured_project_rows(datasets)
+def _po_setup_state(datasets, allow_conflicts=True):
+    projects = _configured_project_rows(datasets, allow_conflicts=allow_conflicts)
     contacts = _active_contacts()
     projection = {"projects": projects, "contacts": contacts}
     return {**projection, "hash": digest(projection)}
@@ -207,7 +227,7 @@ def get_po_setup_state():
     _require(editor=True)
     doc, datasets = _state()
     datasets = _validated_v3(datasets, "RV80")
-    return {"revision": int(doc.revision or 0), **_po_setup_state(datasets)}
+    return {"revision": int(doc.revision or 0), **_po_setup_state(datasets, allow_conflicts=True)}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -226,7 +246,7 @@ def save_po_setup(rows, base_revision, base_hash):
     if int(base_revision) != int(setup_doc.revision or 0):
         frappe.throw("Excel Setup changed in another session. Reload before saving PO defaults.")
     datasets = _validated_v3(datasets, "RV80")
-    current = _po_setup_state(datasets)
+    current = _po_setup_state(datasets, allow_conflicts=True)
     if str(base_hash or "") != current["hash"]:
         frappe.throw("PO defaults or contact directory changed in another session. Reload before saving.")
 
@@ -241,7 +261,8 @@ def save_po_setup(rows, base_revision, base_hash):
         alias = str(row.get("csv_alias") or "").strip()
         if len(alias) > 140:
             frappe.throw("CSV alias must be 140 characters or fewer")
-        supplied[project] = {"csv_alias": alias, "default_contact": str(row.get("default_contact") or "").strip()}
+        supplied[project] = {"csv_alias": alias, "default_contact": str(row.get("default_contact") or "").strip(),
+                             "resolve_conflict": row.get("resolve_conflict") is True}
     if set(supplied) != set(expected):
         frappe.throw("Submit the complete visible Project list. No PO setting was changed.")
 
@@ -254,14 +275,22 @@ def save_po_setup(rows, base_revision, base_hash):
     current_projects = {row["project"]: row for row in current["projects"]}
     for project, row in supplied.items():
         before = current_projects[project]
-        project_values = {}
-        if before["csv_alias"] != row["csv_alias"]:
-            project_values["custom_excel_csv_alias"] = row["csv_alias"]
-        if before["default_contact"] != row["default_contact"]:
-            project_values["custom_default_tawal_contact"] = row["default_contact"] or None
-        if project_values:
-            frappe.db.set_value("Project", project, project_values)
-        if before["default_contact"] == row["default_contact"]:
+        if before.get("needs_reconciliation") and not row["resolve_conflict"]:
+            if before["default_contact"] != row["default_contact"]:
+                frappe.throw("Confirm the PM reconciliation for " + project + " before saving.")
+            if before["csv_alias"] != row["csv_alias"]:
+                frappe.db.set_value("Project", project, {"custom_excel_csv_alias": row["csv_alias"]})
+            continue
+        assignment_state_changed = (
+            (before.get("needs_reconciliation") and row["resolve_conflict"])
+            or before["default_contact"] != row["default_contact"]
+        )
+        if not assignment_state_changed:
+            project_values = {}
+            if before["csv_alias"] != row["csv_alias"]:
+                project_values["custom_excel_csv_alias"] = row["csv_alias"]
+            if project_values:
+                frappe.db.set_value("Project", project, project_values)
             continue  # Alias-only/unchanged saves must not rewrite native assignments.
         assignments = frappe.get_all("SIG Project PM Assignment", filters={"project": project},
                                      fields=["name", "tawal_contact", "active", "is_default"],
@@ -270,20 +299,32 @@ def save_po_setup(rows, base_revision, base_hash):
         if row["default_contact"]:
             selected_assignment = next((item for item in assignments
                                         if item.tawal_contact == row["default_contact"]), None)
-            if not selected_assignment:
-                selected_assignment = frappe.get_doc({
-                    "doctype": "SIG Project PM Assignment", "project": project,
-                    "tawal_contact": row["default_contact"], "active": 1,
-                    "is_default": 1, "source": "Excel Setup",
-                }).insert(ignore_permissions=True)
+        # Clear the old default before inserting/updating its replacement. The
+        # SIG Project PM Assignment validator rejects a second active default.
         for assignment in assignments:
-            is_selected = bool(selected_assignment and assignment.name == selected_assignment.name)
+            if int(assignment.is_default or 0) and not (selected_assignment and assignment.name == selected_assignment.name):
+                frappe.db.set_value("SIG Project PM Assignment", assignment.name, {"is_default": 0})
+        if row["default_contact"] and not selected_assignment:
+            frappe.get_doc({
+                "doctype": "SIG Project PM Assignment", "project": project,
+                "tawal_contact": row["default_contact"], "active": 1,
+                "is_default": 1, "source": "Excel Setup",
+            }).insert(ignore_permissions=True)
+        elif selected_assignment:
             values = {}
-            if int(assignment.is_default or 0) != int(is_selected):
-                values["is_default"] = int(is_selected)
-            if is_selected and int(assignment.active or 0) != 1:
+            if int(getattr(selected_assignment, "active", 0) or 0) != 1:
                 values["active"] = 1
+            if int(getattr(selected_assignment, "is_default", 0) or 0) != 1:
+                values["is_default"] = 1
             if values:
-                frappe.db.set_value("SIG Project PM Assignment", assignment.name, values)
-        # Newly inserted row is already the sole active default.
-    return {"result": "saved", **_po_setup_state(datasets)}
+                frappe.db.set_value("SIG Project PM Assignment", selected_assignment.name, values)
+
+        project_values = {}
+        if before["csv_alias"] != row["csv_alias"]:
+            project_values["custom_excel_csv_alias"] = row["csv_alias"]
+        if before["default_contact"] != row["default_contact"] or before.get("needs_reconciliation"):
+            project_values["custom_default_tawal_contact"] = row["default_contact"] or None
+        if project_values:
+            frappe.db.set_value("Project", project, project_values)
+    return {"result": "saved", **_po_setup_state(datasets, allow_conflicts=True)}
+
