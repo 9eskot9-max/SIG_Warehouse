@@ -90,6 +90,7 @@ has_permission = {
 # availability check is cached with a TTL instead of re-fetching every MR on
 # every board redraw.
 app_include_js = [
+    "/assets/sig_warehouse/js/fa_icon_shim.js?v=20261101-1",
     "/assets/sig_warehouse/js/material_request_list.js?v=20260929-2",
     "/assets/sig_warehouse/js/material_request.js?v=20261029-dispatch-wh",
     "/assets/sig_warehouse/js/stock_entry.js?v=20260929-2",

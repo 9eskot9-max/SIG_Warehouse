@@ -23,6 +23,14 @@
   {
    "added": 0,
    "hidden": 0,
+   "icon": "sig-petty-cash",
+   "link_to": "SIG Petty Cash",
+   "link_type": "Workspace",
+   "title": "Petty Cash"
+  },
+  {
+   "added": 0,
+   "hidden": 0,
    "icon": "sig-warehouse",
    "link_to": "SIG Warehouse",
    "link_type": "Workspace",
