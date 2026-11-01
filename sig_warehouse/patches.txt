@@ -51,3 +51,5 @@ sig_warehouse.sig_warehouse.patches.v1_0.add_rfq_supplier_whatsapp_field
 sig_warehouse.sig_warehouse.patches.v1_0.realign_project_progress_page
 sig_warehouse.sig_warehouse.patches.v1_0.move_sig_hr_workspace_to_sig_module
 sig_warehouse.sig_warehouse.patches.v1_0.open_petty_cash_workspace_to_operations
+sig_warehouse.sig_warehouse.patches.v1_0.fix_ready_mr_status_gate
+sig_warehouse.sig_warehouse.patches.v1_0.grant_warehouse_dispatch_stage_read
