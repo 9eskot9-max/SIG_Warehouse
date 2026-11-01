@@ -2,7 +2,7 @@
 
 ## Current deployment clarification — 1 November 2026
 
-The Cloud API confirmed `neosys.frappe.cloud` is still Active on Frappe Version 15, and `neosys-v16-trial.frappe.cloud` is Active on Version 16. The v16 GitHub branches and trial do not themselves upgrade the main site. The proposed alternative to the name-swap described below is Frappe Cloud's Version Upgrade of the existing production site, preserving its hostname and current production database. Rehearse the exact upgrade path and complete the access, backup, integration and rollback gates before using it. Trial-only settings and its newly onboarded ZATCA device do not automatically transfer to an in-place upgrade. See [production upgrade open fixes](PRODUCTION_UPGRADE_OPEN_FIXES_20261101.md).
+The signed-in Frappe Cloud dashboards showed `neosys.frappe.cloud` Active on Frappe Version 15 and `neosys-v16-trial.frappe.cloud` Active on Version 16. The latest read-only Cloud API attempt returned HTTP 403; see the readiness comparison and local incident record. The v16 GitHub branches and trial do not themselves upgrade the main site. The proposed alternative to the name-swap described below is Frappe Cloud's Version Upgrade of the existing production site, preserving its hostname and current production database. Rehearse the exact upgrade path and complete the access, backup, integration and rollback gates before using it. Trial-only settings and its newly onboarded ZATCA device do not automatically transfer to an in-place upgrade. See [production upgrade open fixes](PRODUCTION_UPGRADE_OPEN_FIXES_20261101.md).
 
 For an in-place upgrade, existing user accounts and hashed login passwords are expected to remain; verify representative users can sign in and avoid blanket password resets. Preserve the site encryption key for encrypted integration credentials, and verify each integration after cutover. RV80 deployed BAS currently targets `neosys.frappe.cloud`; the hostname need not change for an in-place upgrade, but the installed workbook and write workflows are not yet verified. The owner deferred the small live ZATCA invoice test until after cutover; no historical invoice import is planned.
 
@@ -10,8 +10,8 @@ For an in-place upgrade, existing user accounts and hashed login passwords are e
 ## Where things are
 | | Site | Version | State |
 |---|---|---|---|
-| Live today | `neosys.frappe.cloud` | v15 | Still running, scheduler on. Backup taken 1 Nov ~03:14 Riyadh. |
-| New ERP | `neosys-v16-trial.frappe.cloud` | v16 (Frappe 16.54 / ERPNext 16.53 / HRMS 16.53) | Holds a full copy of production data from that backup. Scheduler OFF. |
+| Production | `neosys.frappe.cloud` | v15 | Active at the app-revision review. Backup previously recorded 1 Nov ~03:14 Riyadh; take a fresh pre-upgrade backup. Scheduler state must be confirmed at cutover. |
+| Trial | `neosys-v16-trial.frappe.cloud` | v16 (Frappe 16.54 / ERPNext 16.53 / HRMS 16.53) | Separate restored copy from that backup; not current production data. Trial scheduler state is not a production cutover setting. |
 
 **Why the trial hostname remains:** the trial is a separate restored site and is not the production cutover target. The selected direction is an in-place Frappe Cloud Version Upgrade of the existing production site, preserving neosys.frappe.cloud and its production database. Do not rename sites, restore the trial over production, or change external callers as part of this path. See DEPLOYMENT_READINESS_COMPARISON_20261101.md.
 
