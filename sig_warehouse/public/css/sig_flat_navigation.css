@@ -1,10 +1,20 @@
-/* Scope the simplified list to SIG landing pages; native sidebar returns elsewhere. */
-body.sig-flat-navigation { --sidebar-width: 64px; }
-body.sig-flat-navigation .body-sidebar-top > .sidebar-items,
-body.sig-flat-navigation .body-sidebar .sidebar-item-label,
-body.sig-flat-navigation .body-sidebar .title-container,
-body.sig-flat-navigation .body-sidebar .avatar-name-email { display: none; }
-.sig-flat-links { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px; }
-.sig-flat-link { display: grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 8px; padding: 0; background: transparent; font-size: 22px; line-height: 1; }
-.sig-flat-link:hover, .sig-flat-link:focus-visible { background: #eef7fc; color: #1269bf; }
-.sig-flat-link[aria-current="page"] { background: #eef7fc; color: #1269bf; font-weight: 600; }
+/* Use Frappe's existing five SIG app icons as the rail; remove the extra
+   workspace/subpage menu on the SIG landing and workbench routes. */
+body.sig-flat-navigation {
+    --sidebar-width: 0px;
+}
+
+body.sig-flat-navigation .body-sidebar-container {
+    display: none !important;
+}
+
+/* The owner chose the SIG mark alone in the shell header. */
+body.sig-logo-only .shell-header .title-container {
+    display: none !important;
+}
+
+body.sig-logo-only .shell-header .header-logo img {
+    width: 30px;
+    height: 30px;
+    object-fit: contain;
+}

@@ -90,7 +90,7 @@ has_permission = {
 # availability check is cached with a TTL instead of re-fetching every MR on
 # every board redraw.
 app_include_js = [
-    "/assets/sig_warehouse/js/sig_flat_navigation.js?v=20261101-1",
+    "/assets/sig_warehouse/js/sig_flat_navigation.js?v=20261102-1",
     "/assets/sig_warehouse/js/fa_icon_shim.js?v=20261101-1",
     "/assets/sig_warehouse/js/material_request_list.js?v=20260929-2",
     "/assets/sig_warehouse/js/material_request.js?v=20261029-dispatch-wh",
@@ -100,7 +100,7 @@ app_include_js = [
     "/assets/sig_warehouse/js/site_cycle_connections.js?v=20261026-1",
 ]
 
-app_include_css = ["/assets/sig_warehouse/css/sig_flat_navigation.css?v=20261101-1"]
+app_include_css = ["/assets/sig_warehouse/css/sig_flat_navigation.css?v=20261102-2"]
 
 # Field visit feed (gate F1: shadow; see docs/field_visit_feed_design.md). Runs every 15 minutes; mode is
 # SIG Field Ops Settings.feed_mode (Off / Shadow / Live) and defaults to Shadow.

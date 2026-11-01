@@ -1,64 +1,53 @@
-// Replace the module link list only while a SIG landing page is open.
+// Keep the five existing SIG apps in Frappe's icon dock as the main navigation.
+// On SIG landing/workbench pages, remove the extra workspace-link sidebar.
 (() => {
-    const pages = ['sig-hub', 'operations-workbench', 'finance-workbench', 'hr-workbench', 'warehouse-workspace', 'pc-invoice-review', 'pc-transaction-status'];
-    const destinations = [
-        ['Operations', 'operations-workbench', '🏗️'],
-        ['Finance', 'finance-workbench', '💵'],
-        ['HR', 'hr-workbench', '👥'],
-        ['Warehouse', 'warehouse-workspace', '📦'],
-        ['Petty Cash', 'pc-invoice-review', '👛']
+    const pages = [
+        'sig-hub',
+        'operations-workbench',
+        'finance-workbench',
+        'hr-workbench',
+        'warehouse-workspace',
+        'pc-invoice-review',
+        'pc-transaction-status'
     ];
-    let permitted = null;
-    let request = null;
+    const logoUrl = '/assets/sig_warehouse/images/sig-mark.png';
 
-    function activePage() {
-        const parts = (frappe.get_route() || []).map((part) => String(part).toLowerCase());
-        return pages.find((name) => parts.includes(name)) || null;
-    }
-    function loadDestinations() {
-        if (!request) {
-            request = frappe.call({ method: 'sig_warehouse.sig_warehouse.hub.get_cards' })
-                .then((response) => {
-                    permitted = ((response && response.message) || []).flatMap((g) => g.cards || []);
-                    return permitted;
-                }).catch(() => { request = null; return null; });
+    function applyBrand() {
+        if (!document.body) return;
+        document.body.classList.add('sig-logo-only');
+        const logo = document.querySelector('.shell-header .header-logo img');
+        if (logo && !logo.getAttribute('src')?.endsWith('/sig-mark.png')) {
+            logo.setAttribute('src', logoUrl);
+            logo.setAttribute('alt', 'SIG');
         }
-        return request;
+        const header = document.querySelector('a.shell-header');
+        if (header) header.setAttribute('aria-label', 'SIG');
     }
+
+    function applyPageNavigation() {
+        if (!document.body) return;
+        const route = frappe.get_route() || [];
+        const active = route.some((part) => pages.includes(String(part).toLowerCase()));
+        document.body.classList.toggle('sig-flat-navigation', active);
+    }
+
     function refresh() {
-        const current = activePage();
-        $('body').removeClass('sig-flat-navigation');
-        $('.sig-flat-links').remove();
-        if (!current) return;
-        loadDestinations().then((cards) => {
-            if (!cards || activePage() !== current) return;
-            const container = $('.body-sidebar-top').first();
-            if (!container.length) return;
-            container.find('.sig-flat-links').remove();
-            const nav = $('<nav class="sig-flat-links" aria-label="SIG"></nav>').appendTo(container);
-            function add(label, route, isCurrent, icon) {
-                const button = $('<button type="button" class="sig-flat-link"></button>')
-                    .attr({ 'aria-label': __(label), title: __(label) })
-                    .text(icon).appendTo(nav);
-                if (isCurrent) button.attr('aria-current', 'page');
-                button.on('click', () => frappe.set_route(route));
-            }
-            add('My Page', ['sig-hub'], current === 'sig-hub', '🏠');
-            destinations.forEach(([label, name, icon]) => {
-                const entry = cards.find((item) => item.route && item.route[0] === name);
-                if (entry) add(label, entry.route, current === name || (name === 'pc-invoice-review' && current === 'pc-transaction-status'), icon);
-            });
-            if ((frappe.user_roles || []).includes('System Manager')) {
-                add('Setup', ['setup', 'home'], false, '⚙️');
-            }
-            $('body').addClass('sig-flat-navigation');
-        });
+        applyBrand();
+        applyPageNavigation();
     }
-    frappe.ready(() => {
-        frappe.router.on('change', () => {
-            refresh();
-            setTimeout(refresh, 250);
-        });
+
+    // App include scripts run as soon as Desk loads on v16; `frappe.ready` is
+    // not available here. The router event handles later SPA navigation.
+    frappe.router.on('change', () => {
         refresh();
+        setTimeout(refresh, 250);
+    });
+    refresh();
+    setTimeout(refresh, 250);
+
+    // The shell header can be re-rendered after an app/route switch.
+    new MutationObserver(applyBrand).observe(document.documentElement, {
+        childList: true,
+        subtree: true
     });
 })();
