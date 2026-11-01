@@ -185,3 +185,6 @@ jinja = {
         "sig_warehouse.sig_letters.render.inline_html",
     ]
 }
+
+# Multi-colour rail icons for the SIG dock (sig-finance, sig-warehouse, sig-operations, sig-hr).
+app_include_icons = ["/assets/sig_warehouse/icons/sig-icons.svg"]

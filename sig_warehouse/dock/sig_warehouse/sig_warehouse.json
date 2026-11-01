@@ -15,7 +15,7 @@
   {
    "added": 0,
    "hidden": 0,
-   "icon": "wallet-soft",
+   "icon": "sig-finance",
    "link_to": "SIG Accounting",
    "link_type": "Workspace",
    "title": "SIG Finance"
@@ -23,15 +23,15 @@
   {
    "added": 0,
    "hidden": 0,
-   "icon": "users-soft",
-   "link_to": "SIG HR",
+   "icon": "sig-warehouse",
+   "link_to": "SIG Warehouse",
    "link_type": "Workspace",
-   "title": "SIG HR"
+   "title": "SIG Warehouse"
   },
   {
    "added": 0,
    "hidden": 0,
-   "icon": "automation-cycle-soft",
+   "icon": "sig-operations",
    "link_to": "SIG Operations",
    "link_type": "Workspace",
    "title": "SIG Operations"
@@ -39,10 +39,10 @@
   {
    "added": 0,
    "hidden": 0,
-   "icon": "data-table-soft",
-   "link_to": "SIG Warehouse",
+   "icon": "sig-hr",
+   "link_to": "SIG HR",
    "link_type": "Workspace",
-   "title": "SIG Warehouse"
+   "title": "SIG HR"
   }
  ]
 }

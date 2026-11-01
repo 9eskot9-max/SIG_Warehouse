@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+	<!-- SIG rail icons: fixed colours (not currentColor), so each module has its own look. -->
+	<symbol id="icon-sig-finance" viewBox="0 0 24 24">
+		<rect x="3" y="5.5" width="18" height="14.5" rx="3" fill="#8A5A2E" stroke="#4A2E14" stroke-width="1.2"/>
+		<path d="M5 5.5l11-2.3a1.6 1.6 0 0 1 1.9 1.6v.7z" fill="#B07A45" stroke="#4A2E14" stroke-width="1.2" stroke-linejoin="round"/>
+		<path d="M21 10.5h-4.5a3 3 0 0 0 0 6H21z" fill="#5A3817" stroke="#3A230E" stroke-width="1.2" stroke-linejoin="round"/>
+		<circle cx="16.8" cy="13.5" r="1.4" fill="#F0C14B" stroke="#9A7010" stroke-width=".8"/>
+		<path d="M5.5 8.5h8" stroke="#C99A62" stroke-width=".9" stroke-dasharray="1.6 1.2" stroke-linecap="round"/>
+	</symbol>
+	<symbol id="icon-sig-warehouse" viewBox="0 0 24 24">
+		<path d="M3 8l9-4.5L21 8v9.5L12 22 3 17.5z" fill="#D9A04A" stroke="#7A4C12" stroke-width="1.2" stroke-linejoin="round"/>
+		<path d="M3 8l9 4.5L21 8" fill="none" stroke="#7A4C12" stroke-width="1.2" stroke-linejoin="round"/>
+		<path d="M12 12.5V22" stroke="#7A4C12" stroke-width="1.2"/>
+		<path d="M3 8l9 4.5V22L3 17.5z" fill="#B97F2B" opacity=".55"/>
+		<path d="M7.5 5.8l9 4.5v3.2l-9-4.5z" fill="#F4DC9B" stroke="#7A4C12" stroke-width=".9" stroke-linejoin="round"/>
+	</symbol>
+	<symbol id="icon-sig-operations" viewBox="0 0 24 24">
+		<path d="M12 2.5l1.7 2.4 2.8-.8.7 2.9 2.8.9-.8 2.8 2 2.1-2 2.1.8 2.8-2.8.9-.7 2.9-2.8-.8L12 21.5l-1.7-2.4-2.8.8-.7-2.9-2.8-.9.8-2.8-2-2.1 2-2.1-.8-2.8 2.8-.9.7-2.9 2.8.8z" fill="#2F6FDE" stroke="#173F8F" stroke-width="1.1" stroke-linejoin="round"/>
+		<circle cx="12" cy="12" r="4.6" fill="#DCE9FF" stroke="#173F8F" stroke-width="1.1"/>
+		<path d="M9.6 12.2l1.8 1.8 3.2-3.6" fill="none" stroke="#1E9E5A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+	</symbol>
+	<symbol id="icon-sig-hr" viewBox="0 0 24 24">
+		<circle cx="16.5" cy="8" r="3" fill="#F2C9A0" stroke="#8A5A32" stroke-width="1"/>
+		<path d="M11.5 20v-1.8a4.5 4.5 0 0 1 4.5-4.5h1a4.5 4.5 0 0 1 4.5 4.5V20z" fill="#7DC4A0" stroke="#1F6B4A" stroke-width="1.1" stroke-linejoin="round"/>
+		<circle cx="8.5" cy="7.5" r="3.4" fill="#F2C9A0" stroke="#8A5A32" stroke-width="1"/>
+		<path d="M2.5 20.5v-2a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v2z" fill="#2E9E6B" stroke="#1F6B4A" stroke-width="1.1" stroke-linejoin="round"/>
+	</symbol>
+</svg>
