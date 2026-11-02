@@ -154,6 +154,8 @@ def _v3_datasets(datasets, workbook_type):
         result["contacts"] = _active_contacts()
         result["tag_definitions"] = datasets["tag_definitions"]
         result["builder_defaults"] = datasets["builder_defaults"]
+        result["tag_upl_links"] = datasets["tag_upl_links"]
+        result["material_upl_links"] = datasets["material_upl_links"]
     elif workbook_type == "SIGPC":
         result["tag_definitions"] = datasets["tag_definitions"]
         result["tag_upl_links"] = datasets["tag_upl_links"]
@@ -170,7 +172,7 @@ def _validated_v3(datasets, workbook_type):
     V2 archive for compatibility. They must not be a prerequisite for the
     PO-first V3 sync.
     """
-    names = ("projects", "tag_definitions", "builder_defaults") if workbook_type == "RV80" else (
+    names = ("projects", "tag_definitions", "tag_upl_links", "material_upl_links", "builder_defaults") if workbook_type == "RV80" else (
         "projects", "tag_definitions", "tag_upl_links", "material_upl_links")
     payload = {name: datasets.get(name, []) for name in names}
     try:
