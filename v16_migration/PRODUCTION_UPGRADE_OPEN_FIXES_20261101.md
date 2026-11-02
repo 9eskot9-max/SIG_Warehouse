@@ -1,6 +1,6 @@
 # v16 production upgrade: open fixes and acceptance
 
-Recorded 1 November 2026. **Status: NOT READY.** This document records findings and required work; it does not implement, deploy, or verify the fixes. Production `neosys.frappe.cloud` remains on v15. The intended method is Frappe Cloud Version Upgrade of that existing site using its current production database, after the checks below. Do not assume a successful simulation or an Administrator page load is full acceptance.
+Recorded 1 November 2026. **Status: NOT READY.** This document records findings and required work; it does not implement, deploy, or verify the fixes. Production `neosys.frappe.cloud` remains on v15. The intended method is Frappe Cloud Version Upgrade of that existing site using its current production database, after the checks below. Do not assume a successful simulation or an Administrator page load is full acceptance. The latest installed revision comparison is in [DEPLOYMENT_READINESS_COMPARISON_20261101.md](DEPLOYMENT_READINESS_COMPARISON_20261101.md).
 
 ## Actual versions reviewed
 
@@ -63,4 +63,4 @@ RV80 source already targets `https://neosys.frappe.cloud`; keeping that site nam
 
 - Empty-form timing reproduced again on 1 November: a new unsaved Sales Invoice initially showed SAR 0.00 outstanding; after defaults finished loading and the VAT 15% template appeared, it showed SAR NaN. This associates the issue with default loading, but does not establish the root cause or a fix. No invoice was saved or submitted.
 
-- Cloud API authentication was restored on 1 November after updating the locally saved secret to the one the owner had already supplied. Read-only site checks returned HTTP 200: production `neosys.frappe.cloud` is Active on `bench-38491`, Frappe Version 15; trial is Active on `bench-51214`, Version 16. The exact pipeline and release revisions still require verification before a scoped deployment.
+- The signed-in Cloud dashboard read on 1 November showed both exact sites Active: production `neosys.frappe.cloud` on `bench-38491` and trial on `bench-51214`. The current app revisions are recorded in [DEPLOYMENT_READINESS_COMPARISON_20261101.md](DEPLOYMENT_READINESS_COMPARISON_20261101.md). A fresh read-only Cloud API site call returned HTTP 403; no permission change was attempted. See local incident PERM-20261101-04. No deployment was attempted.
