@@ -25,6 +25,7 @@ def _routed_pending(matrix, employees):
         routed.append({"transaction": row.name, "group": route["group"],
                        "employee": route["employee"],
                        "sender_user": route["user_id"],
+                       "extra_groups": route.get("extra_groups", []),
                        "route_status": route["status"],
                        "matrix_version": route["matrix_version"]})
     return routed
@@ -96,7 +97,7 @@ def sync_pc_review_todos():
     active_markers, counts = set(), {}
     route_exceptions = {}
     for group, definition in matrix["review_groups"].items():
-        group_rows = [r for r in rows if r["group"] == group]
+        group_rows = [r for r in rows if r["group"] == group or group in r.get("extra_groups", [])]
         counts[group] = len(group_rows)
         for user in accounts[group]:
             # A person's own receipts are never included in their assigned task.

@@ -566,3 +566,13 @@ def test_frappe_keyword_filter_preserves_ptype_for_both_hooks(app):
     assert frappe_call(module.journal_entry_permission, doc=linked, ptype="create", user="reviewer@example.com", debug=False) is False
     fake.flags.sig_pc_journal_create_receipt = receipt.name
     assert frappe_call(module.journal_entry_permission, doc=linked, ptype="create", user="reviewer@example.com", debug=False) is True
+
+
+def test_incident_group_is_additional_reviewer_for_capex_employees_named_by_owner():
+    folder = ROOT / "sig_warehouse"
+    stored = json.loads((folder / "pc_review_scopes.json").read_text())["employees"]
+    capex_only = stored["HR-EMP-00051"]
+    for employee in ("HR-EMP-00026", "HR-EMP-00045"):
+        assert set(capex_only) < set(stored[employee])  # still every Capex reviewer, plus Incident reviewers
+        assert {"HR-EMP-00028", "HR-EMP-00034"} <= set(stored[employee])
+    assert not {"HR-EMP-00028", "HR-EMP-00034"} & set(capex_only)

@@ -102,6 +102,8 @@ def resolve_sender(sender, matrix, employees, indexed_phones=None):
                 "user_id": employee.user_id, "group": default_group,
                 "status": "employee_not_configured",
                 "matrix_version": matrix.get("routing_version")}
+    extra = [g for g in assignment.get("additional_review_groups", [])
+             if g in matrix["review_groups"] and g != group]
     return {"employee": employee.name, "employee_name": employee.employee_name,
-            "user_id": employee.user_id, "group": group, "status": "resolved",
+            "user_id": employee.user_id, "group": group, "extra_groups": extra, "status": "resolved",
             "matrix_version": matrix.get("routing_version")}

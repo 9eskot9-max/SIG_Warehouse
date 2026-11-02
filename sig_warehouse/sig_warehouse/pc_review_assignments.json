@@ -2,7 +2,7 @@
   "status": "OWNER-APPROVED ROUTING - TASK ASSIGNMENT ONLY - NOT DEPLOYED",
   "as_of": "2026-10-17",
   "phase": "task_assignment_only",
-  "routing_version": "pc-review-2026-10-17-v1",
+  "routing_version": "pc-review-2026-11-02-v2",
   "apply_visibility_gates": false,
   "default_review_group": "unassigned",
   "oversight_employee_name": "Mohammed Salah Ibrahim Algain",
@@ -13,7 +13,8 @@
     "GM has oversight; future restriction for unassigned is Finance and GM only.",
     "The owner confirmed the seven interim Source Manager assignments on 2026-10-17.",
     "A reviewer’s ToDo count excludes that reviewer’s own receipts; the group peers receive the remaining group count.",
-    "This mapping does not grant Page, DocType, Report, attachment or confirmation access."
+    "This mapping does not grant Page, DocType, Report, attachment or confirmation access.",
+    "An Employee row may list additional_review_groups; those groups' reviewers may also review and receive the count for that Employee's receipts (owner decision 2026-11-02: Ali Haider and Muhammad Adnan Sajid are also cleared by the Incident group)."
   ],
   "review_groups": {
     "capex": {
@@ -154,7 +155,10 @@
       "current_subdepartment": "Incident & Capex Delivery",
       "work_group": "capex",
       "pc_review_group": "capex",
-      "basis": "Owner scope corrections or current Department/Subdepartment"
+      "basis": "Owner scope corrections or current Department/Subdepartment",
+      "additional_review_groups": [
+        "incident"
+      ]
     },
     {
       "employee": "HR-EMP-00046",
@@ -370,7 +374,10 @@
       "current_subdepartment": "Incident & Capex Delivery",
       "work_group": "capex",
       "pc_review_group": "capex",
-      "basis": "Owner scope corrections or current Department/Subdepartment"
+      "basis": "Owner scope corrections or current Department/Subdepartment",
+      "additional_review_groups": [
+        "incident"
+      ]
     },
     {
       "employee": "HR-EMP-00012",

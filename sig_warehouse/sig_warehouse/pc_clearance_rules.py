@@ -86,7 +86,8 @@ def compile_scopes(matrix):
         by_name[name] = employee
     profiles = {}
     for employee, row in employees.items():
-        reviewers = matrix["review_groups"][row["pc_review_group"]]["reviewers"]
+        groups = [row["pc_review_group"], *row.get("additional_review_groups", [])]
+        reviewers = [name for group in groups for name in matrix["review_groups"][group]["reviewers"]]
         ids = {by_name[" ".join(name.casefold().split())] for name in reviewers}
         ids.discard(employee)
         if not ids:

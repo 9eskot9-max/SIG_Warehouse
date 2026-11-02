@@ -1,5 +1,5 @@
 {
-  "revision": "pc-review-2026-10-17-v1",
+  "revision": "pc-review-2026-11-02-v2",
   "employees": {
     "HR-EMP-00004": [
       "HR-EMP-00003",
@@ -42,6 +42,8 @@
     "HR-EMP-00026": [
       "HR-EMP-00002",
       "HR-EMP-00011",
+      "HR-EMP-00028",
+      "HR-EMP-00034",
       "HR-EMP-00038"
     ],
     "HR-EMP-00046": [
@@ -150,6 +152,8 @@
     "HR-EMP-00045": [
       "HR-EMP-00002",
       "HR-EMP-00011",
+      "HR-EMP-00028",
+      "HR-EMP-00034",
       "HR-EMP-00038"
     ],
     "HR-EMP-00012": [
