@@ -1,0 +1,30 @@
+{
+  "doctype": "DocType",
+  "name": "SIG No Visit Nudge",
+  "module": "SIG Operations",
+  "custom": 0,
+  "issingle": 0,
+  "track_changes": 0,
+  "engine": "InnoDB",
+  "autoname": "field:nudge_key",
+  "field_order": ["nudge_key", "employee", "employee_name", "nudge_date", "mode", "status", "sent_at", "recipient", "message_id", "error"],
+  "fields": [
+    {"fieldname": "nudge_key", "fieldtype": "Data", "label": "Key", "read_only": 1, "unique": 1, "reqd": 1, "length": 140},
+    {"fieldname": "employee", "fieldtype": "Link", "label": "Employee", "options": "Employee", "read_only": 1, "in_list_view": 1, "reqd": 1},
+    {"fieldname": "employee_name", "fieldtype": "Data", "label": "Employee Name", "read_only": 1, "in_list_view": 1},
+    {"fieldname": "nudge_date", "fieldtype": "Date", "label": "Day", "read_only": 1, "in_list_view": 1, "in_standard_filter": 1},
+    {"fieldname": "mode", "fieldtype": "Select", "label": "Mode", "options": "Test\nLive", "read_only": 1, "in_list_view": 1, "in_standard_filter": 1},
+    {"fieldname": "status", "fieldtype": "Select", "label": "Status", "options": "Queued\nFailed", "read_only": 1, "in_list_view": 1, "in_standard_filter": 1},
+    {"fieldname": "sent_at", "fieldtype": "Datetime", "label": "Sent At", "read_only": 1},
+    {"fieldname": "recipient", "fieldtype": "Data", "label": "Recipient (masked)", "read_only": 1},
+    {"fieldname": "message_id", "fieldtype": "Data", "label": "Provider Message ID", "read_only": 1},
+    {"fieldname": "error", "fieldtype": "Small Text", "label": "Error", "read_only": 1}
+  ],
+  "permissions": [
+    {"role": "System Manager", "read": 1, "report": 1, "export": 1},
+    {"role": "Operations Manager", "read": 1, "report": 1, "export": 1},
+    {"role": "Projects Manager", "read": 1, "report": 1}
+  ],
+  "sort_field": "nudge_date",
+  "sort_order": "DESC"
+}

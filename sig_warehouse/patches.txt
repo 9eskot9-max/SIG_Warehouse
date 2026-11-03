@@ -57,3 +57,4 @@ sig_warehouse.sig_warehouse.patches.v1_0.reconcile_v16_hr_default_exports
 sig_warehouse.sig_warehouse.patches.v1_0.remove_invoice_transfer_reference
 sig_warehouse.sig_warehouse.patches.v1_0.tidy_form_layouts
 sig_warehouse.sig_warehouse.patches.v1_0.add_address_linked_party
+sig_warehouse.sig_warehouse.patches.v1_0.add_no_visit_message_settings
