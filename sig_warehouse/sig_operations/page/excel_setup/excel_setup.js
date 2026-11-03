@@ -101,12 +101,15 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
     const render = () => {
         root.attr('dir', frappe.boot.lang === 'ar' ? 'rtl' : 'ltr');
         const rows = state.datasets[selected];
-        const fields = state.fields[selected].filter(f => f !== 'id');
+        // UPL descriptions belong to the UPL/Mapping data; preserve legacy values in the payload.
+        const fields = state.fields[selected].filter(f => f !== 'id' && !(selected === 'tag_upl_links' && f === 'description'));
         const notes = {
             projects: __('Canonical ERP Projects and PO scope used by Excel. Family and the usual TAWAL PM are maintained on the Project / PO setup.'),
             builder_profiles: __('Historical compatibility data. These aliases no longer determine PO family, TAWAL contact or MOP template selection.'),
             builder_contacts: __('Historical profile-linked contact rows. The current TAWAL directory has one record per person; PO defaults reference those records directly.'),
             project_builder_links: __('Historical Builder profile assignments. Kept for old workbook revisions and audit; not required by V3 Sync From ERP.'),
+            tag_upl_links: __('Link each Tags item to its UPL code. UPL descriptions come from Mapping. Use the optional qualifier only for a matching Tags sheet description, not the UPL code. Blank PO and revision mean a shared rule. A PO-specific rule can replace shared links for that Tags item; review all its codes.'),
+            material_upl_links: __('Link warehouse items to UPL codes for AsBuilt. Direct 1:1 requires matching units; use Manual for review and Excluded for reviewed items with no link. Blank PO and revision mean a shared rule.'),
             builder_defaults: __('Shared TCN purpose, CSV wording and implementer defaults consumed by RV80.'),
             teams: __('Each team is its leader and carries the name of its leader. The Field Planner counts enabled teams and starts each one from the latest check-in or check-out site. Not sent to Excel workbooks.')
         };
