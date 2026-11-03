@@ -141,6 +141,9 @@ override_doctype_dashboards = {
 }
 
 doc_events = {
+    "Address": {
+        "validate": "sig_warehouse.sig_warehouse.address_links.validate_address",
+    },
     "ToDo": {
         "after_insert": "sig_warehouse.sig_operations.app_connections.on_todo_after_insert",
         "on_update": "sig_warehouse.sig_operations.app_connections.on_todo_after_update",

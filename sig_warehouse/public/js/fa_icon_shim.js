@@ -8,7 +8,7 @@
 		"columns": "columns-3", "cubes": "box", "envelope": "mail", "exchange": "arrow-left-right",
 		"exclamation-triangle": "triangle-alert", "external-link": "external-link", "file-text": "file-text",
 		"file-text-o": "file-text", "id-card": "id-card", "inbox": "inbox", "life-ring": "life-buoy",
-		"line-chart": "chart-line", "list-alt": "list", "refresh": "refresh-cw", "rotate-right": "rotate-cw",
+		"line-chart": "chart-line", "map-marker": "map-pin", "list-alt": "list", "refresh": "refresh-cw", "rotate-right": "rotate-cw",
 		"shopping-cart": "shopping-cart", "ticket": "ticket", "truck": "truck", "undo": "undo-2",
 		"user-circle-o": "circle-user", "users": "users",
 	};

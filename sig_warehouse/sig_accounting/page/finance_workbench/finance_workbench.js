@@ -18,7 +18,8 @@ frappe.pages['finance-workbench'].on_page_load = function (wrapper) {
         {variant: 'blue', title: __('Payment entries'), description: __('Review receipts, supplier payments, and their invoice allocations.'), icon: 'exchange', doctype: 'Payment Entry', route: ['List', 'Payment Entry', 'List']},
         {variant: 'blue', title: __('Sales invoices'), description: __('Review customer invoices and collection status.'), icon: 'file-text', doctype: 'Sales Invoice', route: ['List', 'Sales Invoice', 'List']},
         {variant: 'blue', title: __('Purchase invoices'), description: __('Review supplier invoices after the purchasing and receipt handoff.'), icon: 'file-text-o', doctype: 'Purchase Invoice', route: ['List', 'Purchase Invoice', 'List']},
-        {variant: 'blue', title: __('Journal entries'), description: __('Review controlled accounting entries; draft first and submit with authority.'), icon: 'book', doctype: 'Journal Entry', route: ['List', 'Journal Entry', 'List']}
+        {variant: 'blue', title: __('Journal entries'), description: __('Review controlled accounting entries; draft first and submit with authority.'), icon: 'book', doctype: 'Journal Entry', route: ['List', 'Journal Entry', 'List']},
+        {variant: 'blue', title: __('Customer addresses'), description: __('Find or add a customer address. Open it from the customer, or add the customer in Links.'), icon: 'map-marker', doctype: 'Address', route: ['List', 'Address', 'List']}
     ];
 
     const control = [
