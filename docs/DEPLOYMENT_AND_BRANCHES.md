@@ -16,7 +16,7 @@ Last verified from Frappe Cloud: 3 November 2026, Asia/Riyadh. This is a dated r
 
 ## Branch policy
 
-The production revisions above were read from the site's Apps page. Use the Frappe Cloud installed-app view as the source of truth for deployment configuration; never infer it from a branch name or GitHub default.
+The production revisions above are a dated read-back from the site's Apps page on 3 November 2026. After that read-back, documentation-only PR #69 was squash-merged to this Warehouse branch as `2a00717e`. No app source, permission, fixture, migration, Cloud setting, or deployment changed in that merge; the Apps page still showed installed Warehouse revision `6ce8da3` on its final read. Treat the listed hashes as the installed snapshot, not a claim that the new docs-only commit is deployed. Use Frappe Cloud's installed-app view as the source of truth; never infer deployment from a branch name or GitHub default.
 
 For SIG Warehouse, main remains the v15-era line at f32c7eaa. The v16-migration branch is at 48ddaad6; codex/sig-personal-home-v16 is two commits ahead at 6ce8da3 and is the branch installed on production at this read-back. These branches are not mirrors. Do not push a fix to one and assume the other or production received it.
 
