@@ -20,7 +20,7 @@ function sig_intake_find_items(frm) {
 function sig_intake_guide(frm) {
     const field = frm.fields_dict.lines;
     if (!field || !field.$wrapper) return;
-    frm.wrapper.find('.sig-intake-guide').remove();
+    $(frm.wrapper).find('.sig-intake-guide').remove();
     const guide = $('<div class="sig-intake-guide" style="border:1px solid var(--border-color);border-radius:8px;padding:16px;margin:16px 0;background:var(--card-bg)">' +
         '<div style="font-weight:600;font-size:15px">' + __('Add items') + '</div>' +
         '<p class="text-muted" style="margin:6px 0 12px">' + __('Search the item catalogue first. For a new item, paste its description and use AI to suggest the details.') + '</p>' +

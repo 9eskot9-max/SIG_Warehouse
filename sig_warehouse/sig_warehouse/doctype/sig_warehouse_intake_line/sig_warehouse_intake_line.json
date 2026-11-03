@@ -64,6 +64,7 @@
    "label": "UOM",
    "fieldtype": "Link",
    "options": "UOM",
+   "in_list_view": 1,
    "reqd": 1
   },
   {
