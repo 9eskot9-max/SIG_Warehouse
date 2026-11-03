@@ -1,3 +1,5 @@
+> **HISTORICAL SNAPSHOT — 1 November 2026.** This document records the pre-cutover review and is not the current production status or release plan. Production is now v16; see [the current master](../docs/MASTER-ERP-INTEGRATION.md) and [deployment/branch map](../docs/DEPLOYMENT_AND_BRANCHES.md), then verify live Cloud state before acting.
+
 # v16 staged release and deployment guide
 
 Status: STAGED ONLY, 1 November 2026. Production `neosys.frappe.cloud` was last verified on v15; the v16 trial is separate. Confirm current live status and exact revisions again before deployment.

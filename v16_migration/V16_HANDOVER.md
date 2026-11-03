@@ -1,3 +1,5 @@
+> **HISTORICAL SNAPSHOT — 1 November 2026.** This document records the pre-cutover review and is not the current production status or release plan. Production is now v16; see [the current master](../docs/MASTER-ERP-INTEGRATION.md) and [deployment/branch map](../docs/DEPLOYMENT_AND_BRANCHES.md), then verify live Cloud state before acting.
+
 # SIG ERP: v15 vs v16 handover (1 Nov 2026)
 
 ## Current deployment clarification — 1 November 2026

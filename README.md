@@ -1,32 +1,19 @@
 # SIG Warehouse
 
-ERP-native warehouse workbench (dispatch, returns, custody) for ERPNext, replacing WH's
-Excel/VBA system per `ERPNext/docs/erpnext_final_implementation_plan.md` §9A.9.
+SIG Warehouse is the ERPNext app for Warehouse, Operations, Finance, HR and related workbenches. It owns its app code, pages, doctypes, patches and hooks; ERP records and live configuration remain in the ERP site.
 
-**Status, 2026-09-16: live for real operational use.** All four warehouses (Jizan, Qasim,
-Makkah, Riyadh) have an ACTIVE Stage 4 cutover — ERP is the sole stock writer, the legacy WH
-Excel/VBA workbook is retired from writing. Dispatch (`Issue` button on a Material Request, or
-the Kanban board's card menu), returns/custody declaration, and cancel-remaining-demand are all
-real, audited, idempotent endpoints. Still open: the historical starting balance has 1,102
-unreconciled rows against the legacy workbook (Stage 5 gate 3) — see
-`ERPNext/docs/erpnext_final_implementation_plan.md` §9A.10 for the full statement before treating
-current ERP stock as reconciled to the unit.
+## Current release
 
-This app is the permanent home for the transactional writers (`sig_dispatch_mr`,
-`sig_declare_disposition`) and the lifecycle hooks that keep MR dispatch-state derived
-fields correct on every native ERPNext submit/cancel/amend - not just the two custom
-endpoints. See §9A.9 "Writer placement" for why this is a bench app rather than more
-sandboxed Server Scripts.
+The production site and installed app revisions are recorded in [MASTER.md](MASTER.md) and [Deployment and branches](docs/DEPLOYMENT_AND_BRANCHES.md). GitHub branch contents are not proof of a live deployment. Verify the exact bench and installed hashes in Frappe Cloud before a release.
 
-Deploy pattern: same as `sig_whatsapp` (`ERPNext/scripts/deploy_sig_whatsapp_bench.ps1`,
-retargeted). Requires this app connected to the Frappe Cloud bench via its own GitHub
-repo first - a one-time manual step, same as `sig_whatsapp`'s original setup.
+## Start here
 
-## Operations Workbench
+- [ERP integration master](docs/MASTER-ERP-INTEGRATION.md): current system map and operating boundaries.
+- [Final release checklist](docs/FINAL_RELEASE_CHECKLIST.md): permission, migration and real-user acceptance gate.
+- [Deployment and branches](docs/DEPLOYMENT_AND_BRANCHES.md): installed app refs and release sequence.
+- [Deployment runbook](scripts/deploy/README.md): how Frappe Cloud builds and updates this app.
+- [Operations Workbench](OPERATIONS_WORKBENCH.md): current page behavior and access boundaries.
 
-The app-owned Operations Workbench provides role-routed stage work, personal ToDos,
-open site cycles, and explicit cycle closure. Its Site Cycles subpage gives a
-one-row-per-open-cycle view with stage, pending evidence items, named owner labels,
-and Excel export. Stage rules, the Step 6c As-Built Operational distinction, and
-current access boundaries are recorded in
-[`OPERATIONS_WORKBENCH.md`](OPERATIONS_WORKBENCH.md).
+## Deploying
+
+A push to GitHub is not a deployment. Frappe Cloud builds the configured app branches, then the site update runs migrations. Follow the deployment runbook and final release checklist. This repository does not store Cloud API secrets or site backups.

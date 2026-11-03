@@ -1,3 +1,5 @@
+> **HISTORICAL SNAPSHOT — 1 November 2026.** This document records the pre-cutover review and is not the current production status or release plan. Production is now v16; see [the current master](../docs/MASTER-ERP-INTEGRATION.md) and [deployment/branch map](../docs/DEPLOYMENT_AND_BRANCHES.md), then verify live Cloud state before acting.
+
 # v16 production upgrade: open fixes and acceptance
 
 Recorded 1 November 2026. **Status: NOT READY.** This document records findings and required work; it does not implement, deploy, or verify the fixes. Production `neosys.frappe.cloud` remains on v15. The intended method is Frappe Cloud Version Upgrade of that existing site using its current production database, after the checks below. Do not assume a successful simulation or an Administrator page load is full acceptance. The latest installed revision comparison is in [DEPLOYMENT_READINESS_COMPARISON_20261101.md](DEPLOYMENT_READINESS_COMPARISON_20261101.md).
