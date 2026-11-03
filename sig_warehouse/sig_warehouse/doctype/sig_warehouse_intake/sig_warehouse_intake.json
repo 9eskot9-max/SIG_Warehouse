@@ -24,6 +24,7 @@
   "payload_hash",
   "operation_id",
   "last_error",
+  "item_creation_group",
   "lines"
  ],
  "fields": [
@@ -139,6 +140,13 @@
    "label": "Last Error",
    "fieldtype": "Small Text",
    "read_only": 1
+  },
+  {
+   "fieldname": "item_creation_group",
+   "label": "Item group for new items",
+   "fieldtype": "Link",
+   "options": "Item Group",
+   "description": "Used when creating items from the rows below."
   },
   {
    "fieldname": "lines",

@@ -23,21 +23,25 @@ function sig_intake_guide(frm) {
     $(frm.wrapper).find('.sig-intake-guide').remove();
     const guide = $('<div class="sig-intake-guide" style="border:1px solid var(--border-color);border-radius:8px;padding:16px;margin:16px 0;background:var(--card-bg)">' +
         '<div style="font-weight:600;font-size:15px">' + __('Add items') + '</div>' +
-        '<p class="text-muted" style="margin:6px 0 12px">' + __('Search the item catalogue first. For a new item, paste its description and use AI to suggest the details.') + '</p>' +
+        '<p class="text-muted" style="margin:6px 0 12px">' + __('Enter descriptions and units in the table, choose an item group, then create items from the rows. Search first for items already in the catalogue.') + '</p>' +
         '<button type="button" class="btn btn-default btn-sm" data-find-item>' + __('Find existing item') + '</button> ' +
-        '<button type="button" class="btn btn-primary btn-sm" data-create-item>' + __('Create item with AI') + '</button> ' +
-        (frm.is_new() ? '<span class="text-muted">' + __('Save this intake first to create a new item with AI.') + '</span>' : '') + '</div>');
+        '<button type="button" class="btn btn-primary btn-sm" data-create-item>' + __('Create items from rows') + '</button></div>');
     field.$wrapper.before(guide);
     guide.find('[data-find-item]').on('click', () => {
         if (frm.doc.docstatus !== 0 || frm.doc.purchase_order_created || frm.doc.purchase_receipt) { frappe.msgprint(__('Create a new intake to add more items.')); return; }
         sig_intake_find_items(frm);
     });
-    guide.find('[data-create-item]').on('click', () => {
-        if (frm.is_new()) { frappe.msgprint(__('Choose an action and save the intake first, then create your item.')); return; }
+    guide.find('[data-create-item]').on('click', async () => {
         if (frm.doc.docstatus !== 0 || frm.doc.purchase_order_created || frm.doc.purchase_receipt) {
             frappe.msgprint(__('Create a new intake to add more items.')); return;
         }
-        sig_intake_add_item(frm);
+        if (!frm.doc.item_creation_group) { frappe.msgprint(__('Choose the item group for new items.')); return; }
+        if (!(frm.doc.lines || []).some(row => !row.item_code)) { frappe.msgprint(__('There are no rows without an Item.')); return; }
+        if (frm.is_new() || frm.is_dirty()) await frm.save();
+        const result = await frappe.call({method:'sig_warehouse.sig_warehouse.warehouse_intake.create_items_from_rows',
+            args:{intake_name:frm.doc.name}, freeze:true, freeze_message:__('Creating items…')});
+        await frm.reload_doc();
+        frappe.show_alert({message: __('Created {0} item(s).', [result.message.created]), indicator:'green'});
     });
 }
 
@@ -137,7 +141,6 @@ frappe.ui.form.on('SIG Warehouse Intake', {
             ], values => frappe.call({method:'sig_warehouse.sig_warehouse.warehouse_intake.create_supplier',
                 args:{intake_name:frm.doc.name, ...values}}).then(() => frm.reload_doc()), __('Create supplier'), __('Create'));
         }, __('Actions'));
-        frm.add_custom_button(__('Create item with AI'), () => sig_intake_add_item(frm));
         if (frm.doc.intake_type === 'Item Request') {
             frm.add_custom_button(__('Open native Item form'), () => frappe.new_doc('Item'));
             return;

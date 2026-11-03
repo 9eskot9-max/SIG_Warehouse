@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 import urllib.request
 import urllib.error
 
@@ -161,6 +162,51 @@ def create_item(intake_name, item_code, item_name, description, item_group, stoc
         "item_group": item_group, "stock_uom": stock_uom, "is_stock_item": 1})
     item.insert()
     return {"name": item.name, "item_name": item.item_name, "description": item.description, "stock_uom": item.stock_uom}
+
+
+@frappe.whitelist()
+def create_items_from_rows(intake_name):
+    """Create Items for the saved, unmatched rows in a single transaction."""
+    intake = frappe.get_doc("SIG Warehouse Intake", intake_name, for_update=True)
+    _require_doc_permission("SIG Warehouse Intake", "write", intake)
+    _require_doc_permission("Item", "create")
+    _require_doc_permission("Item", "read")
+    if intake.docstatus != 0 or intake.purchase_receipt or intake.purchase_order_created:
+        frappe.throw(_("This intake can no longer be changed."))
+    group = intake.item_creation_group
+    if not group or not frappe.db.exists("Item Group", {"name": group, "is_group": 0}):
+        frappe.throw(_("Select a non-group Item Group for new items."))
+    rows = [row for row in intake.lines if not row.item_code]
+    if not rows:
+        frappe.throw(_("There are no rows without an Item."))
+    seen = set()
+    prepared = []
+    for row in rows:
+        description = (row.description or "").strip()
+        if not description or not row.uom or not frappe.db.exists("UOM", row.uom):
+            frappe.throw(_("Line {0}: enter a description and a valid unit.").format(row.idx))
+        item_name = description[:140]
+        key = item_name.casefold()
+        if key in seen:
+            frappe.throw(_("Line {0}: this description is repeated in the intake. Review the rows first.").format(row.idx))
+        seen.add(key)
+        if frappe.db.exists("Item", {"item_name": item_name}):
+            frappe.throw(_("Line {0}: an Item with this name already exists. Find and select it first.").format(row.idx))
+        slug = re.sub(r"[^A-Z0-9]+", "-", description.upper()).strip("-")[:35].strip("-") or "ITEM"
+        suffix = hashlib.sha256((intake.name + ":" + row.name).encode()).hexdigest()[:8].upper()
+        code = "SIG-" + slug + "-" + suffix
+        if frappe.db.exists("Item", code):
+            frappe.throw(_("Line {0}: generated code already exists. Review this row before retrying.").format(row.idx))
+        prepared.append((row, description, item_name, code))
+    for row, description, item_name, code in prepared:
+        item = frappe.get_doc({"doctype": "Item", "item_code": code, "item_name": item_name,
+            "description": description, "item_group": group, "stock_uom": row.uom, "is_stock_item": 1})
+        item.insert()
+        row.item_code = item.name
+        row.item_name = item.item_name
+        row.match_status = "Matched"
+    intake.save()
+    return {"created": len(prepared)}
 
 
 @frappe.whitelist()
