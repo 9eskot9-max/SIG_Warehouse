@@ -1,3 +1,5 @@
+> **HISTORICAL SNAPSHOT — 1 November 2026.** This document records the pre-cutover review and is not the current production status or release plan. Production is now v16; see [the current master](../docs/MASTER-ERP-INTEGRATION.md) and [deployment/branch map](../docs/DEPLOYMENT_AND_BRANCHES.md), then verify live Cloud state before acting.
+
 # V16 deployment readiness comparison — 1 November 2026
 
 **Decision: NOT READY for production cutover.** The installed v15 and trial v16 app sources are now compared at their current Cloud-reported commits. This is a preparation record; no production change, site update, or migration was run.
