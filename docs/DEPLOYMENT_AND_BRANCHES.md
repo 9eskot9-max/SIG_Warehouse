@@ -5,10 +5,10 @@ Last verified from Frappe Cloud and GitHub: 4 November 2026, Asia/Riyadh. This i
 ## Production snapshot (4 November 2026)
 
 - Site: `neosys.frappe.cloud` — Active, on Frappe Cloud bench group `neoweb-v16`.
-- Bench instance: `bench-51251-000018-f1f`, built from SIG Warehouse `76927313`.
-- Latest site update: `0r3ck2fqno` — Success, 4 November 2026, 7:07 PM Riyadh. It migrated the Excel Setup link changes and the no-visit and weekly PM check code (both switched off).
+- Site bench: `bench-51251-000021-f1f`; bench group `neoweb-v16` is Active.
+- Latest site update: `6t7cbdidra` — Success, 4 November 2026, 4:26 PM Riyadh. It followed deployment pipeline `3roheu9glr`, which built SIG Warehouse source HEAD `c8f71c4` with zero reported issues.
 - Frappe `16.54.0` `2fcb939`; ERPNext `16.53.0` `9cd11b1`; HRMS `16.53.0` `b12d935`. Frappe and HRMS updates are listed by Frappe Cloud as available and are **not applied**.
-- SIG Warehouse, live: `codex/sig-personal-home-v16` at `76927313`.
+- SIG Warehouse source deployed by the latest pipeline: `codex/sig-personal-home-v16` at `c8f71c4`; site's Apps page still reports installed commit `6ce8da3`, so code installation is not confirmed.
 - ZATCA Integration, live: `codex/v16-b2b-clearance-parity` at `a8f9fb5`.
 - SIG WhatsApp, live: `v16-migration` at `9bfd1bd`. SIG QR Design, live: `v16-migration` at `39ecff6`.
 - Trial: the site `neosys-v16-trial.frappe.cloud` has left the Frappe Cloud site list. Its bench `bench-51214-000014-f28f3` is still Active with no sites. Removal awaits owner confirmation.
@@ -17,13 +17,13 @@ Last verified from Frappe Cloud and GitHub: 4 November 2026, Asia/Riyadh. This i
 
 | Branch | Role today | Head | Live on production? |
 |---|---|---|---|
-| `codex/sig-personal-home-v16` | Production source configured in Frappe Cloud. | `5fe31ca` | Last completed site read-back is `76927313`. Current Cloud dashboard shows the bench group `Deploying`; the app row is `162a323` / `Update Available`. `5fe31ca` is pushed but **not confirmed live**. |
+| `codex/sig-personal-home-v16` | Production source configured in Frappe Cloud. | `c8f71c4` | Pipeline `3roheu9glr` and site update `6t7cbdidra` succeeded; site is Active. The site's Apps page still reports `6ce8da3`, so the code change at `5fe31ca` is **not confirmed installed**. |
 | `main` | GitHub default; not the v16 build source. | `f32c7ea` | One commit is unique by ancestry; `git cherry` confirms its intake guide/UOM list-view patch is already represented in the production branch. No unique source patch remains to port from current `main`. |
 | `v16-migration` | Former v16 staging; no longer built. | `5e63f85` | 12 commits behind production; none ahead. |
 
 Open pull requests: `#71` (draft, to `main`) and `#64`, `#65`, `#66` (drafts, to `v16-migration`) are superseded by work already on the production branch. They are recommended for closing. This needs owner approval.
 
-The full ERP integration master on the production-source branch includes Claude’s 4 November updates. The local `D:\erp\ERPNext\Automation DB\MASTER-ERP-INTEGRATION.md` copy was behind at 3 November; it has been synchronized to that newer text, then updated with the current `5fe31ca` and Cloud deployment status.
+The full ERP integration master on the production-source branch includes Claude’s 4 November updates. The local `D:\erp\ERPNext\Automation DB\MASTER-ERP-INTEGRATION.md` copy was behind at 3 November; it has been synchronized to that newer text, then updated with deployment pipeline `3roheu9glr`, site update `6t7cbdidra`, and the installed-revision mismatch.
 
 ## Warnings
 
