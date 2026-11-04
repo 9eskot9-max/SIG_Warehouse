@@ -3066,6 +3066,52 @@ Kept here because they cost real time to (re)discover once already, and nothing 
 
 Restated from 6A.15d because it is easy to reintroduce: a Frappe **Server Script** (`script_type = Scheduler Event` or `API`) executes inside `safe_exec`, with `frappe` already in scope. A literal `import frappe` line at the top is not a no-op — it raises `ImportError: __import__ not found` and silently fails the job every run (`sig_field_ops_daily` did this nightly for at least a week before being noticed). A real bench-app Python module (`sig_warehouse/sig_warehouse/*.py`) has no such restriction and imports normally.
 
+## 6D. Form layout and clutter review — 4 November 2026
+
+Live counts were read-only, from the production site on 4 November 2026. Nothing below has been changed on the live site. Status key: **DONE** = in source or live as stated; **PENDING** = needs an owner decision or a build; **NOT DEPLOYED** = in the production branch, not yet on the live site.
+
+### Done
+- **Left rail and icons:** SIG Finance, Petty Cash, SIG Warehouse, SIG Operations, SIG HR and Setup, with colour icons. Live.
+- **Form layout tidy-up (first pass):** Journal Entry, Payment Entry, Stock Entry, Material Request, Employee, Supplier and SIG Site Cycle. Live.
+- **Address rule:** a new Desk Address must link to a Customer or Supplier; Linked To column; Customer addresses card on the Finance workbench. Live.
+- **Sales Invoice (first pass):** Legacy Import is shown only to System Manager and Accounts Manager; the single Site box is hidden (the Tawal Site and Cycle Links table stays). Commit `9412e48` on `codex/sig-personal-home-v16`. **NOT DEPLOYED.**
+- **Non-deployed questions answered:** the six legacy Payment Entry drafts and the 98 draft journals are listed below for decisions.
+
+### Findings, by doctype
+
+| Doctype | Live records | Finding | Proposed action | Status |
+|---|---|---|---|---|
+| Journal Entry | 8,758 | Entry Category is "General Journal" on all records. Entry Type is "Journal Entry" on 8,725; the rest are Opening Entry (1) and Credit Note (1). PC Clearance tick set on 0. Clearance journals link to receipts through the hidden receipt field (99 journals, 98 still drafts). Multi Currency used once. Site set on 0. No cheque numbers. | Hide Entry Category, PC Clearance tick, Multi Currency and Site. Limit Entry Type to the options used. Show cheque fields for Bank Entry only. Petty cash in one section. | PENDING (Advanced step) |
+| Payment Entry | 2,636 | Six legacy drafts carry the PC Clearance fields. Mode of Payment blank on 2,582. Site set on 0. Internal Transfer used on 0. Book Advance Payments always off. | Hide the legacy PC fields once the six drafts are resolved. Move Mode of Payment to Advanced. Hide Site. Hide Internal Transfer and Book Advance Payments. | PENDING |
+| Sales Invoice | 387 | Site 0 (hidden in source). Legacy import on 7 of 39 invoices since 1 October (restricted in source). POS, TDS, debit note, Update Stock and retention all 0. Print Bank Account set on 20. Is Return on 10. | Advanced: Is Return and Print Bank Account under invoice options; Update Stock and Retention under accounting. Hide POS, TDS and Debit Note. | PENDING (Advanced step) |
+| Purchase Invoice | 2,496 | Site 0. Update Stock on 4. Is Return on 1. Disable Rounded Total set on 1,738 (about 70%), which looks like a default applied in practice. | Hide Site. Move Update Stock to Advanced. Decide the Disable Rounded Total default first. | PENDING (owner question) |
+| Delivery Note | 2 | Almost unused. Dispatch runs through Stock Entry. | Decide whether to hide the Delivery Note from the workspace. | PENDING (owner decision) |
+| Stock Entry | 1,021 | Site used on 689; keep it. Use Multi-Level BOM set on all 1,021, probably a default. Add to Transit, Apply Putaway Rule and Inspection Required used on 0. | Hide Multi-Level BOM, Add to Transit, Putaway and Inspection. Keep Site. | PENDING |
+| Material Request | 488 | Site used on 448; keep it. Dispatch and source-confirmation fields are working data. | Keep. | DONE in first pass |
+| Purchase Order | 199 | Site 0. Subcontracting, Internal Supplier, Group Same Items and Ignore Pricing Rule all 0. Disable Rounded Total set on 78. | Hide Site. Move the other checkboxes to Advanced. | PENDING |
+| Purchase Receipt | 281 | Site set on 1. Return, Putaway, Subcontracting and Internal Supplier all 0. | Hide Site. Move the rest to Advanced. | PENDING |
+| Customer | 79 | Internal Customer 0. Sales-invoice-without-order/delivery flags not counted. | Move to Advanced; keep the ZATCA Settings tab. | PENDING |
+| Supplier | 1,262 | Transporter and Internal Supplier 0. Provisional fields are onboarding data. | Keep the Provisional fields; move the rest to Advanced. | PENDING |
+| Employee | 66 | 105 visible fields. KSA compliance fields spread through the form (Out Mudad used on 29). | Group the KSA compliance fields into one section. | PENDING |
+| Project | 50 | Collect Progress 0. Canonical for agreement used. | Move Collect Progress to Advanced. | PENDING |
+
+### Decisions needed from the owner
+1. Deploy the Sales Invoice first pass (commit `9412e48`).
+2. Six legacy Payment Entry drafts: complete, cancel or delete each one. Links are in the master and the review page.
+3. 98 draft journals linked to petty-cash receipts: who submits or cancels them, and when.
+4. Delivery Note: keep in the workspace, or hide.
+5. Purchase Invoice: is Disable Rounded Total the intended default? About 70% of invoices have it set.
+6. Confirm the Site hide for Journal Entry, Payment Entry, Purchase Order, Purchase Invoice and Purchase Receipt, following the Sales Invoice decision.
+7. Update Stock: stays in Advanced rather than hidden, because it's the only way to invoice material without a delivery note.
+8. Tawal Site and Cycle Links table: kept.
+
+### Build order (after decisions)
+1. Advanced section for Journal Entry, Payment Entry and Sales Invoice, one labelled subpart per group (invoice options, accounting, petty cash, compliance, not used). One patch in the repo, idempotent, with screenshots before any live deploy.
+2. Purchase Invoice, Purchase Order, Purchase Receipt and Stock Entry, using the same pattern.
+3. Customer, Supplier, Employee and Project forms.
+
+Hidden fields are a form change, not a block: an API call or import can still set them. Mandatory ZATCA fields stay visible.
+
 ## 7. Risk register
 
 | # | Risk | Likelihood | Impact | Control |
