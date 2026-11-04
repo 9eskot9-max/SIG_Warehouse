@@ -8,7 +8,7 @@ Codex is the active repository agent at the owner’s direction. The owner can c
 | Next holder | **Codex, unless the owner reassigns** |
 | Branch | `codex/sig-personal-home-v16` (production source) |
 | Latest deployed source commit | `7a37c9a` (live on `neosys.frappe.cloud`, bench `bench-51251-000027-f1f`) |
-| Open items for the next holder | Route, migration rehearsal and HR/Projects/Finance role/persona acceptance are NOT TESTED. Build secure document upload before collecting ID/bank evidence; payroll/User/Finance follow-on actions and onboarding-control linkage remain open. The existing Faizan phone collision must be reconciled before messaging or candidate intake. Do not send a WhatsApp message or create/update Faizan records without the required identity and number review. |
+| Open items for the next holder | Owner asks Codex to publish the missing Finance employee-setup integration note and deploy current production head, including the 4 November workbench tint commit `e7365d1`. Route, migration rehearsal and HR/Projects/Finance role/persona acceptance remain NOT TESTED. Secure document upload, payroll/User/Finance follow-on actions and onboarding-control linkage remain open. Reconcile Faizan's phone collision before any intake/message or record change. |
 | Waiting on the owner | Weekly PM check per project family (families, recipients and project mapping). Six legacy Payment Entry drafts. 98 draft petty-cash journals. |
 
 ## Rules
