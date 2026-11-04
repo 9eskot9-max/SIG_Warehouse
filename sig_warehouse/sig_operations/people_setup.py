@@ -6,10 +6,11 @@ employee details to the workbook configuration or bypass their permissions.
 
 import frappe
 from frappe import _
+from frappe.model import get_permitted_fields
 
 
 SECTIONS = {
-    "employees": ("Employee", ("name", "employee_name", "status", "designation", "department", "cell_number")),
+    "employees": ("Employee", ("name", "employee_name", "status", "designation", "department", "cell_number", "user_id", "custom_custody_account")),
     "project_assignments": ("SIG Employee Project Assignment", ("name", "employee", "employee_name", "project", "project_role", "start_date", "end_date", "status")),
     "reporter_maps": ("SIG Field Reporter Map", ("name", "reporter_phone", "employee")),
     "candidates": ("SIG Candidate Intake", ("name", "candidate_name", "status")),
@@ -33,13 +34,13 @@ def get_section(section):
         frappe.throw("You do not have access to this section.", frappe.PermissionError)
     meta = frappe.get_meta(doctype)
     # Respect field permlevels in addition to document and user permissions.
-    allowed = set(frappe.permissions.get_permitted_fields(doctype, user=frappe.session.user, permission_type="read"))
+    allowed = set(get_permitted_fields(doctype, user=frappe.session.user, permission_type="read"))
     fields = [field for field in proposed_fields if field == "name" or (meta.has_field(field) and field in allowed)]
     fields.append("modified")
     return {
         "doctype": doctype,
         "fields": fields,
-        "rows": frappe.get_list(doctype, fields=fields, limit_page_length=500, order_by="modified desc"),
+        "rows": frappe.get_list(doctype, fields=fields, limit_page_length=0, order_by="modified desc"),
         "can_create": bool(frappe.has_permission(doctype, "create")),
         "can_write": bool(frappe.has_permission(doctype, "write")),
     }
@@ -58,7 +59,7 @@ def update_section_record(section, name, modified, values):
     doc.check_permission("write")
     if str(doc.modified) != str(modified):
         frappe.throw(_("This record changed. Reload it before saving."))
-    permitted = set(frappe.permissions.get_permitted_fields(doctype, user=frappe.session.user, permission_type="write"))
+    permitted = set(get_permitted_fields(doctype, user=frappe.session.user, permission_type="write"))
     if set(values) - permitted:
         frappe.throw(_("You cannot edit one or more selected fields."), frappe.PermissionError)
     doc.update(values)
@@ -75,7 +76,7 @@ def create_project_assignment(values):
     values = frappe.parse_json(values)
     if not isinstance(values, dict) or set(values) - set(EDITABLE["project_assignments"]):
         frappe.throw(_("Unsupported fields."))
-    allowed = set(frappe.permissions.get_permitted_fields(doctype, user=frappe.session.user, permission_type="write"))
+    allowed = set(get_permitted_fields(doctype, user=frappe.session.user, permission_type="write"))
     if set(values) - allowed:
         frappe.throw(_("You cannot edit one or more selected fields."), frappe.PermissionError)
     doc = frappe.get_doc({"doctype": doctype, "status": "Draft", **values})
