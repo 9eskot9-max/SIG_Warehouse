@@ -1,0 +1,38 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:EPA-{#####}",
+ "creation": "2026-11-04 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": ["employee", "employee_name", "project", "project_role", "section_break_dates", "start_date", "end_date", "status", "section_break_approval", "approved_by", "approved_on", "source", "notes"],
+ "fields": [
+  {"fieldname": "employee", "fieldtype": "Link", "in_list_view": 1, "in_standard_filter": 1, "label": "Employee", "options": "Employee", "reqd": 1},
+  {"fetch_from": "employee.employee_name", "fieldname": "employee_name", "fieldtype": "Data", "in_list_view": 1, "label": "Employee Name", "read_only": 1},
+  {"fieldname": "project", "fieldtype": "Link", "in_list_view": 1, "in_standard_filter": 1, "label": "Project", "options": "Project", "reqd": 1},
+  {"fieldname": "project_role", "fieldtype": "Select", "in_list_view": 1, "in_standard_filter": 1, "label": "Project Role", "options": "Team Leader\nProject Manager\nCoordinator\nSupervisor\nTeam Member\nOther", "reqd": 1},
+  {"fieldname": "section_break_dates", "fieldtype": "Section Break", "label": "Assignment Period"},
+  {"fieldname": "start_date", "fieldtype": "Date", "in_list_view": 1, "label": "Start Date", "reqd": 1},
+  {"fieldname": "end_date", "fieldtype": "Date", "in_list_view": 1, "label": "End Date"},
+  {"default": "Draft", "fieldname": "status", "fieldtype": "Select", "in_list_view": 1, "in_standard_filter": 1, "label": "Status", "options": "Draft\nActive\nEnded\nCancelled", "reqd": 1},
+  {"fieldname": "section_break_approval", "fieldtype": "Section Break", "label": "Approval and Source"},
+  {"fieldname": "approved_by", "fieldtype": "Link", "label": "Approved By", "options": "User", "read_only": 1},
+  {"fieldname": "approved_on", "fieldtype": "Datetime", "label": "Approved On", "read_only": 1},
+  {"default": "HR Setup", "fieldname": "source", "fieldtype": "Select", "label": "Source", "options": "HR Setup\nProject Setup\nTransfer\nCorrection", "reqd": 1},
+  {"fieldname": "notes", "fieldtype": "Small Text", "label": "Notes", "description": "Record the business reason or reference. Do not enter identity, bank, or other sensitive personal data."}
+ ],
+ "links": [],
+ "modified": "2026-11-04 00:00:00",
+ "module": "SIG HR",
+ "name": "SIG Employee Project Assignment",
+ "permissions": [
+  {"create": 1, "read": 1, "report": 1, "role": "System Manager", "write": 1},
+  {"create": 1, "read": 1, "report": 1, "role": "HR Manager", "write": 1},
+  {"create": 1, "read": 1, "report": 1, "role": "Projects Manager", "write": 1},
+  {"read": 1, "report": 1, "role": "HR User"},
+  {"read": 1, "report": 1, "role": "Projects User"}
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}
