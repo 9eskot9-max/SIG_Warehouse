@@ -14,11 +14,13 @@ Columns: **When** · **Who** · **Action** · **Bench** · **SIG Warehouse commi
 | 2026-11-04 17:28 | Not recorded by Claude (owner or Codex) | Site update | not recorded | not recorded | update `fb079l4e72` | Success | Found in Cloud on 4 November; no commit recorded. |
 | 2026-11-04 17:52 | Not recorded by Claude (owner or Codex) | Site update | not recorded | not recorded | update `9oq8ebg0bg` | Success | Found in Cloud on 4 November; no commit recorded. |
 | 2026-11-04 18:54 | Owner via Codex (Cloud dashboard) | Site update to intake item changes | bench-51251-000023 | `c8f71c4` | pipeline `3roheu9glr`, update `6t76uuin7k` | Success | Includes the intake item-family commits (`13faa51`, `cf544c5`, `162a323`, `5fe31ca`); the catalogue default patch ran (Item field `custom_wh_catalogue`, default 1). Does **not** include the Sales Invoice change (`ce468a7`) or the cleanup patch (`7489d1e`). Codex recorded the Cloud Apps page as still showing `6ce8da3`; the API read of installed apps on 4 November shows `c8f71c4`, so that page was stale. |
+| 2026-11-04 20:11 | Claude (for owner) | Site update: Sales Invoice tidy-up; panel reverted | bench-51251-000025 | `62c2e36` | build `22qqklfqlv`, update `3a3t76h38e` | Success | The cleanup patch did **not** run: its line was appended to a stray `patches.txt`. Caught by the post-deploy check. |
+| 2026-11-04 20:17 | Claude (for owner) | Site update: cleanup patch (Site hidden on JE/PE/PO/PI/PR, Disable Rounded Total on and read-only on 8 doctypes, Stock Entry BOM and unused boxes hidden) | bench-51251-000026 | `aa84fd3` | build `2c7lu6ut2v`, update `4di6br96tb` | Success | Verified on the live site. Frappe and HRMS updates left out. |
 
 ## Open at the time of this log
 
-- Bench `bench-51251-000024` is Active and is built from `7489d1e`. That commit contains a Field Planner weekly PM panel that the owner did not ask for (removed in `b246ace`). The site shows "Update Available" because of this bench. **Do not schedule the update from it.** Rebuild from a branch head that includes `b246ace` first.
-- Not yet deployed: Sales Invoice tidy-up (`ce468a7`), Journal Entry and related cleanup patch (`advanced_cleanup_v1`).
+- Benches `bench-51251-000024` (built from `7489d1e`, with the unrequested Field Planner panel) and `000025` are Active but unused. The site is on `000026`. Frappe and HRMS still show updates available and are not applied.
+- Not built yet: the weekly PM check per project family (families, recipients and project mapping are with the owner).
 
 ## Row template
 

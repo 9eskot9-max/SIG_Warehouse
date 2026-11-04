@@ -4,11 +4,11 @@ One agent works on the production branch at a time. The owner can change the hol
 
 | Field | Value |
 |---|---|
-| Baton holder | **Claude** (rebuild and deploy of the Sales Invoice and cleanup changes) |
-| Next holder | **Codex** |
+| Baton holder | **Codex** (taken from Claude after the 4 November deploy) |
+| Next holder | **Claude** |
 | Branch | `codex/sig-personal-home-v16` |
-| Head when the baton was taken | `a03c88f` |
-| Open items for the holder | Rebuild from the branch head with SIG Warehouse only; deploy after the new bench is Active; add a `docs/DEPLOY_LOG.md` row. |
+| Head when the baton was handed over | `aa84fd3` (live on `neosys.frappe.cloud`, bench `000026`) |
+| Open items for the holder | Whatever the owner asks Codex for next. Do not schedule any Frappe Cloud update unless the owner says so. Benches `000024` and `000025` are unused. |
 | Waiting on the owner | Weekly PM check per project family (families, recipients and project mapping). Six legacy Payment Entry drafts. 98 draft petty-cash journals. |
 
 ## Rules
