@@ -6,9 +6,9 @@ One agent works on the production branch at a time. The owner can change the hol
 |---|---|
 | Baton holder | **Codex** (taken from Claude after the 4 November deploy) |
 | Next holder | **Claude** |
-| Branch | `codex/sig-personal-home-v16` |
-| Head when the baton was handed over | `aa84fd3` (live on `neosys.frappe.cloud`, bench `000026`) |
-| Open items for the holder | Whatever the owner asks Codex for next. Do not schedule any Frappe Cloud update unless the owner says so. Benches `000024` and `000025` are unused. |
+| Branch | `codex/employee-project-setup` (isolated topic branch from `codex/sig-personal-home-v16`) |
+| Head when the baton was handed over | `620c69e` (source base; new employee setup change is not deployed) |
+| Open items for the holder | Implement and stage Employee Project Assignment + Custom Setup navigation; document WhatsApp intake requirements and Faizan's redacted dry-run boundaries. Do not schedule a Frappe Cloud update unless the owner says so. |
 | Waiting on the owner | Weekly PM check per project family (families, recipients and project mapping). Six legacy Payment Entry drafts. 98 draft petty-cash journals. |
 
 ## Rules
