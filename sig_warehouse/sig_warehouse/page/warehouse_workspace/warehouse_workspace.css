@@ -112,8 +112,9 @@
 .sig-wh-card--bad   { --card-accent: var(--sig-bad);  --card-chip: var(--sig-bad-bg); }
 .sig-wh-card:hover, .sig-wh-card:focus-visible { border-color: var(--card-accent); border-inline-start-width: 4px; box-shadow: 0 3px 12px rgba(6, 22, 52, .08); color: var(--text-color); outline: none; transform: translateY(-1px); }
 .sig-wh-card:focus-visible { box-shadow: 0 0 0 3px rgba(30, 127, 252, .25); }
-.sig-wh-card-top { display: flex; min-height: 30px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-.sig-wh-icon { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 8px; background: var(--card-chip); color: var(--card-accent); font-size: 14px; }
+.sig-wh-card-top { display: flex; min-height: 48px; align-items: center; justify-content: flex-start; margin-bottom: 10px; }
+.sig-wh-icon { display: grid; width: 48px; height: 48px; place-items: center; flex: 0 0 48px; }
+.sig-wh-icon svg { display: block; width: 48px; height: 48px; }
 .sig-wh-open { color: var(--text-light); font-size: 11px; }
 .sig-wh-card-title { color: var(--sig-navy); font-size: 14px; font-weight: 600; }
 .sig-wh-metric { margin-top: 8px; color: var(--card-accent); font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
