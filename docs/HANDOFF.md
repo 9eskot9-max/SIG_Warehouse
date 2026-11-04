@@ -18,3 +18,7 @@ Codex is the active repository agent at the owner’s direction. The owner can c
 3. One move = one task the owner asked for, finished and pushed. Do not start a second task inside a move.
 4. Never deploy, schedule a Frappe Cloud update, or edit the Cloud benches unless the owner told you to in this move.
 5. Add a row to `docs/DEPLOY_LOG.md` for every Cloud action, in the same last commit.
+
+## People routing safety staging — 4 November 2026
+
+Codex is staging a read-only People routing safety change and reconciliation plan. Published task routing and fixed-file clearance scopes are separate; the production editor remains writable until the safety change is deployed. See `docs/PEOPLE_CONFIGURATION_RECONCILIATION.md`. The wider family/team/member model, 5G/Colocation alias migration, actual employee data reconciliation and permission/persona acceptance remain open. PR #80 is an independent documentation release record; coordinate any overlapping documentation before merge. No Cloud action has been authorized in this move.

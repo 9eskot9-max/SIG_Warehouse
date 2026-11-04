@@ -108,10 +108,10 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
             if (key === 'pc_routing') {
                 const matrix = routingState.matrix, groups = Object.keys(matrix.review_groups);
                 const select = (field, value, i) => '<select class="form-control es-pc-field" data-index="' + i + '" data-pc-field="' + field + '">' + groups.map(g => '<option value="' + esc(g) + '" ' + (g === value ? 'selected' : '') + '>' + esc(matrix.review_groups[g].label || g) + '</option>').join('') + '</select>';
-                root.html('<div class="es-tools"><label>' + esc(__('Setup list')) + ' <select class="form-control es-dataset">' + options + '</select></label><button type="button" class="btn btn-default es-pc-add">' + esc(__('Add row')) + '</button><button type="button" class="btn btn-default es-pc-import">' + esc(__('Paste existing routing')) + '</button></div>' +
-                    '<p class="text-muted">' + esc(__('Employee project group and petty-cash review routing. Approved extra groups remain explicit.')) + '</p><div class="es-scroll"><table class="table table-bordered"><thead><tr><th>' + esc(__('Employee')) + '</th><th>' + esc(__('Name')) + '</th><th>' + esc(__('Project group')) + '</th><th>' + esc(__('PC review group')) + '</th><th>' + esc(__('Additional groups (comma separated keys)')) + '</th></tr></thead><tbody>' +
+                root.html('<div class="es-tools"><label>' + esc(__('Setup list')) + ' <select class="form-control es-dataset">' + options + '</select></label></div>' +
+                    '<p class="text-warning">' + esc(__('People routing is read-only until petty-cash clearance permissions are aligned with the published routing.')) + '</p><fieldset disabled><div class="es-scroll"><table class="table table-bordered"><thead><tr><th>' + esc(__('Employee')) + '</th><th>' + esc(__('Name')) + '</th><th>' + esc(__('Project group')) + '</th><th>' + esc(__('PC review group')) + '</th><th>' + esc(__('Additional groups (comma separated keys)')) + '</th></tr></thead><tbody>' +
                     matrix.employees.map((row, i) => '<tr><td>' + esc(row.employee) + '</td><td>' + esc(row.employee_name) + '</td><td>' + select('work_group', row.work_group, i) + '</td><td>' + select('pc_review_group', row.pc_review_group, i) + '</td><td><input class="form-control es-pc-field" data-index="' + i + '" data-pc-field="additional_review_groups" value="' + esc((row.additional_review_groups || []).join(', ')) + '"></td></tr>').join('') + '</tbody></table></div>' +
-                    '<h4>' + esc(__('Reviewers by group')) + '</h4><p class="text-muted">' + esc(__('Separate employee names with semicolons. Reviewers must appear in the employee routing list.')) + '</p><table class="table table-bordered"><tbody>' + groups.map(g => '<tr><td>' + esc(matrix.review_groups[g].label || g) + '</td><td><input class="form-control es-pc-reviewers" data-group="' + esc(g) + '" value="' + esc((matrix.review_groups[g].reviewers || []).join('; ')) + '"></td></tr>').join('') + '</tbody></table>');
+                    '<h4>' + esc(__('Reviewers by group')) + '</h4><p class="text-muted">' + esc(__('Separate employee names with semicolons. Reviewers must appear in the employee routing list.')) + '</p><table class="table table-bordered"><tbody>' + groups.map(g => '<tr><td>' + esc(matrix.review_groups[g].label || g) + '</td><td><input class="form-control es-pc-reviewers" data-group="' + esc(g) + '" value="' + esc((matrix.review_groups[g].reviewers || []).join('; ')) + '"></td></tr>').join('') + '</tbody></table></fieldset>');
                 return;
             }
             const fields = result.fields.filter(f => f !== 'modified');
@@ -288,11 +288,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
     });
     page.set_primary_action(__('Save and publish'), async () => {
         if (selected === 'people:pc_routing') {
-            const rows = routingState.matrix.employees.map(row => ({employee: row.employee, work_group: row.work_group, pc_review_group: row.pc_review_group, additional_review_groups: row.additional_review_groups || []}));
-            const reviewerGroups = Object.fromEntries(Object.entries(routingState.matrix.review_groups).map(([key, group]) => [key, group.reviewers]));
-            await frappe.call({method: 'sig_warehouse.sig_operations.people_routing.publish', args: {rows: JSON.stringify(rows), reviewer_groups: JSON.stringify(reviewerGroups), base_revision: routingState.revision}, freeze: true});
-            routingState = (await frappe.call({method: 'sig_warehouse.sig_operations.people_routing.get_state', freeze: true})).message;
-            routingDirty = false; render(); frappe.show_alert({message: __('People routing published'), indicator: 'green'}); return;
+            frappe.msgprint(__('People routing is read-only until petty-cash clearance permissions are aligned.')); return;
         }
         if (selected.startsWith('people:')) { frappe.msgprint(__('Use the record edit action to save changes in this section.')); return; }
         await call('save_and_publish', {datasets: JSON.stringify(state.datasets), base_revision: state.revision}); await load();
