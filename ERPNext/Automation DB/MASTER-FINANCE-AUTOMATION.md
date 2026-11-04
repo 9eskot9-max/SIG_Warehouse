@@ -1,5 +1,7 @@
 # SIG Finance Automation — Employee Setup Integration
 
+**People setup development draft — 4 November 2026:** PR #79 develops an employee operational-group and petty-cash review-group editor in the existing Excel Setup page. It proposes reusing the current reviewer matrix and PC routing consumers; it is **not deployed or accepted**. The employee's existing `custom_custody_account` can be displayed where permitted, but this draft does not create, relink or reconcile accounts. AM's separate employee-account and bank-beneficiary mappings remain in AM. Finance must continue to verify account, company and beneficiary evidence through its existing controls.
+
 **Status checked 4 November 2026:** this finance integration note is in the SIG Warehouse GitHub source and is included in deployed source `0d7fd9e` on active bench `bench-51251-000029-f1f` (site update `1ve5q5o9vm`). The onboarding application and Employee Project Assignment were deployed earlier in SIG Warehouse `7a37c9a`. This note documents the Finance boundary; publishing it did not create finance records or change existing automations. Live workflow, migration and Finance persona acceptance are **NOT TESTED**.
 
 ## Purpose and control boundary

@@ -12,8 +12,15 @@ import frappe
 
 
 def load_matrix():
-    path = Path(__file__).with_name("pc_review_assignments.json")
-    matrix = json.loads(path.read_text(encoding="utf-8-sig"))
+    # The existing approved file remains the source until the first publication.
+    configured = None
+    if frappe.db.exists("DocType", "SIG People Routing Setup"):
+        configured = frappe.db.get_single_value("SIG People Routing Setup", "configuration_json")
+    if configured:
+        matrix = json.loads(configured)
+    else:
+        path = Path(__file__).with_name("pc_review_assignments.json")
+        matrix = json.loads(path.read_text(encoding="utf-8-sig"))
     if matrix.get("phase") != "task_assignment_only":
         frappe.throw("PC review matrix is not marked for task assignment. [PC_MATRIX_PHASE_INVALID]")
     return matrix

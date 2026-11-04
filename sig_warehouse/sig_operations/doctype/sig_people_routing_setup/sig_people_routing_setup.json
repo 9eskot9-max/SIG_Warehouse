@@ -1,0 +1,13 @@
+{
+ "doctype": "DocType",
+ "name": "SIG People Routing Setup",
+ "module": "SIG Operations",
+ "issingle": 1,
+ "track_changes": 1,
+ "field_order": ["revision", "configuration_json"],
+ "fields": [
+  {"fieldname": "revision", "fieldtype": "Int", "label": "Revision", "read_only": 1},
+  {"fieldname": "configuration_json", "fieldtype": "Code", "label": "Configuration", "options": "JSON", "read_only": 1}
+ ],
+ "permissions": [{"role": "System Manager", "read": 1}]
+}

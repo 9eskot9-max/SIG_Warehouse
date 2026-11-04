@@ -3,7 +3,8 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
     const method = 'sig_warehouse.sig_operations.excel_setup.';
     const poSetupMethod = 'sig_warehouse.sig_operations.excel_setup_v3.';
     const root = $('<div class="sig-excel-setup"></div>').appendTo(page.main);
-    let state, selected = 'projects', dirty = false;
+    let state, selected = 'projects', dirty = false, peopleState = null, routingState = null, routingDirty = false;
+    const peopleLabels = {employees: __('Employees'), pc_routing: __('Employee project groups / petty cash'), project_assignments: __('Employee project assignments'), reporter_maps: __('Field reporter mappings'), candidates: __('Candidate onboarding'), onboarding: __('Employee onboarding checks')};
     const labels = {projects: __('Projects / PO scope'), builder_profiles: __('Builder profiles (legacy)'),
         builder_contacts: __('Profile-linked contacts (legacy)'), project_builder_links: __('Project → Builder assignments (legacy)'), tag_definitions: __('Tags definitions'),
         tag_upl_links: __('Tags to UPL'), material_upl_links: __('Item to UPL'), builder_defaults: __('TCN wording and defaults'), teams: __('Field teams (leaders)')};
@@ -100,6 +101,28 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
     const callPoSetup = async (name, args={}) => (await frappe.call({method: poSetupMethod + name, args, freeze: true})).message;
     const render = () => {
         root.attr('dir', frappe.boot.lang === 'ar' ? 'rtl' : 'ltr');
+        if (selected.startsWith('people:')) {
+            const key = selected.slice(7), result = peopleState;
+            const options = Object.keys(labels).map(k => '<option value="' + k + '">' + esc(labels[k]) + '</option>').join('') +
+                '<optgroup label="' + esc(__('People')) + '">' + Object.keys(peopleLabels).map(k => '<option value="people:' + k + '" ' + (key === k ? 'selected' : '') + '>' + esc(peopleLabels[k]) + '</option>').join('') + '</optgroup>';
+            if (key === 'pc_routing') {
+                const matrix = routingState.matrix, groups = Object.keys(matrix.review_groups);
+                const select = (field, value, i) => '<select class="form-control es-pc-field" data-index="' + i + '" data-pc-field="' + field + '">' + groups.map(g => '<option value="' + esc(g) + '" ' + (g === value ? 'selected' : '') + '>' + esc(matrix.review_groups[g].label || g) + '</option>').join('') + '</select>';
+                root.html('<div class="es-tools"><label>' + esc(__('Setup list')) + ' <select class="form-control es-dataset">' + options + '</select></label><button type="button" class="btn btn-default es-pc-add">' + esc(__('Add row')) + '</button><button type="button" class="btn btn-default es-pc-import">' + esc(__('Paste existing routing')) + '</button></div>' +
+                    '<p class="text-muted">' + esc(__('Employee project group and petty-cash review routing. Approved extra groups remain explicit.')) + '</p><div class="es-scroll"><table class="table table-bordered"><thead><tr><th>' + esc(__('Employee')) + '</th><th>' + esc(__('Name')) + '</th><th>' + esc(__('Project group')) + '</th><th>' + esc(__('PC review group')) + '</th><th>' + esc(__('Additional groups (comma separated keys)')) + '</th></tr></thead><tbody>' +
+                    matrix.employees.map((row, i) => '<tr><td>' + esc(row.employee) + '</td><td>' + esc(row.employee_name) + '</td><td>' + select('work_group', row.work_group, i) + '</td><td>' + select('pc_review_group', row.pc_review_group, i) + '</td><td><input class="form-control es-pc-field" data-index="' + i + '" data-pc-field="additional_review_groups" value="' + esc((row.additional_review_groups || []).join(', ')) + '"></td></tr>').join('') + '</tbody></table></div>' +
+                    '<h4>' + esc(__('Reviewers by group')) + '</h4><p class="text-muted">' + esc(__('Separate employee names with semicolons. Reviewers must appear in the employee routing list.')) + '</p><table class="table table-bordered"><tbody>' + groups.map(g => '<tr><td>' + esc(matrix.review_groups[g].label || g) + '</td><td><input class="form-control es-pc-reviewers" data-group="' + esc(g) + '" value="' + esc((matrix.review_groups[g].reviewers || []).join('; ')) + '"></td></tr>').join('') + '</tbody></table>');
+                return;
+            }
+            const fields = result.fields.filter(f => f !== 'modified');
+            const editable = result.can_write && ['project_assignments', 'reporter_maps'].includes(key);
+            root.html('<div class="es-tools"><label>' + esc(__('Setup list')) + ' <select class="form-control es-dataset">' + options + '</select></label>' +
+                (key === 'project_assignments' && result.can_create ? '<button type="button" class="btn btn-default es-people-add">' + esc(__('Add row')) + '</button>' : '') + '</div>' +
+                '<p class="text-muted">' + esc(__('These are existing ERP records. Changes use their own permissions and history.')) + '</p>' +
+                '<div class="es-scroll"><table class="table table-bordered"><thead><tr>' + fields.map(f => '<th>' + esc(__(fieldLabels[f] || f)) + '</th>').join('') + (editable ? '<th></th>' : '') + '</tr></thead><tbody>' +
+                result.rows.map((row, i) => '<tr>' + fields.map(f => '<td>' + esc(row[f] || '') + '</td>').join('') + (editable ? '<td><button type="button" class="btn btn-default es-people-edit" data-index="' + i + '">' + esc(__('Edit')) + '</button></td>' : '') + '</tr>').join('') + '</tbody></table></div>');
+            return;
+        }
         const rows = state.datasets[selected];
         // UPL descriptions belong to the UPL/Mapping data; preserve legacy values in the payload.
         const fields = state.fields[selected].filter(f => f !== 'id' && !(selected === 'tag_upl_links' && f === 'description'));
@@ -119,6 +142,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
             '<div class="es-tools"><label>' + __('Setup list') + ' <select class="form-control es-dataset">' +
             Object.keys(labels).filter(k => !legacyDatasets.has(k)).map(k => '<option value="' + k + '" ' + (k === selected ? 'selected' : '') + '>' + esc(labels[k]) +
                 ' (' + state.datasets[k].length + ')</option>').join('') +
+            '<optgroup label="' + esc(__('People')) + '">' + Object.keys(peopleLabels).map(k => '<option value="people:' + k + '">' + esc(peopleLabels[k]) + '</option>').join('') + '</optgroup>' +
             '<optgroup label="' + esc(__('Legacy maintenance · retained for compatibility')) + '">' +
             Object.keys(labels).filter(k => legacyDatasets.has(k)).map(k => '<option value="' + k + '" ' + (k === selected ? 'selected' : '') + '>' + esc(labels[k]) +
                 ' (' + state.datasets[k].length + ')</option>').join('') + '</optgroup></select></label>' +
@@ -141,8 +165,78 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
                         (selected === 'teams' && ['team','phone'].includes(f)) ||
                         (selected === 'material_upl_links' && f === 'source_uom') ? 'readonly ' : '') + '>') + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>');
     };
-    const load = async () => { state = await call('get_page_state'); dirty = false; render(); };
-    root.on('change', '.es-dataset', function () { selected = this.value; render(); });
+    const load = async () => {
+        state = await call('get_page_state');
+        if (selected === 'people:pc_routing') routingState = (await frappe.call({method: 'sig_warehouse.sig_operations.people_routing.get_state', freeze: true})).message;
+        else if (selected.startsWith('people:')) peopleState = (await frappe.call({method: 'sig_warehouse.sig_operations.people_setup.get_section', args: {section: selected.slice(7)}, freeze: true})).message;
+        dirty = false; routingDirty = false; render();
+    };
+    root.on('change', '.es-dataset', async function () {
+        const next = this.value;
+        if (next === 'people:pc_routing') {
+            if (!routingState) { try { routingState = (await frappe.call({method: 'sig_warehouse.sig_operations.people_routing.get_state', freeze: true})).message; } catch (error) { render(); return; } }
+        } else if (next.startsWith('people:')) {
+            try { peopleState = (await frappe.call({method: 'sig_warehouse.sig_operations.people_setup.get_section', args: {section: next.slice(7)}, freeze: true})).message; }
+            catch (error) { render(); return; }
+        }
+        selected = next; render();
+    });
+    root.on('change', '.es-pc-field', function () {
+        const row = routingState.matrix.employees[Number(this.dataset.index)], field = this.dataset.pcField;
+        if (field === 'additional_review_groups') row[field] = this.value.split(',').map(s => s.trim()).filter(Boolean);
+        else { const old = row[field]; row[field] = this.value; if (field === 'work_group' && row.pc_review_group === old) row.pc_review_group = this.value; }
+        routingDirty = true; render();
+    });
+    root.on('change', '.es-pc-reviewers', function () {
+        routingState.matrix.review_groups[this.dataset.group].reviewers = this.value.split(';').map(s => s.trim()).filter(Boolean);
+        routingDirty = true;
+    });
+    root.on('click', '.es-pc-import', () => {
+        const dialog = new frappe.ui.Dialog({title: __('Paste existing routing'), fields: [{fieldname: 'package', fieldtype: 'Code', options: 'JSON', label: __('Routing data'), reqd: 1}], primary_action_label: __('Review rows'), primary_action: values => {
+            try {
+                if (values.package.length > 1000000) throw new Error(__('Routing data is too large.'));
+                const data = JSON.parse(values.package), matrix = routingState.matrix;
+                if (!Array.isArray(data.rows) || !data.reviewer_groups || typeof data.reviewer_groups !== 'object' || Array.isArray(data.reviewer_groups)) throw new Error(__('Invalid routing data.'));
+                const groups = Object.keys(matrix.review_groups), incoming = Object.keys(data.reviewer_groups);
+                if (groups.length !== incoming.length || groups.some(g => !incoming.includes(g) || !Array.isArray(data.reviewer_groups[g]))) throw new Error(__('Review groups do not match the current setup.'));
+                const existing = new Map(matrix.employees.map(row => [row.employee, row])), seen = new Set();
+                const rows = data.rows.map(row => {
+                    if (!row || typeof row.employee !== 'string' || seen.has(row.employee) || !groups.includes(row.work_group) || !groups.includes(row.pc_review_group) || !Array.isArray(row.additional_review_groups) || row.additional_review_groups.some(g => !groups.includes(g))) throw new Error(__('Invalid or duplicate employee routing row.'));
+                    seen.add(row.employee);
+                    return {...(existing.get(row.employee) || {employee: row.employee, employee_name: row.employee}), work_group: row.work_group, pc_review_group: row.pc_review_group, additional_review_groups: row.additional_review_groups};
+                });
+                if (Array.from(existing.keys()).some(id => !seen.has(id))) throw new Error(__('The pasted data omits existing employees.'));
+                matrix.employees = rows;
+                groups.forEach(g => { matrix.review_groups[g].reviewers = data.reviewer_groups[g]; });
+                routingDirty = true; dialog.hide(); render();
+                frappe.msgprint(__('Review the imported rows and reviewers, then use Save and publish.'));
+            } catch (error) { frappe.msgprint(esc(error.message)); }
+        }}); dialog.show();
+    });
+    root.on('click', '.es-pc-add', () => frappe.prompt([{fieldname: 'employee', fieldtype: 'Link', options: 'Employee', label: __('Employee'), reqd: 1}], async values => {
+        if (routingState.matrix.employees.some(row => row.employee === values.employee)) { frappe.msgprint(__('Employee already exists in routing.')); return; }
+        routingState.matrix.employees.push({employee: values.employee, employee_name: values.employee, work_group: 'unassigned', pc_review_group: 'unassigned', additional_review_groups: []});
+        routingDirty = true; render();
+    }, __('Add employee'), __('Add')));
+    root.on('click', '.es-people-edit, .es-people-add', function () {
+        const key = selected.slice(7), creating = this.classList.contains('es-people-add');
+        const row = creating ? {} : peopleState.rows[Number(this.dataset.index)];
+        const fields = key === 'reporter_maps' ? [{fieldname: 'employee', fieldtype: 'Link', options: 'Employee', label: __('Employee')}] : [
+            {fieldname: 'employee', fieldtype: 'Link', options: 'Employee', label: __('Employee'), reqd: 1},
+            {fieldname: 'project', fieldtype: 'Link', options: 'Project', label: __('Project'), reqd: 1},
+            {fieldname: 'project_role', fieldtype: 'Select', options: 'Team Leader\nProject Manager\nCoordinator\nSupervisor\nTeam Member\nOther', label: __('Project Role'), reqd: 1},
+            {fieldname: 'start_date', fieldtype: 'Date', label: __('Start Date'), reqd: 1},
+            {fieldname: 'end_date', fieldtype: 'Date', label: __('End Date')}
+        ];
+        fields.forEach(field => { field.default = row[field.fieldname] || ''; });
+        const dialog = new frappe.ui.Dialog({title: creating ? __('Add project assignment') : __('Edit record'), fields, primary_action_label: __('Save'), primary_action: async values => {
+            const method = creating ? 'create_project_assignment' : 'update_section_record';
+            const args = creating ? {values: JSON.stringify(values)} : {section: key, name: row.name, modified: row.modified, values: JSON.stringify(values)};
+            await frappe.call({method: 'sig_warehouse.sig_operations.people_setup.' + method, args, freeze: true});
+            peopleState = (await frappe.call({method: 'sig_warehouse.sig_operations.people_setup.get_section', args: {section: key}, freeze: true})).message;
+            dialog.hide(); render();
+        }}); dialog.show();
+    });
     root.on('input change', '[data-field]:not(.es-lookup)', function (event) {
         const row = state.datasets[selected][Number(this.dataset.row)], field = this.dataset.field;
         row[field] = this.type === 'checkbox' ? this.checked : this.value;
@@ -193,10 +287,18 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         }; input.click();
     });
     page.set_primary_action(__('Save and publish'), async () => {
+        if (selected === 'people:pc_routing') {
+            const rows = routingState.matrix.employees.map(row => ({employee: row.employee, work_group: row.work_group, pc_review_group: row.pc_review_group, additional_review_groups: row.additional_review_groups || []}));
+            const reviewerGroups = Object.fromEntries(Object.entries(routingState.matrix.review_groups).map(([key, group]) => [key, group.reviewers]));
+            await frappe.call({method: 'sig_warehouse.sig_operations.people_routing.publish', args: {rows: JSON.stringify(rows), reviewer_groups: JSON.stringify(reviewerGroups), base_revision: routingState.revision}, freeze: true});
+            routingState = (await frappe.call({method: 'sig_warehouse.sig_operations.people_routing.get_state', freeze: true})).message;
+            routingDirty = false; render(); frappe.show_alert({message: __('People routing published'), indicator: 'green'}); return;
+        }
+        if (selected.startsWith('people:')) { frappe.msgprint(__('Use the record edit action to save changes in this section.')); return; }
         await call('save_and_publish', {datasets: JSON.stringify(state.datasets), base_revision: state.revision}); await load();
         frappe.show_alert({message: __('Excel setup published'), indicator: 'green'});
     });
-    page.add_inner_button(__('Reload'), () => { if (dirty) frappe.confirm(__('Discard unsaved edits?'), load); else load(); });
+    page.add_inner_button(__('Reload'), () => { if (dirty || routingDirty) frappe.confirm(__('Discard unsaved edits?'), load); else load(); });
     page.add_inner_button(__('Projects / PO setup'), async () => {
         if (dirty) { frappe.msgprint(__('Publish or reload your setup edits before changing PO defaults.')); return; }
         try {
