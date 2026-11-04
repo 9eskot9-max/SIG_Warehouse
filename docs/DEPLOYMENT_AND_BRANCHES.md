@@ -2,6 +2,8 @@
 
 Last verified from Frappe Cloud and GitHub: 4 November 2026, Asia/Riyadh. This is a dated read-back; recheck before every release.
 
+See also: [Deploy log](DEPLOY_LOG.md) for every production action, and [Codex and Claude coordination](CODEX_CLAUDE_COORDINATION.md) for who does what.
+
 ## Production snapshot (4 November 2026)
 
 - Site: `neosys.frappe.cloud` — Active, on Frappe Cloud bench group `neoweb-v16`.
