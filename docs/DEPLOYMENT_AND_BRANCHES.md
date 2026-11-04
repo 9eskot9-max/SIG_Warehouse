@@ -10,7 +10,7 @@ See also: [Deploy log](DEPLOY_LOG.md) for every production action, and [Codex an
 - Site bench: `bench-51251-000021-f1f`; bench group `neoweb-v16` is Active.
 - Latest site update: `6t7cbdidra` — Success, 4 November 2026, 4:26 PM Riyadh. It followed deployment pipeline `3roheu9glr`, which built SIG Warehouse source HEAD `c8f71c4` with zero reported issues.
 - Frappe `16.54.0` `2fcb939`; ERPNext `16.53.0` `9cd11b1`; HRMS `16.53.0` `b12d935`. Frappe and HRMS updates are listed by Frappe Cloud as available and are **not applied**.
-- SIG Warehouse source deployed by the latest pipeline: `codex/sig-personal-home-v16` at `c8f71c4`; site's Apps page still reports installed commit `6ce8da3`, so code installation is not confirmed.
+- SIG Warehouse source deployed by the latest pipeline: `codex/sig-personal-home-v16` at `c8f71c4`; the site's Apps page reported installed commit `6ce8da3`, but the Cloud installed-apps API on 4 November shows `c8f71c4` on bench `bench-51251-000023-f1f`, so the Apps page reading was stale and the code **is installed**.
 - ZATCA Integration, live: `codex/v16-b2b-clearance-parity` at `a8f9fb5`.
 - SIG WhatsApp, live: `v16-migration` at `9bfd1bd`. SIG QR Design, live: `v16-migration` at `39ecff6`.
 - Trial: the site `neosys-v16-trial.frappe.cloud` has left the Frappe Cloud site list. Its bench `bench-51214-000014-f28f3` is still Active with no sites. Removal awaits owner confirmation.

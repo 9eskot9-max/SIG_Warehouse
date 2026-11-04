@@ -3,6 +3,12 @@
 Purpose: two agents and one owner change the same repository and the same production site. This guide keeps their
 work from colliding and keeps a clear record of what is live.
 
+## 0. Turn-taking (owner decision, 4 November 2026)
+
+Codex and Claude take turns: one Codex move, then one Claude move. The baton is in `docs/HANDOFF.md`. An agent that
+does not hold the baton does not push. A move is one task the owner asked for, finished and pushed, with the baton
+handed over in the last commit. The portable version of these rules is `skills/sig-erp-coordination/SKILL.md`.
+
 ## 1. Roles
 
 - **Owner** (Mohammed): decides what goes live, merges pull requests, says "deploy", and is the only person who
