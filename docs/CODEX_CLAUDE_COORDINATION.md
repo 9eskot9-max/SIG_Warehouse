@@ -11,16 +11,17 @@ The owner currently uses Codex for repository and deployment work; Claude is not
 
 - **Owner** (Mohammed): decides what goes live, merges pull requests, says "deploy", and is the only person who
   schedules a Frappe Cloud site update unless the owner has asked an agent to do it for one named change.
-- **Codex** and **Claude**: write code and docs on their own topic branches, open pull requests, and never deploy on
-  their own initiative. Each agent starts a session by reading this guide, `docs/DEPLOYMENT_AND_BRANCHES.md` and
-  `docs/DEPLOY_LOG.md`.
+- **Codex**: current active agent by owner direction; write changes on topic branches and do not deploy without
+  the owner's explicit release instruction. Claude is not currently in the rotation. The owner may explicitly
+  authorize Codex to merge a pull request or perform a named deployment; otherwise the owner merges and deploys.
+  The active agent reads this guide, `docs/DEPLOYMENT_AND_BRANCHES.md` and `docs/DEPLOY_LOG.md` before work.
 
 ## 2. Branches
 
 - Production source (what Frappe Cloud builds): `codex/sig-personal-home-v16` today. Plan: rename to `production/v16`.
   Nobody commits to it directly. Changes arrive by merged pull request.
-- Codex work: `codex/<topic>`. Claude work: `claude/<topic>`. Owner work: `owner/<topic>` or straight to production
-  only for documents the owner has said are the owner's.
+- Codex work: `codex/<topic>`. Owner work: `owner/<topic>` or straight to production only for documents the owner
+  has said are the owner's. Do not create Claude branches unless the owner reactivates Claude.
 - One writer per branch. Two agents never push to the same branch at the same time.
 - Do not force-push a branch that has been pushed. Do not rewrite history on production. If a hook asks for a
   rewrite, stop and ask the owner.
@@ -41,14 +42,13 @@ The owner currently uses Codex for repository and deployment work; Claude is not
 - Each Frappe Cloud build takes the **branch head**, not a commit you chose. Before asking for a build, list
   the commits since the last deploy: `git log --oneline <last-deployed>..origin/codex/sig-personal-home-v16`.
   Every commit in that list goes live with the build.
-- Git identity for agent commits: committer `Claude <noreply@anthropic.com>` (set per repository). Do not change
-  the author of existing commits.
+- Use the Git identity configured for the active agent. Do not change the author of existing commits.
 
 ## 5. Pull requests
 
 - Title: what changes for the user. Body: files touched, patches added, whether a migrate is needed, and the
   test commands run.
-- Agents do not merge their own pull requests. The owner merges.
+- The owner normally merges pull requests. The owner may explicitly authorize Codex to merge a named pull request.
 - Close stale drafts as soon as their content is on production. An open draft tells the next reader that work is pending.
 
 ## 6. Deploying (owner says "deploy")
