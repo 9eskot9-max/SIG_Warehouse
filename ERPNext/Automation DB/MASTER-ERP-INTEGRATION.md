@@ -76,38 +76,36 @@ Employee → attendance + custody + petty cash → review → Finance accounting
 
 This is a conceptual map, not a promise that every arrow is automatically linked or that every historical record has a complete identity. Project supplies the business scope; a physical Site is not a Cost Center. A Site Cycle represents a work episode for a site and its WO where known, with an agreed compatible no-WO path. Multiple scopes, visits, issues, invoices or payments can relate to the same site. The proper identity and child-row references matter more than row positions, similar names or a shared site code.
 
-## Plans page: PM weekly planning messages — STAGED, not built (4 November 2026)
+## Plans page: weekly PM messages — STAGED, not built (4 November 2026)
 
 Status: staged design only. Nothing here is deployed, no PM has been contacted, and no new DocType or message job should be created until the pilot below is run by hand. Saved PM plans remain deferred in the implementation plan; this stage needs only a weekly snapshot of the planner's output.
 
-**Purpose.** Give PMs one short weekly form that replaces status calls and meeting preparation, and compare the plan with what was visited. Its answers become the agenda for the Sunday operating review (see the adoption pitches below).
+**Purpose.** Give each PM one weekly check that replaces status calls and meeting preparation, and compare the plan with what was visited.
 
-**Rhythm.**
-- Thursday 16:00 Riyadh, after the last workday: send each PM a link to their form, through the existing Maytapi sender. Due Sunday 10:00.
-- Sunday 10:00: the form is the agenda for the review. Answers are read from ERP, not from WhatsApp replies (inbound automation remains deferred).
+**Rhythm.** Once a week, on Sunday, which starts the working week (Sunday–Thursday). The three messages below go to each PM together. The send time is not critical; morning is fine. Answers are read from ERP, not from WhatsApp replies (inbound automation remains deferred). No reminder is sent. The answers feed the Sunday operating review (pitch A1).
 
-**Box 1 — Last week against the plan (pre-filled from ERP).** Lists last week's planned sites with visited or not visited, taken from Site Visits and Site Cycles. The PM answers only for the misses:
-- reason (select): access, material, team, TCN, scope or WO, other;
-- optional free-text note.
+**The three messages, refreshed each Sunday.**
 
-**Box 2 — This week (planner proposal).** Shows the planner's proposed sites and dates for the PM's area.
-- For each row the PM chooses Must, Hold or Remove. These write to the existing SIG Plan Decision record.
-- The PM can add sites the planner does not know about, with a reason. These additions are the most useful signal the form produces.
+1. **Last week — focus.** Last week's planned sites, each marked visited or not visited from Site Visits and Site Cycles. Only the misses need an answer:
+   - reason (select): access, material, team, TCN, scope or WO, other;
+   - optional short note.
+   Sites visited that were not on the plan are listed too, so the PM can confirm them as additions.
 
-**Box 3 — Trust and comment.** A 1–5 score for how far the ERP plan matches reality, plus one sentence. Tracked week by week to show whether trust is rising or falling.
+2. **This week — target.** The planner's proposal for the PM's area this week. For each row the PM chooses Must, Hold or Remove, which writes to the existing SIG Plan Decision record. The PM can add a site the planner does not know, with a reason. Optional line: "WOs received this week updated in Mapping? Y/N".
 
-**Optional line.** "WOs received this week updated in Mapping? Y/N". This covers the PM WO duty, which is not otherwise monitored.
+3. **System comment on the plan.** The system's own short comment on last week's plan: how many planned sites were visited, the misses by reason, and the additions. The PM replies with a trust score from 1 to 5 and one sentence. Tracked week by week to show whether the plan is trusted.
 
 **Messages (staged, Arabic and English).**
-- Thursday: "مرحباً {name}، نرجو تعبئة نموذج خطة الأسبوع قبل يوم الأحد الساعة 10:00: {link}. يستغرق بضع دقائق ويعتمد على بيانات النظام." / "Hello {name}, please complete the weekly plan form before Sunday 10:00: {link}. It takes a few minutes and uses data already in ERP."
-- Sunday 09:00 reminder, only to PMs who have not submitted: "تذكير: نموذج خطة الأسبوع مستحق اليوم الساعة 10:00: {link}" / "Reminder: the weekly plan form is due today at 10:00: {link}"
+- Message 1: "مرحباً {name}، مراجعة الأسبوع الماضي: {link1}" / "Hello {name}, last week's review: {link1}"
+- Message 2: "هدف هذا الأسبوع: {link2}" / "This week's target: {link2}"
+- Message 3: "تعليق النظام على الخطة: {link3}، وأرسل تقييمك من 1 إلى 5 مع جملة واحدة." / "System comment on the plan: {link3}. Send your score from 1 to 5 with one sentence."
 
 **Prerequisites before any build.**
-1. **Weekly planner snapshot.** The planner must save each Monday's proposal, or there is nothing to compare against.
+1. **Weekly planner snapshot.** The planner must save each week's proposal, or there is nothing to compare against.
 2. **PM permissions.** Confirm each PM's actual role can read cycles and set SIG Plan Decision. The Projects Manager role currently cannot read cycles, so it cannot set Must. Verify on the live site before the pilot.
 3. **Named PMs.** Confirm the pilot list (Sohail, Raheem and Imran Ansary, matching the leads in the petty-cash review roster) with the owner.
 
-**Pilot (manual first).** Run for 3–4 weeks with the three PMs using a plain form or a spreadsheet, with the Thursday and Sunday messages sent by hand. Build the ERP form only if they keep using it. It must replace a status call or meeting prep; if it only adds work, stop.
+**Pilot (manual first).** Run for 3–4 Sundays with the three PMs, using a plain form or a spreadsheet, with the three messages sent by hand. Build the ERP form only if they keep using it. It must replace a status call or meeting prep; if it only adds work, stop.
 
 ## Adoption and rhythm pitches — 4 November 2026 review (staged)
 
