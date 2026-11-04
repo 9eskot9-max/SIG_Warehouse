@@ -3,7 +3,8 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
     const method = 'sig_warehouse.sig_operations.excel_setup.';
     const poSetupMethod = 'sig_warehouse.sig_operations.excel_setup_v3.';
     const root = $('<div class="sig-excel-setup"></div>').appendTo(page.main);
-    let state, selected = 'projects', dirty = false;
+    let state, selected = 'projects', dirty = false, peopleState = null;
+    const peopleLabels = {employees: __('Employees'), project_assignments: __('Employee project assignments'), reporter_maps: __('Field reporter mappings'), candidates: __('Candidate onboarding'), onboarding: __('Employee onboarding checks')};
     const labels = {projects: __('Projects / PO scope'), builder_profiles: __('Builder profiles (legacy)'),
         builder_contacts: __('Profile-linked contacts (legacy)'), project_builder_links: __('Project → Builder assignments (legacy)'), tag_definitions: __('Tags definitions'),
         tag_upl_links: __('Tags to UPL'), material_upl_links: __('Item to UPL'), builder_defaults: __('TCN wording and defaults'), teams: __('Field teams (leaders)')};
@@ -100,6 +101,19 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
     const callPoSetup = async (name, args={}) => (await frappe.call({method: poSetupMethod + name, args, freeze: true})).message;
     const render = () => {
         root.attr('dir', frappe.boot.lang === 'ar' ? 'rtl' : 'ltr');
+        if (selected.startsWith('people:')) {
+            const key = selected.slice(7), result = peopleState;
+            const options = Object.keys(labels).map(k => '<option value="' + k + '">' + esc(labels[k]) + '</option>').join('') +
+                '<optgroup label="' + esc(__('People')) + '">' + Object.keys(peopleLabels).map(k => '<option value="people:' + k + '" ' + (key === k ? 'selected' : '') + '>' + esc(peopleLabels[k]) + '</option>').join('') + '</optgroup>';
+            const fields = result.fields.filter(f => f !== 'modified');
+            const editable = result.can_write && ['project_assignments', 'reporter_maps'].includes(key);
+            root.html('<div class="es-tools"><label>' + esc(__('Setup list')) + ' <select class="form-control es-dataset">' + options + '</select></label>' +
+                (key === 'project_assignments' && result.can_create ? '<button type="button" class="btn btn-default es-people-add">' + esc(__('Add row')) + '</button>' : '') + '</div>' +
+                '<p class="text-muted">' + esc(__('These are existing ERP records. Changes use their own permissions and history.')) + '</p>' +
+                '<div class="es-scroll"><table class="table table-bordered"><thead><tr>' + fields.map(f => '<th>' + esc(__(fieldLabels[f] || f)) + '</th>').join('') + (editable ? '<th></th>' : '') + '</tr></thead><tbody>' +
+                result.rows.map((row, i) => '<tr>' + fields.map(f => '<td>' + esc(row[f] || '') + '</td>').join('') + (editable ? '<td><button type="button" class="btn btn-default es-people-edit" data-index="' + i + '">' + esc(__('Edit')) + '</button></td>' : '') + '</tr>').join('') + '</tbody></table></div>');
+            return;
+        }
         const rows = state.datasets[selected];
         // UPL descriptions belong to the UPL/Mapping data; preserve legacy values in the payload.
         const fields = state.fields[selected].filter(f => f !== 'id' && !(selected === 'tag_upl_links' && f === 'description'));
@@ -119,6 +133,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
             '<div class="es-tools"><label>' + __('Setup list') + ' <select class="form-control es-dataset">' +
             Object.keys(labels).filter(k => !legacyDatasets.has(k)).map(k => '<option value="' + k + '" ' + (k === selected ? 'selected' : '') + '>' + esc(labels[k]) +
                 ' (' + state.datasets[k].length + ')</option>').join('') +
+            '<optgroup label="' + esc(__('People')) + '">' + Object.keys(peopleLabels).map(k => '<option value="people:' + k + '">' + esc(peopleLabels[k]) + '</option>').join('') + '</optgroup>' +
             '<optgroup label="' + esc(__('Legacy maintenance · retained for compatibility')) + '">' +
             Object.keys(labels).filter(k => legacyDatasets.has(k)).map(k => '<option value="' + k + '" ' + (k === selected ? 'selected' : '') + '>' + esc(labels[k]) +
                 ' (' + state.datasets[k].length + ')</option>').join('') + '</optgroup></select></label>' +
@@ -142,7 +157,33 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
                         (selected === 'material_upl_links' && f === 'source_uom') ? 'readonly ' : '') + '>') + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>');
     };
     const load = async () => { state = await call('get_page_state'); dirty = false; render(); };
-    root.on('change', '.es-dataset', function () { selected = this.value; render(); });
+    root.on('change', '.es-dataset', async function () {
+        const next = this.value;
+        if (next.startsWith('people:')) {
+            try { peopleState = (await frappe.call({method: 'sig_warehouse.sig_operations.people_setup.get_section', args: {section: next.slice(7)}, freeze: true})).message; }
+            catch (error) { render(); return; }
+        }
+        selected = next; render();
+    });
+    root.on('click', '.es-people-edit, .es-people-add', function () {
+        const key = selected.slice(7), creating = this.classList.contains('es-people-add');
+        const row = creating ? {} : peopleState.rows[Number(this.dataset.index)];
+        const fields = key === 'reporter_maps' ? [{fieldname: 'employee', fieldtype: 'Link', options: 'Employee', label: __('Employee')}] : [
+            {fieldname: 'employee', fieldtype: 'Link', options: 'Employee', label: __('Employee'), reqd: 1},
+            {fieldname: 'project', fieldtype: 'Link', options: 'Project', label: __('Project'), reqd: 1},
+            {fieldname: 'project_role', fieldtype: 'Select', options: 'Team Leader\nProject Manager\nCoordinator\nSupervisor\nTeam Member\nOther', label: __('Project Role'), reqd: 1},
+            {fieldname: 'start_date', fieldtype: 'Date', label: __('Start Date'), reqd: 1},
+            {fieldname: 'end_date', fieldtype: 'Date', label: __('End Date')}
+        ];
+        fields.forEach(field => { field.default = row[field.fieldname] || ''; });
+        const dialog = new frappe.ui.Dialog({title: creating ? __('Add project assignment') : __('Edit record'), fields, primary_action_label: __('Save'), primary_action: async values => {
+            const method = creating ? 'create_project_assignment' : 'update_section_record';
+            const args = creating ? {values: JSON.stringify(values)} : {section: key, name: row.name, modified: row.modified, values: JSON.stringify(values)};
+            await frappe.call({method: 'sig_warehouse.sig_operations.people_setup.' + method, args, freeze: true});
+            peopleState = (await frappe.call({method: 'sig_warehouse.sig_operations.people_setup.get_section', args: {section: key}, freeze: true})).message;
+            dialog.hide(); render();
+        }}); dialog.show();
+    });
     root.on('input change', '[data-field]:not(.es-lookup)', function (event) {
         const row = state.datasets[selected][Number(this.dataset.row)], field = this.dataset.field;
         row[field] = this.type === 'checkbox' ? this.checked : this.value;
@@ -193,6 +234,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         }; input.click();
     });
     page.set_primary_action(__('Save and publish'), async () => {
+        if (selected.startsWith('people:')) { frappe.msgprint(__('Use the record edit action to save changes in this section.')); return; }
         await call('save_and_publish', {datasets: JSON.stringify(state.datasets), base_revision: state.revision}); await load();
         frappe.show_alert({message: __('Excel setup published'), indicator: 'green'});
     });
