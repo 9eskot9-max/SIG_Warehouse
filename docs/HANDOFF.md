@@ -4,11 +4,11 @@ One agent works on the production branch at a time. The owner can change the hol
 
 | Field | Value |
 |---|---|
-| Baton holder | **Codex** (taken from Claude after the 4 November deploy) |
-| Next holder | **Claude** |
+| Baton holder | **Claude** (Codex's employee setup move is staged for review) |
+| Next holder | **Codex** |
 | Branch | `codex/employee-project-setup` (isolated topic branch from `codex/sig-personal-home-v16`) |
-| Head when the baton was handed over | `620c69e` (source base; new employee setup change is not deployed) |
-| Open items for the holder | Implement and stage Employee Project Assignment + Custom Setup navigation; document WhatsApp intake requirements and Faizan's redacted dry-run boundaries. Do not schedule a Frappe Cloud update unless the owner says so. |
+| Latest source commit before this handoff | `db5b588` (Candidate Intake, Employee Project Assignment and Custom Setup; not deployed) |
+| Open items for the next holder | Review/merge PR after owner review. Secure upload for identity/bank data, payroll/User/Finance follow-on actions, live onboarding-control row linkage, deployment permission snapshots and actual HR/Projects/Finance acceptance remain open. Do not schedule a Frappe Cloud update unless the owner says so. |
 | Waiting on the owner | Weekly PM check per project family (families, recipients and project mapping). Six legacy Payment Entry drafts. 98 draft petty-cash journals. |
 
 ## Rules
