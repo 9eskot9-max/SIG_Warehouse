@@ -58,9 +58,14 @@ def _send_text(settings, to_number):
     try:
         body = json.loads(result.get("body") or "{}")
     except ValueError:
-        body = {}
+        raise frappe.ValidationError(_("Maytapi returned an invalid response."))
+    if not isinstance(body, dict) or body.get("success") is False or body.get("status") in ("error", "failed", "failure"):
+        raise frappe.ValidationError(_("Maytapi rejected the message."))
     data = body.get("data") if isinstance(body.get("data"), dict) else {}
-    return str(body.get("message_id") or body.get("id") or data.get("msgId") or data.get("id") or "")
+    message_id = str(body.get("message_id") or body.get("id") or data.get("msgId") or data.get("id") or "")
+    if not message_id:
+        raise frappe.ValidationError(_("Maytapi did not return a message ID."))
+    return message_id
 
 
 def _mark_sent(employee, when):

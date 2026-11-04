@@ -1,0 +1,22 @@
+.sig-hr-home { max-width: 1320px; margin: 0 auto; padding: 16px 22px 36px; text-align: start; }
+.sig-hr-header { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 28px 30px 32px; margin-bottom: 28px; overflow: hidden; border-radius: 14px; background: linear-gradient(135deg, #061634, #081c44); color: #fff; }
+.sig-hr-header::after { content: ""; position: absolute; inset-inline: 0; bottom: 0; height: 4px; background: linear-gradient(90deg, #167cf4, #1daceb 52%, #22c7ee); }
+.sig-hr-eyebrow { color: #22c7ee; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.sig-hr-header h1 { margin: 6px 0 5px; color: #fff; font-size: 26px; font-weight: 650; }
+.sig-hr-header p { margin: 0; color: #c9dcec; font-size: 13px; }
+.sig-hr-header-mark { display: grid; flex: 0 0 62px; width: 62px; height: 62px; place-items: center; border-radius: 12px; background: rgba(255,255,255,.09); color: #7fd4f2; font-size: 26px; }
+.sig-hr-section { margin-bottom: 27px; }
+.sig-hr-section-heading { margin-bottom: 12px; }
+.sig-hr-section-heading h2 { margin: 0; padding-bottom: 9px; color: #081c44; font-size: 17px; font-weight: 650; }
+.sig-hr-section-heading p { margin: 0; color: var(--text-muted); font-size: 13px; }
+.sig-hr-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.sig-hr-card { display: flex; min-width: 0; min-height: 132px; flex-direction: column; align-items: stretch; padding: 17px 18px; border: 1px solid var(--border-color); border-inline-start: 4px solid #1e7ffc; border-radius: 10px; background: var(--card-bg); color: var(--text-color); text-align: start; }
+.sig-hr-card:hover, .sig-hr-card:focus-visible { border-color: #1e7ffc; box-shadow: 0 3px 12px rgba(6,22,52,.08); outline: none; }
+.sig-hr-card-top { display: flex; min-height: 30px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.sig-hr-icon { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 8px; background: #e9f2fe; color: #1e7ffc; font-size: 14px; }
+.sig-hr-open { color: var(--text-light); font-size: 11px; }
+.sig-hr-card-title { color: #081c44; font-size: 14px; font-weight: 600; }
+.sig-hr-detail { margin-top: 5px; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.sig-hr-footnote { padding-top: 14px; border-top: 1px solid var(--border-color); color: var(--text-muted); font-size: 11px; }
+@media (max-width: 700px) { .sig-hr-home { padding: 10px 12px 25px; } .sig-hr-header { padding: 20px; margin-bottom: 22px; } .sig-hr-header h1 { font-size: 22px; } .sig-hr-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .sig-hr-header-mark { display: none; } .sig-hr-grid { grid-template-columns: 1fr; } .sig-hr-card { min-height: 90px; } }

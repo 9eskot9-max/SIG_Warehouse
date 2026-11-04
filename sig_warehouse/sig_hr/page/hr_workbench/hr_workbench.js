@@ -21,6 +21,9 @@ frappe.pages['hr-workbench'].on_page_load = function (wrapper) {
     const ONB = 'SIG Employee Onboarding';
 
     const daily = [
+        {variant: 'blue', title: __('Custom Setup'), description: __('Employee-to-project assignments, onboarding checks, and workbook setup.'), icon: 'sliders', route: ['custom-setup']},
+        {variant: 'blue', title: __('Employee project assignments'), description: __('Approved, dated project roles for employees.'), icon: 'users', doctype: 'SIG Employee Project Assignment', route: ['List', 'SIG Employee Project Assignment', 'List']},
+        {variant: 'cyan', title: __('Candidate onboarding'), description: __('Start and review a candidate intake.'), icon: 'user-plus', roleAny: ['HR Manager', 'System Manager'], doctype: 'SIG Candidate Intake', route: ['List', 'SIG Candidate Intake', 'List']},
         {variant: 'blue', title: __('Employees'), description: __('Active employee records, contacts, and assignments.'), icon: 'users', doctype: 'Employee', route: ['List', 'Employee', 'List'], routeOptions: {status: 'Active'}},
         {variant: 'blue', title: __('Onboarding board'), description: __('Each employee\'s access, custody ledger, bank, WhatsApp, and compliance checks.'), icon: 'columns', doctype: ONB, route: ['List', ONB, 'Kanban', 'SIG Onboarding Board']},
         {variant: 'blue', title: __('People readiness'), description: __('One row per employee: login, mobile, custody ledger, and balance.'), icon: 'id-card', doctype: ONB, report: 'SIG People Readiness', route: ['query-report', 'SIG People Readiness']},

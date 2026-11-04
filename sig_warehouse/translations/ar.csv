@@ -416,3 +416,17 @@ No workbench is available for your roles.,لا توجد مساحة عمل متا
 System configuration and administration,إعدادات النظام والإدارة
 Other available SIG tools,أدوات SIG الأخرى المتاحة
 "Import preview: {0} additions, {1} changes, {2} unchanged. Import and publish?",معاينة الاستيراد: {0} إضافات، {1} تغييرات، {2} دون تغيير. هل تريد الاستيراد والنشر؟
+Custom Setup,الإعدادات المخصصة
+Employee project assignments,تعيينات الموظفين للمشاريع
+Employee onboarding checks,فحوصات تهيئة الموظفين
+Workbook setup,إعداد المصنفات
+People and project setup,إعداد الموظفين والمشاريع
+"Maintain approved, dated links between employees, projects, and their project roles.",إدارة الروابط المعتمدة والمؤرخة بين الموظفين والمشاريع وأدوارهم في المشاريع.
+"Review the existing employee readiness, access, custody, bank, WhatsApp, and compliance checks.",مراجعة جاهزية الموظف الحالية والصلاحيات والعهدة والبنك وواتساب والامتثال.
+"Employee assignments are stored in ERP as dated, approved records. Workbook configuration is a separate integration concern.",تُحفظ تعيينات الموظفين في ERP كسجلات معتمدة ومؤرخة. إعداد المصنفات تكامل منفصل.
+Candidate onboarding,تهيئة المرشحين
+Start and review a candidate intake.,ابدأ طلب مرشح وراجعه.
+Start Candidate Intake,بدء طلب مرشح
+User access,صلاحيات المستخدم
+Payroll assignments,تعيينات الرواتب
+Field Reporter Maps,خرائط مراسلي المواقع

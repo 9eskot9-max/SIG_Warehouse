@@ -36,6 +36,8 @@ doctype_js = {
     "SIG Client Collection Draft": "public/js/client_collection_draft.js",
     "SIG Warehouse Intake": "public/js/warehouse_intake.js",
     "SIG Field Ops Settings": "public/js/field_ops_settings.js",
+    "SIG Candidate Intake": "public/js/sig_candidate_intake.js",
+    "SIG PC Sender Staging": "public/js/sig_pc_sender_staging.js",
 }
 
 # The legacy short names remain valid for old bookmarks; they use the same
@@ -120,6 +122,7 @@ scheduler_events = {
         "sig_warehouse.sig_operations.pm_weekly.run_scheduled",
         "sig_warehouse.sig_operations.no_visit_nudge.run_scheduled",
         "sig_warehouse.sig_hr.email_request.collect_email_replies",
+        "sig_warehouse.sig_hr.candidate_intake.collect_candidate_replies",
         "sig_warehouse.sig_warehouse.pc_task_queue.sync_pc_review_todos",
     ],
 }
