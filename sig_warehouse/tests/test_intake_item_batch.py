@@ -35,7 +35,8 @@ class BatchTests(unittest.TestCase):
         env = {"frappe": frappe, "_": lambda value: value, "_require_doc_permission": lambda *args: None,
                "_item_family_registry": lambda settings: [{"key": "E-CAB"}],
                "_proposal_basis": lambda description, uom: description + ':' + uom,
-               "_valid_family_code": lambda code, family: bool(re.fullmatch(r"[A-Z0-9]+(?:-[A-Z0-9]+)*", code) and code.startswith(family + "-"))}
+               "_family_for_code": lambda code, keys: next((key for key in sorted(keys, key=len, reverse=True)
+                   if code.startswith(key + "-") or code.startswith("A-" + key + "-")), "")}
         exec(compile(ast.fix_missing_locations(ast.Module(body=[function], type_ignores=[])), str(source), "exec"), env)
         self.create = env["create_items_from_rows"]
 
@@ -74,10 +75,11 @@ class FamilyTests(unittest.TestCase):
         env = {"frappe": SimpleNamespace(throw=throw), "_": lambda value: value, "re": re,
                "Path": Path, "json": json, "__file__": str(source)}
         nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef)
-                 and node.name in ("_item_family_registry", "_valid_family_code", "_item_search_tokens")]
+                 and node.name in ("_item_family_registry", "_valid_family_code", "_family_for_code", "_item_search_tokens")]
         exec(compile(ast.fix_missing_locations(ast.Module(body=nodes, type_ignores=[])), str(source), "exec"), env)
         self.registry = env["_item_family_registry"]
         self.valid = env["_valid_family_code"]
+        self.family_for_code = env["_family_for_code"]
         self.tokens = env["_item_search_tokens"]
 
     def test_registry_allows_subfamilies_but_rejects_conflicting_keys(self):
@@ -91,6 +93,11 @@ class FamilyTests(unittest.TestCase):
         self.assertTrue(self.valid("A-E-BAT-NR-200", "E-BAT"))
         self.assertFalse(self.valid("SIG-BATTERY-1234", "E-BAT"))
         self.assertFalse(self.valid("E-BAT--200", "E-BAT"))
+
+    def test_family_is_inferred_from_entered_code(self):
+        self.assertEqual(self.family_for_code("A-E-BAT-NR-200", {"E-BAT", "E-B"}), "E-BAT")
+        self.assertEqual(self.family_for_code("E-BAT-NR-200", {"E-BAT"}), "E-BAT")
+        self.assertEqual(self.family_for_code("OTHER-BAT-200", {"E-BAT"}), "")
 
     def test_bundled_registry_includes_documented_corrected_families(self):
         rows = self.registry(SimpleNamespace(item_family_registry=""))

@@ -48,10 +48,9 @@ function sig_intake_guide(frm) {
     $(frm.wrapper).find('.sig-intake-guide').remove();
     const guide = $('<div class="sig-intake-guide" style="border:1px solid var(--border-color);border-radius:8px;padding:16px;margin:16px 0;background:var(--card-bg)">' +
         '<div style="font-weight:600;font-size:15px">' + __('Add items') + '</div>' +
-        '<p class="text-muted" style="margin:6px 0 12px">' + __('Enter descriptions and units, suggest codes, then review each family and code before creating items.') + '</p>' +
+        '<p class="text-muted" style="margin:6px 0 12px">' + __('Enter descriptions and units, suggest item codes, edit a code if needed, then create the items.') + '</p>' +
         '<button type="button" class="btn btn-default btn-sm" data-find-item>' + __('Find existing item') + '</button> ' +
         '<button type="button" class="btn btn-default btn-sm" data-suggest-items>' + __('Suggest item codes') + '</button> ' +
-        '<button type="button" class="btn btn-default btn-sm" data-families>' + __('Item families') + '</button> ' +
         '<button type="button" class="btn btn-default btn-sm" data-similar>' + __('Review similar items') + '</button> ' +
         '<button type="button" class="btn btn-primary btn-sm" data-create-item>' + __('Create items from rows') + '</button></div>');
     field.$wrapper.before(guide);
@@ -68,12 +67,6 @@ function sig_intake_guide(frm) {
         await sig_intake_similar(frm);
     });
     guide.find('[data-similar]').on('click', () => sig_intake_similar(frm));
-    guide.find('[data-families]').on('click', async () => {
-        if (frm.is_new() || frm.is_dirty()) await frm.save();
-        const result = await frappe.call({method:'sig_warehouse.sig_warehouse.warehouse_intake.item_families', args:{intake_name:frm.doc.name}});
-        const esc = frappe.utils.escape_html;
-        frappe.msgprint({title:__('Item families'), message:(result.message || []).map(f => `<div><b>${esc(f.key)}</b> · ${esc(f.family)}</div>`).join('')});
-    });
     guide.find('[data-create-item]').on('click', async () => {
         if (frm.doc.docstatus !== 0 || frm.doc.purchase_order_created || frm.doc.purchase_receipt) {
             frappe.msgprint(__('Create a new intake to add more items.')); return;

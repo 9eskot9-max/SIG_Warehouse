@@ -47,8 +47,8 @@
    "fieldname": "item_family_key",
    "label": "Item family key",
    "fieldtype": "Data",
-   "in_list_view": 1,
-   "columns": 1
+   "hidden": 1,
+   "read_only": 1
   },
   {
    "fieldname": "proposed_item_code",

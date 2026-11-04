@@ -217,10 +217,10 @@ def suggest_items_from_rows(intake_name):
     allowed = {f["key"] for f in families}
     for row in rows:
         suggestion = by_row[row.name]
-        family = str(suggestion.get("family_key") or "").upper().strip()
         code = str(suggestion.get("code") or "").upper().strip()
-        if family not in allowed or not _valid_family_code(code, family):
-            family, code = "", ""
+        family = _family_for_code(code, allowed)
+        if not family:
+            code = ""
         row.item_family_key, row.proposed_item_code = family, code
         row.item_name = str(suggestion.get("name") or row.description).strip()[:140]
         row.proposal_basis = _proposal_basis(row.description, row.uom)
@@ -259,8 +259,17 @@ def _item_family_registry(settings):
 
 
 def _valid_family_code(code, family):
-    return bool(len(code) <= 64 and re.fullmatch(r"[A-Z0-9]+(?:-[A-Z0-9]+)*", code)
-        and (code.startswith(family + "-") or code.startswith("A-" + family + "-")))
+    return _family_for_code(code, {family}) == family
+
+
+def _family_for_code(code, allowed_families):
+    """Resolve the internal family from the code; users only need to enter the code."""
+    if not code or len(code) > 64 or not re.fullmatch(r"[A-Z0-9]+(?:-[A-Z0-9]+)*", code):
+        return ""
+    for family in sorted(allowed_families, key=len, reverse=True):
+        if code.startswith(family + "-") or code.startswith("A-" + family + "-"):
+            return family
+    return ""
 
 
 def _proposal_basis(description, uom):
@@ -343,10 +352,12 @@ def create_items_from_rows(intake_name):
         seen.add(key)
         if frappe.db.exists("Item", {"item_name": item_name}):
             frappe.throw(_("Line {0}: an Item with this name already exists. Find and select it first.").format(row.idx))
-        family = (row.item_family_key or "").strip().upper()
         code = (row.proposed_item_code or "").strip().upper()
-        if family not in allowed_families or not _valid_family_code(code, family):
-            frappe.throw(_("Line {0}: review the proposed code and choose an approved family key.").format(row.idx))
+        if not code:
+            frappe.throw(_("Line {0}: enter an item code or select Suggest item codes.").format(row.idx))
+        family = _family_for_code(code, allowed_families)
+        if not family:
+            frappe.throw(_("Line {0}: enter a code in the approved item-code format or suggest a code again.").format(row.idx))
         if code in codes:
             frappe.throw(_("Line {0}: proposed code is repeated in this intake.").format(row.idx))
         codes.add(code)
