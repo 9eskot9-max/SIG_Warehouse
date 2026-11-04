@@ -88,6 +88,10 @@
 .sig-hr-card {
     --card-accent: var(--sig-slate);
     --card-chip: var(--sig-pale);
+    --card-surface: #f7fafc;
+    --card-corner: #e4edf3;
+    position: relative;
+    overflow: hidden;
     display: flex;
     min-width: 0;
     min-height: 132px;
@@ -95,21 +99,24 @@
     align-items: stretch;
     padding: 17px 18px;
     border: 1px solid var(--border-color);
-    border-inline-start: 4px solid var(--card-accent);
+    border-inline-start: 1px solid var(--border-color);
     border-radius: 10px;
-    background: var(--card-bg);
+    background: var(--card-surface);
     color: var(--text-color);
     text-align: start;
     transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
 }
-.sig-hr-card--blue  { --card-accent: var(--sig-blue); --card-chip: #E9F2FE; }
-.sig-hr-card--cyan  { --card-accent: var(--sig-cyan); --card-chip: #E6F9FE; }
-.sig-hr-card--navy  { --card-accent: var(--sig-navy); }
-.sig-hr-card--slate { --card-accent: var(--sig-slate); }
-.sig-hr-card--ok    { --card-accent: var(--sig-ok);   --card-chip: var(--sig-ok-bg); }
-.sig-hr-card--warn  { --card-accent: var(--sig-warn); --card-chip: var(--sig-warn-bg); }
-.sig-hr-card--bad   { --card-accent: var(--sig-bad);  --card-chip: var(--sig-bad-bg); }
-.sig-hr-card:hover, .sig-hr-card:focus-visible { border-color: var(--card-accent); border-inline-start-width: 4px; box-shadow: 0 3px 12px rgba(6, 22, 52, .08); color: var(--text-color); outline: none; transform: translateY(-1px); }
+.sig-hr-card--blue  { --card-accent: var(--sig-blue); --card-chip: #E9F2FE; --card-surface: #f5f9ff; --card-corner: #e1edfc; }
+.sig-hr-card--cyan  { --card-accent: var(--sig-cyan); --card-chip: #E6F9FE; --card-surface: #f2fafb; --card-corner: #def2f4; }
+.sig-hr-card--navy  { --card-accent: var(--sig-navy); --card-surface: #faf8ff; --card-corner: #ebe4f7; }
+.sig-hr-card--slate { --card-accent: var(--sig-slate); --card-surface: #f7fafc; --card-corner: #e4edf3; }
+.sig-hr-card--ok    { --card-accent: var(--sig-ok);   --card-chip: var(--sig-ok-bg); --card-surface: #f3faf7; --card-corner: #ddefe5; }
+.sig-hr-card--warn  { --card-accent: var(--sig-warn); --card-chip: var(--sig-warn-bg); --card-surface: #fffbf4; --card-corner: #faedcf; }
+.sig-hr-card--amber { --card-accent: var(--sig-warn); --card-surface: #fffbf4; --card-corner: #faedcf; }
+.sig-hr-card--bad   { --card-accent: var(--sig-bad);  --card-chip: var(--sig-bad-bg); --card-surface: #fff6f6; --card-corner: #f9e1e1; }
+.sig-hr-card::after { content: ""; position: absolute; inset-block-start: -38px; inset-inline-end: -35px; width: 120px; height: 120px; border-radius: 50%; background: var(--card-corner); opacity: .65; pointer-events: none; }
+.sig-hr-card > * { position: relative; z-index: 1; }
+.sig-hr-card:hover, .sig-hr-card:focus-visible { border-color: var(--card-accent); border-inline-start-width: 1px; box-shadow: 0 3px 12px rgba(6, 22, 52, .08); color: var(--text-color); outline: none; transform: translateY(-1px); }
 .sig-hr-card:focus-visible { box-shadow: 0 0 0 3px rgba(30, 127, 252, .25); }
 .sig-hr-card-top { display: flex; min-height: 48px; align-items: center; justify-content: flex-start; margin-bottom: 10px; }
 .sig-hr-icon { display: grid; width: 48px; height: 48px; place-items: center; flex: 0 0 48px; }
