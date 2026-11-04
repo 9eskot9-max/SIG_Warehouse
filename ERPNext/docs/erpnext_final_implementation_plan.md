@@ -1,8 +1,8 @@
 # SIG ERPNext Final Implementation Plan
 
-## Current production and document control — 3 November 2026
+## Current production and document control — 4 November 2026
 
-The current production Cloud read-back shows `neosys.frappe.cloud` Active on `neoweb-v16`, instance `bench-51251-000014-f1f`, with the latest listed migration successful at 9:02 PM Riyadh. Frappe is 16.54.0 (`2fcb939`), ERPNext 16.53.0 (`9cd11b1`) and HRMS 16.53.0 (`b12d935`). Installed SIG Warehouse is `codex/sig-personal-home-v16` at `6ce8da3`; ZATCA is `codex/v16-b2b-clearance-parity` at `a8f9fb5`; SIG WhatsApp and SIG QR Design are on `v16-migration` at `9bfd1bd` and `39ecff6`. Recheck current Cloud state and source hashes before implementation or deployment.
+Frappe Cloud read-back, 4 November 2026: `neosys.frappe.cloud` Active on `neoweb-v16`, bench `bench-51251-000018-f1f`; latest site update `0r3ck2fqno` succeeded. Installed SIG Warehouse is `76927313` (Frappe, ERPNext and HRMS unchanged at `2fcb939`, `9cd11b1` and `b12d935`; Frappe and HRMS updates are available but not applied). The current status, live items, not-live items and untested items are in the [ERP integration master](../Automation%20DB/MASTER-ERP-INTEGRATION.md#current-production-and-document-control--4-november-2026). The sections below are dated evidence.
 
 The [ERP integration master](../Automation%20DB/MASTER-ERP-INTEGRATION.md) is the operating overview; this plan retains the detailed priorities, decisions, history and mandatory permission/persona gates. The owner selected the public SIG Warehouse repository for full copies under the same `ERPNext/Automation DB/` and `ERPNext/docs/` paths on the configured v16 source branch. When editing either local document, update and compare its GitHub copy in the same task; update both for shared facts or decisions. Never commit credentials or secret values. This is an agent workflow, not an automatic background sync. The shorter GitHub release checklist remains a separate practical gate.
 
@@ -24,6 +24,10 @@ The installed Warehouse source includes the v16 SIG dock and workbenches, form-l
 
 <a id="company-priority-index"></a>
 ## Priority index: fixes and developments — revised 31 October 2026
+
+
+**Current state — 4 November 2026 (supersedes conflicting dated items below):** Deployed and live: the rail and colour icons, tidied form layouts, the address-linking rule and Customer addresses card, the Incident petty-cash reviewers, the RV80 Tags/Item-to-UPL links in Excel Setup, the no-visit message (Off) and the weekly PM check (Off, no scope rows yet). Not applied: Frappe and HRMS updates; the scoped PO tag override (deferred). Open: remove trial bench `bench-51214`; close stale draft PRs #64–#66 and #71. Not accepted: actual-user workflows for every role, the Incident reviewers' PC clearance, real address saves, ZATCA on v16, integrations after the configuration copy, and the weekly PM check and no-visit message (no sends yet).
+
 
 **Critical-site read-back — 30 October 2026:** The owner reported the critical-site work completed, but the current read-only ERP `SIG Site` list returned **0** records with `planner_critical_status = Critical` and **0** records with a populated `planner_critical_source`, under `9eskot9@gmail.com`. The API identity had System Manager in the 29 October snapshot and a Company User Permission; this read is permission-filtered and the live RV80 list was not compared. The deployment of the feature is separate from uploading critical-site classifications. The critical-site data upload / comparison remains **unverified and likely incomplete**, not closed. See [read-back](../backups/critical_sites_readback_20261030.json).
 
@@ -66,7 +70,7 @@ This is the consolidated navigation and priority order for significant open work
 8. **Attendance and HR follow-up.** Unify today's attendance, history and exceptions only after checking existing page/assets and verified historical check-ins. Employee beneficiary/contact requests and Riaz remain deferred until the owner resumes them.
 9. **Later scope.** Photo/RFI, advanced KPIs, saved PM plans and optional reports remain deferred. Todoist, SIG Letters, Client Collections, MIR intake, purchasing intake and field-visit lookup have deployed implementations; raise only concrete gaps in their current behavior.
 
-10. **Adoption rhythm and PM weekly planning — built in code, not deployed (4 Nov 2026).** The weekly PM check (scope, plan snapshot, review and Sunday messages) is in the integration master's Plans page section; it needs a deployment decision after the pilot list and PM permissions are confirmed. Saved PM plans remain deferred.
+10. **Adoption rhythm and PM weekly check — deployed 4 Nov 2026, mode Off.** The weekly check (scope, Sunday plan snapshot, PM review with three boxes, decisions to SIG Plan Decision, Sunday send) is live but off. Before switching it on: fill SIG PM Weekly Scope and confirm PM permissions. Saved PM plans remain deferred. The Sunday ERP operating review (pitch A1) is not a build item.
 
 The older HR follow-up table immediately below is retained as history; its numbering does not override this consolidated priority index or the newer correction in the integration master.
 
