@@ -160,7 +160,8 @@ def create_item(intake_name, item_code, item_name, description, item_group, stoc
         frappe.throw(_("This item code already exists. Search and select it."))
     item = frappe.get_doc({"doctype": "Item", "item_code": item_code.strip(),
         "item_name": item_name.strip(), "description": description.strip(),
-        "item_group": item_group, "stock_uom": stock_uom, "is_stock_item": 1})
+        "item_group": item_group, "stock_uom": stock_uom, "is_stock_item": 1,
+        "custom_wh_catalogue": 1})
     item.insert()
     return {"name": item.name, "item_name": item.item_name, "description": item.description, "stock_uom": item.stock_uom}
 
@@ -354,7 +355,8 @@ def create_items_from_rows(intake_name):
         prepared.append((row, description, item_name, code))
     for row, description, item_name, code in prepared:
         item = frappe.get_doc({"doctype": "Item", "item_code": code, "item_name": item_name,
-            "description": description, "item_group": group, "stock_uom": row.uom, "is_stock_item": 1})
+            "description": description, "item_group": group, "stock_uom": row.uom, "is_stock_item": 1,
+            "custom_wh_catalogue": 1})
         item.insert()
         row.item_code = item.name
         row.item_name = item.item_name
