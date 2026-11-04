@@ -11,7 +11,11 @@ frappe.pages['warehouse-workspace'].on_page_load = function (wrapper) {
         window.sessionStorage.setItem('sig_warehouse_allow_native_workspace_once', '1');
         frappe.set_route('Workspaces', 'SIG Warehouse');
     };
-    const root = $('<main class="sig-wh-home"></main>').appendTo(page.main);
+    const language = String(frappe.boot?.lang || 'en').toLowerCase();
+    const root = $('<main class="sig-wh-home"></main>')
+        .attr('dir', language.startsWith('ar') ? 'rtl' : 'ltr')
+        .attr('lang', language)
+        .appendTo(page.main);
 
     const primary = [
         {
