@@ -58,3 +58,4 @@ sig_warehouse.sig_warehouse.patches.v1_0.remove_invoice_transfer_reference
 sig_warehouse.sig_warehouse.patches.v1_0.tidy_form_layouts
 sig_warehouse.sig_warehouse.patches.v1_0.add_address_linked_party
 sig_warehouse.sig_warehouse.patches.v1_0.add_no_visit_message_settings
+sig_warehouse.sig_warehouse.patches.v1_0.add_pm_weekly_settings

@@ -76,13 +76,19 @@ Employee → attendance + custody + petty cash → review → Finance accounting
 
 This is a conceptual map, not a promise that every arrow is automatically linked or that every historical record has a complete identity. Project supplies the business scope; a physical Site is not a Cost Center. A Site Cycle represents a work episode for a site and its WO where known, with an agreed compatible no-WO path. Multiple scopes, visits, issues, invoices or payments can relate to the same site. The proper identity and child-row references matter more than row positions, similar names or a shared site code.
 
-## Plans page: weekly PM messages — STAGED, not built (4 November 2026)
+## Plans page: weekly PM messages — built in code, not deployed (4 November 2026)
 
-Status: staged design only. Nothing here is deployed, no PM has been contacted, and no new DocType or message job should be created until the pilot below is run by hand. Saved PM plans remain deferred in the implementation plan; this stage needs only a weekly snapshot of the planner's output.
+Status: code is written and unit-tested on the production branch, but NOT deployed and no PM has been contacted. Deployment and the first send need an explicit decision after the pilot list is confirmed. Saved PM plans remain deferred in the implementation plan; this stage needs only a weekly snapshot of the planner's output.
+
+**Concept and where it is saved.**
+- **Scope** — `SIG PM Weekly Scope`: which Projects each PM covers (one row per PM and project, maintained by Operations). The PM-to-project link did not exist in the data before this.
+- **Plan snapshot** — `SIG Weekly Plan Snapshot` (one per week, keyed by the Sunday date): the planner's trip stops, saved by the Sunday job so next week can compare against them.
+- **Review** — `SIG PM Weekly Review` (one per PM per week): Box 1 (last week's planned sites, visited flag, reason), Box 2 (this week's sites with Must/Hold/Remove), additions (visits outside the plan), the system comment, the trust score and the Mapping line. Box 2 decisions are written to the existing `SIG Plan Decision` through the planner's own endpoint when the PM saves.
+- **Sends** — the existing `Maytapi Message Log`. Mode and send hour are on `SIG Field Ops Settings` ("Weekly PM check"), default Off.
 
 **Purpose.** Give each PM one weekly check that replaces status calls and meeting preparation, and compare the plan with what was visited.
 
-**Rhythm.** Once a week, on Sunday, which starts the working week (Sunday–Thursday). The three messages below go to each PM together. The send time is not critical; morning is fine. Answers are read from ERP, not from WhatsApp replies (inbound automation remains deferred). No reminder is sent. The answers feed the Sunday operating review (pitch A1).
+**Rhythm.** Once a week, on Sunday (job `sig_warehouse.sig_operations.pm_weekly.run_scheduled`, hourly, acts once per week from the send hour), which starts the working week (Sunday–Thursday). The three messages below go to each PM together. The send time is not critical; morning is fine. Answers are read from ERP, not from WhatsApp replies (inbound automation remains deferred). No reminder is sent. The answers feed the Sunday operating review (pitch A1).
 
 **The three messages, refreshed each Sunday.**
 

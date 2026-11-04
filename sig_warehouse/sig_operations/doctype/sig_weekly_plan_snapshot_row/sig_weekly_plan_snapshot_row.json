@@ -1,0 +1,13 @@
+{
+  "doctype": "DocType", "name": "SIG Weekly Plan Snapshot Row", "module": "SIG Operations",
+  "istable": 1, "custom": 0, "engine": "InnoDB",
+  "field_order": ["site", "cycle", "project", "team", "planned_day", "kind"],
+  "fields": [
+    {"fieldname": "site", "fieldtype": "Data", "label": "Site", "in_list_view": 1, "read_only": 1},
+    {"fieldname": "cycle", "fieldtype": "Data", "label": "Site Cycle", "read_only": 1},
+    {"fieldname": "project", "fieldtype": "Data", "label": "Project", "in_list_view": 1, "read_only": 1},
+    {"fieldname": "team", "fieldtype": "Data", "label": "Team", "read_only": 1},
+    {"fieldname": "planned_day", "fieldtype": "Date", "label": "Planned Day", "in_list_view": 1, "read_only": 1},
+    {"fieldname": "kind", "fieldtype": "Data", "label": "Kind", "read_only": 1}
+  ]
+}

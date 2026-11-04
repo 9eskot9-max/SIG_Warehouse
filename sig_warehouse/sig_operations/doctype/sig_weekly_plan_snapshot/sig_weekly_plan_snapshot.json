@@ -1,0 +1,20 @@
+{
+  "doctype": "DocType", "name": "SIG Weekly Plan Snapshot", "module": "SIG Operations",
+  "custom": 0, "issingle": 0, "track_changes": 0, "engine": "InnoDB",
+  "autoname": "field:week_key",
+  "field_order": ["week_key", "week_start", "generated_at", "planner_summary", "rows"],
+  "fields": [
+    {"fieldname": "week_key", "fieldtype": "Data", "label": "Week Key", "read_only": 1, "unique": 1, "reqd": 1, "in_list_view": 1},
+    {"fieldname": "week_start", "fieldtype": "Date", "label": "Week Starting (Sunday)", "read_only": 1, "in_list_view": 1},
+    {"fieldname": "generated_at", "fieldtype": "Datetime", "label": "Generated At", "read_only": 1},
+    {"fieldname": "planner_summary", "fieldtype": "Small Text", "label": "Planner Summary", "read_only": 1},
+    {"fieldname": "rows", "fieldtype": "Table", "label": "Planned Sites", "options": "SIG Weekly Plan Snapshot Row", "read_only": 1}
+  ],
+  "permissions": [
+    {"role": "System Manager", "read": 1, "report": 1, "export": 1},
+    {"role": "Operations Manager", "read": 1, "report": 1, "export": 1},
+    {"role": "Projects Manager", "read": 1},
+    {"role": "Projects User", "read": 1}
+  ],
+  "sort_field": "week_start", "sort_order": "DESC"
+}

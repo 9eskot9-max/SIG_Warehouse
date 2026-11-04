@@ -1,0 +1,180 @@
+{
+ "doctype": "DocType",
+ "name": "SIG PM Weekly Review",
+ "module": "SIG Operations",
+ "custom": 0,
+ "issingle": 0,
+ "track_changes": 1,
+ "engine": "InnoDB",
+ "autoname": "field:review_key",
+ "field_order": [
+  "review_key",
+  "employee",
+  "employee_name",
+  "week_start",
+  "status",
+  "sent_at",
+  "section_last",
+  "last_week_lines",
+  "section_this",
+  "this_week_lines",
+  "additions",
+  "section_comment",
+  "system_comment",
+  "trust_score",
+  "trust_comment",
+  "updated_mapping",
+  "sent_messages"
+ ],
+ "fields": [
+  {
+   "fieldname": "review_key",
+   "fieldtype": "Data",
+   "label": "Key",
+   "read_only": 1,
+   "unique": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "employee",
+   "fieldtype": "Link",
+   "label": "PM",
+   "options": "Employee",
+   "read_only": 1,
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "employee_name",
+   "fieldtype": "Data",
+   "label": "PM Name",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "week_start",
+   "fieldtype": "Date",
+   "label": "Week Starting (Sunday)",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Open\nSent\nAnswered",
+   "read_only": 1,
+   "default": "Open",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "sent_at",
+   "fieldtype": "Datetime",
+   "label": "Sent At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_last",
+   "fieldtype": "Section Break",
+   "label": "1. Last week — focus"
+  },
+  {
+   "fieldname": "last_week_lines",
+   "fieldtype": "Table",
+   "label": "Last Week's Planned Sites",
+   "options": "SIG PM Weekly Line"
+  },
+  {
+   "fieldname": "section_this",
+   "fieldtype": "Section Break",
+   "label": "2. This week — target"
+  },
+  {
+   "fieldname": "this_week_lines",
+   "fieldtype": "Table",
+   "label": "This Week's Sites",
+   "options": "SIG PM Weekly Line"
+  },
+  {
+   "fieldname": "additions",
+   "fieldtype": "Table",
+   "label": "Visits Not on the Plan (last week)",
+   "options": "SIG PM Weekly Line"
+  },
+  {
+   "fieldname": "section_comment",
+   "fieldtype": "Section Break",
+   "label": "3. Comment on the plan"
+  },
+  {
+   "fieldname": "system_comment",
+   "fieldtype": "Small Text",
+   "label": "System Comment",
+   "read_only": 1
+  },
+  {
+   "fieldname": "trust_score",
+   "fieldtype": "Select",
+   "label": "How well does the ERP plan match reality? (1–5)",
+   "options": "\n1\n2\n3\n4\n5"
+  },
+  {
+   "fieldname": "trust_comment",
+   "fieldtype": "Data",
+   "label": "One sentence"
+  },
+  {
+   "fieldname": "updated_mapping",
+   "fieldtype": "Select",
+   "label": "WOs received this week updated in Mapping?",
+   "options": "\nY\nN"
+  },
+  {
+   "fieldname": "sent_messages",
+   "fieldtype": "Small Text",
+   "label": "Messages Sent",
+   "read_only": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "create": 1,
+   "read": 1,
+   "write": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1
+  },
+  {
+   "role": "Operations Manager",
+   "create": 1,
+   "read": 1,
+   "write": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1
+  },
+  {
+   "role": "Projects Manager",
+   "create": 1,
+   "read": 1,
+   "write": 1
+  },
+  {
+   "role": "Projects User",
+   "read": 1,
+   "write": 1
+  },
+  {
+   "role": "SIG Field Ops",
+   "read": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "week_start",
+ "sort_order": "DESC"
+}

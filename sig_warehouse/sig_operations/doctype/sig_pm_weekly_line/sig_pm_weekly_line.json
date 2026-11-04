@@ -1,0 +1,18 @@
+{
+  "doctype": "DocType", "name": "SIG PM Weekly Line", "module": "SIG Operations",
+  "istable": 1, "custom": 0, "engine": "InnoDB",
+  "field_order": ["site", "cycle", "project", "planned_day", "visited", "visit_count", "reason", "decision", "note", "is_addition", "recorded"],
+  "fields": [
+    {"fieldname": "site", "fieldtype": "Data", "label": "Site", "in_list_view": 1, "read_only": 1},
+    {"fieldname": "cycle", "fieldtype": "Data", "label": "Site Cycle", "read_only": 1},
+    {"fieldname": "project", "fieldtype": "Data", "label": "Project", "read_only": 1},
+    {"fieldname": "planned_day", "fieldtype": "Date", "label": "Planned Day", "read_only": 1, "in_list_view": 1},
+    {"fieldname": "visited", "fieldtype": "Check", "label": "Visited", "read_only": 1, "in_list_view": 1},
+    {"fieldname": "visit_count", "fieldtype": "Int", "label": "Visits", "read_only": 1},
+    {"fieldname": "reason", "fieldtype": "Select", "label": "Reason (if not visited)", "options": "\naccess\nmaterial\nteam\nTCN\nscope or WO\nother", "in_list_view": 1},
+    {"fieldname": "decision", "fieldtype": "Select", "label": "Decision for This Week", "options": "\nMust\nHold\nRemove", "in_list_view": 1},
+    {"fieldname": "note", "fieldtype": "Data", "label": "Note"},
+    {"fieldname": "is_addition", "fieldtype": "Check", "label": "Visit not on the plan", "read_only": 1},
+    {"fieldname": "recorded", "fieldtype": "Check", "label": "Decision Recorded", "read_only": 1}
+  ]
+}

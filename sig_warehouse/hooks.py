@@ -48,10 +48,12 @@ override_whitelisted_methods = {
 permission_query_conditions = {
     "SIG PC Transaction": "sig_warehouse.sig_warehouse.pc_journal.transaction_query_conditions",
     "Journal Entry": "sig_warehouse.sig_warehouse.pc_journal.journal_entry_query_conditions",
+    "SIG PM Weekly Review": "sig_warehouse.sig_operations.pm_weekly.get_permission_query_conditions",
 }
 has_permission = {
     "SIG PC Transaction": "sig_warehouse.sig_warehouse.pc_journal.transaction_permission",
     "Journal Entry": "sig_warehouse.sig_warehouse.pc_journal.journal_entry_permission",
+    "SIG PM Weekly Review": "sig_warehouse.sig_operations.pm_weekly.has_permission",
 }
 
 # Root cause of the 2026-09-18 freeze found and fixed (isolated offline
@@ -115,6 +117,7 @@ scheduler_events = {
     },
     # HR email request replies (WhatsApp Inbox -> SIG Employee Onboarding.proposed_email, for HR review only).
     "hourly": [
+        "sig_warehouse.sig_operations.pm_weekly.run_scheduled",
         "sig_warehouse.sig_operations.no_visit_nudge.run_scheduled",
         "sig_warehouse.sig_hr.email_request.collect_email_replies",
         "sig_warehouse.sig_warehouse.pc_task_queue.sync_pc_review_todos",
