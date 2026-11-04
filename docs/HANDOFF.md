@@ -4,8 +4,8 @@ One agent works on the production branch at a time. The owner can change the hol
 
 | Field | Value |
 |---|---|
-| Baton holder | **Claude** (Codex completed the owner-authorized release on 4 November) |
-| Next holder | **Codex** |
+| Baton holder | **Codex** (owner reassigned for workbench card color update) |
+| Next holder | **Claude** |
 | Branch | `codex/sig-personal-home-v16` (production source) |
 | Latest deployed source commit | `7a37c9a` (live on `neosys.frappe.cloud`, bench `bench-51251-000027-f1f`) |
 | Open items for the next holder | Route, migration rehearsal and HR/Projects/Finance role/persona acceptance are NOT TESTED. Build secure document upload before collecting ID/bank evidence; payroll/User/Finance follow-on actions and onboarding-control linkage remain open. The existing Faizan phone collision must be reconciled before messaging or candidate intake. Do not send a WhatsApp message or create/update Faizan records without the required identity and number review. |
