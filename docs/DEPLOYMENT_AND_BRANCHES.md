@@ -13,15 +13,17 @@ Last verified from Frappe Cloud and GitHub: 4 November 2026, Asia/Riyadh. This i
 - SIG WhatsApp, live: `v16-migration` at `9bfd1bd`. SIG QR Design, live: `v16-migration` at `39ecff6`.
 - Trial: the site `neosys-v16-trial.frappe.cloud` has left the Frappe Cloud site list. Its bench `bench-51214-000014-f28f3` is still Active with no sites. Removal awaits owner confirmation.
 
-## Branch map (SIG Warehouse, GitHub `9eskot9-max/SIG_Warehouse`), 4 November 2026
+## Branch map (SIG Warehouse, GitHub `9eskot9-max/SIG_Warehouse`), checked 4 November 2026
 
 | Branch | Role today | Head | Live on production? |
 |---|---|---|---|
-| `codex/sig-personal-home-v16` | Production source. Frappe Cloud builds whatever its HEAD is. | `13faa51` | Live is `76927313`. Two commits ahead: `4bd244e` (docs only) and `13faa51` (intake item family codes: a DocType change and an item registry). `13faa51` is **not** deployed. |
-| `main` | v15-era line; GitHub default; not built for v16 | `f32c7ea` | No. 21 commits exist only here, not on the production branch. Each needs a decision before anyone deploys from `main`. |
-| `v16-migration` | Former v16 staging; no longer built | `5e63f85` | No. 7 commits behind production. |
+| `codex/sig-personal-home-v16` | Production source configured in Frappe Cloud. | `5fe31ca` | Last completed site read-back is `76927313`. Current Cloud dashboard shows the bench group `Deploying`; the app row is `162a323` / `Update Available`. `5fe31ca` is pushed but **not confirmed live**. |
+| `main` | GitHub default; not the v16 build source. | `f32c7ea` | One commit is unique by ancestry; `git cherry` confirms its intake guide/UOM list-view patch is already represented in the production branch. No unique source patch remains to port from current `main`. |
+| `v16-migration` | Former v16 staging; no longer built. | `5e63f85` | 12 commits behind production; none ahead. |
 
 Open pull requests: `#71` (draft, to `main`) and `#64`, `#65`, `#66` (drafts, to `v16-migration`) are superseded by work already on the production branch. They are recommended for closing. This needs owner approval.
+
+The full ERP integration master on the production-source branch includes Claude’s 4 November updates. The local `D:\erp\ERPNext\Automation DB\MASTER-ERP-INTEGRATION.md` copy was behind at 3 November; it has been synchronized to that newer text, then updated with the current `5fe31ca` and Cloud deployment status.
 
 ## Warnings
 
@@ -32,7 +34,7 @@ Open pull requests: `#71` (draft, to `main`) and `#64`, `#65`, `#66` (drafts, to
 ## Proposed branch policy (4 November 2026, awaiting owner approval; not yet adopted)
 
 1. One production branch, named `production/v16`, the GitHub default, protected: pull requests only, no force push, a review required.
-2. Tag the current `main` as `v15-final-20261031`, then rename it `legacy/v15` or delete it. Port any of its 21 commits that are still needed, first.
+2. Before renaming or deleting `main`, tag its current history and review any commits unique by both ancestry and patch. The current comparison finds one ancestry-only commit, already patch-equivalent on production; make no branch deletion or rename until the owner approves.
 3. Every change starts as a topic branch from production (`codex/<topic>` or `feature/<topic>`). One open PR per topic. Merge to production, then delete the branch.
 4. One writer per branch. Codex and local sessions never push to the same branch at the same time. Use `--force-with-lease` only on your own branches.
 5. Before each build, confirm the production HEAD matches the merged PR and that the commit list is the expected one.

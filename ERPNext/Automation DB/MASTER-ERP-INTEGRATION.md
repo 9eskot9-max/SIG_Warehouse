@@ -4,6 +4,8 @@
 
 Frappe Cloud read-back, 4 November 2026: `neosys.frappe.cloud` is Active on `neoweb-v16`, bench `bench-51251-000018-f1f`. The latest site update succeeded (`0r3ck2fqno`, 4 November, 7:07 PM Riyadh). Installed revisions: Frappe 16.54.0 `2fcb939`, ERPNext 16.53.0 `9cd11b1`, HRMS 16.53.0 `b12d935`, SIG Warehouse `codex/sig-personal-home-v16` `76927313`, ZATCA `codex/v16-b2b-clearance-parity` `a8f9fb5`, SIG WhatsApp `v16-migration` `9bfd1bd`, SIG QR Design `v16-migration` `39ecff6`. Frappe Cloud still lists Frappe and HRMS updates as available; they are **not applied**. This is a dated read-back, not live status; recheck before a change.
 
+**Deployment status checked 4 November 2026:** the Cloud dashboard marks bench group `neoweb-v16` as `Deploying`. The SIG Warehouse app row still shows `162a323` with `Update Available`, and the Deploy action reports a deployment already in progress. The new branch HEAD `5fe31ca` is pushed but is not confirmed built or installed. Do not infer that it is live; wait for the current deployment to finish, refresh the app release, then deploy the intended HEAD. The Press API read attempt returned Cloudflare 403 error 1010, so this check used the signed-in Cloud dashboard.
+
 **Live now (4 November 2026, source and deployed):**
 - Left rail: SIG Finance, Petty Cash, SIG Warehouse, SIG Operations, SIG HR and Setup, with colour icons. Vanilla ERPNext icons are hidden by the saved site dock.
 - Form layouts tidied on Journal Entry, Payment Entry, Stock Entry, Material Request, Employee, Supplier and SIG Site Cycle. The Sales Invoice retention block is not yet collapsible.
@@ -15,7 +17,7 @@ Frappe Cloud read-back, 4 November 2026: `neosys.frappe.cloud` is Active on `neo
 
 **Not live and not decided:**
 - Frappe and HRMS framework updates: available, not applied.
-- Production branch `codex/sig-personal-home-v16` is at `13faa51` (intake item family codes: a DocType change and an item registry, pushed by Mohammed on 4 November). It is **not live**, and the next Frappe Cloud build would include it. Review it before building.
+- Production source branch `codex/sig-personal-home-v16` is at `5fe31ca`. The latest intake change hides the internal item-family selector and infers the family from the approved item-code prefix; the user enters or suggests an item code. It is **not confirmed live**. The dashboard reports a deployment in progress and its app row is still at `162a323` with `Update Available`. Deploy only after that operation reaches a terminal state, then verify the installed revision.
 - Trial bench `bench-51214-000014-f28f3`: still Active with no sites, although the trial site has left the Frappe Cloud site list. Removal is awaiting confirmation.
 - Scoped PO tag override for Excel Setup: deferred as a larger development.
 - Open PRs: #64, #65 and #66 are old drafts against `v16-migration` and should be closed. #71 is a draft against `main`; its page, test and checklist changes are already on the production branch in `f38a4d8`, so it should be closed too.
