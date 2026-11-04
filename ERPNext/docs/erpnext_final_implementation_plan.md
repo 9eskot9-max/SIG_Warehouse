@@ -66,6 +66,8 @@ This is the consolidated navigation and priority order for significant open work
 8. **Attendance and HR follow-up.** Unify today's attendance, history and exceptions only after checking existing page/assets and verified historical check-ins. Employee beneficiary/contact requests and Riaz remain deferred until the owner resumes them.
 9. **Later scope.** Photo/RFI, advanced KPIs, saved PM plans and optional reports remain deferred. Todoist, SIG Letters, Client Collections, MIR intake, purchasing intake and field-visit lookup have deployed implementations; raise only concrete gaps in their current behavior.
 
+10. **Adoption rhythm and PM weekly planning — staged, not built (4 Nov 2026).** The Sunday ERP operating review, the weekly PM form and the adoption pitches are in the integration master: the Plans page section and "Adoption and rhythm pitches". The weekly form needs a weekly planner snapshot and a PM permission check before any build; saved PM plans remain deferred.
+
 The older HR follow-up table immediately below is retained as history; its numbering does not override this consolidated priority index or the newer correction in the integration master.
 
 ### Whole-company pending-work crosswalk — 30 October 2026

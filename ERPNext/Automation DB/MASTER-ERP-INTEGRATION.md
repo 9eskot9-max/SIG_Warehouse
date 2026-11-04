@@ -76,6 +76,60 @@ Employee → attendance + custody + petty cash → review → Finance accounting
 
 This is a conceptual map, not a promise that every arrow is automatically linked or that every historical record has a complete identity. Project supplies the business scope; a physical Site is not a Cost Center. A Site Cycle represents a work episode for a site and its WO where known, with an agreed compatible no-WO path. Multiple scopes, visits, issues, invoices or payments can relate to the same site. The proper identity and child-row references matter more than row positions, similar names or a shared site code.
 
+## Plans page: PM weekly planning messages — STAGED, not built (4 November 2026)
+
+Status: staged design only. Nothing here is deployed, no PM has been contacted, and no new DocType or message job should be created until the pilot below is run by hand. Saved PM plans remain deferred in the implementation plan; this stage needs only a weekly snapshot of the planner's output.
+
+**Purpose.** Give PMs one short weekly form that replaces status calls and meeting preparation, and compare the plan with what was visited. Its answers become the agenda for the Sunday operating review (see the adoption pitches below).
+
+**Rhythm.**
+- Thursday 16:00 Riyadh, after the last workday: send each PM a link to their form, through the existing Maytapi sender. Due Sunday 10:00.
+- Sunday 10:00: the form is the agenda for the review. Answers are read from ERP, not from WhatsApp replies (inbound automation remains deferred).
+
+**Box 1 — Last week against the plan (pre-filled from ERP).** Lists last week's planned sites with visited or not visited, taken from Site Visits and Site Cycles. The PM answers only for the misses:
+- reason (select): access, material, team, TCN, scope or WO, other;
+- optional free-text note.
+
+**Box 2 — This week (planner proposal).** Shows the planner's proposed sites and dates for the PM's area.
+- For each row the PM chooses Must, Hold or Remove. These write to the existing SIG Plan Decision record.
+- The PM can add sites the planner does not know about, with a reason. These additions are the most useful signal the form produces.
+
+**Box 3 — Trust and comment.** A 1–5 score for how far the ERP plan matches reality, plus one sentence. Tracked week by week to show whether trust is rising or falling.
+
+**Optional line.** "WOs received this week updated in Mapping? Y/N". This covers the PM WO duty, which is not otherwise monitored.
+
+**Messages (staged, Arabic and English).**
+- Thursday: "مرحباً {name}، نرجو تعبئة نموذج خطة الأسبوع قبل يوم الأحد الساعة 10:00: {link}. يستغرق بضع دقائق ويعتمد على بيانات النظام." / "Hello {name}, please complete the weekly plan form before Sunday 10:00: {link}. It takes a few minutes and uses data already in ERP."
+- Sunday 09:00 reminder, only to PMs who have not submitted: "تذكير: نموذج خطة الأسبوع مستحق اليوم الساعة 10:00: {link}" / "Reminder: the weekly plan form is due today at 10:00: {link}"
+
+**Prerequisites before any build.**
+1. **Weekly planner snapshot.** The planner must save each Monday's proposal, or there is nothing to compare against.
+2. **PM permissions.** Confirm each PM's actual role can read cycles and set SIG Plan Decision. The Projects Manager role currently cannot read cycles, so it cannot set Must. Verify on the live site before the pilot.
+3. **Named PMs.** Confirm the pilot list (Sohail, Raheem and Imran Ansary, matching the leads in the petty-cash review roster) with the owner.
+
+**Pilot (manual first).** Run for 3–4 weeks with the three PMs using a plain form or a spreadsheet, with the Thursday and Sunday messages sent by hand. Build the ERP form only if they keep using it. It must replace a status call or meeting prep; if it only adds work, stop.
+
+## Adoption and rhythm pitches — 4 November 2026 review (staged)
+
+The review found the system ahead of its users: most capabilities are recorded as deployed but NOT TESTED. Figures quoted below come from that review and are to be re-verified before any action is based on them.
+
+Ranked by build cost and expected effect. Items A1, A3, A5, A6 and A7 need no build.
+
+- **A1. Weekly operating rhythm, run from ERP screens (no build).** A 30-minute Sunday review using Site Cycles, Field Planner and PC Status. Rule: if it is not in ERP, it did not happen.
+- **A2. PM weekly planning messages (staged — see the Plans page section above).**
+- **A3. Gate a benefit on ERP use (policy, no build).** The next petty-cash top-up is released only when the previous cycle's receipts are in ERP. A planner change counts only when it is set as Must, Hold or Remove in ERP, not requested on WhatsApp. Copies the reason MIR, DN and PO stuck: ERP is the only way to get something.
+- **A4. Petty-cash statement and backlog sweep (small).** One weekly statement per employee and reviewer: open receipts, days outstanding, balance. Set a cut-off for the current open receipts and escalate anything unreviewed. The hourly review ToDos already exist, so more ToDos will not help. Eleven transactions from an unlinked sender ending 4408 need an identity decision first.
+- **A5. Stale-cycle cleanup sprint (no build).** Each PM or coordinator receives their old open cycles and a deadline, closed with the existing bulk-close-with-reason. The review reported 269 Initial cycles carrying 807 TCN/MIR/visit items, which clutters the Workbench and distorts the KPIs.
+- **A6. Adoption window (policy, no build).** No new feature ships until the previous one has had one real user complete its real workflow.
+- **A7. Role sessions that double as persona acceptance (no build).** Sit each person through their real flow once: warehouse purchasing, Finance collections, PM planner. Covers acceptance and training together.
+- **A8. Field-data hygiene (small).** An outbound message when a Start has no End by evening, or a team leader has no check-in at their first site. Add these to the no-visit message rather than building a second sender.
+- **A9. One ERP champion per department, plus "report a problem" (small).** A champion in each department, and a button that creates a ToDo routed through Todoist.
+- **A10. Role cards and "what changed for you" notes (no build).** Short notes in Arabic, English and Urdu after each release, because users are not told when screens change.
+- **A11. Retire shadow trackers (no build).** Find the personal Excel or WhatsApp lists still in use and replace each with its ERP screen. Habits do not move while the old option remains open.
+- **A12. Private hygiene counts per person (small).** Owner-only, never a ranking. Team rankings and composite scores were already rejected; keep to that boundary.
+
+Reported facts to re-verify before acting: critical sites show zero in ERP; sessions without an explicit End do not count as visits; the last ERP Tags event was 13 September; the Average Cycle figure of 80.9 days rests on one cycle; a collections reminder has been "Sending" since 28 October; no role has completed a real workflow acceptance yet.
+
 ## Operations: from scope to handover and invoice
 
 Operations works across Projects, Sites, Site Cycles, work orders, visits and evidence. The Workbench and Site Cycles are views of the same operational facts. A cycle stage summarizes progress; it does not replace the underlying evidence, warehouse quantities, Sales Invoice or Finance records. Shared PM/coordinator work belongs to the eligible group; an individually assigned native ToDo is a separate follow-up.
