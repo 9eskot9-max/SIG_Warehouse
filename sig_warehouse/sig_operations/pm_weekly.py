@@ -218,31 +218,3 @@ def has_permission(doc, ptype=None, user=None):
     employee = frappe.db.get_value("Employee", {"user_id": user}, "name")
     return bool(employee and employee == doc.employee)
 
-
-@frappe.whitelist()
-def my_weekly_check():
-    """What the Field Planner shows about this week's PM check: the signed-in PM's own review,
-    or, for Operations and System Managers, how many reviews are open, sent or answered."""
-    user = frappe.session.user
-    week = _current_week()
-    manager = bool(ALLOWED_ROLES.intersection(frappe.get_roles(user)))
-    out = {"week": str(week), "manager": manager, "review": None, "counts": None, "scope_pms": 0}
-    if manager:
-        rows = frappe.get_all(REVIEW, filters={"week_start": week}, fields=["status"], limit_page_length=0)
-        counts = {"Open": 0, "Sent": 0, "Answered": 0}
-        for r in rows:
-            counts[r.status] = counts.get(r.status, 0) + 1
-        out["counts"] = counts
-        out["scope_pms"] = len(_pms())
-    employee = frappe.db.get_value("Employee", {"user_id": user}, "name")
-    if employee and frappe.db.exists(REVIEW, f"{week}-{employee}"):
-        review = frappe.get_doc(REVIEW, f"{week}-{employee}")
-        lines = review.get("last_week_lines") or []
-        out["review"] = {
-            "name": review.name, "status": review.status,
-            "link": get_url(f"/desk/sig-pm-weekly-review/{review.name}"),
-            "planned": len(lines), "visited": sum(1 for line in lines if line.visited),
-            "this_week": len(review.get("this_week_lines") or []),
-            "answered_score": bool(review.trust_score),
-        }
-    return out
