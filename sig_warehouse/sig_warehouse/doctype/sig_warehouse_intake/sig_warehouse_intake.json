@@ -146,6 +146,7 @@
    "label": "Item group for new items",
    "fieldtype": "Link",
    "options": "Item Group",
+   "default": "Products",
    "description": "Used when creating items from the rows below."
   },
   {

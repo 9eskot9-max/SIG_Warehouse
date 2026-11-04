@@ -8,6 +8,9 @@
   "source_line_no",
   "source_text",
   "description",
+  "item_family_key",
+  "proposed_item_code",
+  "proposal_basis",
   "item_code",
   "item_name",
   "qty",
@@ -37,20 +40,41 @@
    "label": "Description",
    "fieldtype": "Small Text",
    "reqd": 1,
-   "in_list_view": 1
+   "in_list_view": 1,
+   "columns": 3
+  },
+  {
+   "fieldname": "item_family_key",
+   "label": "Item family key",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "proposed_item_code",
+   "label": "Proposed item code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "proposal_basis",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "read_only": 1
   },
   {
    "fieldname": "item_code",
    "label": "Item",
    "fieldtype": "Link",
    "options": "Item",
-   "in_list_view": 1
+   "in_list_view": 1,
+   "columns": 2
   },
   {
    "fieldname": "item_name",
    "label": "Item Name",
-   "fieldtype": "Data",
-   "read_only": 1
+   "fieldtype": "Data"
   },
   {
    "fieldname": "qty",
@@ -58,7 +82,8 @@
    "fieldtype": "Float",
    "default": "1",
    "reqd": 1,
-   "in_list_view": 1
+   "in_list_view": 1,
+   "columns": 1
   },
   {
    "fieldname": "uom",
@@ -66,6 +91,7 @@
    "fieldtype": "Link",
    "options": "UOM",
    "in_list_view": 1,
+   "columns": 1,
    "reqd": 1
   },
   {
@@ -102,8 +128,7 @@
    "label": "Match Status",
    "fieldtype": "Select",
    "options": "\nNeeds Review\nMatched\nNo Match\nAmbiguous",
-   "default": "Needs Review",
-   "in_list_view": 1
+   "default": "Needs Review"
   },
   {
    "fieldname": "review_note",

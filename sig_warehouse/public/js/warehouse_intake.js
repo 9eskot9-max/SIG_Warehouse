@@ -17,19 +17,62 @@ function sig_intake_find_items(frm) {
             dialog.show();
 }
 
+async function sig_intake_similar(frm) {
+    if (frm.is_new() || frm.is_dirty()) await frm.save();
+    const result = await frappe.call({method:'sig_warehouse.sig_warehouse.warehouse_intake.similar_items_for_rows',
+        args:{intake_name:frm.doc.name}, freeze:true, freeze_message:__('Checking existing items…')});
+    const groups = result.message || [];
+    if (!groups.length) { frappe.msgprint(__('No similar items were found. Review the proposed codes before creating items.')); return; }
+    const esc = frappe.utils.escape_html;
+    const dialog = new frappe.ui.Dialog({title:__('Possible existing items'), fields:[{fieldtype:'HTML',fieldname:'matches'}]});
+    dialog.fields_dict.matches.$wrapper.html(groups.map((group, gi) =>
+        `<div style="margin-bottom:16px"><strong>${esc(group.description || '')}</strong><br>` +
+        group.items.map((item, ii) => `<button type="button" class="btn btn-default btn-sm" style="margin:4px" data-group="${gi}" data-item="${ii}">${esc(item.name)} · ${esc(item.item_name || '')} · ${esc(item.stock_uom || '')}</button>`).join('') + '</div>').join('') +
+        `<p class="text-muted">${__('Select an existing item if it matches; otherwise close this window and review the proposed code.')}</p>`);
+    dialog.fields_dict.matches.$wrapper.find('[data-group]').on('click', async function() {
+        const group = groups[Number(this.dataset.group)], item = group.items[Number(this.dataset.item)];
+        const row = (frm.doc.lines || []).find(r => r.name === group.row);
+        if (!row) return;
+        await frappe.model.set_value(row.doctype, row.name, {item_code:item.name, item_name:item.item_name,
+            uom:item.stock_uom, match_status:'Matched', item_family_key:'', proposed_item_code:'', proposal_basis:''});
+        groups.splice(Number(this.dataset.group), 1);
+        dialog.hide();
+        frappe.show_alert({message:__('Existing item selected. Save the intake.'), indicator:'green'});
+    });
+    dialog.show();
+}
+
 function sig_intake_guide(frm) {
     const field = frm.fields_dict.lines;
     if (!field || !field.$wrapper) return;
     $(frm.wrapper).find('.sig-intake-guide').remove();
     const guide = $('<div class="sig-intake-guide" style="border:1px solid var(--border-color);border-radius:8px;padding:16px;margin:16px 0;background:var(--card-bg)">' +
         '<div style="font-weight:600;font-size:15px">' + __('Add items') + '</div>' +
-        '<p class="text-muted" style="margin:6px 0 12px">' + __('Enter descriptions and units in the table, choose an item group, then create items from the rows. Search first for items already in the catalogue.') + '</p>' +
+        '<p class="text-muted" style="margin:6px 0 12px">' + __('Enter descriptions and units, suggest codes, then review each family and code before creating items.') + '</p>' +
         '<button type="button" class="btn btn-default btn-sm" data-find-item>' + __('Find existing item') + '</button> ' +
+        '<button type="button" class="btn btn-default btn-sm" data-suggest-items>' + __('Suggest item codes') + '</button> ' +
+        '<button type="button" class="btn btn-default btn-sm" data-families>' + __('Item families') + '</button> ' +
+        '<button type="button" class="btn btn-default btn-sm" data-similar>' + __('Review similar items') + '</button> ' +
         '<button type="button" class="btn btn-primary btn-sm" data-create-item>' + __('Create items from rows') + '</button></div>');
     field.$wrapper.before(guide);
     guide.find('[data-find-item]').on('click', () => {
         if (frm.doc.docstatus !== 0 || frm.doc.purchase_order_created || frm.doc.purchase_receipt) { frappe.msgprint(__('Create a new intake to add more items.')); return; }
         sig_intake_find_items(frm);
+    });
+    guide.find('[data-suggest-items]').on('click', async () => {
+        if (frm.doc.docstatus !== 0 || frm.doc.purchase_order_created || frm.doc.purchase_receipt) { frappe.msgprint(__('Create a new intake to add more items.')); return; }
+        if (frm.is_new() || frm.is_dirty()) await frm.save();
+        await frappe.call({method:'sig_warehouse.sig_warehouse.warehouse_intake.suggest_items_from_rows',
+            args:{intake_name:frm.doc.name}, freeze:true, freeze_message:__('Suggesting item codes…')});
+        await frm.reload_doc();
+        await sig_intake_similar(frm);
+    });
+    guide.find('[data-similar]').on('click', () => sig_intake_similar(frm));
+    guide.find('[data-families]').on('click', async () => {
+        if (frm.is_new() || frm.is_dirty()) await frm.save();
+        const result = await frappe.call({method:'sig_warehouse.sig_warehouse.warehouse_intake.item_families', args:{intake_name:frm.doc.name}});
+        const esc = frappe.utils.escape_html;
+        frappe.msgprint({title:__('Item families'), message:(result.message || []).map(f => `<div><b>${esc(f.key)}</b> · ${esc(f.family)}</div>`).join('')});
     });
     guide.find('[data-create-item]').on('click', async () => {
         if (frm.doc.docstatus !== 0 || frm.doc.purchase_order_created || frm.doc.purchase_receipt) {
@@ -116,6 +159,7 @@ function sig_intake_review(frm) {
 frappe.ui.form.on('SIG Warehouse Intake', {
     onload(frm) {
         if (frm.is_new() && !frm.doc.company) frm.set_value('company', frappe.defaults.get_user_default('Company'));
+        if (!frm.doc.item_creation_group && frm.doc.docstatus === 0 && !frm.doc.purchase_order_created && !frm.doc.purchase_receipt) frm.set_value('item_creation_group', 'Products');
     },
     refresh(frm) {
         sig_intake_guide(frm);
