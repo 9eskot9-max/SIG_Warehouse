@@ -15,15 +15,15 @@ Last verified from Frappe Cloud and GitHub: 4 November 2026, Asia/Riyadh. This i
 
 ## Branch map (SIG Warehouse, GitHub `9eskot9-max/SIG_Warehouse`), checked 4 November 2026
 
-| Branch | Role today | Head | Live on production? |
+| Branch | Role today | Relevant revision | Live on production? |
 |---|---|---|---|
-| `codex/sig-personal-home-v16` | Production source configured in Frappe Cloud. | `c8f71c4` | Pipeline `3roheu9glr` and site update `6t7cbdidra` succeeded; site is Active. The site's Apps page still reports `6ce8da3`, so the code change at `5fe31ca` is **not confirmed installed**. |
-| `main` | GitHub default; not the v16 build source. | `f32c7ea` | One commit is unique by ancestry; `git cherry` confirms its intake guide/UOM list-view patch is already represented in the production branch. No unique source patch remains to port from current `main`. |
-| `v16-migration` | Former v16 staging; no longer built. | `5e63f85` | 12 commits behind production; none ahead. |
+| `codex/sig-personal-home-v16` | Production source configured in Frappe Cloud. | `c8f71c4` (source built in latest deployment) | Pipeline `3roheu9glr` and site update `6t7cbdidra` succeeded; site is Active. The site's Apps page still reports `6ce8da3`, so the code change at `5fe31ca` is **not confirmed installed**. |
+| `main` | GitHub default; not the v16 build source. | `f32c7ea` | 1 commit ahead / 86 behind by ancestry; its sole ahead commit is patch-equivalent to the intake guide/UOM list-view change already represented in production. No unique source patch remains to port from current `main`. |
+| `v16-migration` | Former v16 staging; no longer built. | `5e63f85` | 14 commits behind production; none ahead. |
 
 Open pull requests: `#71` (draft, to `main`) and `#64`, `#65`, `#66` (drafts, to `v16-migration`) are superseded by work already on the production branch. They are recommended for closing. This needs owner approval.
 
-The full ERP integration master on the production-source branch includes Claude’s 4 November updates. The local `D:\erp\ERPNext\Automation DB\MASTER-ERP-INTEGRATION.md` copy was behind at 3 November; it has been synchronized to that newer text, then updated with deployment pipeline `3roheu9glr`, site update `6t7cbdidra`, and the installed-revision mismatch.
+The full ERP integration master on the production-source branch includes Claude’s 4 November updates. The local `D:\erp\ERPNext\Automation DB\MASTER-ERP-INTEGRATION.md` copy was behind at 3 November; it has been synchronized to that newer text, then updated with deployment pipeline `3roheu9glr`, site update `6t7cbdidra`, and the installed-revision mismatch. A later documentation-only commit records this state; no code changed after the deployment source `c8f71c4`.
 
 ## Warnings
 
