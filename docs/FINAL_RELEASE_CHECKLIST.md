@@ -51,3 +51,14 @@ Start each check in a fresh authenticated session with the user's identity and e
 - [ ] Link the release evidence from the master and update incident chronology/learning notes.
 - [ ] Record remaining risks, owner decisions and untested personas.
 - [ ] Confirm the release can be reproduced from the version-controlled source rather than a live-only change.
+
+
+## 7. Employee project and Operations routing migration — OPEN
+
+- [ ] Inventory and reconcile every affected employee's existing exact Project links, Operations family/role and alias, planner team, reporter map, PC routing and exceptions, Employee/User/custody links and relevant AM mappings. Record sources and unresolved conflicts; do not infer exact Projects from a family.
+- [ ] Prepare a reviewable employee-ID-based migration manifest, including existing Operations PM/coordinator and Warehouse scopes, PC reviewer differences, effective dates, ownership and unresolved identity/phone collisions.
+- [ ] Implement the configuration in the existing Excel Setup People interface and switch the hardcoded Operations roster, audience and display consumers to validated configuration while preserving PC, field reporting and related consumers and their intended semantics.
+- [ ] Reconcile existing and migrated records; preserve history and avoid unintended writes to Employee, User, Account, payroll or project records. Provide a recovery plan and rehearse migration twice on a recoverable copy.
+- [ ] Compare effective task audiences and permission additions/removals for all affected people and scopes. Complete fresh-session HR, Projects, Operations and Finance persona and linked-record acceptance; document PASS / FAIL / NOT TESTED and unresolved conflicts. Administrator route rendering alone is not acceptance.
+
+Current state: People routing revision 1 is published for PC; the exact Employee project assignments table was observed empty and Operations roster remains code-owned. This checklist is future work, not a claim of completed development or deployment.

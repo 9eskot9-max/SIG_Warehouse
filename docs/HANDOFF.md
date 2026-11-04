@@ -18,3 +18,7 @@ Codex is the active repository agent at the owner’s direction. The owner can c
 3. One move = one task the owner asked for, finished and pushed. Do not start a second task inside a move.
 4. Never deploy, schedule a Frappe Cloud update, or edit the Cloud benches unless the owner told you to in this move.
 5. Add a row to `docs/DEPLOY_LOG.md` for every Cloud action, in the same last commit.
+
+## Open employee setup migration
+
+Employee project assignments were observed empty; Operations roster, role visibility and display aliases remain hardcoded. See the employee project and Operations staging gap in the ERP/HR masters, implementation plan and final release checklist. PC routing revision 1 is published, but is not the full employee migration. No migration has been performed.

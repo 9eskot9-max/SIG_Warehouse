@@ -256,3 +256,17 @@ Before starting a candidate, define the actual pain, affected people, existing r
 | Historical contracts, decisions and release details | [Legacy register: preserved master snapshot](MASTER-ERP-INTEGRATION-LEGACY.md#master-snapshot-20261031-cleanup) and its earlier archive |
 
 Local and GitHub app copies do not by themselves establish production state or that every local change has been pushed. Confirm the exact site, app revision and relevant source before implementation or deployment.
+
+
+## Employee project and Operations configuration — staging gap, 4 November 2026
+
+**OPEN — not implemented or migrated.** The live Excel Setup **Employee project assignments** table was observed empty. The published People routing revision 1 contains 58 existing employee work-group / petty-cash review rows, six reviewer groups and two approved Incident exceptions; it does not establish each employee's exact ERP Project or complete employee setup. The deployed Operations workbench still uses the code-owned `OPS_ROSTER`, `OPS_OWNER_NAMES`, `WAREHOUSE_USERS` and `WAREHOUSE_OWNER_NAMES` for scope, role and display; its task-audience logic has not been switched to People setup. The seven observed Field Reporter Map rows are existing phone-to-Employee records used by field-feed/site-visit logic. Do not claim the full employee/project migration is complete.
+
+Stage the following work in the existing Excel Setup People interface:
+
+1. Inventory actual employee/project relationships and related settings across current ERP Project/PM assignments, Operations roster and aliases, Field Planner teams, Field Reporter Map, published PC routing/reviewer exceptions, Employee/User/custody links and relevant AM mappings. Record the owning source, identity, scope, dates and consumer; distinguish exact ERP Project from operating family and planner roster. Reconcile duplicates, conflicts, missing dates and phone collisions instead of guessing. Preserve existing records and assignments.
+2. Prepare a reviewable per-employee migration manifest with verified Employee IDs, exact Projects where evidenced, operational family/role and display alias, PC review group/exceptions and existing linked records. Keep unknowns explicit; do not infer exact Projects, payroll, account or access grants. Preserve the existing PM/coordinator and Warehouse memberships and their intentional differences from PC reviewer rosters.
+3. Develop configuration and migration in the owning app, integrated into the existing People setup. Replace hardcoded Operations routing and display lookups with validated configured records; connect each consumer to its correct source. Preserve existing PC behavior, fallback and exceptions, Field Reporter Map consumers, project- and role-specific semantics, history, authorization and a recovery path. An operational group alone is not an exact Project assignment.
+4. Before release, compare old and new effective routing and task audiences for all affected people and scopes, review grants and removals, rehearse migration and repeatability on a recoverable copy, and record HR, Projects, Operations and Finance persona acceptance using the permission regression gate. Record PASS / FAIL / NOT TESTED. Do not treat an Administrator page render or saved configuration as end-to-end acceptance. Missing evidence or unresolved identity/scope must remain review items.
+
+This entry stages future implementation; no employee, project, routing, access or financial record was changed by documenting it.
