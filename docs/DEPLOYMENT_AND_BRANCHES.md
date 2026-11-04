@@ -1,26 +1,42 @@
 # Deployment and branch map
 
-Last verified from Frappe Cloud: 3 November 2026, Asia/Riyadh. This is a dated read-back; recheck before every release.
+Last verified from Frappe Cloud and GitHub: 4 November 2026, Asia/Riyadh. This is a dated read-back; recheck before every release.
 
-## Production snapshot
+## Production snapshot (4 November 2026)
 
-- Site: neosys.frappe.cloud — Active.
-- Bench group: neoweb-v16.
-- Bench instance: bench-51251-000014-f1f.
-- Latest listed site update: Migrate — Success, 3 November 2026, 9:02 PM Riyadh.
-- Frappe 16.54.0 — 2fcb939; ERPNext 16.53.0 — 9cd11b1; HRMS 16.53.0 — b12d935.
-- SIG Warehouse: codex/sig-personal-home-v16 — 6ce8da3.
-- ZATCA Integration: codex/v16-b2b-clearance-parity — a8f9fb5.
-- SIG WhatsApp: v16-migration — 9bfd1bd.
-- SIG QR Design: v16-migration — 39ecff6.
+- Site: `neosys.frappe.cloud` — Active, on Frappe Cloud bench group `neoweb-v16`.
+- Bench instance: `bench-51251-000018-f1f`, built from SIG Warehouse `76927313`.
+- Latest site update: `0r3ck2fqno` — Success, 4 November 2026, 7:07 PM Riyadh. It migrated the Excel Setup link changes and the no-visit and weekly PM check code (both switched off).
+- Frappe `16.54.0` `2fcb939`; ERPNext `16.53.0` `9cd11b1`; HRMS `16.53.0` `b12d935`. Frappe and HRMS updates are listed by Frappe Cloud as available and are **not applied**.
+- SIG Warehouse, live: `codex/sig-personal-home-v16` at `76927313`.
+- ZATCA Integration, live: `codex/v16-b2b-clearance-parity` at `a8f9fb5`.
+- SIG WhatsApp, live: `v16-migration` at `9bfd1bd`. SIG QR Design, live: `v16-migration` at `39ecff6`.
+- Trial: the site `neosys-v16-trial.frappe.cloud` has left the Frappe Cloud site list. Its bench `bench-51214-000014-f28f3` is still Active with no sites. Removal awaits owner confirmation.
 
-## Branch policy
+## Branch map (SIG Warehouse, GitHub `9eskot9-max/SIG_Warehouse`), 4 November 2026
 
-The production revisions above are a dated read-back from the site's Apps page on 3 November 2026. After that read-back, documentation-only PR #69 was squash-merged to this Warehouse branch as `2a00717e`. No app source, permission, fixture, migration, Cloud setting, or deployment changed in that merge; the Apps page still showed installed Warehouse revision `6ce8da3` on its final read. Treat the listed hashes as the installed snapshot, not a claim that the new docs-only commit is deployed. Use Frappe Cloud's installed-app view as the source of truth; never infer deployment from a branch name or GitHub default.
+| Branch | Role today | Head | Live on production? |
+|---|---|---|---|
+| `codex/sig-personal-home-v16` | Production source. Frappe Cloud builds whatever its HEAD is. | `13faa51` | Live is `76927313`. Two commits ahead: `4bd244e` (docs only) and `13faa51` (intake item family codes: a DocType change and an item registry). `13faa51` is **not** deployed. |
+| `main` | v15-era line; GitHub default; not built for v16 | `f32c7ea` | No. 21 commits exist only here, not on the production branch. Each needs a decision before anyone deploys from `main`. |
+| `v16-migration` | Former v16 staging; no longer built | `5e63f85` | No. 7 commits behind production. |
 
-For SIG Warehouse, main remains the v15-era line at f32c7eaa. The v16-migration branch is at 48ddaad6; codex/sig-personal-home-v16 is two commits ahead at 6ce8da3 and is the branch installed on production at this read-back. These branches are not mirrors. Do not push a fix to one and assume the other or production received it.
+Open pull requests: `#71` (draft, to `main`) and `#64`, `#65`, `#66` (drafts, to `v16-migration`) are superseded by work already on the production branch. They are recommended for closing. This needs owner approval.
 
-A local v15-era source archive was created before this review. The GitHub main branch remains present because it is the repository default; changing the default or deleting the remote ref is a separate repository-administration step and must not be bundled into a site deployment. Preserve a verified recovery source before removing the remote v15 line.
+## Warnings
+
+- **Any push to the production branch reaches the next Frappe Cloud build**, because the build takes the branch HEAD. Review a commit before it lands on that branch, and confirm the HEAD before building.
+- A GitHub push alone does not deploy. Deployment is a Frappe Cloud build followed by a site update.
+- Keep one production branch. Do not maintain the same fix on `main` and on the production branch.
+
+## Proposed branch policy (4 November 2026, awaiting owner approval; not yet adopted)
+
+1. One production branch, named `production/v16`, the GitHub default, protected: pull requests only, no force push, a review required.
+2. Tag the current `main` as `v15-final-20261031`, then rename it `legacy/v15` or delete it. Port any of its 21 commits that are still needed, first.
+3. Every change starts as a topic branch from production (`codex/<topic>` or `feature/<topic>`). One open PR per topic. Merge to production, then delete the branch.
+4. One writer per branch. Codex and local sessions never push to the same branch at the same time. Use `--force-with-lease` only on your own branches.
+5. Before each build, confirm the production HEAD matches the merged PR and that the commit list is the expected one.
+6. Session rules go in `CLAUDE.md` and `AGENTS.md` in this repository, so Codex and Claude start from the same rules.
 
 ## Release sequence
 
