@@ -15,6 +15,7 @@ Frappe Cloud read-back, 4 November 2026: `neosys.frappe.cloud` is Active on `neo
 
 **Not live and not decided:**
 - Frappe and HRMS framework updates: available, not applied.
+- Production branch `codex/sig-personal-home-v16` is at `13faa51` (intake item family codes: a DocType change and an item registry, pushed by Mohammed on 4 November). It is **not live**, and the next Frappe Cloud build would include it. Review it before building.
 - Trial bench `bench-51214-000014-f28f3`: still Active with no sites, although the trial site has left the Frappe Cloud site list. Removal is awaiting confirmation.
 - Scoped PO tag override for Excel Setup: deferred as a larger development.
 - Open PRs: #64, #65 and #66 are old drafts against `v16-migration` and should be closed. #71 is a draft against `main`; its page, test and checklist changes are already on the production branch in `f38a4d8`, so it should be closed too.
