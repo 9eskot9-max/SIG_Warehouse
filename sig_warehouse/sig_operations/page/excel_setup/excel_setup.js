@@ -108,7 +108,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
             if (key === 'pc_routing') {
                 const matrix = routingState.matrix, groups = Object.keys(matrix.review_groups);
                 const select = (field, value, i) => '<select class="form-control es-pc-field" data-index="' + i + '" data-pc-field="' + field + '">' + groups.map(g => '<option value="' + esc(g) + '" ' + (g === value ? 'selected' : '') + '>' + esc(matrix.review_groups[g].label || g) + '</option>').join('') + '</select>';
-                root.html('<div class="es-tools"><label>' + esc(__('Setup list')) + ' <select class="form-control es-dataset">' + options + '</select></label><button type="button" class="btn btn-default es-pc-add">' + esc(__('Add row')) + '</button></div>' +
+                root.html('<div class="es-tools"><label>' + esc(__('Setup list')) + ' <select class="form-control es-dataset">' + options + '</select></label><button type="button" class="btn btn-default es-pc-add">' + esc(__('Add row')) + '</button><button type="button" class="btn btn-default es-pc-import">' + esc(__('Paste existing routing')) + '</button></div>' +
                     '<p class="text-muted">' + esc(__('Employee project group and petty-cash review routing. Approved extra groups remain explicit.')) + '</p><div class="es-scroll"><table class="table table-bordered"><thead><tr><th>' + esc(__('Employee')) + '</th><th>' + esc(__('Name')) + '</th><th>' + esc(__('Project group')) + '</th><th>' + esc(__('PC review group')) + '</th><th>' + esc(__('Additional groups (comma separated keys)')) + '</th></tr></thead><tbody>' +
                     matrix.employees.map((row, i) => '<tr><td>' + esc(row.employee) + '</td><td>' + esc(row.employee_name) + '</td><td>' + select('work_group', row.work_group, i) + '</td><td>' + select('pc_review_group', row.pc_review_group, i) + '</td><td><input class="form-control es-pc-field" data-index="' + i + '" data-pc-field="additional_review_groups" value="' + esc((row.additional_review_groups || []).join(', ')) + '"></td></tr>').join('') + '</tbody></table></div>' +
                     '<h4>' + esc(__('Reviewers by group')) + '</h4><p class="text-muted">' + esc(__('Separate employee names with semicolons. Reviewers must appear in the employee routing list.')) + '</p><table class="table table-bordered"><tbody>' + groups.map(g => '<tr><td>' + esc(matrix.review_groups[g].label || g) + '</td><td><input class="form-control es-pc-reviewers" data-group="' + esc(g) + '" value="' + esc((matrix.review_groups[g].reviewers || []).join('; ')) + '"></td></tr>').join('') + '</tbody></table>');
@@ -190,6 +190,28 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
     root.on('change', '.es-pc-reviewers', function () {
         routingState.matrix.review_groups[this.dataset.group].reviewers = this.value.split(';').map(s => s.trim()).filter(Boolean);
         routingDirty = true;
+    });
+    root.on('click', '.es-pc-import', () => {
+        const dialog = new frappe.ui.Dialog({title: __('Paste existing routing'), fields: [{fieldname: 'package', fieldtype: 'Code', options: 'JSON', label: __('Routing data'), reqd: 1}], primary_action_label: __('Review rows'), primary_action: values => {
+            try {
+                if (values.package.length > 1000000) throw new Error(__('Routing data is too large.'));
+                const data = JSON.parse(values.package), matrix = routingState.matrix;
+                if (!Array.isArray(data.rows) || !data.reviewer_groups || typeof data.reviewer_groups !== 'object' || Array.isArray(data.reviewer_groups)) throw new Error(__('Invalid routing data.'));
+                const groups = Object.keys(matrix.review_groups), incoming = Object.keys(data.reviewer_groups);
+                if (groups.length !== incoming.length || groups.some(g => !incoming.includes(g) || !Array.isArray(data.reviewer_groups[g]))) throw new Error(__('Review groups do not match the current setup.'));
+                const existing = new Map(matrix.employees.map(row => [row.employee, row])), seen = new Set();
+                const rows = data.rows.map(row => {
+                    if (!row || typeof row.employee !== 'string' || seen.has(row.employee) || !groups.includes(row.work_group) || !groups.includes(row.pc_review_group) || !Array.isArray(row.additional_review_groups) || row.additional_review_groups.some(g => !groups.includes(g))) throw new Error(__('Invalid or duplicate employee routing row.'));
+                    seen.add(row.employee);
+                    return {...(existing.get(row.employee) || {employee: row.employee, employee_name: row.employee}), work_group: row.work_group, pc_review_group: row.pc_review_group, additional_review_groups: row.additional_review_groups};
+                });
+                if (Array.from(existing.keys()).some(id => !seen.has(id))) throw new Error(__('The pasted data omits existing employees.'));
+                matrix.employees = rows;
+                groups.forEach(g => { matrix.review_groups[g].reviewers = data.reviewer_groups[g]; });
+                routingDirty = true; dialog.hide(); render();
+                frappe.msgprint(__('Review the imported rows and reviewers, then use Save and publish.'));
+            } catch (error) { frappe.msgprint(esc(error.message)); }
+        }}); dialog.show();
     });
     root.on('click', '.es-pc-add', () => frappe.prompt([{fieldname: 'employee', fieldtype: 'Link', options: 'Employee', label: __('Employee'), reqd: 1}], async values => {
         if (routingState.matrix.employees.some(row => row.employee === values.employee)) { frappe.msgprint(__('Employee already exists in routing.')); return; }
