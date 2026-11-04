@@ -7,8 +7,8 @@ Codex is the active repository agent at the owner’s direction. The owner can c
 | Baton holder | **Codex** (owner-directed; Claude inactive) |
 | Next holder | **Codex, unless the owner reassigns** |
 | Branch | `codex/sig-personal-home-v16` (production source) |
-| Latest deployed source commit | `e7365d1` (live on `neosys.frappe.cloud`, bench `bench-51251-000028-f1f`) |
-| Open items for the next holder | Codex remains active; no baton handoff or message to Claude is needed unless the owner reassigns the work. Route, migration rehearsal and HR/Projects/Finance role/persona acceptance remain NOT TESTED. Secure document upload, payroll/User/Finance follow-on actions and onboarding-control linkage remain open. Reconcile Faizan's phone collision before any intake/message or record change. |
+| Latest deployed source commit | `4d39efa` (live on `neosys.frappe.cloud`, bench `bench-51251-000030-f1f`; site update `0kb4f0p4ru`) |
+| Open items for the next holder | Codex remains active; no baton handoff or message to Claude is needed unless the owner reassigns the work. Excel Setup and its People route rendered as Administrator; published PC routing revision 1 was read back. Functional workflows, migration rehearsal and non-admin HR/Projects/Finance role/persona acceptance remain NOT TESTED. Secure document upload, payroll/User/Finance follow-on actions and onboarding-control linkage remain open. Reconcile Faizan's phone collision before any intake/message or record change. |
 | Waiting on the owner | Weekly PM check per project family (families, recipients and project mapping). Six legacy Payment Entry drafts. 98 draft petty-cash journals. |
 
 ## Rules
