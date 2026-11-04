@@ -1,6 +1,6 @@
 # SIG Finance Automation — Employee Setup Integration
 
-**Status checked 4 November 2026:** this finance integration note is now in the SIG Warehouse GitHub source. The onboarding application and Employee Project Assignment were deployed in SIG Warehouse `7a37c9a` on active bench `bench-51251-000027-f1f`. This note documents the Finance boundary; it does not create finance records or change existing automations. Live workflow, migration and Finance persona acceptance are **NOT TESTED**.
+**Status checked 4 November 2026:** this finance integration note is in the SIG Warehouse GitHub source and is included in deployed source `0d7fd9e` on active bench `bench-51251-000029-f1f` (site update `1ve5q5o9vm`). The onboarding application and Employee Project Assignment were deployed earlier in SIG Warehouse `7a37c9a`. This note documents the Finance boundary; publishing it did not create finance records or change existing automations. Live workflow, migration and Finance persona acceptance are **NOT TESTED**.
 
 ## Purpose and control boundary
 
