@@ -7,10 +7,11 @@ See also: [Deploy log](DEPLOY_LOG.md) for every production action, and [Codex an
 ## Production snapshot (4 November 2026)
 
 - Site: `neosys.frappe.cloud` — Active, on Frappe Cloud bench group `neoweb-v16`.
-- Site bench: `bench-51251-000021-f1f`; bench group `neoweb-v16` is Active.
-- Latest site update: `6t7cbdidra` — Success, 4 November 2026, 4:26 PM Riyadh. It followed deployment pipeline `3roheu9glr`, which built SIG Warehouse source HEAD `c8f71c4` with zero reported issues.
+- Site bench: `bench-51251-000027-f1f`; bench group `neoweb-v16` is Active.
+- Latest site update: `d3n6varijr` — Success, 4 November 2026, 7:19 PM Riyadh. It followed pipeline `dvq0lo1gs2` and the pre-release backup `8v2o1su190`.
 - Frappe `16.54.0` `2fcb939`; ERPNext `16.53.0` `9cd11b1`; HRMS `16.53.0` `b12d935`. Frappe and HRMS updates are listed by Frappe Cloud as available and are **not applied**.
-- SIG Warehouse source deployed by the latest pipeline: `codex/sig-personal-home-v16` at `c8f71c4`; the site's Apps page reported installed commit `6ce8da3`, but the Cloud installed-apps API on 4 November shows `c8f71c4` on bench `bench-51251-000023-f1f`, so the Apps page reading was stale and the code **is installed**.
+- SIG Warehouse source deployed by the latest update: `codex/sig-personal-home-v16` at `7a37c9a` (full hash `7a37c9abf2167ff1d7c4ab9ef04c5c5c22305851`) on `bench-51251-000027-f1f`. Press API read-back reports the pipeline and update as Success and the site Active on this bench. The pipeline detail card still showed “queued” during read-back; the API and installed bench record showed the successful release.
+- Candidate Intake, Employee Project Assignment, Custom Setup and Finance/HR/Warehouse card illustrations are now deployed. No employee intake, Employee, User, payroll, bank/account or project-assignment records were created or changed; no WhatsApp messages were sent. Secure upload remains unimplemented. Route, migration rehearsal and actual-user persona checks are **NOT TESTED** per the owner's instruction for this release.
 - ZATCA Integration, live: `codex/v16-b2b-clearance-parity` at `a8f9fb5`.
 - SIG WhatsApp, live: `v16-migration` at `9bfd1bd`. SIG QR Design, live: `v16-migration` at `39ecff6`.
 - Trial: the site `neosys-v16-trial.frappe.cloud` has left the Frappe Cloud site list. Its bench `bench-51214-000014-f28f3` is still Active with no sites. Removal awaits owner confirmation.
@@ -19,13 +20,13 @@ See also: [Deploy log](DEPLOY_LOG.md) for every production action, and [Codex an
 
 | Branch | Role today | Relevant revision | Live on production? |
 |---|---|---|---|
-| `codex/sig-personal-home-v16` | Production source configured in Frappe Cloud. | `c8f71c4` (source built in latest deployment) | Pipeline `3roheu9glr` and site update `6t7cbdidra` succeeded; site is Active. The site's Apps page still reports `6ce8da3`, so the code change at `5fe31ca` is **not confirmed installed**. |
+| `codex/sig-personal-home-v16` | Production source configured in Frappe Cloud. | `7a37c9a` (installed on bench `000027`) | Pipeline `dvq0lo1gs2` and site update `d3n6varijr` succeeded; site is Active. Route and persona acceptance are NOT TESTED. |
 | `main` | GitHub default; not the v16 build source. | `f32c7ea` | Its sole ahead commit is patch-equivalent to the intake guide/UOM list-view change already represented in production. No unique source patch remains to port from current `main`. |
 | `v16-migration` | Former v16 staging; no longer built. | `5e63f85` | No unique commits ahead of production. |
 
-Open pull requests: `#71` (draft, to `main`) and `#64`, `#65`, `#66` (drafts, to `v16-migration`) are superseded by work already on the production branch. They are recommended for closing. This needs owner approval.
+PR `#72` (employee onboarding/project setup and the three-workbench illustration refresh) was merged to `codex/sig-personal-home-v16` as `7a37c9a` and deployed. Earlier PRs `#71`, `#64`, `#65` and `#66` remain separate historical drafts; their closure is still pending owner review.
 
-The full ERP integration master on the production-source branch includes Claude’s 4 November updates. The local `D:\erp\ERPNext\Automation DB\MASTER-ERP-INTEGRATION.md` copy was behind at 3 November; it has been synchronized to that newer text, then updated with deployment pipeline `3roheu9glr`, site update `6t7cbdidra`, and the installed-revision mismatch. A later documentation-only commit records this state; no code changed after the deployment source `c8f71c4`.
+The ERP integration and HR automation masters on the production-source branch describe the deployed onboarding workflow and its open follow-ups. Frappe and HRMS were not updated.
 
 ## Warnings
 

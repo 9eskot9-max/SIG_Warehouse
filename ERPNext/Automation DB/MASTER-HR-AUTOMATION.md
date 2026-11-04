@@ -1,6 +1,6 @@
 # HR automation and employee setup master
 
-**Status checked 4 November 2026:** the new Candidate Intake, Employee Project Assignment, and Custom Setup source are staged in SIG Warehouse; they are not deployed or accepted on the live site. The inbound parser and inbox fetcher are source-only. No Candidate, Employee, User, payroll, bank, account, WhatsApp, or project-assignment data has been changed by this development.
+**Status checked 4 November 2026:** Candidate Intake, Employee Project Assignment, Custom Setup and the HR inbox parser/fetcher are deployed in SIG Warehouse commit `7a37c9a` on production bench `bench-51251-000027-f1f`. The site update succeeded. Route, migration-rehearsal and HR/Projects/Finance persona acceptance are **NOT TESTED**. No Candidate, Employee, User, payroll, bank/account or project-assignment data was changed, and no WhatsApp message was sent by the release.
 
 ## 1. Purpose and ownership
 
@@ -128,7 +128,7 @@ The staged receive path:
 7. Runs the inbox fetch hourly. Outbound messages are explicit HR button actions; the first is only a neutral confirmation request. Maytapi message text/ID is checked before the send is recorded, and each message step has a five-minute retry throttle. Provider/log privacy, secure-form delivery, retention, and persona permissions still need review before production.
 8. Requires pre/post permission snapshots and fresh-session HR/Projects/Finance acceptance. A successful API or message send is not persona acceptance.
 
-Production must not ingest IBAN/ID through WhatsApp. The parser rejects those fields and requests `USE_SECURE_FORM`, but the separate secure upload is **not yet implemented**. Before production, build/identify that channel and define log privacy, retention, and access audit; otherwise leave those fields as HR follow-up.
+The live parser rejects IBAN/ID through WhatsApp and requests `USE_SECURE_FORM`. The separate secure upload is **not yet implemented**, so protected identity/bank evidence must remain an HR follow-up until an approved channel and its privacy, retention and access audit are in place.
 
 ## 4. Faizan Rasheed trial case
 
@@ -140,6 +140,6 @@ Trial acceptance should be a redacted form/API dry-run with synthetic IBAN/ident
 
 ## 5. Release and acceptance status
 
-Candidate Intake, Employee Project Assignment and Custom Setup are source changes only. A local synthetic parser/overlap dry-run passed; no Frappe/site integration was exercised. Not deployed; no live route or migration has been checked. No role/persona acceptance has been performed. Before deployment, inspect full standard/custom permission matrices and migration order, add permission incident entries for unexpected failures/grants, and complete the repository's Final Release Checklist and learning-loop access gate. At minimum check System Manager, HR Manager, HR User, Projects Manager and Projects User, plus linked Employee/Project read access, in fresh authenticated sessions. Do not claim verified until those checks pass.
+Candidate Intake, Employee Project Assignment and Custom Setup are deployed in commit `7a37c9a` on bench `bench-51251-000027-f1f`; Cloud reports the site Active and the update successful. A prior synthetic parser/overlap dry-run is recorded in the PR. This release did not run a Frappe integration check, migration rehearsal, live route check, or role/persona acceptance. Mark these **NOT TESTED**. No post-deployment permission snapshots were captured. At minimum check System Manager, HR Manager, HR User, Projects Manager and Projects User, plus linked Employee/Project read access, in fresh authenticated sessions before claiming release acceptance.
 
-The Candidate Intake form, explicit WhatsApp confirmation/instruction/template sender, Maytapi inbox fetcher, strict EMP-DATA parser, HR review/approval and Employee conversion now exist in source. They are **not deployed or accepted**. A secure upload form, identity-document review, payroll Salary Structure Assignment, User provisioning, Finance custody-account workflow, contact/mapping workflow, retention settings, and full user-persona validation remain open. See the [concise Employee Setup implementation note](../../docs/EMPLOYEE_SETUP_AND_ONBOARDING.md).
+The Candidate Intake form, explicit WhatsApp confirmation/instruction/template sender, Maytapi inbox fetcher, strict EMP-DATA parser, HR review/approval and Employee conversion are deployed but not accepted. A secure upload form, identity-document review, payroll Salary Structure Assignment, User provisioning, Finance custody-account workflow, contact/mapping workflow, retention settings, and full user-persona validation remain open. See the [concise Employee Setup implementation note](../../docs/EMPLOYEE_SETUP_AND_ONBOARDING.md).
