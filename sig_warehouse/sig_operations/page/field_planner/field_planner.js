@@ -5,6 +5,31 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
     const canSeeSetup = (frappe.user_roles || []).some(r => ['System Manager','Operations Manager','Operations User','Projects Manager','SIG Excel Setup Editor'].includes(r));
     const nav = $('<header class="sig-planner-topbar"><div class="sig-planner-brand"><span>SIG OPERATIONS</span><h1>Field Planner</h1></div><nav class="sig-planner-nav" aria-label="Operations"><a href="#" data-route="projects">Projects</a><a href="#" data-route="cycles">Site Cycles</a><a href="#" data-route="visits">Site Visits</a><a class="active" href="#" aria-current="page">Field Planner</a>' + (canSeeSetup ? '<a href="#" data-route="setup">Excel Setup</a>' : '') + '</nav><button type="button" class="sig-planner-top-refresh" data-route="refresh">' + __('Refresh') + '</button></header>');
     page.main.prepend(nav);
+    // Weekly PM check: the PM's own review (with the link to add the score and comment), or the counts for managers.
+    const weekly = $('<section class="sig-planner-weekly" style="margin:8px 0 12px;padding:10px 12px;border:1px solid var(--border-color);border-radius:8px"></section>');
+    nav.after(weekly);
+    frappe.call({
+        method: 'sig_warehouse.sig_operations.pm_weekly.my_weekly_check',
+        callback(r) {
+            const d = r.message || {};
+            const esc = frappe.utils.escape_html;
+            let html = '<strong>' + __('Weekly PM check') + '</strong> <span class="text-muted">' + esc(d.week || '') + '</span>';
+            if (d.review) {
+                const rv = d.review;
+                html += '<div>' + esc(__('Last week: {0} of {1} planned sites visited', [rv.visited, rv.planned])) + ' · '
+                    + esc(__('This week: {0} sites', [rv.this_week])) + ' · ' + esc(__('Status: {0}', [rv.status])) + '</div>'
+                    + '<div><a href="' + esc(rv.link) + '">' + esc(__('Open my weekly check and add your comment')) + '</a>'
+                    + (rv.answered_score ? '' : ' — <span class="text-muted">' + esc(__('score and comment still to do')) + '</span>') + '</div>';
+            } else {
+                html += '<div class="text-muted">' + esc(__('No weekly check for you this week.')) + '</div>';
+            }
+            if (d.manager && d.counts) {
+                html += '<div class="text-muted">' + esc(__('Reviews this week: open {0}, sent {1}, answered {2}', [d.counts.Open, d.counts.Sent, d.counts.Answered]))
+                    + ' · ' + esc(__('PMs in scope: {0}', [d.scope_pms])) + '</div>';
+            }
+            weekly.html(html);
+        },
+    });
     nav.find('[data-route="projects"]').on('click', e => { e.preventDefault(); frappe.set_route('List', 'Project'); });
     nav.find('[data-route="cycles"]').on('click', e => { e.preventDefault(); frappe.set_route('site-cycles'); });
     nav.find('[data-route="visits"]').on('click', e => { e.preventDefault(); frappe.set_route('site-visits'); });
