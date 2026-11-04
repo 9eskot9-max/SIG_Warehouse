@@ -1,8 +1,6 @@
 # No schema patches required for the initial (Stage 1 hooks-only) release.
-
 [pre_model_sync]
 sig_warehouse.sig_warehouse.patches.v1_0.add_sig_letters_module
-
 [post_model_sync]
 sig_warehouse.sig_warehouse.patches.v1_0.add_sig_accounting_module_and_reclassify_page
 sig_warehouse.sig_warehouse.patches.v1_0.add_invoice_reversal_role_and_credit_note_guard
@@ -61,3 +59,4 @@ sig_warehouse.sig_warehouse.patches.v1_0.add_no_visit_message_settings
 sig_warehouse.sig_warehouse.patches.v1_0.add_pm_weekly_settings
 sig_warehouse.sig_warehouse.patches.v1_0.default_wh_catalogue_for_new_items
 sig_warehouse.sig_warehouse.patches.v1_0.refine_item_family_suggestion_prompt
+sig_warehouse.sig_warehouse.patches.v1_0.restrict_legacy_import_and_site_box
