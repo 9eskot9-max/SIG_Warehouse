@@ -1,8 +1,8 @@
 # Final release checklist
 
-## People model cutover — release candidate, 5 November 2026
+## People model cutover — deployed 5 November 2026; access acceptance open
 
-- [x] Read-only production check: `neosys.frappe.cloud` was Active; authenticated Administrator opened Excel Setup revision 13. Its nine Operations family memberships match the existing code roster by Employee ID. Six enabled flexible Planner teams and six current leader rows match the six enabled legacy leaders. The live gate remains off; no production data was changed.
+- [x] Pre-release production check: `neosys.frappe.cloud` was Active; authenticated Administrator opened Excel Setup revision 13. Its nine Operations family memberships matched the existing code roster by Employee ID. Six enabled flexible Planner teams and six current leader rows matched the six enabled legacy leaders. These checks established staged configuration, not access acceptance.
 - [x] Read-only EPA check: EPA-00579–00587 are all Cancelled. Preserve them as audit history. Do not recreate exact Employee–Project links from PC-family clues.
 - [x] Reconciled the intended first-cutover semantics: enabled Operations family rows replace the matching hardcoded Operations roster; family members see both PM and coordinator task categories. Project exceptions, when configured, replace that family's team for that Project. Current setup has no replacement rows.
 - [x] Confirmed Planner may assign any eligible site in its DC or Incident mode. Team project coverage is reference data, not a site-eligibility restriction. The local adapter keeps the initial matching leader's existing team position history while later leader periods remain date-bounded.
@@ -12,7 +12,7 @@
 - [ ] Keep Warehouse routing on its separate hardcoded `WAREHOUSE_USERS` path; it is not replaced by the nine Operations family rows and needs its own future review.
 - [ ] Persisted Planner plans and TAWAL–ERP automatic PO registration remain deferred. See `docs/PEOPLE_MODEL_CUTOVER_REVIEW_20261105.md`.
 
-Live Excel Setup was observed on revision 13 with the People model inactive. The independent installed-app revision read remains unconfirmed; do not infer it from a Cloud Apps display.
+Deployment read-back (5 November): site Active on `bench-51251-000036-f1f`; SIG Warehouse installed at `09c0f72496e06ba59f5f21816663177fcba1971d`; build pipeline `8ruifr103j`; the Excel Setup route reloaded and rendered. `PEOPLE_MODEL_ACTIVE` is enabled. No native ERP role or DocType permission rows changed. Actual-user permission acceptance remains open and NOT TESTED.
 
 Use this gate for every app update, patch, fixture, form, print format, default, page, workspace, integration or permission change. A successful build, migration, Administrator view or API read-back does not prove user acceptance.
 
@@ -76,4 +76,4 @@ Start each check in a fresh authenticated session with the user's identity and e
 - [ ] Configure Project-specific Operations team replacements only when a PM identifies a real exception; currently family defaults apply to all projects in the family. Do not infer exact employee–project assignments from PC groups.
 - [ ] Treat PC inheritance/reviewer flows, Warehouse routing, Field Reporter maps, persisted Planner plans and TAWAL–ERP PO registration as separate integrations or deferred work, not part of this feature-gate cutover.
 
-Current state: the live setup already contains nine Operations family memberships and six flexible Planner leader rows. This release candidate turns on the adapter gate in source; production remains inactive until deployment. The Employee Project Assignment view shows nine cancelled historical rows and no active assignments. The existing family roster matches the configured Operations members by Employee ID; activation shares `pm`/`co` task audiences within each family, while Warehouse routing remains code-owned. Actual-user acceptance is NOT TESTED, and PC routing remains separately configured. Do not claim this is deployed or verified until release and required acceptance checks are complete.
+Current state: PR #89 is deployed and the adapter gate is ON. The live setup contains nine Operations family memberships and six flexible Planner leader rows. The Employee Project Assignment view showed nine cancelled historical rows and no active assignments. Family members now share both PM and coordinator task categories across their family; a Project exception replaces that family's team for that Project. Warehouse routing remains on its separate code-owned path, and PC routing remains separately configured. Deployment and route rendering are confirmed; actual-user access acceptance is NOT TESTED, so do not claim permission behavior is verified or accepted.
