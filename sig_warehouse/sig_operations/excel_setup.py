@@ -263,6 +263,7 @@ def get_page_state():
     ]
     return {"schema_version": SCHEMA_VERSION, "migration_pending": migration_pending,
             "people_model_active": bool(PEOPLE_MODEL_ACTIVE),
+            "can_review_people_cutover": "System Manager" in frappe.get_roles(),
             "revision": int(doc.revision or 0), "datasets": datasets, "fields": FIELDS,
             "published_at": doc.published_at, "published_by": doc.published_by,
             "options": {"builder_defaults.kind": sorted(KINDS), "material_upl_links.treatment": ["Direct 1:1", "Excluded", "Manual"],
@@ -310,6 +311,42 @@ def _reference_choices():
 def save_and_publish(datasets, base_revision):
     _require(editor=True)
     return _publish(_parse(datasets), base_revision)
+
+
+@frappe.whitelist(methods=["POST"])
+def register_project(project, base_revision):
+    """Add one existing canonical Project to workbook setup with normal revision checks."""
+    _require(editor=True)
+    project = str(project or "").strip()
+    if not project or not frappe.has_permission("Project", "read", project):
+        frappe.throw("Select a Project you can read.", frappe.PermissionError)
+    doc, datasets = _state()
+    if int(doc.revision or 0) != int(base_revision):
+        frappe.throw("Setup changed in another session. Reload and review again.")
+    if any(str(row.get("project") or "") == project for row in datasets.get("projects", [])):
+        frappe.throw("This Project already exists in Excel Setup; review its existing row.")
+    meta = frappe.get_meta("Project")
+    fields = [field for field in ("custom_agreement_no", "custom_tawal_ba", "custom_po_number",
+                                   "custom_project_family", "custom_family", "custom_is_canonical_agreement")
+              if meta.has_field(field)]
+    value = frappe.db.get_value("Project", project, fields, as_dict=True) or {}
+    if meta.has_field("custom_is_canonical_agreement") and not value.get("custom_is_canonical_agreement"):
+        frappe.throw("Select the canonical agreement Project.")
+    family = resolve_project_family(value)
+    if family["conflict"] or not family["family"]:
+        frappe.throw("Resolve the Project family before adding it to Excel Setup.")
+    po = next((str(value.get(field) or "").strip() for field in
+               ("custom_agreement_no", "custom_tawal_ba", "custom_po_number")
+               if str(value.get(field) or "").strip()), "")
+    if not po:
+        frappe.throw("The Project needs an agreement or PO number before it can be added.")
+    if any(str(row.get("po") or "").strip().casefold() == po.casefold()
+           for row in datasets.get("projects", [])):
+        frappe.throw("This PO already exists in Excel Setup; reconcile the existing Project first.")
+    datasets.setdefault("projects", []).append({"id": "project-" + frappe.generate_hash(length=20),
+                                                 "project": project, "po": po, "family": family["family"],
+                                                 "upl_revision": "", "enabled": True})
+    return _publish(datasets, base_revision)
 
 
 @frappe.whitelist(methods=["POST"])

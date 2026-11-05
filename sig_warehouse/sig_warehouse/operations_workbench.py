@@ -502,6 +502,7 @@ def _cycle_view(row, project, today, operational=None):
         "name": row.name, "site": str(row.get("site_key") or row.get("site") or row.name),
         "project": str((project or {}).get("project_name") or row.get("project") or ""),
         "project_id": str((project or {}).get("name") or row.get("erp_project") or ""),
+        "project_link_source": row.get("_project_link_source") or ("erp_project" if row.get("erp_project") else "unresolved"),
         "ba": str((project or {}).get("custom_agreement_no") or row.get("po") or ""),
         "alias": str(row.get("project_alias") or ""), "wo": str(row.get("wo") or ""),
         "gross_value": float(row.get("gross_value")) if row.get("gross_value") not in (None, "") else None,
@@ -566,13 +567,37 @@ def _get_overview(all_project_cycles=False):
         "SIG Site Cycle", fields, order_by="terminal asc, stage_due_on asc, last_event_at desc")
     projects_by_name = {}
     project_names = sorted({str(r.get("erp_project")) for r in rows if r.get("erp_project")})
-    if project_names and frappe.has_permission("Project", "read"):
+    if frappe.has_permission("Project", "read"):
         project_fields = ["name", "project_name", "status", "custom_agreement_no"]
         meta = frappe.get_meta("Project")
         project_fields.extend(field for field in ("custom_family", "custom_project_family") if meta.has_field(field))
-        projects, _ = _all_visible("Project", project_fields,
-                                   filters={"name": ["in", project_names]}, order_by="project_name asc")
+        projects = []
+        if project_names:
+            projects, _ = _all_visible("Project", project_fields,
+                                       filters={"name": ["in", project_names]}, order_by="project_name asc")
         projects_by_name = {p.name: p for p in projects}
+        # Legacy rows can use an exact, globally unique agreement as a
+        # read-only Project link. Never replace an existing link or choose
+        # between duplicate agreements, and expose only readable Projects.
+        legacy_pos = sorted({str(r.get("po") or "").strip() for r in rows
+                             if not r.get("erp_project") and str(r.get("po") or "").strip()})
+        if PEOPLE_MODEL_ACTIVE and legacy_pos and meta.has_field("custom_agreement_no"):
+            all_matches = frappe.get_all("Project", filters={"custom_agreement_no": ["in", legacy_pos]},
+                                         fields=["name", "custom_agreement_no"], limit_page_length=0)
+            by_po = {}
+            for candidate in all_matches:
+                by_po.setdefault(str(candidate.get("custom_agreement_no") or "").strip(), []).append(str(candidate.name))
+            unique = {po: ids[0] for po, ids in by_po.items() if len(ids) == 1}
+            missing = sorted(set(unique.values()) - set(projects_by_name))
+            if missing:
+                readable, _ = _all_visible("Project", project_fields, filters={"name": ["in", missing]},
+                                            order_by="project_name asc")
+                projects_by_name.update({p.name: p for p in readable})
+            for row in rows:
+                candidate = unique.get(str(row.get("po") or "").strip())
+                if not row.get("erp_project") and candidate in projects_by_name:
+                    row["erp_project"] = candidate
+                    row["_project_link_source"] = "unique_po"
     aliases_by_stream = {}
     stream_names = sorted({str(r.get("project_stream")) for r in rows if r.get("project_stream")})
     if stream_names and frappe.db.exists("DocType", "SIG Project Stream") and frappe.has_permission("SIG Project Stream", "read"):

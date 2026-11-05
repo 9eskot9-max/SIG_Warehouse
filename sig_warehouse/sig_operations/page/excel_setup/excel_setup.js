@@ -19,9 +19,9 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         {key: 'projects', label: __('Projects and client coordination'), description: __('Choose the canonical ERP Project for a PO. The Project family drives workbook template selection; the client TAWAL PM can use a family default with a PO-specific rule. An existing explicit PO contact remains the fallback before a family default.'), datasets: ['projects', 'family_tawal_defaults', 'project_tawal_rules']},
         {key: 'mapping', label: __('WhatsApp Tags and workbook mappings'), description: __('WhatsApp Tags are normalized and linked to UPL values for the workbooks. The UPL catalogue and detailed Mapping Master remain maintained in Excel; this page stores the reusable ERP-side rules.'), datasets: ['tag_definitions', 'tag_upl_links', 'material_upl_links']},
         {key: 'tcn', label: __('TCN generation rules'), description: __('These are wording defaults consumed by RV80 TCN generation. PO family selects the existing Sync MOP template in the workbook; this page does not define MOP templates or CSV processing.'), datasets: ['builder_defaults']},
-        {key: 'delivery', label: __('Field crews and Project teams'), description: __('Operations family teams share cycle work; Project exceptions replace the family team for that Project. Field crews and dated leadership are maintained separately for Planner. Evidence and cycle closure keep their existing workflow.'), datasets: ['ops_team_members', 'teams', 'operational_teams', 'team_memberships', 'team_projects', 'people:project_assignments']},
+        {key: 'delivery', label: __('Field crews and Project teams'), description: __('Operations family teams share cycle work; Project exceptions replace the family team for that Project. Planner assigns eligible sites to teams in the selected DC or Incident mode. Evidence and cycle closure keep their existing workflow.'), datasets: ['ops_team_members', 'teams', 'operational_teams', 'team_memberships', 'people:project_assignments']},
         {key: 'people', label: __('People, petty cash and reporting'), description: __('Employee identity, onboarding, reporter phone mapping and petty-cash reviewer routing use their existing HR/Finance-owned records and permissions. Employee-linked custody accounts remain on the native Employee Account relationship.'), datasets: ['pc_family_defaults', 'people:employees', 'people:pc_routing', 'people:reporter_maps', 'people:candidates', 'people:onboarding']},
-        {key: 'legacy', label: __('Legacy and historical setup'), description: __('Builder associations remain for historical workbook compatibility. The old Project responsibility JSON rows are retained for audit but no longer drive Workbench owners or weekly PM recipients.'), datasets: ['builder_profiles', 'builder_contacts', 'project_builder_links', 'project_responsibilities']}
+        {key: 'legacy', label: __('Legacy and historical setup'), description: __('Builder associations remain for historical workbook compatibility. Crew Project coverage is retained as reference; Planner can assign any eligible site. The old Project responsibility rows remain for audit.'), datasets: ['builder_profiles', 'builder_contacts', 'project_builder_links', 'team_projects', 'project_responsibilities']}
     ];
     const setupGroupFor = value => setupGroups.find(group => group.datasets.includes(value)) || setupGroups[0];
     const setupControls = (group, current) => '<div class="es-tools es-navigation"><label>' + esc(__('Setup area')) + ' <select class="form-control es-group">' + setupGroups.map(item => '<option value="' + esc(item.key) + '" ' + (item.key === group.key ? 'selected' : '') + '>' + esc(item.label) + '</option>').join('') + '</select></label>' +
@@ -171,7 +171,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
             project_tawal_rules: __('Set a PO-specific client TAWAL PM exception, explicitly inherit the family default, or clear it for a period. These rules do not set internal SIG project ownership.'),
             operational_teams: __('Proposed flexible crew directory. The Workbench/Planner adapter is currently inactive, so these rows do not replace the live Field Planner leader list yet.'),
             team_memberships: __('Dated crew membership and role. Staff can move between teams; update the effective dates instead of treating a crew as a permanent employee attribute.'),
-            team_projects: __('Dated crew coverage by ERP Project. This is the field crew assignment, not the named internal Project owner.'),
+            team_projects: __('Historical coverage reference only. Planner may assign any eligible site to any available team; these rows do not limit assignments.'),
             ops_team_members: __('Leave Project blank for a family member. For a Project exception, list the entire replacement team on rows for that Project. Changes take effect after the reviewed People-model activation.'),
             project_responsibilities: __('Superseded source retained for audit compatibility. Configure the Operations Project team for cycle work; weekly PM review scope stays in its dedicated setup.'),
             pc_family_defaults: __('A proposed default for employees who explicitly inherit it during a reviewed routing publication. Existing employee overrides are unchanged, and this does not grant ERP permissions or create/link employee accounts.')
@@ -185,7 +185,9 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
             setupControls(group, selected) +
             '<div class="es-tools es-actions">' +
             (projectResponsibilitiesLegacy ? '' : '<button class="btn btn-default es-add">' + __('Add row') + '</button>') +
+            (selected === 'projects' ? '<button class="btn btn-default es-register-project">' + __('Add existing PO Project') + '</button>' : '') +
             (projectResponsibilitiesLegacy ? '' : '<button class="btn btn-default es-import">' + __('Import existing setup') + '</button>') +
+            (selected === 'ops_team_members' && state.can_review_people_cutover ? '<button class="btn btn-default es-people-cutover">' + __('Compare Operations teams') + '</button>' : '') +
             '<button class="btn btn-default es-history">' + __('Revision history') + '</button></div>' +
             '<p class="es-group-note">' + esc(group.description) + '</p>' +
             (deliveryInactive ? '<p class="es-state-note">' + esc(__('The flexible crew/project model is saved as setup, but its Workbench and Planner adapter is inactive. Current field-team behavior still uses the existing live roster until a separately reviewed migration and activation.')) + '</p>' : '') +
@@ -197,7 +199,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
             '</tr></thead><tbody>' + rows.map((row, i) => '<tr>' + fields.map(f => '<td>' +
                 (projectResponsibilitiesLegacy ? esc(row[f] || '') : f === 'enabled' ? '<input type="checkbox" data-row="' + i + '" data-field="enabled" ' + (row.enabled ? 'checked' : '') + '>' :
                 state.options[selected + '.' + f] ? '<select class="form-control" data-row="' + i + '" data-field="' + f + '"><option value=""></option>' +
-                    state.options[selected + '.' + f].map(value => '<option value="' + esc(value) + '" ' + (row[f] === value ? 'selected' : '') + '>' + esc(__(optionLabels[value] || value)) + '</option>').join('') + '</select>' :
+                    state.options[selected + '.' + f].map(value => '<option value="' + esc(value) + '" ' + (row[f] === value ? 'selected' : '') + '>' + esc(__(f === 'archetype' && value === 'Project' ? 'DC' : (optionLabels[value] || value))) + '</option>').join('') + '</select>' :
                 referenceFields[selected] && referenceFields[selected][f] ? referenceCell(referenceFields[selected][f], row[f], i, f) :
                 '<input class="form-control" data-row="' + i + '" data-field="' + f + '" value="' + esc(row[f]) + '" ' +
                     (f === 'id' || (selected === 'projects' && ['po','family'].includes(f)) ||
@@ -357,11 +359,26 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         const row = Object.fromEntries(state.fields[selected].map(f => [f, f === 'enabled' ? true : '']));
         row.id = crypto.randomUUID(); state.datasets[selected].push(row); dirty = true; render();
     });
+    root.on('click', '.es-register-project', () => {
+        if (dirty || routingDirty) { frappe.msgprint(__('Publish or reload your edits first.')); return; }
+        frappe.prompt([{fieldname: 'project', fieldtype: 'Link', options: 'Project', label: __('Canonical PO Project'), reqd: 1}], async values => {
+            const result = await call('register_project', {project: values.project, base_revision: state.revision});
+            await load();
+            frappe.msgprint(__('Project added to setup revision {0}. Review its UPL and any PO-specific settings.', [result.revision]));
+        }, __('Add existing PO Project'), __('Add to setup'));
+    });
     root.on('click', '.es-history', async () => {
         const rows = await call('get_history');
         const dialog = new frappe.ui.Dialog({title: __('Revision history'), fields: [{fieldname: 'history', fieldtype: 'HTML'}]});
         dialog.fields_dict.history.$wrapper.html('<table class="table"><tbody>' + rows.map(row =>
             '<tr><td>' + esc(row.revision) + '</td><td>' + esc(row.published_at) + '</td><td>' + esc(row.published_by) + '</td></tr>').join('') + '</tbody></table>');
+        dialog.show();
+    });
+    root.on('click', '.es-people-cutover', async () => {
+        const result = (await frappe.call({method: 'sig_warehouse.sig_operations.people_cutover_preview.preview', freeze: true})).message;
+        const rows = result.families.map(row => '<tr><td>' + esc(row.family) + '</td><td>' + esc(row.added.join(', ') || '—') + '</td><td>' + esc(row.removed.join(', ') || '—') + '</td></tr>').join('');
+        const dialog = new frappe.ui.Dialog({title: __('Operations team comparison'), fields: [{fieldname: 'details', fieldtype: 'HTML'}]});
+        dialog.fields_dict.details.$wrapper.html('<p>' + esc(__('Published setup revision {0}, as of {1}.', [result.revision, result.as_of])) + '</p><p>' + esc(__(result.notice)) + '</p><p>' + esc(__('Unresolved roster identities: {0}; Project exceptions: {1}; teams without exactly one current leader: {2}.', [result.unresolved_identities.length, result.project_exceptions, result.teams_needing_leader.length])) + '</p><table class="table table-bordered"><thead><tr><th>' + esc(__('Family')) + '</th><th>' + esc(__('Added Employee IDs')) + '</th><th>' + esc(__('Removed Employee IDs')) + '</th></tr></thead><tbody>' + rows + '</tbody></table>');
         dialog.show();
     });
     root.on('click', '.es-import', () => {

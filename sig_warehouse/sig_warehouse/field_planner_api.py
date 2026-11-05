@@ -915,7 +915,8 @@ def _present(plan, coords, next_cutoff_at=""):
     for cluster in plan["clusters"]:
         days = cluster.get("days") or []
         trips.append({"id": cluster["id"], "kind": cluster["kind"], "status": cluster.get("status", ""),
-                      "team": cluster.get("team"), "first_day": str(days[0]) if days else "",
+                      "team": cluster.get("team"), "team_id": cluster.get("team_id"),
+                      "first_day": str(days[0]) if days else "",
                       "last_day": str(days[-1]) if days else "", "anchor": str(cluster["anchor"] or ""),
                       "diameter_km": cluster["diameter_km"], "hours": cluster["hours"], "team_days": cluster["team_days"],
                       "best_tier": cluster["best_tier"], "loaded": cluster.get("loaded", False),
