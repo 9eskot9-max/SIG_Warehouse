@@ -189,3 +189,13 @@
 @media(max-width:1200px){.sig-planner-leaflet,.sig-planner-svg{height:70vh;min-height:540px}}
 @media(max-width:760px){.sig-planner-topbar{align-items:flex-start;flex-wrap:wrap;gap:10px;padding:12px}.sig-planner-brand{flex:1 0 100%}.sig-planner-brand h1{font-size:21px}.sig-planner-nav{justify-content:flex-start;flex:1 1 auto}.sig-planner-nav a,.sig-planner-top-refresh{padding:7px 9px;font-size:12px}.sig-planner-toolbar h2{font-size:20px}.sig-planner-team{min-height:60px}.sig-planner-context{align-items:flex-start;flex-direction:column}.sig-planner-map-key{width:100%;margin:2px 0 0}.sig-planner-live-map-controls{gap:6px}.sig-planner-map-searchbar{grid-template-columns:1fr auto;gap:6px 8px}.sig-planner-search-label{grid-column:1/-1}.sig-planner-map-searchbar .sig-planner-map-key{grid-column:1}.sig-planner-map-searchbar .sig-planner-expand{grid-column:2;grid-row:2}.sig-planner-leaflet,.sig-planner-svg{height:58vh;min-height:430px}.sig-planner-sitebox{top:10px;right:10px;width:300px}.sig-planner-stop{grid-template-columns:1fr;gap:9px}.sig-planner-footer{flex-direction:column}}
 @media(max-width:460px){.sig-planner-metrics{gap:6px}.sig-planner-card{min-height:60px;padding:7px}.sig-planner-live-map-controls button{padding:6px 8px;font-size:11px}.sig-planner-leaflet,.sig-planner-svg{height:54vh;min-height:390px}.sig-planner-shell th,.sig-planner-shell td{padding:10px}}
+.sig-planner-weekly-comments { margin: 12px 0; padding: 16px; background: var(--card-bg, #fff); border: 1px solid var(--border-color, #d7dce0); border-radius: 10px; }
+.sig-planner-weekly-heading h2 { margin: 0 0 4px; font-size: 18px; }
+.sig-planner-weekly-heading p { margin: 0 0 12px; color: var(--text-muted, #65717b); }
+.sig-planner-weekly-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.sig-planner-weekly-fields label { display: flex; flex-direction: column; gap: 6px; font-weight: 600; }
+.sig-planner-weekly-fields textarea { width: 100%; min-height: 84px; resize: vertical; border: 1px solid var(--border-color, #d7dce0); border-radius: 6px; padding: 8px; background: var(--control-bg, #f5f6f7); color: var(--text-color, #20262c); font-weight: 400; }
+.sig-planner-weekly-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
+.sig-planner-weekly-actions span { color: var(--text-muted, #65717b); }
+.sig-planner-weekly-history { margin-top: 12px; }
+@media (max-width: 800px) { .sig-planner-weekly-fields { grid-template-columns: 1fr; } }
