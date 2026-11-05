@@ -1,5 +1,19 @@
 # People configuration reconciliation and staged safety fix
 
+## Local continuation — 5 November 2026
+
+Latest routing implementation: local code stores a snapshot of the preceding matrix with each publication, previews reviewer scope changes and uses the preview hash to reject stale publications. History can be previewed and restored as a new revision; restoration keeps the historical effective group as an explicit override and refuses to omit employees now present. An employee can select inherit or override; inheritance resolves the configured family default into the routing revision when it is published. Changing a default alone does not immediately change routing: republish after reviewing the scope diff. Existing rows default to override, preserving their published group and additional exceptions. The routing publisher locks Excel Setup while resolving defaults. This code has not been deployed or tested; the live inventory, permission acceptance and migration remain outstanding.
+
+Latest local continuation: Excel Setup now has PC family-to-review-group defaults, restricted to System Manager for changes. The routing proposal offers an explicit per-person action to apply a configured family default while retaining additional exception groups other than the selected primary group. This is a proposal aid, not automatic inheritance: it does not yet persist an inheritance/override choice or publish routing. The audited recovery and live reconciliation remain outstanding. This latest work has not been tested or deployed.
+
+Subsequent local work adds an unsaved routing proposal editor and a server-validated reviewer-scope comparison against the current published revision. Publication remains disabled. The proposal has not been checked against live data, and recovery, family-derived PC defaults, migration manifest and acceptance remain unfinished. No tests were run for this subsequent change at the owner's direction.
+
+The live stage-one freeze was deployed on bench `bench-51251-000031-f1f`, SIG Warehouse `5104e97`; earlier statements below saying it is not deployed are historical. The user reports importing the updated BAS modules into Excel; the actual workbook modules, compilation and output have not been inspected in this continuation.
+
+The local `codex/people-setup-completion` worktree starts from the later production source and carries forward the uncommitted family, PC and People-model code. Excel Setup now exposes editable family TAWAL defaults, PO rules, operational teams, memberships, team Projects and explicit Project responsibilities; changes to these new datasets require System Manager while access is reviewed. It also provides a read-only comparison of the published PC matrix against the current static reviewer scopes. The deployed routing publication freeze remains in place, and team-model activation remains disabled. No configuration or business data has been migrated.
+
+This is not release-ready: a full live source inventory and reviewed migration manifest, candidate routing publication preview and recovery, role/access comparisons, actual-user workflows, workbook sync and CSV/MOP output checks remain open. Family-derived PC defaults and exception editing are not yet implemented. Existing local code must be reviewed for interaction with the live revision before deployment. Focused local contract tests and JavaScript syntax checks passed; these are not production acceptance.
+
 Status: **STAGED, NOT DEPLOYED**. On 4 November 2026 the live People project-assignment list was observed empty and People routing revision 1 had been published. The owner-provided review reports further live counts and data conflicts; these are leads for a fresh read-only inventory, not verified cleanup instructions. No employee, account, phone, Project, cycle or routing data is changed by this proposal.
 
 ## Immediate safety issue

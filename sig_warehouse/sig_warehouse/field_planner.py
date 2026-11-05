@@ -5,6 +5,7 @@ coordinates; the result is a proposal for a coordinator, never a task or a stage
 Tiers come from the cycle's next required action, not from the parsed type of the last visit.
 """
 import math
+from sig_warehouse.sig_warehouse.project_family import resolve_project_family
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 
@@ -133,8 +134,9 @@ def project_text(cycle, index):
             if project.get("name") in seen:
                 continue
             seen.add(project.get("name"))
-            parts += [project.get("name"), project.get("project_name"), project.get("custom_project_family"),
-                      project.get("custom_family"), project.get("custom_agreement_no")]
+            family = resolve_project_family(project)
+            parts += [project.get("name"), project.get("project_name"), family["label"],
+                      project.get("custom_agreement_no")]
     return " ".join(str(p) for p in parts if p).lower()
 
 

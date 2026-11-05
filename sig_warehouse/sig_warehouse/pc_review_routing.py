@@ -10,6 +10,8 @@ from pathlib import Path
 
 import frappe
 
+from .pc_clearance_rules import compile_scopes
+
 
 def load_matrix():
     # The existing approved file remains the source until the first publication.
@@ -26,6 +28,53 @@ def load_matrix():
     return matrix
 
 
+def effective_scopes(matrix, employees):
+    """Compile reviewer access from the exact same published matrix as task routing.
+
+    Names remain in the current matrix contract, but every referenced identity must
+    resolve uniquely to an active Employee ID before it can authorize a receipt.
+    The returned scope is request-local; no second file or stale cache participates.
+    """
+    compiled = compile_scopes(matrix)
+    by_name = {}
+    active_ids = set()
+    for employee in employees:
+        if str(getattr(employee, "status", "Active")) != "Active":
+            continue
+        active_ids.add(str(employee.name))
+        key = " ".join(str(getattr(employee, "employee_name", "") or "").casefold().split())
+        if key:
+            by_name.setdefault(key, []).append(str(employee.name))
+
+    configured_ids = {str(row.get("employee") or "") for row in matrix.get("employees", [])}
+    missing_targets = configured_ids - active_ids
+    if missing_targets:
+        raise ValueError("PC routing contains missing or inactive Employee IDs: " + ", ".join(sorted(missing_targets)))
+
+    for row in matrix.get("employees", []):
+        key = " ".join(str(row.get("employee_name") or "").casefold().split())
+        hits = by_name.get(key, [])
+        if len(hits) != 1 or hits[0] != str(row.get("employee") or ""):
+            raise ValueError("PC routing identity no longer matches active Employee " + str(row.get("employee") or ""))
+
+    for group, definition in matrix.get("review_groups", {}).items():
+        for name in definition.get("reviewers", []):
+            key = " ".join(str(name or "").casefold().split())
+            hits = by_name.get(key, [])
+            if len(hits) != 1:
+                raise ValueError("Reviewer {!r} in group {!r} does not resolve to exactly one active Employee.".format(name, group))
+            configured = [row for row in matrix.get("employees", [])
+                          if " ".join(str(row.get("employee_name") or "").casefold().split()) == key]
+            if len(configured) != 1 or str(configured[0].get("employee") or "") != hits[0]:
+                raise ValueError("Reviewer {!r} in group {!r} has a stale Employee ID.".format(name, group))
+    for employee_id, reviewers in compiled["employees"].items():
+        if employee_id not in active_ids:
+            raise ValueError("PC routing target is not active: " + employee_id)
+        if any(reviewer not in active_ids for reviewer in reviewers):
+            raise ValueError("PC routing reviewer is not active for " + employee_id)
+    return compiled
+
+
 def phone_key(value):
     digits = re.sub(r"\D", "", str(value or ""))
     if digits.startswith("00"):
@@ -40,7 +89,7 @@ def phone_key(value):
 def active_employees():
     return frappe.get_all(
         "Employee", filters={"status": "Active"},
-        fields=["name", "employee_name", "cell_number", "user_id"],
+        fields=["name", "employee_name", "cell_number", "user_id", "status"],
         limit_page_length=0,
     )
 

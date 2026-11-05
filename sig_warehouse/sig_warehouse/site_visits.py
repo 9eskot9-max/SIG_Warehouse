@@ -14,6 +14,7 @@ an orphan (checked live 2026-09-22: all 38 posted sessions landed on exactly
 one pre-existing cycle each, none created a second/competing cycle).
 """
 import frappe
+from sig_warehouse.sig_warehouse.project_family import normalize_family, resolve_project_family
 
 from sig_warehouse.sig_warehouse import field_feed, field_sessions as fs
 
@@ -290,14 +291,14 @@ def fix_site(session_key, site, create=0):
 
 
 def _family_key(value):
-    value = text_value(value).strip().lower()
-    if 'incident' in value:
-        return 'incident'
-    if 'capex' in value:
-        return 'capex'
-    if '5g' in value or 'colo' in value:
-        return '5g'
-    return ''
+    text = text_value(value).strip().lower()
+    if "incident" in text:
+        return "incident"
+    if "capex" in text:
+        return "capex"
+    if "5g" in text or "colo" in text:
+        return "5g"
+    return {"Incident": "incident", "Capex": "capex", "Colocation": "5g"}.get(normalize_family(value), "")
 
 
 @frappe.whitelist()
@@ -316,15 +317,21 @@ def post_to_cycle(session_key, cycle_name):
         return {'result': 'exception', 'reason': 'SELECT_AN_OPEN_CYCLE_FOR_THIS_SITE'}
     expected = _family_key(field_feed.STREAM_PROJECT.get(doc.stream, doc.stream))
     actual_value = cycle.project
+    actual = _family_key(actual_value)
     if cycle.erp_project:
         project_meta = frappe.get_meta('Project')
-        for family_field in ('custom_project_family', 'custom_family'):
-            if project_meta.has_field(family_field):
-                family_value = frappe.db.get_value('Project', cycle.erp_project, family_field)
-                if family_value:
-                    actual_value = family_value
-                    break
-    actual = _family_key(actual_value)
+        family_fields = [field for field in ('custom_project_family', 'custom_family')
+                         if project_meta.has_field(field)]
+        if family_fields:
+            project = frappe.db.get_value('Project', cycle.erp_project, family_fields, as_dict=True)
+            resolution = resolve_project_family(project)
+            if resolution['conflict']:
+                return {'result': 'exception', 'reason': 'PROJECT_FAMILY_FIELDS_CONFLICT_NEEDS_RECONCILIATION'}
+            # A linked Project with no family is unresolved; do not infer it from
+            # the legacy cycle label when a canonical Project exists.
+            actual = _family_key(resolution['family'])
+    if expected and not actual:
+        return {'result': 'exception', 'reason': 'PROJECT_FAMILY_UNRESOLVED_NEEDS_RECONCILIATION'}
     if expected and actual and expected != actual:
         return {'result': 'exception', 'reason': 'CYCLE_FAMILY_DOES_NOT_MATCH_VISIT_GROUP'}
     result = field_feed.post_session(doc.name, cycle_hint=cycle.name)

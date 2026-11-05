@@ -4,15 +4,12 @@ Account identities come from ERP configuration. No Supplier, PI or Payment Entry
 is constructed. Frappe's normal Journal Entry create/validation path is retained.
 """
 
-from pathlib import Path
-import json
-
 import frappe
 from frappe.utils import get_datetime, now_datetime
 
 from .pc_clearance_rules import CATEGORY_ACCOUNTS, journal_lines, legacy_cycle_period, money, request_digest, source_key
 from .pc_archive import archived_media, ensure_archived
-from .pc_review_routing import load_matrix, phone_index, phone_key
+from .pc_review_routing import effective_scopes, load_matrix, phone_index, phone_key
 from .pc_funding import _cycles, _employee_for_report, cycle_membership
 
 
@@ -42,10 +39,18 @@ def _context(user=None):
     )
     employees = [e for e in employees if not str(e.employee_name or "").casefold().startswith("whatsapp sender ")]
     actor = [e for e in employees if e.user_id == user and e.status == "Active"]
-    scopes = json.loads(Path(__file__).with_name("pc_review_scopes.json").read_text(encoding="utf-8"))
+    matrix, scopes, scope_error = None, {"employees": {}}, ""
+    try:
+        matrix = load_matrix()
+        scopes = effective_scopes(matrix, employees)
+    except Exception as exc:
+        # A malformed or stale routing publication fails closed for scoped
+        # reviewers. Finance and auditor permissions remain governed by their
+        # existing roles and native DocPerms.
+        scope_error = str(exc)
     return {"user": user, "roles": roles, "employees": employees,
             "phones": phone_index(employees), "actor": actor[0] if len(actor) == 1 else None,
-            "scopes": scopes}
+            "scopes": scopes, "matrix": matrix, "scope_error": scope_error}
 
 
 def _resolve(sender, context):
@@ -61,6 +66,8 @@ def _resolve(sender, context):
 
 def _in_scope(employee, context):
     actor = context["actor"]
+    if context.get("scope_error"):
+        return False
     return bool(employee and actor and actor.name != employee.name
                 and actor.name in context["scopes"]["employees"].get(employee.name, []))
 
@@ -68,6 +75,8 @@ def _in_scope(employee, context):
 def _authorize(doc, context):
     if not context["roles"].intersection(REVIEWERS):
         _deny("You need an authorised petty-cash reviewer role.")
+    if context.get("scope_error") and not context["roles"].intersection(FINANCE):
+        _deny("Petty-cash reviewer scopes need administrator review before confirmation.")
     employee = _resolve(doc.employee_name, context)
     if not employee:
         frappe.throw("Sender must match exactly one active ERP Employee before confirmation.")
@@ -185,7 +194,7 @@ def transaction_status_report(employee=None, from_date=None, to_date=None, cycle
     context = _context()
     if not context["roles"].intersection(REVIEWERS):
         _deny("You need an authorised petty-cash reviewer role.")
-    routing = load_matrix()
+    routing = context.get("matrix") or {"employees": [], "review_groups": {}}
     if from_date and to_date and str(from_date) > str(to_date):
         frappe.throw("The report start date must be before its end date.")
 

@@ -10,6 +10,7 @@ from sig_warehouse.sig_operations.excel_setup_contract import (
     ADAPTER_VERSION, CONTRACT, SCHEMA_VERSION, FIELDS, KINDS, TEAM_ARCHETYPES, canonical, digest, merge_import,
     project_bundle, validate, is_legacy, upgrade_legacy, bundle_complete,
 )
+from sig_warehouse.sig_warehouse.project_family import resolve_project_family
 
 EDIT_ROLES = {"System Manager", "Operations Manager", "Operations User", "Projects Manager", "SIG Excel Setup Editor"}
 READ_ROLES = EDIT_ROLES | {"SIG Excel Setup Reader", "SIG Stock Viewer"}
@@ -59,6 +60,11 @@ def _state(lock=False):
 def _linked_masters(datasets):
     # Validate identifiers without disclosing unrelated master fields or requiring
     # Operations editors to acquire broad master write/read permissions.
+    if any(row["enabled"] for row in datasets.get("pc_family_defaults", [])):
+        from sig_warehouse.sig_warehouse.pc_review_routing import load_matrix
+        groups = set(load_matrix()["review_groups"])
+        if any(row["enabled"] and row["review_group"] not in groups for row in datasets["pc_family_defaults"]):
+            frappe.throw("PC family defaults must refer to an existing review group.")
     for row in datasets["projects"]:
         if row["enabled"] and not frappe.db.exists("Project", row["project"]):
             frappe.throw(f"Project {row['project']} does not exist")
@@ -69,12 +75,12 @@ def _linked_masters(datasets):
             if row["po"] and row["po"] not in {str(v or "").strip() for v in project.values()}:
                 frappe.throw(f"PO does not match canonical Project {row['project']}")
             row["project"] = project["name"]
-            row["family"] = ""
-            for family_field in ("custom_project_family", "custom_family"):
-                if meta.has_field(family_field):
-                    row["family"] = str(frappe.db.get_value("Project", row["project"], family_field) or "")
-                    if row["family"]:
-                        break
+            family_fields = [field for field in ("custom_project_family", "custom_family") if meta.has_field(field)]
+            project_family = frappe.db.get_value("Project", row["project"], family_fields, as_dict=True) if family_fields else {}
+            resolved_family = resolve_project_family(project_family)
+            if resolved_family["conflict"]:
+                frappe.throw("Project family fields disagree for {}. Reconcile custom_project_family and custom_family before publishing.".format(row["project"]))
+            row["family"] = resolved_family["family"]
             if meta.has_field("custom_is_canonical_agreement") and not frappe.db.get_value("Project", row["project"], "custom_is_canonical_agreement"):
                 frappe.throw(f"Select the canonical Project for PO {row['po']}")
     for row in datasets.get("project_builder_links", []):
@@ -88,6 +94,13 @@ def _linked_masters(datasets):
     for row in datasets.get("builder_contacts", []):
         if row["enabled"]:
             _resolve_contact(row)
+    if any(row["enabled"] for row in datasets.get("family_tawal_defaults", [])):
+        doctype = "SIG TAWAL Contact"
+        if not frappe.db.exists("DocType", doctype) or not frappe.get_meta(doctype).has_field("active"):
+            frappe.throw("Family TAWAL defaults require the active SIG TAWAL Contact directory.")
+        for row in datasets["family_tawal_defaults"]:
+            if row["enabled"] and not frappe.db.get_value(doctype, {"name": row["tawal_contact"], "active": 1}, "name"):
+                frappe.throw("Select an existing active TAWAL contact for family default " + row["id"])
     for row in datasets.get("teams", []):
         # A team is its leader: the team name and phone come from the Employee, never typed.
         person = frappe.db.get_value("Employee", row["leader"], ["employee_name", "cell_number"], as_dict=True)
@@ -95,6 +108,46 @@ def _linked_masters(datasets):
             frappe.throw(f"Team leader {row['leader']} is not an Employee")
         row["team"] = person.employee_name or row["leader"]
         row["phone"] = str(person.cell_number or "")
+    configured_teams = {row["id"]: row for row in datasets.get("operational_teams", []) if row["enabled"]}
+    for row in datasets.get("team_memberships", []):
+        if not row["enabled"]:
+            continue
+        if row["team"] not in configured_teams:
+            frappe.throw("Team membership references a missing or disabled team: " + row["team"])
+        employee = frappe.db.get_value("Employee", row["employee"], ["name", "status"], as_dict=True)
+        if not employee or employee.status != "Active":
+            frappe.throw("Active ERP Employee required for membership: " + row["employee"])
+    if datasets.get("team_projects"):
+        meta = frappe.get_meta("Project")
+        family_fields = [field for field in ("custom_project_family", "custom_family") if meta.has_field(field)]
+        for row in datasets["team_projects"]:
+            if not row["enabled"]:
+                continue
+            team = configured_teams.get(row["team"])
+            if not team or not frappe.db.exists("Project", row["project"]):
+                frappe.throw("Team Project link needs an enabled team and an existing ERP Project.")
+            project = frappe.db.get_value("Project", row["project"], family_fields, as_dict=True) if family_fields else {}
+            resolved = resolve_project_family(project)
+            team_family = "Colocation" if team["family"] == "5G / Colocation" else team["family"]
+            if resolved["conflict"] or not resolved["family"] or resolved["family"] != team_family:
+                frappe.throw("Team Project family must match a resolved Project family before publishing: " + row["project"])
+    for row in datasets.get("project_responsibilities", []):
+        if row["enabled"]:
+            employee = frappe.db.get_value("Employee", row["employee"], ["name", "status"], as_dict=True)
+            if not employee or employee.status != "Active":
+                frappe.throw("Active ERP Employee required for Project responsibility: " + row["employee"])
+            if not frappe.db.exists("Project", row["project"]):
+                frappe.throw("Project responsibility references a missing ERP Project: " + row["project"])
+    if any(row["enabled"] and row["mode"] == "exception" for row in datasets.get("project_tawal_rules", [])):
+        if not frappe.db.exists("DocType", "SIG TAWAL Contact") or not frappe.get_meta("SIG TAWAL Contact").has_field("active"):
+            frappe.throw("PO TAWAL exceptions require the active SIG TAWAL Contact directory.")
+    for row in datasets.get("project_tawal_rules", []):
+        if row["enabled"]:
+            if not frappe.db.exists("Project", row["project"]):
+                frappe.throw("PO TAWAL rule references a missing ERP Project: " + row["project"])
+            if row["mode"] == "exception" and not frappe.db.get_value(
+                    "SIG TAWAL Contact", {"name": row["tawal_contact"], "active": 1}, "name"):
+                frappe.throw("PO TAWAL exception must reference an active directory contact.")
     for row in datasets["material_upl_links"]:
         if row["enabled"] and not frappe.db.exists("Item", row["item_code"]):
             frappe.throw(f"ERP Item {row['item_code']} does not exist")
@@ -131,7 +184,7 @@ def _resolve_contact(row):
 
 
 def _publish(datasets, base_revision, batch_id="", batch_hash=""):
-    doc, _ = _state(lock=True)
+    doc, current = _state(lock=True)
     if batch_id:
         old = frappe.db.get_value(REVISION, {"import_batch_id": batch_id}, ["revision", "import_batch_hash"], as_dict=True)
         if old:
@@ -141,6 +194,10 @@ def _publish(datasets, base_revision, batch_id="", batch_hash=""):
     if int(base_revision) != int(doc.revision or 0):
         frappe.throw("Setup changed in another session. Reload and review again.")
     datasets = _validated(datasets)
+    governed = ("family_tawal_defaults", "project_tawal_rules", "operational_teams",
+                "team_memberships", "team_projects", "project_responsibilities", "pc_family_defaults")
+    if any(datasets[key] != current.get(key, []) for key in governed) and "System Manager" not in frappe.get_roles():
+        frappe.throw("Only System Manager can change the new family, contact and People configuration while its permissions are under review.", frappe.PermissionError)
     _linked_masters(datasets)
     datasets = _validated(datasets)
     encoded, content_hash = canonical(datasets), digest(datasets)
@@ -174,12 +231,26 @@ def get_page_state():
         datasets = upgrade_legacy(datasets)
     for name in FIELDS:     # lists added after the last publication start empty
         datasets.setdefault(name, [])
+    references = _reference_choices()
+    references["operational_teams"] = [
+        {"name": row["id"], "team_name": row["team_name"], "family": row["family"],
+         "archetype": row["archetype"]}
+        for row in datasets["operational_teams"] if row["enabled"]
+    ]
     return {"schema_version": SCHEMA_VERSION, "migration_pending": migration_pending,
             "revision": int(doc.revision or 0), "datasets": datasets, "fields": FIELDS,
             "published_at": doc.published_at, "published_by": doc.published_by,
             "options": {"builder_defaults.kind": sorted(KINDS), "material_upl_links.treatment": ["Direct 1:1", "Excluded", "Manual"],
-                        "teams.archetype": list(TEAM_ARCHETYPES)},
-            "references": _reference_choices(),
+                        "teams.archetype": list(TEAM_ARCHETYPES),
+                        "family_tawal_defaults.family": ["Capex", "Incident", "5G / Colocation"],
+                        "pc_family_defaults.family": ["Capex", "Incident", "5G / Colocation"],
+                        "pc_family_defaults.review_group": ["capex", "incident", "colocation", "warehouse", "general", "unassigned"],
+                        "operational_teams.family": ["Capex", "Incident", "5G / Colocation"],
+                        "operational_teams.archetype": list(TEAM_ARCHETYPES),
+                        "team_memberships.role": ["leader", "pm", "coordinator", "member"],
+                        "project_responsibilities.role": ["pm", "coordinator", "weekly_pm"],
+                        "project_tawal_rules.mode": ["inherit", "exception", "cleared"]},
+            "references": references,
             "pending_builder_contacts": sum(r["enabled"] and not r["tawal_contact"] for r in datasets["builder_contacts"]),
             "counts": {key: len(value) for key, value in datasets.items()}}
 
@@ -197,12 +268,16 @@ def _reference_choices():
     filters = {"custom_is_canonical_agreement": 1} if meta.has_field("custom_is_canonical_agreement") else {}
     projects = frappe.get_all("Project", filters=filters, fields=fields, order_by="project_name asc", limit_page_length=10000)
     contacts = frappe.get_all("SIG TAWAL Contact", fields=["name", "full_name", "mobile", "email"], limit_page_length=10000) if frappe.db.exists("DocType", "SIG TAWAL Contact") else []
+    active_contacts = frappe.get_all("SIG TAWAL Contact", filters={"active": 1},
+                                     fields=["name", "full_name", "mobile", "email"],
+                                     limit_page_length=10000) if frappe.db.exists("DocType", "SIG TAWAL Contact") and frappe.get_meta("SIG TAWAL Contact").has_field("active") else []
     items = frappe.get_all("Item", filters={"disabled": 0, "is_stock_item": 1}, fields=["name", "item_name", "stock_uom"], limit_page_length=10000)
     uoms = frappe.get_all("UOM", fields=["name"], order_by="name asc", limit_page_length=10000)
     employees = frappe.get_all("Employee", filters={"status": "Active"}, fields=["name", "employee_name"],
                                order_by="employee_name asc", limit_page_length=10000)
     streams = frappe.get_all("SIG Project Stream", fields=["name", "alias", "project"], limit_page_length=10000) if frappe.db.exists("DocType", "SIG Project Stream") else []
-    return {"projects": projects, "contacts": contacts, "items": items, "streams": streams, "uoms": uoms, "employees": employees}
+    return {"projects": projects, "contacts": contacts, "active_contacts": active_contacts,
+            "items": items, "streams": streams, "uoms": uoms, "employees": employees}
 
 
 @frappe.whitelist(methods=["POST"])

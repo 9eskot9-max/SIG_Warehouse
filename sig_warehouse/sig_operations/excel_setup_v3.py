@@ -15,6 +15,8 @@ from sig_warehouse.sig_operations.excel_setup import (
     _state,
 )
 from sig_warehouse.sig_operations.excel_setup_contract import canonical, digest, validate
+from sig_warehouse.sig_warehouse.project_family import resolve_project_family
+from frappe.utils import getdate, nowdate
 
 
 CONTRACT = "SIG_EXCEL_SETUP_V3"
@@ -60,6 +62,40 @@ def _effective_default_contact(project, field_contact):
     return state["default_contact"]
 
 
+def _family_default(datasets, family, as_of=None):
+    if not family:
+        return None
+    as_of = getdate(as_of or nowdate())
+    family_key = "Colocation" if family == "5G / Colocation" else family
+    matches = []
+    for row in datasets.get("family_tawal_defaults", []):
+        row_family = "Colocation" if row.get("family") == "5G / Colocation" else row.get("family")
+        if not row.get("enabled") or row_family != family_key:
+            continue
+        start = getdate(row["effective_from"])
+        end = getdate(row["effective_to"]) if row.get("effective_to") else None
+        if start <= as_of and (end is None or as_of <= end):
+            matches.append(row)
+    if len(matches) > 1:
+        frappe.throw("More than one effective TAWAL contact default exists for family " + family_key)
+    return matches[0] if matches else None
+
+
+def _project_contact_rule(datasets, project, as_of=None):
+    as_of = getdate(as_of or nowdate())
+    matches = []
+    for row in datasets.get("project_tawal_rules", []):
+        if not row.get("enabled") or row.get("project") != project:
+            continue
+        start = getdate(row["effective_from"])
+        end = getdate(row["effective_to"]) if row.get("effective_to") else None
+        if start <= as_of and (end is None or as_of <= end):
+            matches.append(row)
+    if len(matches) > 1:
+        frappe.throw("More than one effective PO TAWAL rule exists for " + project)
+    return matches[0] if matches else None
+
+
 def _configured_project_rows(datasets, allow_conflicts=False):
     meta = _meta_project_fields()
     project_fields = ["name", "project_name", "custom_default_tawal_contact", "custom_excel_csv_alias"]
@@ -91,21 +127,53 @@ def _configured_project_rows(datasets, allow_conflicts=False):
             frappe.throw("More than one configured canonical ERP Project uses PO " + po)
         if po_key:
             seen_po.add(po_key)
-        family = next((str(project.get(key) or "").strip() for key in
-                       ("custom_project_family", "custom_family")
-                       if str(project.get(key) or "").strip()), str(setup_row.get("family") or "").strip())
+        family_state = resolve_project_family(project)
+        if family_state["conflict"] and not allow_conflicts:
+            frappe.throw("Project family fields disagree for " + project.name + "; reconcile before syncing RV80")
+        family = family_state["family"] or (family_state["values"][0]["value"] if family_state["values"] else str(setup_row.get("family") or "").strip())
         assignment_state = _assignment_default_state(project.name, project.custom_default_tawal_contact)
         if assignment_state["needs_reconciliation"] and not allow_conflicts:
             frappe.throw("Project default and active TAWAL assignment disagree for " + project.name + "; reconcile them before syncing")
+        explicit_contact = assignment_state["default_contact"]
+        family_default = _family_default(datasets, family_state["family"])
+        project_rule = _project_contact_rule(datasets, project.name)
+        if project_rule:
+            if project_rule["mode"] == "cleared":
+                effective_contact, contact_source = "", "PO cleared"
+                contact_from, contact_to = project_rule["effective_from"], project_rule.get("effective_to", "")
+            elif project_rule["mode"] == "exception":
+                effective_contact, contact_source = project_rule["tawal_contact"], "PO exception"
+                contact_from, contact_to = project_rule["effective_from"], project_rule.get("effective_to", "")
+            else:
+                effective_contact = family_default.get("tawal_contact") if family_default else ""
+                contact_source = "family default" if family_default else "unconfigured"
+                contact_from = family_default.get("effective_from", "") if family_default else ""
+                contact_to = family_default.get("effective_to", "") if family_default else ""
+        elif explicit_contact:
+            effective_contact, contact_source = explicit_contact, "PO exception"
+            contact_from, contact_to = "", ""
+        else:
+            effective_contact = family_default.get("tawal_contact") if family_default else ""
+            contact_source = "family default" if family_default else "unconfigured"
+            contact_from = family_default.get("effective_from", "") if family_default else ""
+            contact_to = family_default.get("effective_to", "") if family_default else ""
         project_row = {
             "id": str(setup_row["id"]),
             "project": project.name,
             "project_name": project.project_name or project.name,
             "po": po,
             "family": family,
+            "family_label": family_state["label"],
+            "family_conflict": family_state["conflict"],
+            "family_sources": family_state["values"] if allow_conflicts else [],
             "upl_revision": str(setup_row.get("upl_revision") or ""),
             "csv_alias": str(project.custom_excel_csv_alias or "").strip(),
-            "default_contact": assignment_state["default_contact"],
+            "default_contact": effective_contact,
+            "contact_source": contact_source,
+            "contact_rule_mode": project_rule["mode"] if project_rule else "",
+            "contact_effective_from": contact_from,
+            "contact_effective_to": contact_to,
+            "contact_family": family_state["family"],
             "enabled": True,
         }
         if allow_conflicts:
@@ -152,6 +220,11 @@ def _v3_datasets(datasets, workbook_type):
     result = {"projects": projects}
     if workbook_type == "RV80":
         result["contacts"] = _active_contacts()
+        active_contact_ids = {row["id"] for row in result["contacts"]}
+        missing = [row["po"] or row["project"] for row in projects
+                   if row["default_contact"] and row["default_contact"] not in active_contact_ids]
+        if missing:
+            frappe.throw("Configured TAWAL default is missing or inactive for: " + ", ".join(missing))
         result["tag_definitions"] = datasets["tag_definitions"]
         result["builder_defaults"] = datasets["builder_defaults"]
         result["tag_upl_links"] = datasets["tag_upl_links"]
@@ -172,8 +245,8 @@ def _validated_v3(datasets, workbook_type):
     V2 archive for compatibility. They must not be a prerequisite for the
     PO-first V3 sync.
     """
-    names = ("projects", "tag_definitions", "tag_upl_links", "material_upl_links", "builder_defaults") if workbook_type == "RV80" else (
-        "projects", "tag_definitions", "tag_upl_links", "material_upl_links")
+    names = ("projects", "tag_definitions", "tag_upl_links", "material_upl_links", "builder_defaults", "family_tawal_defaults", "project_tawal_rules") if workbook_type == "RV80" else (
+        "projects", "tag_definitions", "tag_upl_links", "material_upl_links", "family_tawal_defaults", "project_tawal_rules")
     payload = {name: datasets.get(name, []) for name in names}
     try:
         return validate(payload)
@@ -277,6 +350,8 @@ def save_po_setup(rows, base_revision, base_hash):
     current_projects = {row["project"]: row for row in current["projects"]}
     for project, row in supplied.items():
         before = current_projects[project]
+        if (before.get("contact_rule_mode") or before.get("contact_source") == "family default") and before["default_contact"] != row["default_contact"]:
+            frappe.throw("This PO uses a family or dated TAWAL rule. Change its inherit, exception or cleared rule in setup; the legacy PO contact editor cannot safely change it.")
         if before.get("needs_reconciliation") and not row["resolve_conflict"]:
             if before["default_contact"] != row["default_contact"]:
                 frappe.throw("Confirm the PM reconciliation for " + project + " before saving.")
