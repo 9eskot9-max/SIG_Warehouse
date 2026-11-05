@@ -85,23 +85,26 @@ def team_positions(leaders, visits, coords, today, max_age_days=14):
     state: Current (used as the team's starting point), Stale (too old), or Unknown (no visit or no coordinates).
     Incident teams are not passed in; the API lists them as state "Incident" without a position.
     """
-    latest = {}
-    for visit in visits:
-        seen = visit.get("end_at") or visit.get("start_at")
-        if not seen or not visit.get("employee"):
-            continue
-        stamp = str(seen)[:19]
-        current = latest.get(visit["employee"])
-        is_posted_visit = (visit.get("source") or "") == "Posted visit"
-        current_is_posted_visit = bool(current and (current[1].get("source") or "") == "Posted visit")
-        if current is None or stamp > current[0] or (stamp == current[0] and is_posted_visit and not current_is_posted_visit):
-            latest[visit["employee"]] = (stamp, visit)
     rows = []
     for item in leaders:
-        stamp, visit = latest.get(item["leader"], (None, None))
+        periods = item.get("leader_periods") or [{"employee": item["leader"], "from": "", "to": ""}]
+        latest = None
+        for candidate in visits:
+            seen = candidate.get("end_at") or candidate.get("start_at")
+            if not seen or not candidate.get("employee"):
+                continue
+            stamp_value = str(seen)[:19]
+            day = str(candidate.get("start_at") or seen)[:10]
+            if not any(p["employee"] == candidate["employee"] and (not p.get("from") or p["from"] <= day)
+                       and (not p.get("to") or day <= p["to"]) for p in periods):
+                continue
+            posted = candidate.get("source") == "Posted visit"
+            if latest is None or stamp_value > latest[0] or (stamp_value == latest[0] and posted and latest[1].get("source") != "Posted visit"):
+                latest = (stamp_value, candidate)
+        stamp, visit = latest or (None, None)
         site = (visit.get("site") or "").upper() if visit else ""
-        row = {"leader": item["leader"], "team": item["team"], "phone": item.get("phone", ""), "site": site,
-               "seen_at": stamp or "", "on_site": bool(visit and not visit.get("end_at")), "age_days": None,
+        row = {"team_id": item.get("team_id") or item["leader"], "leader": item["leader"], "team": item["team"], "phone": item.get("phone", ""), "site": site,
+               "seen_at": stamp or "", "on_site": bool(visit and visit.get("employee") == item["leader"] and not visit.get("end_at")), "age_days": None,
                "state": "Unknown", "lat": None, "lon": None,
                "source": (visit.get("source") or "Posted visit") if visit else ""}
         if stamp:

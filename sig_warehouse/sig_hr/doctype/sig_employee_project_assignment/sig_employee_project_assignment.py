@@ -75,15 +75,5 @@ class SIGEmployeeProjectAssignment(Document):
             if overlaps(self.start_date, self.end_date, row.start_date, row.end_date):
                 frappe.throw("This employee already has an overlapping assignment for the same role and project.")
 
-        if self.status == "Active" and self.project_role == "Team Leader":
-            other_leaders = frappe.get_all(
-                "SIG Employee Project Assignment",
-                filters={"project": self.project, "project_role": "Team Leader", "status": "Active"},
-                fields=["name", "employee"],
-                ignore_permissions=True,
-            )
-            if any(row.name != self.name for row in other_leaders):
-                frappe.throw("End the existing Team Leader assignment before approving another leader for this Project.")
-
     def on_trash(self):
         frappe.throw("Project assignment records are an audit trail and cannot be deleted. End an assignment instead.")

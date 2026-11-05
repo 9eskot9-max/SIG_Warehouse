@@ -106,54 +106,44 @@ def _current_ops_membership(user):
     return {"ready": True, "issue": "", "memberships": memberships}
 
 
-def _effective_on(row, today=None):
-    today = str(today or frappe.utils.nowdate())[:10]
-    start = str(row.get("effective_from") or "")[:10]
-    end = str(row.get("effective_to") or "")[:10]
-    return bool(start and start <= today and (not end or today <= end))
-
-
 def _configured_ops_memberships(employee_id):
-    """Return None before the reviewed ID-based roster is activated; [] means active but unassigned."""
+    """Return None before the reviewed ID-based roster is activated; [] means active but unassigned.
+
+    Operations members cover the family by default. Project-scoped member rows
+    replace the family group for that Project. Field crews are separate.
+    """
     if not PEOPLE_MODEL_ACTIVE:
         return None
+    return _operations_team_memberships(employee_id=employee_id)
+
+
+def _operations_team_memberships(employee_id=None):
+    """Resolve dated family defaults and whole-team Project exceptions."""
     try:
-        raw = frappe.db.get_single_value("SIG Excel Setup", "configuration_json") or "{}"
-        data = json.loads(raw)
+        data = json.loads(frappe.db.get_single_value("SIG Excel Setup", "configuration_json") or "{}")
     except (TypeError, ValueError, frappe.DoesNotExistError):
-        return None
-    teams = {str(row.get("id")): row for row in data.get("operational_teams", []) if row.get("enabled")}
-    if not teams and not any(row.get("enabled") for row in data.get("project_responsibilities", [])):
-        return None
-    projects_by_team = {}
-    for row in data.get("team_projects", []):
-        if row.get("enabled") and row.get("team") in teams and _effective_on(row):
-            projects_by_team.setdefault(row["team"], set()).add(str(row.get("project") or ""))
+        return []
+    today = str(frappe.utils.nowdate())[:10]
+    rows = [row for row in data.get("ops_team_members", []) if row.get("enabled")
+            and str(row.get("effective_from") or "")[:10] <= today
+            and str(row.get("effective_from") or "")[:10]
+            and (not row.get("effective_to") or str(row["effective_to"])[:10] >= today)]
+    exceptions = {}
+    for row in rows:
+        if row.get("project"):
+            exceptions.setdefault(normalize_family(row.get("family")), set()).add(str(row["project"]))
     result = []
-    for row in data.get("team_memberships", []):
-        if (not row.get("enabled") or row.get("employee") != employee_id or row.get("team") not in teams
-                or not _effective_on(row) or row.get("role") not in ("pm", "coordinator")):
+    for row in rows:
+        if employee_id and row.get("employee") != employee_id:
             continue
-        team = teams[row["team"]]
-        family = normalize_family(team.get("family"))
-        project_ids = sorted(projects_by_team.get(row["team"], set()))
-        # Team-family membership does not imply responsibility for every Project.
-        if not family or not project_ids:
+        family = normalize_family(row.get("family"))
+        if not family:
             continue
-        result.append({"scope": family, "role": "pm" if row["role"] == "pm" else "co",
-                       "team_id": row["team"], "team": team.get("team_name") or row["team"],
-                       "projects": project_ids})
-    meta = frappe.get_meta("Project")
-    family_fields = [field for field in ("custom_project_family", "custom_family") if meta.has_field(field)]
-    for row in data.get("project_responsibilities", []):
-        if (not row.get("enabled") or row.get("employee") != employee_id
-                or row.get("role") not in ("pm", "coordinator") or not _effective_on(row)):
-            continue
-        project = frappe.db.get_value("Project", row["project"], family_fields, as_dict=True) if family_fields else {}
-        family = resolve_project_family(project)["family"]
-        if family:
-            result.append({"scope": family, "role": "pm" if row["role"] == "pm" else "co",
-                           "projects": [str(row["project"])], "source": "Project responsibility"})
+        project = str(row.get("project") or "")
+        result.append({"employee": str(row.get("employee") or ""), "scope": family, "role": "co",
+                       "shared_ops": True, "projects": [project] if project else None,
+                       "excluded_projects": [] if project else sorted(exceptions.get(family, set())),
+                       "source": "Operations Project team"})
     return result
 
 
@@ -161,17 +151,17 @@ def _task_audience(family, owner_role, memberships, project_id=None):
     """A shared task is visible to a roster member of its scope and role."""
     def covers_project(membership):
         projects = membership.get("projects")
-        return projects is None or (project_id and project_id in projects)
+        return project_id not in membership.get("excluded_projects", []) and (projects is None or (project_id and project_id in projects))
     if owner_role == "either":
         return any(m["scope"] == family and m["role"] in ("pm", "co") and covers_project(m) for m in memberships)
-    return any(m["scope"] == family and m["role"] == owner_role and covers_project(m) for m in memberships)
+    return any(m["scope"] == family and (m.get("shared_ops") or m["role"] == owner_role) and covers_project(m) for m in memberships)
 
 
-def _owner_names(family, owner_role):
+def _owner_names(family, owner_role, project_id=None):
     """Return short display names for the confirmed shared task audience."""
     if owner_role == "warehouse":
         return list(WAREHOUSE_OWNER_NAMES)
-    configured_names = _configured_family_owner_names(family, owner_role)
+    configured_names = _configured_family_owner_names(family, owner_role, project_id)
     if configured_names is not None:
         return configured_names
     family_owners = OPS_OWNER_NAMES.get(family, {})
@@ -180,33 +170,13 @@ def _owner_names(family, owner_role):
     return list(family_owners.get(owner_role, ()))
 
 
-def _configured_family_owner_names(family, owner_role):
+def _configured_family_owner_names(family, owner_role, project_id=None):
     if not PEOPLE_MODEL_ACTIVE:
         return None
-    try:
-        data = json.loads(frappe.db.get_single_value("SIG Excel Setup", "configuration_json") or "{}")
-    except (TypeError, ValueError, frappe.DoesNotExistError):
-        return None
-    teams = {str(row.get("id")): row for row in data.get("operational_teams", []) if row.get("enabled")}
-    if not teams and not any(row.get("enabled") for row in data.get("project_responsibilities", [])):
-        return None
     roles = {"either": ("pm", "coordinator"), "pm": ("pm",), "co": ("coordinator",)}.get(owner_role, (owner_role,))
-    ids = set()
-    for row in data.get("team_memberships", []):
-        team = teams.get(str(row.get("team") or ""))
-        if (team and row.get("enabled") and _effective_on(row) and row.get("role") in roles
-                and normalize_family(team.get("family")) == family):
-            ids.add(str(row.get("employee") or ""))
-    meta = frappe.get_meta("Project")
-    family_fields = [field for field in ("custom_project_family", "custom_family") if meta.has_field(field)]
-    for row in data.get("project_responsibilities", []):
-        if not row.get("enabled") or not _effective_on(row):
-            continue
-        if row.get("role") not in roles:
-            continue
-        project = frappe.db.get_value("Project", row["project"], family_fields, as_dict=True) if family_fields else {}
-        if resolve_project_family(project)["family"] == family:
-            ids.add(str(row.get("employee") or ""))
+    ids = {str(row["employee"]) for row in _operations_team_memberships()
+           if row["scope"] == family and (row.get("shared_ops") or row["role"] in roles)
+           and _task_audience(family, "either", [row], project_id)}
     if not ids:
         return []
     if not frappe.has_permission("Employee", "read"):
@@ -364,7 +334,7 @@ def _stage_tasks_for_user(cycles, memberships, all_project_scopes=False):
                 "family": cycle["family"], "cycle_stage": cycle["stage"],
                 "stage": str(work.get("stage") or TASK_STAGE.get(str(work.get("key") or ""), cycle["stage"])),
                 "key": str(work.get("key") or ""), "label": str(work.get("label") or "Work"),
-                "owner_role": role, "owner_names": _owner_names(cycle.get("family"), role),
+                "owner_role": role, "owner_names": _owner_names(cycle.get("family"), role, cycle.get("project_id")),
                 "shared": True,
                 "status": "Review due" if cycle.get("needs_review") else "Pending evidence",
                 "needs_review": bool(cycle.get("needs_review")),
@@ -455,7 +425,14 @@ def _can_close_cycles(user, memberships=None):
     memberships = memberships if memberships is not None else _current_ops_membership(user).get("memberships", [])
     roles = set(frappe.get_roles(user))
     admin = user != "Guest" and "System Manager" in roles
-    ops_closer = any(m.get("role") in ("pm", "co") for m in memberships)
+    if PEOPLE_MODEL_ACTIVE:
+        # Team visibility must not silently expand the separate cycle-close grant.
+        employees = frappe.get_list("Employee", filters={"user_id": user, "status": "Active"},
+                                    fields=["employee_name"], page_length=2) if frappe.has_permission("Employee", "read") else []
+        legacy = {_normalize_person(name) for groups in OPS_ROSTER.values() for names in groups.values() for name in names}
+        ops_closer = len(employees) == 1 and _normalize_person(employees[0].get("employee_name")) in legacy
+    else:
+        ops_closer = any(m.get("role") in ("pm", "co") for m in memberships)
     field_ops = user != "Guest" and "SIG Field Ops" in roles and ops_closer
     return bool((admin or field_ops)
                 and frappe.has_permission("SIG Site Cycle", "write")
@@ -518,7 +495,7 @@ def _cycle_view(row, project, today, operational=None):
                      "stage": "4 - Invoicing",
                      "closes_on": "ASBUILT_BOQ_GENERATED"})
     for item in work:
-        item["owner_names"] = _owner_names(family, item.get("owner_role") or "either")
+        item["owner_names"] = _owner_names(family, item.get("owner_role") or "either", str((project or {}).get("name") or row.get("erp_project") or ""))
         item["shared"] = True
     delay = _flag(row, "is_delayed") or _flag(row, "is_aged") or bool(row.get("stage_due_on") and str(row.stage_due_on)[:10] < today)
     return {

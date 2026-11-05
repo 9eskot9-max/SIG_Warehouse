@@ -58,7 +58,7 @@ def snapshot_for(week_start):
         for stop in trip.get("stops") or []:
             raw_day = stop.get("day") or trip.get("first_day") or ""
             rows.append({"site": stop.get("site"), "cycle": stop.get("cycle") or "", "project": stop.get("project") or "",
-                         "team": trip.get("team") or "", "planned_day": _day(str(raw_day)[:10]) if raw_day else None,
+                         "team": trip.get("team_id") or trip.get("team") or "", "planned_day": _day(str(raw_day)[:10]) if raw_day else None,
                          "kind": "Trip"})
     summary = plan.get("summary") or {}
     doc = frappe.get_doc({"doctype": SNAPSHOT, "week_key": key, "week_start": week_start,
@@ -83,24 +83,7 @@ def _visits(start, end):
 
 
 def _pms():
-    """Active PMs and the projects each covers."""
-    from sig_warehouse.sig_warehouse.people_model_gate import PEOPLE_MODEL_ACTIVE
-    try:
-        setup = frappe.db.get_single_value("SIG Excel Setup", "configuration_json") or "{}"
-        data = frappe.parse_json(setup)
-    except (TypeError, ValueError, frappe.DoesNotExistError):
-        data = {}
-    configured = [row for row in data.get("project_responsibilities", [])
-                  if row.get("enabled") and row.get("role") == "weekly_pm"]
-    if PEOPLE_MODEL_ACTIVE and configured:
-        today = str(frappe.utils.nowdate())[:10]
-        out = {}
-        for row in configured:
-            start = str(row.get("effective_from") or "")[:10]
-            end = str(row.get("effective_to") or "")[:10]
-            if start and start <= today and (not end or today <= end):
-                out.setdefault(str(row["employee"]), set()).add(str(row["project"]))
-        return out
+    """Read only the dedicated weekly-PM scope; it is not a cycle-owner roster."""
     rows = frappe.get_all(SCOPE, filters={"active": 1}, fields=["employee", "project", "active"], limit_page_length=0)
     out = {}
     for r in rows:

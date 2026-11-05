@@ -1,5 +1,30 @@
 # People configuration reconciliation and staged safety fix
 
+## Owner decisions — Operations and Planner integration
+
+The Operations team for a family normally covers every Project/PO in that family, with a Project-specific exception when needed. Its members share the family's cycle work; field-crew membership is a separate Planner concern. Do not activate the exact individual-Project assignment routing currently staged in PR #87 as the Operations source.
+
+Planner needs a stable Team identity with dated leader membership. A temporary replacement keeps the Team's plan and last known location; historical visits remain attributed to the person who performed them. Existing Planner positions and plan references are keyed by leader Employee ID, so the adapter, data linkage and handover need to preserve continuity before switching sources. Legacy cycle Project/family links should be reconciled through existing fields or explicit mappings, without rewriting historical evidence.
+
+The staged implementation adds Operations family member rows and Project replacement-team rows; a Project exception replaces the whole family team for that Project. Planner projects a stable team ID, finds the last position from visits or manual positions occurring during that team's dated leader periods, and retains the original visit/position records. Cycle closure keeps its existing authorization separate from the new shared task audience. Keep the current People-model gate off and the existing live roster active until the new configuration is filled, compared and accepted. Planner schedules are calculated dynamically, so carrying a previously generated plan through a leader change still requires a persisted-plan design or explicit acceptance that the schedule will be recalculated.
+
+## Excel Setup structure update — 5 November 2026
+
+The local `codex/excel-setup-structure` change reorganizes the existing Excel Setup page into six task-oriented areas: **Projects and client coordination**, **WhatsApp Tags and workbook mappings**, **TCN generation rules**, **Field crews and Project owners**, **People, petty cash and reporting**, and **Legacy and historical setup**. These are navigation groups over the existing datasets and native record views; they do not create a second configuration store or migrate/publish any business data.
+
+Design boundaries shown in the interface:
+
+- Keep **Tags definitions** (incoming-value normalization) separate from the existing **Tags to UPL** links. The latter remain unchanged; UPL catalogues and Mapping Master detail remain workbook-maintained. Item-to-UPL stays a separate AsBuilt/material mapping. No Tags, UPL or material rules were edited.
+- Keep PO/Project family and workbook template selection in the existing ERP Project → RV80 Sync flow. TAWAL is the external client PM; Operations team membership supplies Workbench task visibility by family, with Project-specific replacement teams. These memberships do not change evidence submission or cycle-close authorization. The TCN wording area does not define MOP templates or CSV processing. PO contact/CSV-label edits remain on the existing native Project save path, visible only within the Projects area.
+- Label the current Field Planner leader list separately from the proposed flexible team/member/Project tables. The current `PEOPLE_MODEL_ACTIVE` gate remains off. The page explicitly warns that the new crew tables do not replace the live roster yet; no team, member, Project or responsibility rows were migrated or activated. Cycle tasks remain informational, and evidence/close behavior is unchanged.
+- Keep the prior `project_responsibilities` JSON dataset read-only and under legacy setup. It no longer supplies internal Workbench owners or weekly PM recipients. Weekly PM recipients stay in the dedicated `SIG PM Weekly Scope`; crew membership remains about field staffing.
+- Keep PC review routing distinct from HR employee identity, native Employee Account custody links, and ERP permissions. Family defaults do not change existing employee overrides or access. Employee, candidate, onboarding, assignment and reporter-map sections continue using their existing native endpoints and permissions.
+- Keep Builder profile/contact/assignment records under a legacy compatibility group. They are not deleted or converted.
+
+The same change prevents an unrelated Excel Setup save from rewriting cached Project-family values: a cached family is refreshed only when a Project link is added or changed. The server returns the existing crew-model gate state so the page can explain whether that model currently drives Workbench/Planner. The Workbench family-team consumer remains behind the disabled gate; the weekly PM consumer remains on its separate scope.
+
+No roles, Page permissions, DocType permissions, fixtures, migrations, employee/project/finance records or workbook files were changed. The Excel Setup Page role list remains System Manager, Operations Manager, Operations User, Projects Manager and SIG Excel Setup Editor. No tests or persona workflows were run; Page/record role acceptance remains **NOT TESTED**. This implementation remains unmerged and undeployed.
+
 ## Local continuation — 5 November 2026
 
 Latest routing implementation: local code stores a snapshot of the preceding matrix with each publication, previews reviewer scope changes and uses the preview hash to reject stale publications. History can be previewed and restored as a new revision; restoration keeps the historical effective group as an explicit override and refuses to omit employees now present. An employee can select inherit or override; inheritance resolves the configured family default into the routing revision when it is published. Changing a default alone does not immediately change routing: republish after reviewing the scope diff. Existing rows default to override, preserving their published group and additional exceptions. The routing publisher locks Excel Setup while resolving defaults. This code has not been deployed or tested; the live inventory, permission acceptance and migration remain outstanding.

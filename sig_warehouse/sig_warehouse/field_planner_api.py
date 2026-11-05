@@ -112,24 +112,27 @@ def _team_setup():
     if operational:
         today = str(frappe.utils.nowdate())[:10]
         leaders = {}
+        history = {}
         for row in data.get("team_memberships", []):
             start, end = str(row.get("effective_from") or "")[:10], str(row.get("effective_to") or "")[:10]
             if (row.get("enabled") and row.get("role") == "leader" and row.get("team") in operational
-                    and row.get("employee") and start and start <= today and (not end or today <= end)):
-                leaders.setdefault(row["team"], set()).add(str(row["employee"]))
+                    and row.get("employee") and start):
+                history.setdefault(row["team"], []).append({"employee": str(row["employee"]), "from": start, "to": end})
+                if start <= today and (not end or today <= end):
+                    leaders.setdefault(row["team"], set()).add(str(row["employee"]))
         result = []
-        for team_id, team in operational.items():
+        for team_id, team in sorted(operational.items()):
             active_leaders = sorted(leaders.get(team_id, set()))
             if len(active_leaders) != 1:
                 continue
             leader = active_leaders[0]
             person = frappe.db.get_value("Employee", leader, ["employee_name", "cell_number", "status"], as_dict=True)
             if person and person.status == "Active":
-                result.append({"leader": leader, "team": team.get("team_name") or leader,
+                result.append({"team_id": team_id, "leader_periods": history.get(team_id, []), "leader": leader, "team": team.get("team_name") or leader,
                                "phone": person.cell_number or "", "family": team.get("family") or "",
                                "archetype": team.get("archetype") or "Project"})
         return result
-    return [{"leader": r["leader"], "team": r.get("team") or r["leader"], "phone": r.get("phone", ""),
+    return [{"team_id": str(r.get("id") or r["leader"]), "leader": r["leader"], "team": r.get("team") or r["leader"], "phone": r.get("phone", ""),
              "archetype": r.get("archetype") or "Project"}
             for r in data.get("teams", []) if r.get("enabled") and r.get("leader")]
 
@@ -161,6 +164,26 @@ def _latest_manual_positions(leaders):
     for row in rows:
         latest.setdefault(row.team_leader, dict(row))
     return latest
+
+
+def _team_manual_positions(teams):
+    """Find each team's latest manual position during one of its leader periods."""
+    leaders = {p["employee"] for team in teams for p in (team.get("leader_periods") or [{"employee": team["leader"]}])}
+    if not leaders:
+        return {}
+    rows = frappe.get_all("SIG Planner Position", filters={"team_leader": ["in", list(leaders)]},
+                          fields=["team_leader", "site", "city", "updated_at", "updated_by"],
+                          order_by="updated_at desc", limit_page_length=500)
+    result = {}
+    for team in teams:
+        periods = team.get("leader_periods") or [{"employee": team["leader"], "from": "", "to": ""}]
+        for row in rows:
+            day = str(row.updated_at or "")[:10]
+            if day and any(p["employee"] == row.team_leader and (not p.get("from") or p["from"] <= day)
+                           and (not p.get("to") or day <= p["to"]) for p in periods):
+                result[team["leader"]] = dict(row)
+                break
+    return result
 
 
 def _set_manual_position(position, manual, coords, today):
@@ -424,16 +447,18 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
     team_visits = []
     # PM-entered start positions belong to DC planning only. Incident mode
     # starts from the latest field visit and must not inherit an older DC override.
-    manual_positions = (_latest_manual_positions([t["leader"] for t in team_setup])
+    manual_positions = (_team_manual_positions(team_setup)
                         if mode == "DC" else {})
+    leader_ids = sorted({p["employee"] for t in all_teams for p in
+                         (t.get("leader_periods") or [{"employee": t["leader"]}])})
     if all_teams:
         team_visits = [dict(v) for v in frappe.get_all(
-            "SIG Field Visit", filters={"employee": ["in", [t["leader"] for t in all_teams]],
+            "SIG Field Visit", filters={"employee": ["in", leader_ids],
                                         "start_at": [">=", frappe.utils.add_days(today, -45)]},
             fields=["employee", "site", "start_at", "end_at", "status"], order_by="start_at desc", limit_page_length=500)]
         team_visits = [dict(v, source="Posted visit") for v in team_visits]
         team_sessions = [dict(v) for v in frappe.get_all(
-            "SIG Field Session", filters={"employee": ["in", [t["leader"] for t in all_teams]],
+            "SIG Field Session", filters={"employee": ["in", leader_ids],
                                            "start_at": [">=", frappe.utils.add_days(today, -45)],
                                            "disposition": ["not in", ["IN_ERP_WINDOW", "VOID"]]},
             fields=["employee", "site", "site_key", "start_at", "end_at", "status", "disposition"],
@@ -456,7 +481,7 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
         for position in positions:
             _set_manual_position(position, manual_positions.get(position["leader"]), coords, today)
     if mode == "DC":
-        positions += [{"leader": t["leader"], "team": t["team"], "phone": t["phone"], "site": "", "seen_at": "",
+        positions += [{"team_id": t.get("team_id"), "leader": t["leader"], "team": t["team"], "phone": t["phone"], "site": "", "seen_at": "",
                        "on_site": False, "age_days": None, "state": "Incident", "lat": None, "lon": None}
                       for t in all_teams if t["archetype"] == "Incident"]
     if trace is not None:
@@ -480,6 +505,9 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
                                          search_seconds=search_seconds, search_accept_equal=search_accept_equal,
                                          search_peer_objective=search_peer_objective,
                                          search_peer_travel_allowance_hours=search_peer_travel_allowance_hours)
+    team_ids = {i + 1: p.get("team_id") for i, p in enumerate(planned[:count])} if planned else {}
+    for item in plan.get("teams", []) + plan.get("clusters", []):
+        item["team_id"] = team_ids.get(item.get("team"))
     if trace is not None:
         trace["inputs"]["coordinates_used"] = {site: [lat, lon] for site, (lat, lon) in coords.items()}
         trace["diagnostics"] = []

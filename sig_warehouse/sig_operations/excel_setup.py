@@ -11,6 +11,7 @@ from sig_warehouse.sig_operations.excel_setup_contract import (
     project_bundle, validate, is_legacy, upgrade_legacy, bundle_complete,
 )
 from sig_warehouse.sig_warehouse.project_family import resolve_project_family
+from sig_warehouse.sig_warehouse.people_model_gate import PEOPLE_MODEL_ACTIVE
 
 EDIT_ROLES = {"System Manager", "Operations Manager", "Operations User", "Projects Manager", "SIG Excel Setup Editor"}
 READ_ROLES = EDIT_ROLES | {"SIG Excel Setup Reader", "SIG Stock Viewer"}
@@ -57,7 +58,7 @@ def _state(lock=False):
     return doc, json.loads(doc.configuration_json or canonical({name: [] for name in FIELDS}))
 
 
-def _linked_masters(datasets):
+def _linked_masters(datasets, current=None):
     # Validate identifiers without disclosing unrelated master fields or requiring
     # Operations editors to acquire broad master write/read permissions.
     if any(row["enabled"] for row in datasets.get("pc_family_defaults", [])):
@@ -65,6 +66,7 @@ def _linked_masters(datasets):
         groups = set(load_matrix()["review_groups"])
         if any(row["enabled"] and row["review_group"] not in groups for row in datasets["pc_family_defaults"]):
             frappe.throw("PC family defaults must refer to an existing review group.")
+    current_projects = {str(row.get("id")): row for row in (current or {}).get("projects", [])}
     for row in datasets["projects"]:
         if row["enabled"] and not frappe.db.exists("Project", row["project"]):
             frappe.throw(f"Project {row['project']} does not exist")
@@ -80,7 +82,12 @@ def _linked_masters(datasets):
             resolved_family = resolve_project_family(project_family)
             if resolved_family["conflict"]:
                 frappe.throw("Project family fields disagree for {}. Reconcile custom_project_family and custom_family before publishing.".format(row["project"]))
-            row["family"] = resolved_family["family"]
+            # Family is sourced from the native Project when a project link is
+            # first created or changed. Do not rewrite every cached family on
+            # unrelated setup saves (for example, a People-only edit).
+            previous = current_projects.get(str(row.get("id")))
+            if not previous or previous.get("project") != row["project"]:
+                row["family"] = resolved_family["family"]
             if meta.has_field("custom_is_canonical_agreement") and not frappe.db.get_value("Project", row["project"], "custom_is_canonical_agreement"):
                 frappe.throw(f"Select the canonical Project for PO {row['po']}")
     for row in datasets.get("project_builder_links", []):
@@ -131,6 +138,21 @@ def _linked_masters(datasets):
             team_family = "Colocation" if team["family"] == "5G / Colocation" else team["family"]
             if resolved["conflict"] or not resolved["family"] or resolved["family"] != team_family:
                 frappe.throw("Team Project family must match a resolved Project family before publishing: " + row["project"])
+    for row in datasets.get("ops_team_members", []):
+        if row["enabled"]:
+            employee = frappe.db.get_value("Employee", row["employee"], ["name", "status"], as_dict=True)
+            if not employee or employee.status != "Active":
+                frappe.throw("Active ERP Employee required for Operations team: " + row["employee"])
+            if row["project"]:
+                meta = frappe.get_meta("Project")
+                if not frappe.db.exists("Project", row["project"]):
+                    frappe.throw("Operations exception needs an existing ERP Project.")
+                fields = [field for field in ("custom_project_family", "custom_family") if meta.has_field(field)]
+                project = frappe.db.get_value("Project", row["project"], fields, as_dict=True) if fields else {}
+                resolved = resolve_project_family(project)
+                family = "Colocation" if row["family"] == "5G / Colocation" else row["family"]
+                if resolved["conflict"] or resolved["family"] != family:
+                    frappe.throw("Operations exception Project must match its family: " + row["project"])
     for row in datasets.get("project_responsibilities", []):
         if row["enabled"]:
             employee = frappe.db.get_value("Employee", row["employee"], ["name", "status"], as_dict=True)
@@ -194,11 +216,13 @@ def _publish(datasets, base_revision, batch_id="", batch_hash=""):
     if int(base_revision) != int(doc.revision or 0):
         frappe.throw("Setup changed in another session. Reload and review again.")
     datasets = _validated(datasets)
+    if datasets.get("project_responsibilities", []) != current.get("project_responsibilities", []):
+        frappe.throw("Legacy Project responsibility rows are read-only. Use Operations Project team members for cycle visibility.")
     governed = ("family_tawal_defaults", "project_tawal_rules", "operational_teams",
-                "team_memberships", "team_projects", "project_responsibilities", "pc_family_defaults")
+                "team_memberships", "team_projects", "project_responsibilities", "ops_team_members", "pc_family_defaults")
     if any(datasets[key] != current.get(key, []) for key in governed) and "System Manager" not in frappe.get_roles():
         frappe.throw("Only System Manager can change the new family, contact and People configuration while its permissions are under review.", frappe.PermissionError)
-    _linked_masters(datasets)
+    _linked_masters(datasets, current)
     datasets = _validated(datasets)
     encoded, content_hash = canonical(datasets), digest(datasets)
     if doc.published_hash == content_hash:
@@ -238,6 +262,7 @@ def get_page_state():
         for row in datasets["operational_teams"] if row["enabled"]
     ]
     return {"schema_version": SCHEMA_VERSION, "migration_pending": migration_pending,
+            "people_model_active": bool(PEOPLE_MODEL_ACTIVE),
             "revision": int(doc.revision or 0), "datasets": datasets, "fields": FIELDS,
             "published_at": doc.published_at, "published_by": doc.published_by,
             "options": {"builder_defaults.kind": sorted(KINDS), "material_upl_links.treatment": ["Direct 1:1", "Excluded", "Manual"],
@@ -248,6 +273,7 @@ def get_page_state():
                         "operational_teams.family": ["Capex", "Incident", "5G / Colocation"],
                         "operational_teams.archetype": list(TEAM_ARCHETYPES),
                         "team_memberships.role": ["leader", "pm", "coordinator", "member"],
+                        "ops_team_members.family": ["Capex", "Incident", "5G / Colocation"],
                         "project_responsibilities.role": ["pm", "coordinator", "weekly_pm"],
                         "project_tawal_rules.mode": ["inherit", "exception", "cleared"]},
             "references": references,
@@ -293,7 +319,9 @@ def preview_import(package, base_revision):
     if int(base_revision) != int(doc.revision or 0):
         frappe.throw("Reload setup before importing")
     merged, counts = _merge(current, _parse(package))
-    _linked_masters(merged)
+    if merged.get("project_responsibilities", []) != current.get("project_responsibilities", []):
+        frappe.throw("Import cannot change legacy Project responsibility rows. Use Operations Project team members instead.")
+    _linked_masters(merged, current)
     merged = _validated(merged)
     return {"datasets": merged, "counts": counts, "base_revision": int(base_revision)}
 
