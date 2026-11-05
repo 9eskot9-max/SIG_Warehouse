@@ -9,7 +9,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         builder_contacts: __('Profile-linked contacts (legacy)'), project_builder_links: __('Project → Builder assignments (legacy)'), tag_definitions: __('Tags definitions'),
         tag_upl_links: __('Tags to UPL'), material_upl_links: __('Item to UPL'), builder_defaults: __('TCN wording and defaults'), teams: __('Field Planner teams (current)'),
         family_tawal_defaults: __('Family TAWAL PM defaults'), project_tawal_rules: __('PO TAWAL PM rules'),
-        operational_teams: __('Flexible field crews (inactive model)'), team_memberships: __('Dated crew membership'), team_projects: __('Crew coverage by Project'),
+        operational_teams: __('Field crews'), team_memberships: __('Dated crew membership'), team_projects: __('Crew coverage by Project'),
         project_responsibilities: __('Legacy Project responsibility rows (superseded)'), ops_team_members: __('Operations Project team members'), pc_family_defaults: __('Petty cash family defaults')};
     const legacyDatasets = new Set(['builder_profiles', 'builder_contacts', 'project_builder_links', 'project_responsibilities']);
     // The screen groups related controls by the job they support. Dataset names,
@@ -61,8 +61,20 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         ? state.datasets.operational_teams.filter(row => row.enabled).map(row => ({...row, name: row.id})) : type === 'profiles'
         ? state.datasets.builder_profiles.filter(row => row.enabled).map(row => ({...row, name: row.id}))
         : state.references[type] || [];
-    const displayValue = (type, value) => type === 'profiles'
-        ? ((choices(type).find(row => row.name === value) || {}).alias || value) : value;
+    const displayValue = (type, value) => {
+        if (!value) return '';
+        let row = choices(type).find(item => item.name === value);
+        // Inactive contacts may still be referenced by historical rows.
+        if (!row && type === 'active_contacts') row = (state.references.contacts || []).find(item => item.name === value);
+        if (!row) return value;
+        if (type === 'employees') return row.employee_name || value;
+        if (type === 'contacts' || type === 'active_contacts') return row.full_name || value;
+        if (type === 'operational_teams') return row.team_name || value;
+        if (type === 'profiles' || type === 'streams') return row.alias || value;
+        if (type === 'projects') return row.project_name || value;
+        if (type === 'items') return row.item_name || value;
+        return value;
+    };
     const referenceCell = (type, value, rowIndex, field) => '<div class="es-lookup" data-ref-type="' + type + '" data-row="' + rowIndex + '" data-field="' + field + '">' +
         '<input class="form-control es-lookup-input" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" value="' + esc(displayValue(type, value)) + '" placeholder="' + esc(__('Search ERP records')) + '">' +
         '<div class="es-lookup-menu" role="listbox" hidden></div></div>';
@@ -76,7 +88,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         return rows.filter(row => !needle || referenceLabel(type, row).toLocaleLowerCase().includes(needle))
             .slice(0, 40).map(row => '<button type="button" class="es-lookup-option" role="option" data-value="' + esc(row.name) + '">' + esc(referenceLabel(type, row)) + '</button>').join('');
     };
-    const openLookup = input => {
+    const openLookup = (input, showAll = false) => {
         const box = input.closest('.es-lookup');
         const menu = box.querySelector('.es-lookup-menu');
         const field = box.dataset.field;
@@ -84,7 +96,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
             (selected === 'ops_team_members' && field === 'project') ||
             (selected === 'project_tawal_rules' && field === 'tawal_contact') ||
             (selected === 'project_builder_links' && field === 'stream') || (selected === 'material_upl_links' && field === 'target_uom');
-        menu.innerHTML = (canClear ? '<button type="button" class="es-lookup-option es-lookup-clear" role="option" data-value="">' + esc(__('Clear selection')) + '</button>' : '') + referenceOptions(box.dataset.refType, input.value, Number(box.dataset.row));
+        menu.innerHTML = (canClear ? '<button type="button" class="es-lookup-option es-lookup-clear" role="option" data-value="">' + esc(__('Clear selection')) + '</button>' : '') + referenceOptions(box.dataset.refType, showAll ? '' : input.value, Number(box.dataset.row));
         menu.hidden = !menu.childElementCount;
         input.setAttribute('aria-expanded', String(!menu.hidden));
     };
@@ -166,13 +178,13 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
             tag_upl_links: __('Existing Tags-to-UPL mappings are retained. Link each Tags item to its UPL code; UPL descriptions and the detailed mapping are maintained in Mapping Master Excel. Use the optional qualifier only for a matching Tags sheet description. Blank PO and revision mean a shared rule; a PO-specific rule can replace shared links for that Tags item, so review all its codes.'),
             material_upl_links: __('Link warehouse items to UPL codes for AsBuilt. Direct 1:1 requires matching units; use Manual for review and Excluded for reviewed items with no link. Blank PO and revision mean a shared rule.'),
             builder_defaults: __('RV80 TCN purpose/reason, wording and implementer defaults. MOP template choice follows PO family in the workbook; this is not a second MOP or CSV setup.'),
-            teams: __('Current Field Planner leader list: each team is named for its leader, and its live site follows that leader’s latest check-in/out. It remains distinct from the newer crew-membership tables below.'),
+            teams: state.people_model_active ? __('Legacy Field Planner leaders retained for history and initial team continuity. Maintain current leaders in dated crew membership.') : __('Current Field Planner leader list: each team is named for its leader, and its live site follows that leader’s latest check-in/out.'),
             family_tawal_defaults: __('Choose the external client TAWAL PM used as the normal default for a Project family and effective period. This is not the internal SIG project manager.'),
             project_tawal_rules: __('Set a PO-specific client TAWAL PM exception, explicitly inherit the family default, or clear it for a period. These rules do not set internal SIG project ownership.'),
-            operational_teams: __('Proposed flexible crew directory. The Workbench/Planner adapter is currently inactive, so these rows do not replace the live Field Planner leader list yet.'),
+            operational_teams: state.people_model_active ? __('Enabled crews are used by Planner with their current dated leader. A crew without one active leader is omitted.') : __('Flexible crew setup is saved, but the Planner adapter is not active.'),
             team_memberships: __('Dated crew membership and role. Staff can move between teams; update the effective dates instead of treating a crew as a permanent employee attribute.'),
             team_projects: __('Historical coverage reference only. Planner may assign any eligible site to any available team; these rows do not limit assignments.'),
-            ops_team_members: __('Leave Project blank for a family member. For a Project exception, list the entire replacement team on rows for that Project. Changes take effect after the reviewed People-model activation.'),
+            ops_team_members: state.people_model_active ? __('Operations staff share cycle work within the family. Leave Project blank for the family team; for a Project exception list the entire replacement team. Publish to apply changes.') : __('Leave Project blank for a family member. For a Project exception, list the entire replacement team. The People model is not active.'),
             project_responsibilities: __('Superseded source retained for audit compatibility. Configure the Operations Project team for cycle work; weekly PM review scope stays in its dedicated setup.'),
             pc_family_defaults: __('A proposed default for employees who explicitly inherit it during a reviewed routing publication. Existing employee overrides are unchanged, and this does not grant ERP permissions or create/link employee accounts.')
         };
@@ -336,7 +348,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         }
         dirty = true;
     });
-    root.on('focus', '.es-lookup-input', function () { openLookup(this); });
+    root.on('focus', '.es-lookup-input', function () { openLookup(this, true); });
     root.on('input', '.es-lookup-input', function () { openLookup(this); });
     root.on('keydown', '.es-lookup-input', function (event) {
         const menu = this.closest('.es-lookup').querySelector('.es-lookup-menu');
