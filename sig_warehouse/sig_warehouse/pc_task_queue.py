@@ -9,7 +9,7 @@ and confirmation authorization are a separate, deferred release.
 from html import escape
 
 import frappe
-from .pc_review_routing import active_employees, load_matrix, phone_index, resolve_sender
+from .pc_review_routing import active_employees, effective_scopes, load_matrix, phone_index, resolve_sender
 
 
 def _routed_pending(matrix, employees):
@@ -92,6 +92,9 @@ def sync_pc_review_todos():
     """Maintain shared group-count tasks under existing access; not whitelisted."""
     matrix = load_matrix()
     employees = active_employees()
+    # Validate the same employee-ID authorization projection used by clearance
+    # before changing any ToDo rows. A bad publication must not retarget tasks.
+    effective_scopes(matrix, employees)
     rows = _routed_pending(matrix, employees)
     accounts, missing = _reviewer_accounts(matrix, employees)
     active_markers, counts = set(), {}

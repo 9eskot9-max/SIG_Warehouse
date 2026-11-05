@@ -15,6 +15,7 @@ import traceback
 from datetime import datetime, timedelta, timezone
 
 import frappe
+from sig_warehouse.sig_warehouse.project_family import resolve_project_family, normalize_family
 
 from sig_warehouse.sig_warehouse import field_sessions as fs
 
@@ -221,9 +222,19 @@ def _check_capex2_scope(site):
     """The new group's family must not be silently applied to another family's work."""
     for cycle in frappe.get_all("SIG Site Cycle", filters={"site_key": site, "terminal": 0},
                                fields=["name", "project", "erp_project"], limit_page_length=0):
-        family = frappe.db.get_value("Project", cycle.erp_project, "custom_family") if cycle.erp_project else None
-        label = str(family or cycle.project or "").strip().lower()
-        if label in ("incident", "colocation", "colo", "5g"):
+        project = None
+        if cycle.erp_project:
+            meta = frappe.get_meta("Project")
+            fields = [field for field in ("custom_project_family", "custom_family") if meta.has_field(field)]
+            if fields:
+                project = frappe.db.get_value("Project", cycle.erp_project, fields, as_dict=True)
+        resolution = resolve_project_family(project) if project else None
+        if resolution and resolution["conflict"]:
+            raise ValueError("Capex2 visit needs family reconciliation: %s has conflicting Project family fields" % cycle.name)
+        family = resolution["family"] if resolution else normalize_family(cycle.project)
+        if cycle.erp_project and not family:
+            raise ValueError("Capex2 visit needs family review: %s has no resolved Project family" % cycle.name)
+        if family in ("Incident", "Colocation"):
             raise ValueError("Capex2 visit needs scope review: %s has another project's open cycle %s" %
                              (site, cycle.name))
 

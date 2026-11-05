@@ -97,15 +97,38 @@ def set_plan_decision(cycle, action="", reason=""):
 
 
 def _team_setup():
-    """Enabled field teams from the published Excel Setup (a team is its leader).
+    """Enabled planner teams from the published Excel Setup.
 
-    Read straight from the published setup so planner roles need no Excel Setup access; only the leader, team name
-    and phone leave this function, and callers are already limited to PLANNER_ROLES.
+    The dated operational team model is preferred when published. Legacy leader
+    rows remain readable during the reviewed migration; only team identity and
+    leader contact details leave this function to the already role-gated planner.
     """
     try:
         data = json.loads(frappe.db.get_single_value("SIG Excel Setup", "configuration_json") or "{}")
     except (ValueError, frappe.DoesNotExistError):
         return []
+    from sig_warehouse.sig_warehouse.people_model_gate import PEOPLE_MODEL_ACTIVE
+    operational = {str(row.get("id")): row for row in data.get("operational_teams", []) if row.get("enabled")} if PEOPLE_MODEL_ACTIVE else {}
+    if operational:
+        today = str(frappe.utils.nowdate())[:10]
+        leaders = {}
+        for row in data.get("team_memberships", []):
+            start, end = str(row.get("effective_from") or "")[:10], str(row.get("effective_to") or "")[:10]
+            if (row.get("enabled") and row.get("role") == "leader" and row.get("team") in operational
+                    and row.get("employee") and start and start <= today and (not end or today <= end)):
+                leaders.setdefault(row["team"], set()).add(str(row["employee"]))
+        result = []
+        for team_id, team in operational.items():
+            active_leaders = sorted(leaders.get(team_id, set()))
+            if len(active_leaders) != 1:
+                continue
+            leader = active_leaders[0]
+            person = frappe.db.get_value("Employee", leader, ["employee_name", "cell_number", "status"], as_dict=True)
+            if person and person.status == "Active":
+                result.append({"leader": leader, "team": team.get("team_name") or leader,
+                               "phone": person.cell_number or "", "family": team.get("family") or "",
+                               "archetype": team.get("archetype") or "Project"})
+        return result
     return [{"leader": r["leader"], "team": r.get("team") or r["leader"], "phone": r.get("phone", ""),
              "archetype": r.get("archetype") or "Project"}
             for r in data.get("teams", []) if r.get("enabled") and r.get("leader")]
