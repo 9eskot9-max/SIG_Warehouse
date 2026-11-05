@@ -21,10 +21,11 @@ Columns: **When** · **Who** · **Action** · **Bench** · **SIG Warehouse commi
 
 
 | 2026-11-04 18:37 UTC (21:37 Asia/Riyadh) | Owner via Codex (Press API + authenticated ERP session) | Site update: Employee project-group and petty-cash routing setup in Excel Setup | bench-51251-000030-f1f | `4d39efa84f3491ef32f1ecfc180112f751fe5ebe` | pre-backup `f88kvtuvap`; pipeline `dddifl1q9e`; update `0kb4f0p4ru`; site-update backup `7gcoh4lidp` | Success | Only SIG Warehouse built/updated; Frappe, ERPNext and HRMS unchanged. `SIG People Routing Setup` published as revision 1 (`people-setup-1`) with 58 existing Employee routes, six reviewer groups and two approved Incident exceptions. No Employee/User/Project/Account/Journal Entry/PC transaction records changed. Excel Setup route rendered as Administrator. Tests, migration repeatability and non-admin persona acceptance are NOT TESTED. See PR #79 and `docs/PEOPLE_SETUP_SCOPE.md`. |
+| 2026-11-05 00:59 UTC (03:59 Asia/Riyadh) | Owner via Codex (Frappe Cloud dashboard + authenticated ERP session) | Deploy stage-one People routing freeze; PR #81 with PR #80 deployment documentation | bench-51251-000031-f1f | `5104e979d7bfa1c4ae316cad40f9adea5d5a8abe` | pre-release backup `acp26gunk9`; pipeline `adhi97qmif`; migration `5kbl9t1h3v` | Success | Only SIG Warehouse was selected; Frappe, ERPNext, HRMS and other apps were not updated. Site Active on bench `000031`; installed SIG Warehouse hash matches `5104e979d7bfa1c4ae316cad40f9adea5d5a8abe`. The People routing editor displayed the read-only warning and disabled routing inputs as Administrator. Permission snapshot diff: 0 removals, 0 additions in captured layers; see `ERPNext/backups/permission_release_people_freeze_20261105/{before,after}.json` locally (not committed). Migration repeatability and non-admin HR/Projects/Finance persona workflows remain NOT TESTED. No employee, project, account, petty-cash or other business records changed. The wider employee/team/project/family migration is not included. |
 
 ## Open at the time of this log
 
-- The site is on Active bench `bench-51251-000030-f1f`; earlier benches `000024`–`000029` are superseded by this release. Frappe, ERPNext and HRMS updates were not included.
+- The site is on Active bench `bench-51251-000031-f1f`; earlier benches `000024`–`000030` are superseded by this release. Frappe, ERPNext and HRMS updates were not included.
 - Not built yet: the weekly PM check per project family (families, recipients and project mapping are with the owner).
 
 ## Row template
