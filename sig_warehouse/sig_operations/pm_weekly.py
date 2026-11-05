@@ -58,7 +58,7 @@ def snapshot_for(week_start):
         for stop in trip.get("stops") or []:
             raw_day = stop.get("day") or trip.get("first_day") or ""
             rows.append({"site": stop.get("site"), "cycle": stop.get("cycle") or "", "project": stop.get("project") or "",
-                         "team": trip.get("team") or "", "planned_day": _day(str(raw_day)[:10]) if raw_day else None,
+                         "team": trip.get("team_id") or trip.get("team") or "", "planned_day": _day(str(raw_day)[:10]) if raw_day else None,
                          "kind": "Trip"})
     summary = plan.get("summary") or {}
     doc = frappe.get_doc({"doctype": SNAPSHOT, "week_key": key, "week_start": week_start,

@@ -10,7 +10,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         tag_upl_links: __('Tags to UPL'), material_upl_links: __('Item to UPL'), builder_defaults: __('TCN wording and defaults'), teams: __('Field Planner teams (current)'),
         family_tawal_defaults: __('Family TAWAL PM defaults'), project_tawal_rules: __('PO TAWAL PM rules'),
         operational_teams: __('Flexible field crews (inactive model)'), team_memberships: __('Dated crew membership'), team_projects: __('Crew coverage by Project'),
-        project_responsibilities: __('Legacy Project responsibility rows (superseded)'), pc_family_defaults: __('Petty cash family defaults')};
+        project_responsibilities: __('Legacy Project responsibility rows (superseded)'), ops_team_members: __('Operations Project team members'), pc_family_defaults: __('Petty cash family defaults')};
     const legacyDatasets = new Set(['builder_profiles', 'builder_contacts', 'project_builder_links', 'project_responsibilities']);
     // The screen groups related controls by the job they support. Dataset names,
     // storage and workbook contracts stay stable so this is a safe UI-only
@@ -19,7 +19,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         {key: 'projects', label: __('Projects and client coordination'), description: __('Choose the canonical ERP Project for a PO. The Project family drives workbook template selection; the client TAWAL PM can use a family default with a PO-specific rule. An existing explicit PO contact remains the fallback before a family default.'), datasets: ['projects', 'family_tawal_defaults', 'project_tawal_rules']},
         {key: 'mapping', label: __('WhatsApp Tags and workbook mappings'), description: __('WhatsApp Tags are normalized and linked to UPL values for the workbooks. The UPL catalogue and detailed Mapping Master remain maintained in Excel; this page stores the reusable ERP-side rules.'), datasets: ['tag_definitions', 'tag_upl_links', 'material_upl_links']},
         {key: 'tcn', label: __('TCN generation rules'), description: __('These are wording defaults consumed by RV80 TCN generation. PO family selects the existing Sync MOP template in the workbook; this page does not define MOP templates or CSV processing.'), datasets: ['builder_defaults']},
-        {key: 'delivery', label: __('Field crews and Project owners'), description: __('Approved Employee Project Manager, Coordinator and Team Leader assignments are the canonical named owners shown for the exact Project. Flexible crews and dated team coverage describe field staffing separately. Weekly PM review recipients remain in their dedicated scope. Cycle task rows are informational; evidence and the separate cycle-close action keep their existing workflow.'), datasets: ['teams', 'operational_teams', 'team_memberships', 'team_projects', 'people:project_assignments']},
+        {key: 'delivery', label: __('Field crews and Project teams'), description: __('Operations family teams share cycle work; Project exceptions replace the family team for that Project. Field crews and dated leadership are maintained separately for Planner. Evidence and cycle closure keep their existing workflow.'), datasets: ['ops_team_members', 'teams', 'operational_teams', 'team_memberships', 'team_projects', 'people:project_assignments']},
         {key: 'people', label: __('People, petty cash and reporting'), description: __('Employee identity, onboarding, reporter phone mapping and petty-cash reviewer routing use their existing HR/Finance-owned records and permissions. Employee-linked custody accounts remain on the native Employee Account relationship.'), datasets: ['pc_family_defaults', 'people:employees', 'people:pc_routing', 'people:reporter_maps', 'people:candidates', 'people:onboarding']},
         {key: 'legacy', label: __('Legacy and historical setup'), description: __('Builder associations remain for historical workbook compatibility. The old Project responsibility JSON rows are retained for audit but no longer drive Workbench owners or weekly PM recipients.'), datasets: ['builder_profiles', 'builder_contacts', 'project_builder_links', 'project_responsibilities']}
     ];
@@ -45,6 +45,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         team_memberships: {team: 'operational_teams', employee: 'employees'},
         team_projects: {team: 'operational_teams', project: 'projects'},
         project_responsibilities: {project: 'projects', employee: 'employees'}
+        ,ops_team_members: {project: 'projects', employee: 'employees'}
     };
     const referenceLabel = (type, row) => {
         if (type === 'projects') return [row.project_name, row.name].filter(Boolean).join(' · ');
@@ -80,6 +81,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         const menu = box.querySelector('.es-lookup-menu');
         const field = box.dataset.field;
         const canClear = (selected === 'builder_contacts' && field === 'tawal_contact') ||
+            (selected === 'ops_team_members' && field === 'project') ||
             (selected === 'project_tawal_rules' && field === 'tawal_contact') ||
             (selected === 'project_builder_links' && field === 'stream') || (selected === 'material_upl_links' && field === 'target_uom');
         menu.innerHTML = (canClear ? '<button type="button" class="es-lookup-option es-lookup-clear" role="option" data-value="">' + esc(__('Clear selection')) + '</button>' : '') + referenceOptions(box.dataset.refType, input.value, Number(box.dataset.row));
@@ -89,6 +91,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
     const commitLookup = (box, value) => {
         const row = state.datasets[selected][Number(box.dataset.row)], field = box.dataset.field, type = box.dataset.refType;
         if (!value && ((selected === 'builder_contacts' && field === 'tawal_contact') ||
+                (selected === 'ops_team_members' && field === 'project') ||
                 (selected === 'project_tawal_rules' && field === 'tawal_contact') ||
                 (selected === 'project_builder_links' && field === 'stream') || (selected === 'material_upl_links' && field === 'target_uom'))) {
             row[field] = '';
@@ -146,7 +149,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
             const editable = result.can_write && ['project_assignments', 'reporter_maps'].includes(key);
             root.html(setupControls(group, selected) + '<p class="es-group-note">' + esc(group.description) + '</p>' +
                 (key === 'project_assignments' && result.can_create ? '<button type="button" class="btn btn-default es-people-add">' + esc(__('Add row')) + '</button>' : '') +
-                '<p class="text-muted">' + esc(key === 'project_assignments' ? __('This is the canonical Employee-to-Project role record. A Draft has no effect on task audiences; only an approved Active Project Manager, Coordinator or Team Leader assignment is used after the People model is activated.') : __('These are existing ERP records. Changes use their own permissions and history.')) + '</p>' +
+                '<p class="text-muted">' + esc(key === 'project_assignments' ? __('Employee Project role records use their own approval and history. Operations cycle visibility is configured in Operations Project team members.') : __('These are existing ERP records. Changes use their own permissions and history.')) + '</p>' +
                 '<div class="es-scroll"><table class="table table-bordered"><thead><tr>' + fields.map(f => '<th>' + esc(__(fieldLabels[f] || f)) + '</th>').join('') + (editable ? '<th></th>' : '') + '</tr></thead><tbody>' +
                 result.rows.map((row, i) => '<tr>' + fields.map(f => '<td>' + esc(row[f] || '') + '</td>').join('') + (editable ? '<td><button type="button" class="btn btn-default es-people-edit" data-index="' + i + '">' + esc(__('Edit')) + '</button></td>' : '') + '</tr>').join('') + '</tbody></table></div>');
             return;
@@ -169,7 +172,8 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
             operational_teams: __('Proposed flexible crew directory. The Workbench/Planner adapter is currently inactive, so these rows do not replace the live Field Planner leader list yet.'),
             team_memberships: __('Dated crew membership and role. Staff can move between teams; update the effective dates instead of treating a crew as a permanent employee attribute.'),
             team_projects: __('Dated crew coverage by ERP Project. This is the field crew assignment, not the named internal Project owner.'),
-            project_responsibilities: __('Superseded source retained for audit compatibility. Use approved, dated Employee Project Assignments for internal PM/Coordinator roles. Weekly PM review scope stays in its dedicated setup. These old rows are not read by Workbench or PM Weekly.'),
+            ops_team_members: __('Leave Project blank for a family member. For a Project exception, list the entire replacement team on rows for that Project. Changes take effect after the reviewed People-model activation.'),
+            project_responsibilities: __('Superseded source retained for audit compatibility. Configure the Operations Project team for cycle work; weekly PM review scope stays in its dedicated setup.'),
             pc_family_defaults: __('A proposed default for employees who explicitly inherit it during a reviewed routing publication. Existing employee overrides are unchanged, and this does not grant ERP permissions or create/link employee accounts.')
         };
         const note = notes[selected] || __('Blank PO and UPL revision mean a shared rule. Disable obsolete rows; keep their IDs.');
@@ -185,7 +189,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
             '<button class="btn btn-default es-history">' + __('Revision history') + '</button></div>' +
             '<p class="es-group-note">' + esc(group.description) + '</p>' +
             (deliveryInactive ? '<p class="es-state-note">' + esc(__('The flexible crew/project model is saved as setup, but its Workbench and Planner adapter is inactive. Current field-team behavior still uses the existing live roster until a separately reviewed migration and activation.')) + '</p>' : '') +
-            (projectResponsibilitiesLegacy ? '<p class="es-state-note">' + esc(__('This duplicate source is read-only here. Approved Employee Project Assignments are canonical; weekly PM review recipients use their dedicated scope.')) + '</p>' : '') +
+            (projectResponsibilitiesLegacy ? '<p class="es-state-note">' + esc(__('This duplicate source is read-only here. Operations Project teams control cycle visibility; weekly PM review recipients use their dedicated scope.')) + '</p>' : '') +
             (legacyDatasets.has(selected) && !projectResponsibilitiesLegacy ? '<p class="text-muted">' + esc(__('Legacy records are preserved. V3 workbook sync and PO configuration no longer depend on these profile associations.')) + '</p>' : '') +
             (selected === 'builder_contacts' && state.pending_builder_contacts ? '<p class="text-warning">' + esc(__('{0} legacy contact rows do not resolve to the person directory. This does not block V3 Sync From ERP.', [state.pending_builder_contacts])) + '</p>' : '') +
             '<p class="text-muted">' + esc(note) + '</p>' +

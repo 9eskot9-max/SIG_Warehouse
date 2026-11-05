@@ -138,6 +138,21 @@ def _linked_masters(datasets, current=None):
             team_family = "Colocation" if team["family"] == "5G / Colocation" else team["family"]
             if resolved["conflict"] or not resolved["family"] or resolved["family"] != team_family:
                 frappe.throw("Team Project family must match a resolved Project family before publishing: " + row["project"])
+    for row in datasets.get("ops_team_members", []):
+        if row["enabled"]:
+            employee = frappe.db.get_value("Employee", row["employee"], ["name", "status"], as_dict=True)
+            if not employee or employee.status != "Active":
+                frappe.throw("Active ERP Employee required for Operations team: " + row["employee"])
+            if row["project"]:
+                meta = frappe.get_meta("Project")
+                if not frappe.db.exists("Project", row["project"]):
+                    frappe.throw("Operations exception needs an existing ERP Project.")
+                fields = [field for field in ("custom_project_family", "custom_family") if meta.has_field(field)]
+                project = frappe.db.get_value("Project", row["project"], fields, as_dict=True) if fields else {}
+                resolved = resolve_project_family(project)
+                family = "Colocation" if row["family"] == "5G / Colocation" else row["family"]
+                if resolved["conflict"] or resolved["family"] != family:
+                    frappe.throw("Operations exception Project must match its family: " + row["project"])
     for row in datasets.get("project_responsibilities", []):
         if row["enabled"]:
             employee = frappe.db.get_value("Employee", row["employee"], ["name", "status"], as_dict=True)
@@ -202,9 +217,9 @@ def _publish(datasets, base_revision, batch_id="", batch_hash=""):
         frappe.throw("Setup changed in another session. Reload and review again.")
     datasets = _validated(datasets)
     if datasets.get("project_responsibilities", []) != current.get("project_responsibilities", []):
-        frappe.throw("Legacy Project responsibility rows are read-only. Use approved Employee Project Assignments for internal PM/Coordinator/Team Leader roles.")
+        frappe.throw("Legacy Project responsibility rows are read-only. Use Operations Project team members for cycle visibility.")
     governed = ("family_tawal_defaults", "project_tawal_rules", "operational_teams",
-                "team_memberships", "team_projects", "project_responsibilities", "pc_family_defaults")
+                "team_memberships", "team_projects", "project_responsibilities", "ops_team_members", "pc_family_defaults")
     if any(datasets[key] != current.get(key, []) for key in governed) and "System Manager" not in frappe.get_roles():
         frappe.throw("Only System Manager can change the new family, contact and People configuration while its permissions are under review.", frappe.PermissionError)
     _linked_masters(datasets, current)
@@ -258,6 +273,7 @@ def get_page_state():
                         "operational_teams.family": ["Capex", "Incident", "5G / Colocation"],
                         "operational_teams.archetype": list(TEAM_ARCHETYPES),
                         "team_memberships.role": ["leader", "pm", "coordinator", "member"],
+                        "ops_team_members.family": ["Capex", "Incident", "5G / Colocation"],
                         "project_responsibilities.role": ["pm", "coordinator", "weekly_pm"],
                         "project_tawal_rules.mode": ["inherit", "exception", "cleared"]},
             "references": references,
@@ -304,7 +320,7 @@ def preview_import(package, base_revision):
         frappe.throw("Reload setup before importing")
     merged, counts = _merge(current, _parse(package))
     if merged.get("project_responsibilities", []) != current.get("project_responsibilities", []):
-        frappe.throw("Import cannot change legacy Project responsibility rows. Use approved Employee Project Assignments instead.")
+        frappe.throw("Import cannot change legacy Project responsibility rows. Use Operations Project team members instead.")
     _linked_masters(merged, current)
     merged = _validated(merged)
     return {"datasets": merged, "counts": counts, "base_revision": int(base_revision)}

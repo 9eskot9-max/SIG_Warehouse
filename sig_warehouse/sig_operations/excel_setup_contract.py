@@ -23,6 +23,7 @@ FIELDS = {
     "team_memberships": ("id", "team", "employee", "role", "effective_from", "effective_to", "enabled"),
     "team_projects": ("id", "team", "project", "effective_from", "effective_to", "enabled"),
     "project_responsibilities": ("id", "project", "employee", "role", "effective_from", "effective_to", "enabled"),
+    "ops_team_members": ("id", "family", "project", "employee", "effective_from", "effective_to", "enabled"),
     "project_tawal_rules": ("id", "project", "mode", "tawal_contact", "effective_from", "effective_to", "enabled"),
     "pc_family_defaults": ("id", "family", "review_group", "enabled"),
 }
@@ -41,6 +42,7 @@ REQUIRED = {
     "team_memberships": ("id", "team", "employee", "role", "effective_from"),
     "team_projects": ("id", "team", "project", "effective_from"),
     "project_responsibilities": ("id", "project", "employee", "role", "effective_from"),
+    "ops_team_members": ("id", "family", "employee", "effective_from"),
     "project_tawal_rules": ("id", "project", "mode", "effective_from"),
     "pc_family_defaults": ("id", "family", "review_group"),
 }
@@ -90,6 +92,7 @@ def natural_key(dataset, row):
         "team_memberships": ("team", "employee", "role", "effective_from"),
         "team_projects": ("team", "project", "effective_from"),
         "project_responsibilities": ("project", "employee", "role", "effective_from"),
+        "ops_team_members": ("family", "project", "employee", "effective_from"),
         "project_tawal_rules": ("project", "effective_from"),
         "pc_family_defaults": ("family",),
     }[dataset]
@@ -188,6 +191,15 @@ def validate(datasets):
                 end = _validate_date(row["effective_to"], "Project responsibility effective_to")
                 if end and end < start:
                     raise ValueError("Project responsibility effective_to must be blank or a valid date after its start")
+            if name == "ops_team_members":
+                if row["family"] not in ("Capex", "Incident", "Colocation", "5G / Colocation"):
+                    raise ValueError("Operations team needs a supported family")
+                if row["family"] == "Colocation":
+                    row["family"] = "5G / Colocation"
+                start = _validate_date(row["effective_from"], "Operations team effective_from", True)
+                end = _validate_date(row["effective_to"], "Operations team effective_to")
+                if end and end < start:
+                    raise ValueError("Operations team end date must not precede its start")
             if name == "project_tawal_rules":
                 if row["mode"] not in ("inherit", "exception", "cleared"):
                     raise ValueError("PO TAWAL rule mode must be inherit, exception or cleared")
@@ -270,6 +282,15 @@ def validate(datasets):
         for prior, current in zip(rows, rows[1:]):
             if not prior["effective_to"] or prior["effective_to"] >= current["effective_from"]:
                 raise ValueError("Overlapping Project responsibility periods for " + "/".join(key))
+    operations_intervals = {}
+    for row in result["ops_team_members"]:
+        if row["enabled"]:
+            operations_intervals.setdefault((row["family"], row["project"], row["employee"]), []).append(row)
+    for key, rows in operations_intervals.items():
+        rows.sort(key=lambda row: row["effective_from"])
+        for prior, current in zip(rows, rows[1:]):
+            if not prior["effective_to"] or prior["effective_to"] >= current["effective_from"]:
+                raise ValueError("Overlapping Operations team membership periods for " + "/".join(key))
     tawal_rule_intervals = {}
     for row in result["project_tawal_rules"]:
         if row["enabled"]:
