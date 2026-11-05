@@ -1,6 +1,6 @@
 # People model cutover review — 5 November 2026
 
-This review supports the People-model release candidate. The source gate is now enabled; production remains inactive until a scoped release. The live access audience has not been tested as affected users, so this is not a claim of verified activation.
+PR #89 has now been deployed to production. The site is Active on bench `bench-51251-000036-f1f`, with SIG Warehouse commit `09c0f72496e06ba59f5f21816663177fcba1971d`; the Excel Setup route reloads and renders. This confirms deployment and route availability only. The live access audience has not been tested as affected users, so access is not verified or accepted.
 
 ## Evidence and scope
 
@@ -10,7 +10,7 @@ This review supports the People-model release candidate. The source gate is now 
 - The live Planner configuration has six enabled flexible teams and six current leader membership rows. They match the six enabled legacy Planner leaders by Employee ID; two disabled legacy rows are not enabled in the flexible list. All staged leader periods begin 5 November. This is a roster match, not permission/persona acceptance.
 - The Employee Project Assignment table displays EPA-00579–00587, all `Cancelled`; there are no active assignments in the displayed result. They are historical mistakes and should remain cancelled. Do not derive exact Employee–Project assignments from the PC work-group values; Operations family work is already represented by its separate team-membership table.
 - The live PC-routing editor still displays the Employee routing matrix and reviewer groups. This review did not publish or alter PC routing. The local 66-row employee snapshot and revision-2 routing snapshot are historical only; use fresh live reads for any employee/User/account migration.
-- `OPS_ROSTER` remains the effective Operations source when `PEOPLE_MODEL_ACTIVE` is false. `WAREHOUSE_USERS` has a separate early path and requires its own access review.
+- `PEOPLE_MODEL_ACTIVE` is now true in production, so the configured Operations team rows and Planner team/leader history feed those adapters. `WAREHOUSE_USERS` has a separate early path and requires its own access review.
 - Historical revision-12 and Employee inventory snapshots are not used to assert current roles or coverage. The live revision-13 roster was checked; the older snapshots' employee counts and disabled legacy labels are historical context only.
 
 ## Material behavior change in this release
@@ -29,6 +29,6 @@ The owner also chose that Planner may assign any eligible site within its DC or 
 4. No Project replacement team rows exist. Family defaults apply to all family projects until exceptions are configured; exact employee-to-project assignments must not be inferred from PC-family clues.
 5. Nine erroneous Employee Project Assignments EPA-00579–00587 are cancelled and retained. The local controller change ignores Cancelled records during overlap checks while preserving overlap checks for Draft, Active and Ended periods. The native workflow has not been accepted by users.
 
-6. Planner history continuity fix: on the first People-model cutover, the existing leader membership is dated from cutover day even though that leader's earlier visits/manual positions already define the team's last-known location. The local adapter now treats the earliest membership as the legacy team's historical origin only when its Employee ID and team label match the enabled legacy Planner roster. Later leader changes remain date-bounded. This has focused unit coverage; it is not deployed.
+6. Planner history continuity fix: on the first People-model cutover, the existing leader membership is dated from cutover day even though that leader's earlier visits/manual positions already define the team's last-known location. The deployed adapter treats the earliest membership as the legacy team's historical origin only when its Employee ID and team label match the enabled legacy Planner roster. Later leader changes remain date-bounded. This code was deployed; affected-user Planner acceptance remains NOT TESTED.
 
 Persisted Planner plans and automatic new-PO registration are deferred. Historical evidence is not to be rewritten. No production data or native permissions were changed by this review.
