@@ -1,18 +1,17 @@
 # Deployment and branch map
 
-Last verified from Frappe Cloud and GitHub: 4 November 2026, Asia/Riyadh. This is a dated read-back; recheck before every release.
+Last verified from Frappe Cloud and GitHub: 5 November 2026. This is a dated read-back; recheck before every release.
 
 See also: [Deploy log](DEPLOY_LOG.md) for every production action, and [Codex and Claude coordination](CODEX_CLAUDE_COORDINATION.md) for who does what.
 
-## Production snapshot (4 November 2026, 21:37 Asia/Riyadh)
+## Production snapshot (5 November 2026)
 
-- Site: `neosys.frappe.cloud` — Active, on Frappe Cloud bench group `neoweb-v16`.
-- Site bench: `bench-51251-000030-f1f`; bench group `neoweb-v16` is Active.
-- Latest site update: `0kb4f0p4ru` — Success; pipeline `dddifl1q9e`; pre-release backup `f88kvtuvap` and site-update backup `7gcoh4lidp` both Success with files. Cloud reported no skipped backup or failing patch.
+- Site: `neosys.frappe.cloud` — Active, in Frappe Cloud bench group `bench-51251` (the latest read-back did not return the exact bench ID).
+- Latest site update: `eu6iefujp8` — Success; pipeline `btua0gfko3`; pre-deploy backup completed (dashboard timestamp 2026-11-05 03:46; backup ID not returned in the recorded read-back).
 - Frappe `16.54.0` `2fcb939`; ERPNext `16.53.0` `9cd11b1`; HRMS `16.53.0` `b12d935`. These apps were unchanged.
-- SIG Warehouse installed revision: `codex/sig-personal-home-v16` at `4d39efa84f3491ef32f1ecfc180112f751fe5ebe` on bench `000030`. Only SIG Warehouse was built and updated.
+- SIG Warehouse installed revision: `codex/sig-personal-home-v16` at `5c98091c409dfd714d77d93871619988ce915304`. Only SIG Warehouse was built and updated; Frappe, ERPNext and HRMS were unchanged.
 - Excel Setup now contains the People sections. The existing 58-row employee work-group/PC-routing matrix and six reviewer rosters were published in `SIG People Routing Setup` as revision 1 (`people-setup-1`); the two approved Incident additional-group exceptions are retained. Read-back confirms the persisted revision. No Employee, User, exact Project assignment, Account, Journal Entry or petty-cash transaction records were created or changed.
-- The Excel Setup route and People section rendered in the authenticated Administrator session. No functional tests were run. Migration repeatability and HR/Projects/Finance non-admin persona acceptance are **NOT TESTED**. Candidate onboarding, secure upload, payroll/User/Finance follow-on actions and onboarding-control linkage remain incomplete.
+- The Excel Setup route rendered in an authenticated session and showed the existing People routing data. The People editor remains read-only because `PEOPLE_MODEL_ACTIVE` is false; the new consumers are not activated. Permission snapshot diff: no permission grants/removals and one expected read-only `history_json` field addition. No functional tests were run. Migration repeatability and fresh-session HR/Projects/Finance/Operations persona acceptance are **NOT TESTED**. Candidate onboarding, secure upload, payroll/User/Finance follow-on actions and onboarding-control linkage remain incomplete. See PR #83 and the [deploy log](DEPLOY_LOG.md).
 - ZATCA Integration, live: `codex/v16-b2b-clearance-parity` at `a8f9fb5`.
 - SIG WhatsApp, live: `v16-migration` at `9bfd1bd`. SIG QR Design, live: `v16-migration` at `39ecff6`.
 - Trial: the site `neosys-v16-trial.frappe.cloud` has left the Frappe Cloud site list. Its bench `bench-51214-000014-f28f3` is still Active with no sites. Removal awaits owner confirmation.
@@ -21,7 +20,7 @@ See also: [Deploy log](DEPLOY_LOG.md) for every production action, and [Codex an
 
 | Branch | Role today | Relevant revision | Live on production? |
 |---|---|---|---|
-| `codex/sig-personal-home-v16` | Production source configured in Frappe Cloud. | `4d39efa` installed on bench `000030`; latest source and installed hashes match. | Pipeline `dddifl1q9e` and site update `0kb4f0p4ru` succeeded; site is Active. Excel Setup People route rendered as Administrator and routing revision 1 read back. Functional workflows and non-admin persona acceptance are NOT TESTED. |
+| `codex/sig-personal-home-v16` | Production source configured in Frappe Cloud. | `5c98091c409dfd714d77d93871619988ce915304` installed; latest source and installed hashes match. | Pipeline `btua0gfko3` and site update `eu6iefujp8` succeeded; site is Active. People routing code is deployed but remains gated/read-only. Functional workflows, migration repeatability and non-admin persona acceptance are NOT TESTED. |
 | `main` | GitHub default; not the v16 build source. | `f32c7ea` | Its sole ahead commit is patch-equivalent to the intake guide/UOM list-view change already represented in production. No unique source patch remains to port from current `main`. |
 | `v16-migration` | Former v16 staging; no longer built. | `5e63f85` | No unique commits ahead of production. |
 
