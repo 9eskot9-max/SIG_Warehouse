@@ -1,9 +1,8 @@
 # SIG Finance Automation — Employee Setup Integration
 
-**People setup development draft — 4 November 2026:** PR #79 develops an employee operational-group and petty-cash review-group editor in the existing Excel Setup page. It proposes reusing the current reviewer matrix and PC routing consumers; it is **not deployed or accepted**. The employee's existing `custom_custody_account` can be displayed where permitted, but this draft does not create, relink or reconcile accounts. AM's separate employee-account and bank-beneficiary mappings remain in AM. Finance must continue to verify account, company and beneficiary evidence through its existing controls.
+**People setup — deployed 4 November 2026:** PR #79 adds employee work-group and petty-cash review-group settings to the existing Excel Setup interface. The 58-row matrix, six reviewer rosters and two approved Incident additional-group exceptions were published to `SIG People Routing Setup` revision 1 (`people-setup-1`) on SIG Warehouse `4d39efa`, bench `bench-51251-000030-f1f`. The employee's existing `custom_custody_account` can be displayed where permitted, but the routing setup neither creates, relinks nor reconciles accounts. AM's separate employee-account and bank-beneficiary mappings remain in AM. Finance must continue verifying account, company and beneficiary evidence through existing controls. The route and revision were read back as Administrator; Finance persona and transaction workflows are **NOT TESTED**. No finance or employee records were changed by publishing this config.
 
-**Status checked 4 November 2026:** this finance integration note is in the SIG Warehouse GitHub source and is included in deployed source `0d7fd9e` on active bench `bench-51251-000029-f1f` (site update `1ve5q5o9vm`). The onboarding application and Employee Project Assignment were deployed earlier in SIG Warehouse `7a37c9a`. This note documents the Finance boundary; publishing it did not create finance records or change existing automations. Live workflow, migration and Finance persona acceptance are **NOT TESTED**.
-
+**Status checked 4 November 2026:** this finance integration note is in the SIG Warehouse GitHub source and is included in deployed source `4d39efa` on active bench `bench-51251-000030-f1f` (site update `0kb4f0p4ru`). Frappe, ERPNext and HRMS were unchanged. Live workflow, migration and Finance persona acceptance are **NOT TESTED**.
 ## Purpose and control boundary
 
 Finance participates in employee setup through approved financial relationships, not by creating a second employee registry. ERPNext `Employee` is the canonical person record. Candidate Intake stages HR-approved terms and employee-provided non-sensitive details; it is not a payroll, bank, ledger or payment instruction.
@@ -34,9 +33,9 @@ No onboarding message or parser may create or submit `Journal Entry`, `Payment E
 
 ## Status and acceptance
 
-- The Candidate Intake, Employee Project Assignment and Custom Setup source is deployed. No Candidate, Employee, User, salary, Account, bank, PC mapping or assignment data was changed by deployment, and no WhatsApp message was sent by deployment.
-- The secure ID/bank upload, payroll assignment, User provisioning, Finance custody-account workflow, PC mapping and retention review are follow-up work, not completed onboarding automation.
-- Route checks, migration rehearsal, permission snapshots and fresh-session HR/Projects/Finance persona acceptance are **NOT TESTED** for the release. Do not describe those workflows as accepted.
+- Candidate Intake, Employee Project Assignment and Custom Setup source is deployed. No Candidate, Employee, User, salary, Account, bank-beneficiary or exact Project-assignment data changed by deployment. The separate People routing configuration was published as revision 1; no WhatsApp message was sent by deployment.
+- Secure ID/bank upload, payroll assignment, User provisioning, Finance custody-account workflow, AM account/beneficiary mapping and retention review remain follow-up work, not completed onboarding automation.
+- The Administrator route and persisted revision were confirmed; functional route behavior, migration rehearsal, permission snapshots and fresh-session HR/Projects/Finance persona acceptance are **NOT TESTED**. Do not describe those workflows as accepted.
 - Faizan Rasheed already has a reported Employee/User and his phone collides with another Faizan sender/employee relationship. Reconcile identity and phone ownership live before creating an intake, sending a message, changing a mapping, or creating any financial relationship. His exact Capex project and approved assignment remain unconfirmed.
 
 See [HR automation master](MASTER-HR-AUTOMATION.md), [ERP integration master](MASTER-ERP-INTEGRATION.md), [Employee Setup design](../../docs/EMPLOYEE_SETUP_AND_ONBOARDING.md), and [release record](../../docs/DEPLOY_LOG.md).
