@@ -16,6 +16,7 @@ def api(monkeypatch):
     frappe.PermissionError = PermissionError
     frappe.throw = lambda message, exc=ValueError: (_ for _ in ()).throw(exc(message))
     frappe.session = types.SimpleNamespace(user="pm@example.com")
+    frappe.get_roles = lambda: ["Projects Manager"]
     frappe.has_permission = lambda *args: True
     frappe.get_list = lambda *args, **kwargs: [types.SimpleNamespace(name="EMP-1", employee_name="PM")]
     frappe.db = types.SimpleNamespace(exists=lambda *args: False, commit=lambda: None)
@@ -58,6 +59,12 @@ def test_rejects_missing_or_ambiguous_employee_link(api):
         api.get_comments()
     api.frappe.get_list = lambda *args, **kwargs: [object(), object()]
     with pytest.raises(PermissionError, match="unique active Employee"):
+        api.get_comments()
+
+
+def test_rejects_field_planner_viewer_without_pm_role(api):
+    api.frappe.get_roles = lambda: ["SIG Field Ops"]
+    with pytest.raises(PermissionError, match="Projects Manager"):
         api.get_comments()
 
 

@@ -53,7 +53,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             },
             error() {
                 weekly.html('<div class="sig-planner-weekly-heading"><h2>' + __('My weekly comments') + '</h2><p>' +
-                    __('Your User needs a unique active Employee link and access to Field Planner to use these fields.') + '</p></div>' +
+                    __('Weekly comments need the Projects Manager role, Field Planner access, and a unique active Employee link.') + '</p></div>' +
                     '<div class="sig-planner-weekly-fields">' + commentFields.map(([, label]) => '<label>' + commentEsc(label) +
                     '<textarea rows="3" disabled></textarea></label>').join('') + '</div>');
             },

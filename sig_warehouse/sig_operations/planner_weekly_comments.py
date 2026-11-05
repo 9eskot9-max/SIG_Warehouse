@@ -21,6 +21,8 @@ def period_start(now):
 
 def _employee():
     _require_access()
+    if not set(frappe.get_roles()).intersection({"Projects Manager", "System Manager"}):
+        frappe.throw(_("Weekly PM comments require the Projects Manager role."), frappe.PermissionError)
     if not frappe.has_permission("Employee", "read"):
         frappe.throw(_("Employee read access is required to save your weekly comments."), frappe.PermissionError)
     rows = frappe.get_list("Employee", filters={"user_id": frappe.session.user, "status": "Active"},
