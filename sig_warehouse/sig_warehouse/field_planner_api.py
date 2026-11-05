@@ -120,15 +120,27 @@ def _team_setup():
                 history.setdefault(row["team"], []).append({"employee": str(row["employee"]), "from": start, "to": end})
                 if start <= today and (not end or today <= end):
                     leaders.setdefault(row["team"], set()).add(str(row["employee"]))
+        # The first flexible leader rows are a migration of the existing
+        # Planner roster. Their effective_from is the cutover date, but their
+        # prior visits and manual positions already represent that same team
+        # and must remain its last-known location. Match by both employee ID
+        # and the existing team label; later leader periods stay date-bounded.
+        legacy_team_pairs = {
+            (str(row.get("leader") or ""), str(row.get("team") or "").strip().casefold())
+            for row in data.get("teams", []) if row.get("enabled") and row.get("leader")
+        }
         result = []
         for team_id, team in sorted(operational.items()):
             active_leaders = sorted(leaders.get(team_id, set()))
             if len(active_leaders) != 1:
                 continue
+            periods = sorted(history.get(team_id, []), key=lambda period: (period["from"], period["employee"]))
+            if periods and (periods[0]["employee"], str(team.get("team_name") or "").strip().casefold()) in legacy_team_pairs:
+                periods[0]["from"] = ""
             leader = active_leaders[0]
             person = frappe.db.get_value("Employee", leader, ["employee_name", "cell_number", "status"], as_dict=True)
             if person and person.status == "Active":
-                result.append({"team_id": team_id, "leader_periods": history.get(team_id, []), "leader": leader, "team": team.get("team_name") or leader,
+                result.append({"team_id": team_id, "leader_periods": periods, "leader": leader, "team": team.get("team_name") or leader,
                                "phone": person.cell_number or "", "family": team.get("family") or "",
                                "archetype": team.get("archetype") or "Project"})
         return result
