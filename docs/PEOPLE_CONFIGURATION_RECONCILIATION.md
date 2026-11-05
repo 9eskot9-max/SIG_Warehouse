@@ -1,5 +1,21 @@
 # People configuration reconciliation and staged safety fix
 
+## Excel Setup structure update — 5 November 2026
+
+The local `codex/excel-setup-structure` change reorganizes the existing Excel Setup page into six task-oriented areas: **Projects and client coordination**, **WhatsApp Tags and workbook mappings**, **TCN generation rules**, **Field crews and project responsibility**, **People, petty cash and reporting**, and **Legacy Builder compatibility**. These are navigation groups over the existing datasets and native record views; they do not create a second configuration store or migrate/publish any business data.
+
+Design boundaries shown in the interface:
+
+- Keep **Tags definitions** (incoming-value normalization) separate from the existing **Tags to UPL** links. The latter remain unchanged; UPL catalogues and Mapping Master detail remain workbook-maintained. Item-to-UPL stays a separate AsBuilt/material mapping. No Tags, UPL or material rules were edited.
+- Keep PO/Project family and workbook template selection in the existing ERP Project → RV80 Sync flow. TAWAL is the external client PM; internal SIG PM/coordinator responsibility is a separate Project relation. The TCN wording area does not define MOP templates or CSV processing. PO contact/CSV-label edits remain on the existing native Project save path, visible only within the Projects area.
+- Label the current Field Planner leader list separately from the proposed flexible team/member/Project tables. The current `PEOPLE_MODEL_ACTIVE` gate remains off. The page explicitly warns that the new crew tables do not replace the live roster yet; no team, member, Project or responsibility rows were migrated or activated. Cycle tasks remain informational, and evidence/close behavior is unchanged.
+- Keep PC review routing distinct from HR employee identity, native Employee Account custody links, and ERP permissions. Family defaults do not change existing employee overrides or access. Employee, candidate, onboarding, assignment and reporter-map sections continue using their existing native endpoints and permissions.
+- Keep Builder profile/contact/assignment records under a legacy compatibility group. They are not deleted or converted.
+
+The same change prevents an unrelated Excel Setup save from rewriting cached Project-family values: a cached family is refreshed only when a Project link is added or changed. The server returns the existing crew-model gate state so the page can explain whether that model currently drives Workbench/Planner.
+
+No roles, Page permissions, DocType permissions, fixtures, migrations, employee/project/finance records or workbook files were changed. The Excel Setup Page role list remains System Manager, Operations Manager, Operations User, Projects Manager and SIG Excel Setup Editor. No tests or persona workflows were run; Page/record role acceptance remains **NOT TESTED**. This implementation remains unmerged and undeployed.
+
 ## Local continuation — 5 November 2026
 
 Latest routing implementation: local code stores a snapshot of the preceding matrix with each publication, previews reviewer scope changes and uses the preview hash to reject stale publications. History can be previewed and restored as a new revision; restoration keeps the historical effective group as an explicit override and refuses to omit employees now present. An employee can select inherit or override; inheritance resolves the configured family default into the routing revision when it is published. Changing a default alone does not immediately change routing: republish after reviewing the scope diff. Existing rows default to override, preserving their published group and additional exceptions. The routing publisher locks Excel Setup while resolving defaults. This code has not been deployed or tested; the live inventory, permission acceptance and migration remain outstanding.

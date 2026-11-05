@@ -3,15 +3,29 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
     const method = 'sig_warehouse.sig_operations.excel_setup.';
     const poSetupMethod = 'sig_warehouse.sig_operations.excel_setup_v3.';
     const root = $('<div class="sig-excel-setup"></div>').appendTo(page.main);
-    let state, selected = 'projects', dirty = false, peopleState = null, routingState = null, routingDirty = false;
-    const peopleLabels = {employees: __('Employees'), pc_routing: __('Employee project groups / petty cash'), project_assignments: __('Employee project assignments'), reporter_maps: __('Field reporter mappings'), candidates: __('Candidate onboarding'), onboarding: __('Employee onboarding checks')};
+    let state, selected = 'projects', dirty = false, peopleState = null, routingState = null, routingDirty = false, poSetupButton = null;
+    const peopleLabels = {employees: __('Employees'), pc_routing: __('Employee petty cash routing'), project_assignments: __('Employee project assignments'), reporter_maps: __('Field reporter mappings'), candidates: __('Candidate onboarding'), onboarding: __('Employee onboarding checks')};
     const labels = {projects: __('Projects / PO scope'), builder_profiles: __('Builder profiles (legacy)'),
         builder_contacts: __('Profile-linked contacts (legacy)'), project_builder_links: __('Project → Builder assignments (legacy)'), tag_definitions: __('Tags definitions'),
-        tag_upl_links: __('Tags to UPL'), material_upl_links: __('Item to UPL'), builder_defaults: __('TCN wording and defaults'), teams: __('Field teams (leaders)'),
+        tag_upl_links: __('Tags to UPL'), material_upl_links: __('Item to UPL'), builder_defaults: __('TCN wording and defaults'), teams: __('Field Planner teams (current)'),
         family_tawal_defaults: __('Family TAWAL PM defaults'), project_tawal_rules: __('PO TAWAL PM rules'),
-        operational_teams: __('Operational teams'), team_memberships: __('Team members'), team_projects: __('Team projects'),
-        project_responsibilities: __('Project responsibilities'), pc_family_defaults: __('Petty cash family defaults')};
+        operational_teams: __('Flexible field crews (inactive model)'), team_memberships: __('Dated crew membership'), team_projects: __('Crew coverage by Project'),
+        project_responsibilities: __('Internal Project responsibility'), pc_family_defaults: __('Petty cash family defaults')};
     const legacyDatasets = new Set(['builder_profiles', 'builder_contacts', 'project_builder_links']);
+    // The screen groups related controls by the job they support. Dataset names,
+    // storage and workbook contracts stay stable so this is a safe UI-only
+    // reorganization rather than a second configuration model.
+    const setupGroups = [
+        {key: 'projects', label: __('Projects and client coordination'), description: __('Choose the canonical ERP Project for a PO. The Project family drives workbook template selection; the client TAWAL PM can use a family default with a PO-specific rule. An existing explicit PO contact remains the fallback before a family default.'), datasets: ['projects', 'family_tawal_defaults', 'project_tawal_rules']},
+        {key: 'mapping', label: __('WhatsApp Tags and workbook mappings'), description: __('WhatsApp Tags are normalized and linked to UPL values for the workbooks. The UPL catalogue and detailed Mapping Master remain maintained in Excel; this page stores the reusable ERP-side rules.'), datasets: ['tag_definitions', 'tag_upl_links', 'material_upl_links']},
+        {key: 'tcn', label: __('TCN generation rules'), description: __('These are wording defaults consumed by RV80 TCN generation. PO family selects the existing Sync MOP template in the workbook; this page does not define MOP templates or CSV processing.'), datasets: ['builder_defaults']},
+        {key: 'delivery', label: __('Field crews and project responsibility'), description: __('Crew membership describes who can move between field teams. Project responsibility records identify accountable PM/coordinator roles. Cycle task rows are informational; evidence and the separate cycle-close action keep their existing workflow.'), datasets: ['teams', 'operational_teams', 'team_memberships', 'team_projects', 'project_responsibilities']},
+        {key: 'people', label: __('People, petty cash and reporting'), description: __('Employee, onboarding, phone mapping and project assignment records keep their native HR/Projects permissions. Petty cash reviewer routing is a separate matrix; employee-linked accounts remain on the native Employee Account relationship.'), datasets: ['pc_family_defaults', 'people:employees', 'people:project_assignments', 'people:pc_routing', 'people:reporter_maps', 'people:candidates', 'people:onboarding']},
+        {key: 'legacy', label: __('Legacy Builder compatibility'), description: __('Retained for historical workbook revisions and audit. Current V3 PO and TAWAL setup does not depend on these profile associations.'), datasets: ['builder_profiles', 'builder_contacts', 'project_builder_links']}
+    ];
+    const setupGroupFor = value => setupGroups.find(group => group.datasets.includes(value)) || setupGroups[0];
+    const setupControls = (group, current) => '<div class="es-tools es-navigation"><label>' + esc(__('Setup area')) + ' <select class="form-control es-group">' + setupGroups.map(item => '<option value="' + esc(item.key) + '" ' + (item.key === group.key ? 'selected' : '') + '>' + esc(item.label) + '</option>').join('') + '</select></label>' +
+        '<label>' + esc(__('Configuration')) + ' <select class="form-control es-dataset">' + group.datasets.map(key => '<option value="' + esc(key) + '" ' + (key === current ? 'selected' : '') + '>' + esc(key.startsWith('people:') ? peopleLabels[key.slice(7)] : labels[key]) + '</option>').join('') + '</select></label></div>';
     const fieldLabels = {project: 'ERP Project', profile: 'Builder profile', po: 'PO / Agreement', alias: 'Builder alias', family: 'Project family',
         stream: 'Project stream', stream_alias: 'Stream alias', template: 'Word template key', internal_pm: 'Internal SIG PM', tawal_contact: 'TAWAL contact',
         contact_name: 'Contact name', contact_phone: 'Phone', contact_email: 'Email', upl_revision: 'UPL revision', enabled: 'Enabled',
@@ -113,14 +127,16 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
     const callPoSetup = async (name, args={}) => (await frappe.call({method: poSetupMethod + name, args, freeze: true})).message;
     const render = () => {
         root.attr('dir', frappe.boot.lang === 'ar' ? 'rtl' : 'ltr');
+        if (poSetupButton) {
+            if (typeof poSetupButton.toggle === 'function') poSetupButton.toggle(selected === 'projects');
+            else $(poSetupButton).toggle(selected === 'projects');
+        }
         if (selected.startsWith('people:')) {
-            const key = selected.slice(7), result = peopleState;
-            const options = Object.keys(labels).map(k => '<option value="' + k + '">' + esc(labels[k]) + '</option>').join('') +
-                '<optgroup label="' + esc(__('People')) + '">' + Object.keys(peopleLabels).map(k => '<option value="people:' + k + '" ' + (key === k ? 'selected' : '') + '>' + esc(peopleLabels[k]) + '</option>').join('') + '</optgroup>';
+            const key = selected.slice(7), result = peopleState, group = setupGroupFor(selected);
             if (key === 'pc_routing') {
                 const matrix = routingState.matrix, groups = Object.keys(matrix.review_groups);
                 const select = (field, value, i) => '<select class="form-control es-pc-field" data-index="' + i + '" data-pc-field="' + field + '">' + groups.map(g => '<option value="' + esc(g) + '" ' + (g === value ? 'selected' : '') + '>' + esc(matrix.review_groups[g].label || g) + '</option>').join('') + '</select>';
-                root.html('<div class="es-tools"><label>' + esc(__('Setup list')) + ' <select class="form-control es-dataset">' + options + '</select></label></div>' +
+                root.html(setupControls(group, selected) + '<p class="es-group-note">' + esc(group.description) + '</p>' +
                     '<p class="text-warning">' + esc(__('Changes here remain a proposal until reviewed and published. Family defaults take effect when routing is republished.')) + '</p><button class="btn btn-default es-pc-preview">' + esc(__('Compare current reviewer scopes')) + '</button> <button class="btn btn-default es-pc-proposal">' + esc(__('Preview proposed changes')) + '</button> <button class="btn btn-default es-pc-history">' + esc(__('Routing history')) + '</button> <button class="btn btn-default es-pc-add">' + esc(__('Add employee')) + '</button><fieldset><div class="es-scroll"><table class="table table-bordered"><thead><tr><th>' + esc(__('Employee')) + '</th><th>' + esc(__('Name')) + '</th><th>' + esc(__('Project group')) + '</th><th>' + esc(__('PC review group')) + '</th><th>' + esc(__('Additional groups (comma separated keys)')) + '</th></tr></thead><tbody>' +
                     matrix.employees.map((row, i) => '<tr><td>' + esc(row.employee) + '</td><td>' + esc(row.employee_name) + '</td><td>' + select('work_group', row.work_group, i) + '</td><td>' + select('pc_review_group', row.pc_review_group, i) + '<span class="text-muted">' + esc(row.pc_mode === 'inherit' ? __('Family default') : __('Employee override')) + '</span> <button type="button" class="btn btn-default btn-sm es-pc-family-default" data-index="' + i + '">' + esc(__('Use family default')) + '</button></td><td><input class="form-control es-pc-field" data-index="' + i + '" data-pc-field="additional_review_groups" value="' + esc((row.additional_review_groups || []).join(', ')) + '"></td></tr>').join('') + '</tbody></table></div>' +
                     '<h4>' + esc(__('Reviewers by group')) + '</h4><p class="text-muted">' + esc(__('Separate employee names with semicolons. Reviewers must appear in the employee routing list.')) + '</p><table class="table table-bordered"><tbody>' + groups.map(g => '<tr><td>' + esc(matrix.review_groups[g].label || g) + '</td><td><input class="form-control es-pc-reviewers" data-group="' + esc(g) + '" value="' + esc((matrix.review_groups[g].reviewers || []).join('; ')) + '"></td></tr>').join('') + '</tbody></table></fieldset>');
@@ -128,8 +144,8 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
             }
             const fields = result.fields.filter(f => f !== 'modified');
             const editable = result.can_write && ['project_assignments', 'reporter_maps'].includes(key);
-            root.html('<div class="es-tools"><label>' + esc(__('Setup list')) + ' <select class="form-control es-dataset">' + options + '</select></label>' +
-                (key === 'project_assignments' && result.can_create ? '<button type="button" class="btn btn-default es-people-add">' + esc(__('Add row')) + '</button>' : '') + '</div>' +
+            root.html(setupControls(group, selected) + '<p class="es-group-note">' + esc(group.description) + '</p>' +
+                (key === 'project_assignments' && result.can_create ? '<button type="button" class="btn btn-default es-people-add">' + esc(__('Add row')) + '</button>' : '') +
                 '<p class="text-muted">' + esc(__('These are existing ERP records. Changes use their own permissions and history.')) + '</p>' +
                 '<div class="es-scroll"><table class="table table-bordered"><thead><tr>' + fields.map(f => '<th>' + esc(__(fieldLabels[f] || f)) + '</th>').join('') + (editable ? '<th></th>' : '') + '</tr></thead><tbody>' +
                 result.rows.map((row, i) => '<tr>' + fields.map(f => '<td>' + esc(row[f] || '') + '</td>').join('') + (editable ? '<td><button type="button" class="btn btn-default es-people-edit" data-index="' + i + '">' + esc(__('Edit')) + '</button></td>' : '') + '</tr>').join('') + '</tbody></table></div>');
@@ -143,31 +159,31 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
             builder_profiles: __('Historical compatibility data. These aliases no longer determine PO family, TAWAL contact or MOP template selection.'),
             builder_contacts: __('Historical profile-linked contact rows. The current TAWAL directory has one record per person; PO defaults reference those records directly.'),
             project_builder_links: __('Historical Builder profile assignments. Kept for old workbook revisions and audit; not required by V3 Sync From ERP.'),
-            tag_upl_links: __('Link each Tags item to its UPL code. UPL descriptions come from Mapping. Use the optional qualifier only for a matching Tags sheet description, not the UPL code. Blank PO and revision mean a shared rule. A PO-specific rule can replace shared links for that Tags item; review all its codes.'),
+            tag_definitions: __('Normalize and identify incoming WhatsApp Tags values. These rules are separate from the existing Tags-to-UPL links below; changing one does not replace the other.'),
+            tag_upl_links: __('Existing Tags-to-UPL mappings are retained. Link each Tags item to its UPL code; UPL descriptions and the detailed mapping are maintained in Mapping Master Excel. Use the optional qualifier only for a matching Tags sheet description. Blank PO and revision mean a shared rule; a PO-specific rule can replace shared links for that Tags item, so review all its codes.'),
             material_upl_links: __('Link warehouse items to UPL codes for AsBuilt. Direct 1:1 requires matching units; use Manual for review and Excluded for reviewed items with no link. Blank PO and revision mean a shared rule.'),
-            builder_defaults: __('Shared TCN purpose, CSV wording and implementer defaults consumed by RV80.'),
-            teams: __('Each team is its leader and carries the name of its leader. The Field Planner counts enabled teams and starts each one from the latest check-in or check-out site. Not sent to Excel workbooks.'),
-            family_tawal_defaults: __('Choose the client TAWAL contact used by default for each family and effective period.'),
-            project_tawal_rules: __('Choose inherit, exception or cleared for an individual Project and period. Exceptions require a contact.'),
-            operational_teams: __('Define stable teams and their family. Existing rosters remain active until migration is reviewed.'),
-            team_memberships: __('Assign employees and roles to a team for an effective period.'),
-            team_projects: __('Connect teams to exact Projects; family alone does not assign every Project.'),
-            project_responsibilities: __('Set explicit internal PM, coordinator and weekly PM responsibilities for each Project.'),
-            pc_family_defaults: __('Choose proposed petty cash reviewer defaults for each family. Apply them deliberately in a routing proposal; existing exceptions stay unchanged until reviewed.')
+            builder_defaults: __('RV80 TCN purpose/reason, wording and implementer defaults. MOP template choice follows PO family in the workbook; this is not a second MOP or CSV setup.'),
+            teams: __('Current Field Planner leader list: each team is named for its leader, and its live site follows that leader’s latest check-in/out. It remains distinct from the newer crew-membership tables below.'),
+            family_tawal_defaults: __('Choose the external client TAWAL PM used as the normal default for a Project family and effective period. This is not the internal SIG project manager.'),
+            project_tawal_rules: __('Set a PO-specific client TAWAL PM exception, explicitly inherit the family default, or clear it for a period. These rules do not set internal SIG project ownership.'),
+            operational_teams: __('Proposed flexible crew directory. The Workbench/Planner adapter is currently inactive, so these rows do not replace the live Field Planner leader list yet.'),
+            team_memberships: __('Dated crew membership and role. Staff can move between teams; update the effective dates instead of treating a crew as a permanent employee attribute.'),
+            team_projects: __('Dated crew coverage by ERP Project. This is the field crew assignment, not the named internal Project owner.'),
+            project_responsibilities: __('Named internal PM/coordinator responsibility for each ERP Project. Cycle tasks remain informational; evidence and the separate cycle-close action keep their existing workflow.'),
+            pc_family_defaults: __('A proposed default for employees who explicitly inherit it during a reviewed routing publication. Existing employee overrides are unchanged, and this does not grant ERP permissions or create/link employee accounts.')
         };
         const note = notes[selected] || __('Blank PO and UPL revision mean a shared rule. Disable obsolete rows; keep their IDs.');
+        const group = setupGroupFor(selected);
+        const deliveryInactive = group.key === 'delivery' && !state.people_model_active;
         root.html('<div class="es-summary"><b>' + __('Published revision') + ': ' + esc(state.revision) + '</b><span>' +
             esc(state.published_at || __('Not published')) + '</span><span>' + __('Excel workbooks refresh from this ERP setup') + '</span></div>' +
-            '<div class="es-tools"><label>' + __('Setup list') + ' <select class="form-control es-dataset">' +
-            Object.keys(labels).filter(k => !legacyDatasets.has(k)).map(k => '<option value="' + k + '" ' + (k === selected ? 'selected' : '') + '>' + esc(labels[k]) +
-                ' (' + state.datasets[k].length + ')</option>').join('') +
-            '<optgroup label="' + esc(__('People')) + '">' + Object.keys(peopleLabels).map(k => '<option value="people:' + k + '">' + esc(peopleLabels[k]) + '</option>').join('') + '</optgroup>' +
-            '<optgroup label="' + esc(__('Legacy maintenance · retained for compatibility')) + '">' +
-            Object.keys(labels).filter(k => legacyDatasets.has(k)).map(k => '<option value="' + k + '" ' + (k === selected ? 'selected' : '') + '>' + esc(labels[k]) +
-                ' (' + state.datasets[k].length + ')</option>').join('') + '</optgroup></select></label>' +
+            setupControls(group, selected) +
+            '<div class="es-tools es-actions">' +
             '<button class="btn btn-default es-add">' + __('Add row') + '</button>' +
             '<button class="btn btn-default es-import">' + __('Import existing setup') + '</button>' +
             '<button class="btn btn-default es-history">' + __('Revision history') + '</button></div>' +
+            '<p class="es-group-note">' + esc(group.description) + '</p>' +
+            (deliveryInactive ? '<p class="es-state-note">' + esc(__('The flexible crew/project model is saved as setup, but its Workbench and Planner adapter is inactive. Current field-team behavior still uses the existing live roster until a separately reviewed migration and activation.')) + '</p>' : '') +
             (legacyDatasets.has(selected) ? '<p class="text-muted">' + esc(__('Legacy records are preserved. V3 workbook sync and PO configuration no longer depend on these profile associations.')) + '</p>' : '') +
             (selected === 'builder_contacts' && state.pending_builder_contacts ? '<p class="text-warning">' + esc(__('{0} legacy contact rows do not resolve to the person directory. This does not block V3 Sync From ERP.', [state.pending_builder_contacts])) + '</p>' : '') +
             '<p class="text-muted">' + esc(note) + '</p>' +
@@ -190,8 +206,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         else if (selected.startsWith('people:')) peopleState = (await frappe.call({method: 'sig_warehouse.sig_operations.people_setup.get_section', args: {section: selected.slice(7)}, freeze: true})).message;
         dirty = false; routingDirty = false; render();
     };
-    root.on('change', '.es-dataset', async function () {
-        const next = this.value;
+    const selectDataset = async next => {
         if (next === 'people:pc_routing') {
             if (!routingState) { try { routingState = (await frappe.call({method: 'sig_warehouse.sig_operations.people_routing.get_state', freeze: true})).message; } catch (error) { render(); return; } }
         } else if (next.startsWith('people:')) {
@@ -199,7 +214,12 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
             catch (error) { render(); return; }
         }
         selected = next; render();
+    };
+    root.on('change', '.es-group', function () {
+        const group = setupGroups.find(item => item.key === this.value);
+        if (group && group.datasets.length) selectDataset(group.datasets[0]);
     });
+    root.on('change', '.es-dataset', function () { selectDataset(this.value); });
     root.on('change', '.es-pc-field', function () {
         const row = routingState.matrix.employees[Number(this.dataset.index)], field = this.dataset.pcField;
         if (field === 'additional_review_groups') row[field] = this.value.split(',').map(s => s.trim()).filter(Boolean);
@@ -372,7 +392,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         frappe.show_alert({message: __('Excel setup published'), indicator: 'green'});
     });
     page.add_inner_button(__('Reload'), () => { if (dirty || routingDirty) frappe.confirm(__('Discard unsaved edits?'), load); else load(); });
-    page.add_inner_button(__('Projects / PO setup'), async () => {
+    poSetupButton = page.add_inner_button(__('PO contacts and workbook labels'), async () => {
         if (dirty) { frappe.msgprint(__('Publish or reload your setup edits before changing PO defaults.')); return; }
         try {
             const poState = await callPoSetup('get_po_setup_state');
@@ -404,7 +424,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
                 '<button type="button" class="btn btn-default btn-sm es-manage-contacts">' +
                 esc(__('Manage TAWAL contact directory')) + '</button>' +
                 '<p class="text-muted small" style="margin-top:8px">' +
-                esc(__('The ERP contact serial is the stable choice key. Contacts can be reused on any PO; this selection only sets a PO default.')) + '</p>');
+            esc(__('The ERP contact serial is the stable choice key. Contacts can be reused on any PO. This sets the existing PO-level default, which takes precedence over a family default; dated PO rules can explicitly override both.')) + '</p>');
             dialog.fields_dict.settings.$wrapper.find('.es-manage-contacts').on('click', () => {
                 dialog.hide();
                 frappe.set_route('List', 'SIG TAWAL Contact');
