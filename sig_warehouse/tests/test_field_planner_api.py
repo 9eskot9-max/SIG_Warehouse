@@ -36,7 +36,8 @@ def load_api(roles, can_read=True, setup_json="{}", visits=(), sessions=(), posi
     frappe.DoesNotExistError = LookupError
     frappe.db = SimpleNamespace(get_single_value=lambda doctype, field: setup_json,
                                 exists=lambda doctype, name: doctype == "SIG Site" and name == "Z1",
-                                get_value=lambda doctype, name, fields, as_dict=False: Row(site_latitude=24.7, site_longitude=46.7))
+                                get_value=lambda doctype, name, fields, as_dict=False: Row(site_latitude=24.7, site_longitude=46.7,
+                                                                                          employee_name=name, cell_number="", status="Active"))
 
     class Meta:
         def get_field(self, fieldname):
@@ -70,10 +71,12 @@ def load_api(roles, can_read=True, setup_json="{}", visits=(), sessions=(), posi
     frappe.get_doc = get_doc
     sys.modules["frappe"] = frappe
     pkg = ModuleType("sig_warehouse")
+    pkg.__path__ = [str(APP_ROOT / "sig_warehouse")]
     sub = ModuleType("sig_warehouse.sig_warehouse")
+    sub.__path__ = [str(APP_ROOT / "sig_warehouse" / "sig_warehouse")]
     sys.modules.setdefault("sig_warehouse", pkg)
     sys.modules.setdefault("sig_warehouse.sig_warehouse", sub)
-    for name in ("field_planner", "continuity"):
+    for name in ("project_family", "field_planner", "continuity"):
         spec = importlib.util.spec_from_file_location("sig_warehouse.sig_warehouse." + name,
                                                       APP_ROOT / "sig_warehouse" / "sig_warehouse" / (name + ".py"))
         module = importlib.util.module_from_spec(spec)
@@ -153,6 +156,37 @@ class FieldPlannerApiTests(unittest.TestCase):
         states = {p["team"]: p["state"] for p in result["team_positions"]}
         self.assertEqual({"Waqas": "Current", "Asif": "Unknown", "Incident crew": "Incident"}, states)
         self.assertEqual({"Waqas", "Asif"}, {t["leader"] for t in result["teams"]} | {"Waqas", "Asif"})
+
+    def test_people_model_keeps_the_imported_planner_teams_prior_position_history(self):
+        import json
+        from types import ModuleType
+        setup = json.dumps({
+            "teams": [{"id": "legacy-e1", "leader": "E1", "team": "Yawar", "enabled": True}],
+            "operational_teams": [{"id": "ops-team-E1", "team_name": "Yawar", "family": "Capex",
+                                   "archetype": "Project", "enabled": True}],
+            "team_memberships": [
+                {"team": "ops-team-E1", "employee": "E1", "role": "leader", "effective_from": "2026-10-24",
+                 "effective_to": "2026-12-31", "enabled": True},
+                {"team": "ops-team-E1", "employee": "E2", "role": "leader", "effective_from": "2027-01-01",
+                 "effective_to": "", "enabled": True},
+            ],
+        })
+        api, _ = load_api(["SIG Field Ops"], setup_json=setup)
+        gate = ModuleType("sig_warehouse.sig_warehouse.people_model_gate")
+        gate.PEOPLE_MODEL_ACTIVE = True
+        prior_gate = sys.modules.get(gate.__name__)
+        sys.modules[gate.__name__] = gate
+        try:
+            team = api._team_setup()[0]
+        finally:
+            if prior_gate is None:
+                sys.modules.pop(gate.__name__, None)
+            else:
+                sys.modules[gate.__name__] = prior_gate
+
+        self.assertEqual("E1", team["leader"])
+        self.assertEqual([{"employee": "E1", "from": "", "to": "2026-12-31"},
+                          {"employee": "E2", "from": "2027-01-01", "to": ""}], team["leader_periods"])
 
     def test_latest_reported_session_updates_the_team_start_when_not_yet_posted_as_a_visit(self):
         import json

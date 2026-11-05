@@ -61,6 +61,10 @@ class SIGEmployeeProjectAssignment(Document):
             frappe.throw("An active assignment cannot be returned to Draft. End it with an End Date instead.")
 
     def _validate_overlap(self):
+        # Cancelled drafts never represented an effective assignment. Retain
+        # them for audit, but do not let them block a later valid assignment.
+        if self.status == "Cancelled":
+            return
         existing = frappe.get_all(
             "SIG Employee Project Assignment",
             filters={"employee": self.employee, "project": self.project},
@@ -69,6 +73,8 @@ class SIGEmployeeProjectAssignment(Document):
         )
         for row in existing:
             if row.name == self.name:
+                continue
+            if row.status == "Cancelled":
                 continue
             if row.project_role != self.project_role:
                 continue
