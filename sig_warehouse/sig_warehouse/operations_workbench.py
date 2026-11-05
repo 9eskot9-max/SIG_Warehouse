@@ -106,54 +106,57 @@ def _current_ops_membership(user):
     return {"ready": True, "issue": "", "memberships": memberships}
 
 
-def _effective_on(row, today=None):
-    today = str(today or frappe.utils.nowdate())[:10]
-    start = str(row.get("effective_from") or "")[:10]
-    end = str(row.get("effective_to") or "")[:10]
-    return bool(start and start <= today and (not end or today <= end))
-
-
 def _configured_ops_memberships(employee_id):
-    """Return None before the reviewed ID-based roster is activated; [] means active but unassigned."""
+    """Return None before the reviewed ID-based roster is activated; [] means active but unassigned.
+
+    Approved Employee→Project assignments are the sole source for internal PM
+    and coordinator task audiences. Crew memberships describe field coverage,
+    not project accountability. These audiences affect task visibility only;
+    cycle evidence and final closure keep their existing authorization paths.
+    """
     if not PEOPLE_MODEL_ACTIVE:
         return None
-    try:
-        raw = frappe.db.get_single_value("SIG Excel Setup", "configuration_json") or "{}"
-        data = json.loads(raw)
-    except (TypeError, ValueError, frappe.DoesNotExistError):
-        return None
-    teams = {str(row.get("id")): row for row in data.get("operational_teams", []) if row.get("enabled")}
-    if not teams and not any(row.get("enabled") for row in data.get("project_responsibilities", [])):
-        return None
-    projects_by_team = {}
-    for row in data.get("team_projects", []):
-        if row.get("enabled") and row.get("team") in teams and _effective_on(row):
-            projects_by_team.setdefault(row["team"], set()).add(str(row.get("project") or ""))
-    result = []
-    for row in data.get("team_memberships", []):
-        if (not row.get("enabled") or row.get("employee") != employee_id or row.get("team") not in teams
-                or not _effective_on(row) or row.get("role") not in ("pm", "coordinator")):
-            continue
-        team = teams[row["team"]]
-        family = normalize_family(team.get("family"))
-        project_ids = sorted(projects_by_team.get(row["team"], set()))
-        # Team-family membership does not imply responsibility for every Project.
-        if not family or not project_ids:
-            continue
-        result.append({"scope": family, "role": "pm" if row["role"] == "pm" else "co",
-                       "team_id": row["team"], "team": team.get("team_name") or row["team"],
-                       "projects": project_ids})
+    return _project_assignment_memberships(employee_id=employee_id)
+
+
+def _project_assignment_memberships(employee_id=None):
+    """Resolve approved, currently effective Project roles without family-wide inference."""
+    if not frappe.db.exists("DocType", "SIG Employee Project Assignment"):
+        return []
+    filters = {"status": "Active"}
+    if employee_id:
+        filters["employee"] = employee_id
+    rows = frappe.get_all("SIG Employee Project Assignment", filters=filters,
+                          fields=["employee", "employee_name", "project", "project_role", "start_date", "end_date"],
+                          limit_page_length=0)
+    today = str(frappe.utils.nowdate())[:10]
     meta = frappe.get_meta("Project")
     family_fields = [field for field in ("custom_project_family", "custom_family") if meta.has_field(field)]
-    for row in data.get("project_responsibilities", []):
-        if (not row.get("enabled") or row.get("employee") != employee_id
-                or row.get("role") not in ("pm", "coordinator") or not _effective_on(row)):
+    family_cache = {}
+    result = []
+    seen = set()
+    roles = {"Project Manager": "pm", "Coordinator": "co", "Team Leader": "co"}
+    for row in rows:
+        role = roles.get(row.project_role)
+        start = str(row.start_date or "")[:10]
+        end = str(row.end_date or "")[:10]
+        if not role or not start or start > today or (end and end < today):
             continue
-        project = frappe.db.get_value("Project", row["project"], family_fields, as_dict=True) if family_fields else {}
-        family = resolve_project_family(project)["family"]
-        if family:
-            result.append({"scope": family, "role": "pm" if row["role"] == "pm" else "co",
-                           "projects": [str(row["project"])], "source": "Project responsibility"})
+        project_id = str(row.project or "")
+        if not project_id:
+            continue
+        if project_id not in family_cache:
+            project = frappe.db.get_value("Project", project_id, family_fields, as_dict=True) if family_fields else {}
+            family_cache[project_id] = resolve_project_family(project)["family"]
+        family = family_cache[project_id]
+        if not family:
+            continue
+        key = (str(row.employee), role, project_id, family)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append({"scope": family, "role": role, "projects": [project_id],
+                       "source": "Approved Employee Project Assignment"})
     return result
 
 
@@ -183,30 +186,9 @@ def _owner_names(family, owner_role):
 def _configured_family_owner_names(family, owner_role):
     if not PEOPLE_MODEL_ACTIVE:
         return None
-    try:
-        data = json.loads(frappe.db.get_single_value("SIG Excel Setup", "configuration_json") or "{}")
-    except (TypeError, ValueError, frappe.DoesNotExistError):
-        return None
-    teams = {str(row.get("id")): row for row in data.get("operational_teams", []) if row.get("enabled")}
-    if not teams and not any(row.get("enabled") for row in data.get("project_responsibilities", [])):
-        return None
     roles = {"either": ("pm", "coordinator"), "pm": ("pm",), "co": ("coordinator",)}.get(owner_role, (owner_role,))
-    ids = set()
-    for row in data.get("team_memberships", []):
-        team = teams.get(str(row.get("team") or ""))
-        if (team and row.get("enabled") and _effective_on(row) and row.get("role") in roles
-                and normalize_family(team.get("family")) == family):
-            ids.add(str(row.get("employee") or ""))
-    meta = frappe.get_meta("Project")
-    family_fields = [field for field in ("custom_project_family", "custom_family") if meta.has_field(field)]
-    for row in data.get("project_responsibilities", []):
-        if not row.get("enabled") or not _effective_on(row):
-            continue
-        if row.get("role") not in roles:
-            continue
-        project = frappe.db.get_value("Project", row["project"], family_fields, as_dict=True) if family_fields else {}
-        if resolve_project_family(project)["family"] == family:
-            ids.add(str(row.get("employee") or ""))
+    ids = {str(row["employee"]) for row in _project_assignment_memberships()
+           if row["scope"] == family and row["role"] in roles}
     if not ids:
         return []
     if not frappe.has_permission("Employee", "read"):

@@ -201,6 +201,8 @@ def _publish(datasets, base_revision, batch_id="", batch_hash=""):
     if int(base_revision) != int(doc.revision or 0):
         frappe.throw("Setup changed in another session. Reload and review again.")
     datasets = _validated(datasets)
+    if datasets.get("project_responsibilities", []) != current.get("project_responsibilities", []):
+        frappe.throw("Legacy Project responsibility rows are read-only. Use approved Employee Project Assignments for internal PM/Coordinator/Team Leader roles.")
     governed = ("family_tawal_defaults", "project_tawal_rules", "operational_teams",
                 "team_memberships", "team_projects", "project_responsibilities", "pc_family_defaults")
     if any(datasets[key] != current.get(key, []) for key in governed) and "System Manager" not in frappe.get_roles():
@@ -301,6 +303,8 @@ def preview_import(package, base_revision):
     if int(base_revision) != int(doc.revision or 0):
         frappe.throw("Reload setup before importing")
     merged, counts = _merge(current, _parse(package))
+    if merged.get("project_responsibilities", []) != current.get("project_responsibilities", []):
+        frappe.throw("Import cannot change legacy Project responsibility rows. Use approved Employee Project Assignments instead.")
     _linked_masters(merged, current)
     merged = _validated(merged)
     return {"datasets": merged, "counts": counts, "base_revision": int(base_revision)}
