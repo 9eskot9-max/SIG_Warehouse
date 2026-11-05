@@ -185,9 +185,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
             setupControls(group, selected) +
             '<div class="es-tools es-actions">' +
             (projectResponsibilitiesLegacy ? '' : '<button class="btn btn-default es-add">' + __('Add row') + '</button>') +
-            (selected === 'projects' ? '<button class="btn btn-default es-register-project">' + __('Add existing PO Project') + '</button>' : '') +
             (projectResponsibilitiesLegacy ? '' : '<button class="btn btn-default es-import">' + __('Import existing setup') + '</button>') +
-            (selected === 'ops_team_members' && state.can_review_people_cutover ? '<button class="btn btn-default es-people-cutover">' + __('Compare Operations teams') + '</button>' : '') +
             '<button class="btn btn-default es-history">' + __('Revision history') + '</button></div>' +
             '<p class="es-group-note">' + esc(group.description) + '</p>' +
             (deliveryInactive ? '<p class="es-state-note">' + esc(__('The flexible crew/project model is saved as setup, but its Workbench and Planner adapter is inactive. Current field-team behavior still uses the existing live roster until a separately reviewed migration and activation.')) + '</p>' : '') +
@@ -359,26 +357,11 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         const row = Object.fromEntries(state.fields[selected].map(f => [f, f === 'enabled' ? true : '']));
         row.id = crypto.randomUUID(); state.datasets[selected].push(row); dirty = true; render();
     });
-    root.on('click', '.es-register-project', () => {
-        if (dirty || routingDirty) { frappe.msgprint(__('Publish or reload your edits first.')); return; }
-        frappe.prompt([{fieldname: 'project', fieldtype: 'Link', options: 'Project', label: __('Canonical PO Project'), reqd: 1}], async values => {
-            const result = await call('register_project', {project: values.project, base_revision: state.revision});
-            await load();
-            frappe.msgprint(__('Project added to setup revision {0}. Review its UPL and any PO-specific settings.', [result.revision]));
-        }, __('Add existing PO Project'), __('Add to setup'));
-    });
     root.on('click', '.es-history', async () => {
         const rows = await call('get_history');
         const dialog = new frappe.ui.Dialog({title: __('Revision history'), fields: [{fieldname: 'history', fieldtype: 'HTML'}]});
         dialog.fields_dict.history.$wrapper.html('<table class="table"><tbody>' + rows.map(row =>
             '<tr><td>' + esc(row.revision) + '</td><td>' + esc(row.published_at) + '</td><td>' + esc(row.published_by) + '</td></tr>').join('') + '</tbody></table>');
-        dialog.show();
-    });
-    root.on('click', '.es-people-cutover', async () => {
-        const result = (await frappe.call({method: 'sig_warehouse.sig_operations.people_cutover_preview.preview', freeze: true})).message;
-        const rows = result.families.map(row => '<tr><td>' + esc(row.family) + '</td><td>' + esc(row.added.join(', ') || '—') + '</td><td>' + esc(row.removed.join(', ') || '—') + '</td></tr>').join('');
-        const dialog = new frappe.ui.Dialog({title: __('Operations team comparison'), fields: [{fieldname: 'details', fieldtype: 'HTML'}]});
-        dialog.fields_dict.details.$wrapper.html('<p>' + esc(__('Published setup revision {0}, as of {1}.', [result.revision, result.as_of])) + '</p><p>' + esc(__(result.notice)) + '</p><p>' + esc(__('Unresolved roster identities: {0}; Project exceptions: {1}; teams without exactly one current leader: {2}.', [result.unresolved_identities.length, result.project_exceptions, result.teams_needing_leader.length])) + '</p><table class="table table-bordered"><thead><tr><th>' + esc(__('Family')) + '</th><th>' + esc(__('Added Employee IDs')) + '</th><th>' + esc(__('Removed Employee IDs')) + '</th></tr></thead><tbody>' + rows + '</tbody></table>');
         dialog.show();
     });
     root.on('click', '.es-import', () => {
