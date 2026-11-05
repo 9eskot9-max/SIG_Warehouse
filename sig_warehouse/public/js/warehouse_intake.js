@@ -74,6 +74,15 @@ function sig_intake_guide(frm) {
         if (!frm.doc.item_creation_group) { frappe.msgprint(__('Choose the item group for new items.')); return; }
         if (!(frm.doc.lines || []).some(row => !row.item_code)) { frappe.msgprint(__('There are no rows without an Item.')); return; }
         if (frm.is_new() || frm.is_dirty()) await frm.save();
+        const missingCode = (frm.doc.lines || []).find(row => !row.item_code && !(row.proposed_item_code || '').trim());
+        if (missingCode) {
+            frappe.msgprint({
+                title: __('Item code needed'),
+                message: __('Line {0}: select “Suggest item codes”, review the proposed code, then choose “Create items from rows” again. You can also enter an approved item code manually.', [missingCode.idx]),
+                indicator: 'orange'
+            });
+            return;
+        }
         const result = await frappe.call({method:'sig_warehouse.sig_warehouse.warehouse_intake.create_items_from_rows',
             args:{intake_name:frm.doc.name}, freeze:true, freeze_message:__('Creating items…')});
         await frm.reload_doc();
@@ -151,6 +160,13 @@ function sig_intake_review(frm) {
 
 frappe.ui.form.on('SIG Warehouse Intake', {
     onload(frm) {
+        if (frm.is_new() && !(frm.doc.lines || []).length) {
+            const row = frm.add_child('lines');
+            row.qty = 1;
+            row.conversion_factor = 1;
+            row.match_status = 'Needs Review';
+            frm.refresh_field('lines');
+        }
         if (frm.is_new() && !frm.doc.company) frm.set_value('company', frappe.defaults.get_user_default('Company'));
         if (!frm.doc.item_creation_group && frm.doc.docstatus === 0 && !frm.doc.purchase_order_created && !frm.doc.purchase_receipt) frm.set_value('item_creation_group', 'Products');
     },
