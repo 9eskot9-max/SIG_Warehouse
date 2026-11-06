@@ -7,7 +7,7 @@ Codex is the active repository agent at the owner’s direction. The owner can c
 | Baton holder | **Codex** (owner-directed; Claude inactive) |
 | Next holder | **Codex, unless the owner reassigns** |
 | Branch | `codex/sig-personal-home-v16` (production source) |
-| Latest deployed source commit | `09c0f72496e06ba59f5f21816663177fcba1971d` live on `neosys.frappe.cloud`, bench `bench-51251-000036-f1f`; build pipeline `8ruifr103j`; site update Pull Success (Cloud dashboard; ID not exposed) |
+| Latest deployed source commit | `4809721c9dcff7348d54355167fe909b23656f22` live on `neosys.frappe.cloud`, bench `bench-51251-000039-f1f`; build `0k83bd30iq`; site update `1rksi0g05t` Success; backup `cjqr4ls1j9` Success |
 | Open items for the next holder | Codex remains active; no baton handoff or message to Claude is needed unless the owner reassigns the work. PR #89 is deployed and `PEOPLE_MODEL_ACTIVE` is ON. Excel Setup's configured Operations family membership and dated Planner team leadership/identity now feed the live People/Planner adapters; family defaults apply where no Project exception exists. Current enabled membership rows match the existing Operations roster, and Planner has six flexible teams with current leader history. Do not assume every user’s ERP roles are correct: role/profile and User Permission alignment plus actual-user acceptance were NOT TESTED. Next permission acceptance: for each newly included PM/co person, open the Workbench in a fresh authenticated session and verify intended categories and linked records load; confirm a person outside those audiences is denied; confirm unaffected Warehouse/Finance/HR navigation remains as before. No native Role/DocType ptypes, Role Profiles or User Permissions were changed by PR #89. The Frappe Cloud Press API 403 is recorded under `PERM-20261101-04`; no repair attempted. Family-wide team defaults are active; add Project exceptions after PM confirmation. Planner may assign any eligible DC/Incident site and team is a planning reference. No code for the weekly PM check was included. Functional and persona tests were skipped per owner instruction; log acceptance as NOT TESTED. Secure document upload, payroll/User/Finance follow-on actions and onboarding-control linkage remain open. Reconcile Faizan's phone collision before any intake/message or record change. |
 | Waiting on the owner | Weekly PM check per project family (families, recipients and project mapping). Six legacy Payment Entry drafts. 98 draft petty-cash journals. |
 
@@ -18,6 +18,10 @@ Codex is the active repository agent at the owner’s direction. The owner can c
 3. One move = one task the owner asked for, finished and pushed. Do not start a second task inside a move.
 4. Never deploy, schedule a Frappe Cloud update, or edit the Cloud benches unless the owner told you to in this move.
 5. Add a row to `docs/DEPLOY_LOG.md` for every Cloud action, in the same last commit.
+
+## Print PDF sharing deployment — 6 November 2026
+
+PR #97 (`4809721`) is deployed to `neosys.frappe.cloud`. The asset cache version was bumped. Cloud confirms the site is Active and the installed SIG Warehouse hash matches. Tests were not run per owner instruction. The print-page Share interaction and native Windows Share panel still need live UI acceptance; do not mark the feature verified until that check is observed.
 
 ## Employee configuration and access work
 
