@@ -17,6 +17,13 @@ See also: [Deploy log](DEPLOY_LOG.md) for every production action, and [Codex an
 - SIG WhatsApp, live: `v16-migration` at `9bfd1bd`. SIG QR Design, live: `v16-migration` at `39ecff6`.
 - Trial: the site `neosys-v16-trial.frappe.cloud` has left the Frappe Cloud site list. Its bench `bench-51214-000014-f28f3` is still Active with no sites. Removal awaits owner confirmation.
 
+## Production snapshot addendum (6 November 2026; Cloud API timestamp timezone not reported)
+
+- Site `neosys.frappe.cloud` is Active on `bench-51251-000039-f1f`.
+- SIG Warehouse `4809721c9dcff7348d54355167fe909b23656f22` is installed from `codex/sig-personal-home-v16`; only SIG Warehouse was built and updated.
+- Build `0k83bd30iq`, pre-release backup `cjqr4ls1j9`, and site update `1rksi0g05t` all returned Success.
+- PR #97 changes only PDF sharing code and the asset cache version. Tests and actual-user/UI acceptance were not run per owner instruction; check the print Share flow in Edge before considering the interface verified. See `docs/DEPLOY_LOG.md`.
+
 ## Branch map (SIG Warehouse, GitHub `9eskot9-max/SIG_Warehouse`), checked 4 November 2026
 
 | Branch | Role today | Relevant revision | Live on production? |
