@@ -101,7 +101,7 @@ app_include_js = [
     "/assets/sig_warehouse/js/material_request.js?v=20261029-dispatch-wh",
     "/assets/sig_warehouse/js/stock_entry.js?v=20260929-2",
     "/assets/sig_warehouse/js/warehouse_workspace_redirect.js?v=20261018-1",
-    "/assets/sig_warehouse/js/print_download.js?v=20261101-share-2",
+    "/assets/sig_warehouse/js/print_download.js?v=20261106-share-3",
     "/assets/sig_warehouse/js/site_cycle_connections.js?v=20261026-1",
 ]
 

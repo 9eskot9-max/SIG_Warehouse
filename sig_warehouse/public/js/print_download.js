@@ -150,8 +150,13 @@
             $share = $('<button type="button" class="btn btn-default btn-sm" data-sig-pdf-share="1"></button>');
             $share.text(__('Share'));
             $share.on('click', () => {
-                const view = window.__sig_print_view;
-                if (view && view.frm) share(view);
+                const page = frappe.container && frappe.container.page;
+                const view = window.__sig_print_view || (page && (page.print_view || page.printview));
+                if (!view || !view.frm || !view.frm.doc) {
+                    frappe.msgprint(__('The print view is not ready for sharing. Reopen this document’s Print page and try again, or use Download.'));
+                    return;
+                }
+                share(view);
             });
         }
         if ($share.text().trim() !== __('Share')) $share.text(__('Share'));
@@ -166,6 +171,11 @@
         const cls = frappe.ui.form && frappe.ui.form.PrintView;
         if (!cls) return false;
         if (!cls.prototype[MARK]) {
+            const setup = cls.prototype.setup;
+            if (setup) cls.prototype.setup = function () {
+                window.__sig_print_view = this;
+                return setup.apply(this, arguments);
+            };
             const show = cls.prototype.show;
             cls.prototype.show = function () {
                 window.__sig_print_view = this;
@@ -176,7 +186,7 @@
                 window.__sig_print_view = this;
                 return preview.apply(this, arguments);
             };
-            cls.prototype.render_pdf = function () { download(this); };
+            cls.prototype.render_pdf = function () { window.__sig_print_view = this; download(this); };
             cls.prototype[MARK] = true;
         }
         relabel();
