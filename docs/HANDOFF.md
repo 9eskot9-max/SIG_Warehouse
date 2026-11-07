@@ -2,6 +2,8 @@
 
 Codex is the active repository agent at the owner’s direction. The owner can change the holder at any moment; Claude is not currently in the rotation.
 
+Codex is preparing the SNB movement router on an isolated topic branch; production releases remain owner-controlled.
+
 | Field | Value |
 |---|---|
 | Baton holder | **Codex** (owner-directed; Claude inactive) |
