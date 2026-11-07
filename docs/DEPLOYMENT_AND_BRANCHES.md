@@ -4,6 +4,17 @@ Last verified from Frappe Cloud and GitHub: 7 November 2026, Asia/Riyadh. This i
 
 See also: [Deploy log](DEPLOY_LOG.md) for every production action, and [Codex and Claude coordination](CODEX_CLAUDE_COORDINATION.md) for who does what.
 
+## Production snapshot (7 November 2026, 11:46 Asia/Riyadh)
+
+- Site: `neosys.frappe.cloud` — Active on `bench-51251-000041-f1f`; bench group `bench-51251` is Active.
+- SIG Warehouse installed revision: `70566a25ec224e83b64757717a8bb7227344d8a6`, merged PR #101. Only SIG Warehouse was built/updated; Frappe, ERPNext and HRMS hashes are unchanged.
+- Pre-release backup `063gk3n9v9` succeeded. Build `ahlt3vvq8j` and Site Update `2rvjflsotm` succeeded; update used backup enabled. Press API confirms site Active on the target bench and installed hash matches.
+- The existing `/desk/sig-accounting/snb-movement-router` URL returned HTTP 200 HTML; its Page metadata reads “Bank Movement Router” and retains Accounts User, Accounts Manager and System Manager roles. Client-side rendering was NOT TESTED because Computer Use could not verify the active browser URL.
+- Alinma received credits and salary-transfer narrative candidates use the shared review API. Other debits remain out of scope. No Alinma item was ingested; the adapter remains preview-first and requires an explicit `--push` for ingestion. No JE/PE drafts or accounting postings are created.
+- Focused before/after access snapshots found no Page-role or effective DocType-permission changes. Accounts roles still cannot read Employee; employee-linked decisions remain fail-closed. Fresh Finance persona, linked-record workflow, Arabic/English rendering and migration-repeatability checks are NOT TESTED. No business records changed.
+
+The 04:34 snapshot below records the pre-Alinma SNB router deployment and is retained as historical evidence.
+
 ## Production snapshot (7 November 2026, 04:34 Asia/Riyadh)
 
 - Site: `neosys.frappe.cloud` — Active on bench `bench-51251-000040-f1f`; bench group `neoweb-v16` is Active.
@@ -32,7 +43,7 @@ The 4 November snapshot below is retained as historical release evidence.
 
 | Branch | Role today | Relevant revision | Live on production? |
 |---|---|---|---|
-| `codex/sig-personal-home-v16` | Production source configured in Frappe Cloud. | `8b4ebe5` installed on bench `000040`; latest source and installed hashes match. | PR #99 is merged and deployed; site is Active. The SNB Movement Router route rendered as Administrator. Review-only; draft creation and non-admin persona acceptance are NOT TESTED. |
+| `codex/sig-personal-home-v16` | Production source configured in Frappe Cloud. | `70566a2` installed on bench `000041`; a later documentation-only commit may advance branch HEAD without changing the installed app hash. | PR #101 is merged and deployed; site is Active. The shared Bank Movement Router serves both banks. HTTP route check passed; client-side render, Finance persona and linked-record workflow are NOT TESTED. Review-only; no draft creation or accounting posting. |
 | `main` | GitHub default; not the v16 build source. | `f32c7ea` | Its sole ahead commit is patch-equivalent to the intake guide/UOM list-view change already represented in production. No unique source patch remains to port from current `main`. |
 | `v16-migration` | Former v16 staging; no longer built. | `5e63f85` | No unique commits ahead of production. |
 
