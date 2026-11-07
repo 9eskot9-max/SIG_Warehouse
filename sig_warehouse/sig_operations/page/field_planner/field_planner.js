@@ -16,7 +16,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
     const fmtDates = (text) => text.replace(/(\d{4})-(\d{2})-(\d{2})/g, (m, y, mo, d) => `${d}-${MON[Number(mo) - 1]}`);
     const esc = (value) => frappe.utils.escape_html(fmtDates(value == null ? '' : String(value)));
     const commentEsc = (value) => frappe.utils.escape_html(String(value == null ? '' : value));
-    const weekly = $('<section class="sig-planner-weekly-comments" aria-label="' + __('My weekly comments') + '"></section>');
+    const weekly = $('<section class="sig-planner-weekly-comments" aria-label="' + __('Weekly team comments') + '"></section>');
     nav.after(weekly);
     let weeklyState = null, weeklyDirty = false, weeklyTimer = null;
     const commentFields = [
@@ -24,23 +24,26 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         ['this_week', __('This week plan')],
         ['erp_plan', __('Comment on ERP plan')],
     ];
-    function loadWeeklyComments() {
+    function loadWeeklyComments(family) {
         weekly.html('<p>' + __('Loading weekly comments…') + '</p>');
-        frappe.call({method: 'sig_warehouse.sig_operations.planner_weekly_comments.get_comments',
+        frappe.call({method: 'sig_warehouse.sig_operations.planner_weekly_comments.get_family_comments', args: {family},
             callback(r) {
                 weeklyState = r.message; weeklyDirty = false;
                 if (!weeklyState) { weekly.text(__('Weekly comments are unavailable.')); return; }
                 const comments = weeklyState.comments || {};
+                const familyOptions = (weeklyState.families || []).map(item => '<option value="' + commentEsc(item.value) + '"' +
+                    (item.value === weeklyState.family ? ' selected' : '') + '>' + commentEsc(item.label) + '</option>').join('');
                 const history = (weeklyState.history || []).map(item => '<details><summary>' +
                     commentEsc(item.period_start) + '</summary>' + commentFields.map(([field, label]) =>
                     '<p><strong>' + commentEsc(label) + '</strong><br>' + commentEsc(item[field] || '—').replace(/\n/g, '<br>') + '</p>').join('') + '</details>').join('');
-                weekly.html('<div class="sig-planner-weekly-heading"><div><h2>' + __('My weekly comments') + '</h2><p>' +
-                    commentEsc(weeklyState.employee_name) + ' · ' + __('Week opened') + ' ' + commentEsc(weeklyState.period_start) +
-                    ' · ' + __('Next refresh') + ' ' + commentEsc(weeklyState.next_reset) + ' ' + __('Riyadh time') + '</p></div></div>' +
+                weekly.html('<div class="sig-planner-weekly-heading"><div class="sig-planner-weekly-title"><h2>' + __('Weekly team comments') + '</h2>' +
+                    '<label>' + __('Project family') + '<select data-weekly-family>' + familyOptions + '</select></label></div><p>' +
+                    commentEsc(weeklyState.family_label) + ' · ' + __('Week opened') + ' ' + commentEsc(weeklyState.period_start) +
+                    ' · ' + __('Next refresh') + ' ' + commentEsc(weeklyState.next_reset) + ' ' + __('Riyadh time') + '</p></div>' +
                     '<div class="sig-planner-weekly-fields">' + commentFields.map(([field, label]) =>
                     '<label>' + commentEsc(label) + '<textarea data-weekly-field="' + field + '" maxlength="4000" rows="3">' +
                     commentEsc(comments[field] || '') + '</textarea></label>').join('') + '</div>' +
-                    '<div class="sig-planner-weekly-actions"><button type="button" data-weekly-save>' + __('Save comments') + '</button>' +
+                    '<div class="sig-planner-weekly-actions"><button type="button" class="sig-planner-weekly-save" data-weekly-save><span class="sig-planner-weekly-save-icon" aria-hidden="true">✓</span>' + __('Save comments') + '</button>' +
                     '<span data-weekly-status>' + __('A new set opens Sunday at 7:00 p.m.; earlier comments stay in history.') + '</span></div>' +
                     (history ? '<details class="sig-planner-weekly-history"><summary>' + __('Recent weeks') + '</summary>' + history + '</details>' : ''));
                 if (weeklyTimer) window.clearTimeout(weeklyTimer);
@@ -48,26 +51,32 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
                     if (weeklyDirty) {
                         weekly.find('[data-weekly-save]').prop('disabled', true);
                         weekly.find('[data-weekly-status]').text(__('A new week has opened. Copy your unsaved text before reloading this page.'));
-                    } else loadWeeklyComments();
+                    } else loadWeeklyComments(weeklyState.family);
                 }, Math.min((Number(weeklyState.seconds_until_reset) + 1) * 1000, 2147483647));
             },
             error() {
-                weekly.html('<div class="sig-planner-weekly-heading"><h2>' + __('My weekly comments') + '</h2><p>' +
-                    __('Weekly comments need the Projects Manager role, Field Planner access, and a unique active Employee link.') + '</p></div>' +
+                weekly.html('<div class="sig-planner-weekly-heading"><h2>' + __('Weekly team comments') + '</h2><p>' +
+                    __('Comments require Field Planner access and read permission for Site Cycles.') + '</p></div>' +
                     '<div class="sig-planner-weekly-fields">' + commentFields.map(([, label]) => '<label>' + commentEsc(label) +
                     '<textarea rows="3" disabled></textarea></label>').join('') + '</div>');
             },
         });
     }
-    weekly.on('input', '[data-weekly-field]', () => { weeklyDirty = true; });
+    weekly.on('change', '[data-weekly-family]', function () {
+        if (!weeklyDirty && weeklyState) loadWeeklyComments(this.value);
+    });
+    weekly.on('input', '[data-weekly-field]', () => {
+        weeklyDirty = true;
+        weekly.find('[data-weekly-family]').prop('disabled', true);
+    });
     weekly.on('click', '[data-weekly-save]', function () {
         if (!weeklyState) return;
-        const button = $(this).prop('disabled', true), args = {period: weeklyState.period_start, modified: weeklyState.modified || ''};
+        const button = $(this).prop('disabled', true), args = {family: weeklyState.family, period: weeklyState.period_start, modified: weeklyState.modified || ''};
         weekly.find('[data-weekly-field]').each((_, el) => { args[el.dataset.weeklyField] = el.value; });
         weekly.find('[data-weekly-field]').prop('disabled', true);
-        frappe.call({method: 'sig_warehouse.sig_operations.planner_weekly_comments.save_comments', args,
-            callback(r) { if (r.message && r.message.period_start !== args.period) { weeklyDirty = false; loadWeeklyComments(); return; } weeklyState = r.message; weeklyDirty = false; button.prop('disabled', false); weekly.find('[data-weekly-field]').prop('disabled', false); weekly.find('[data-weekly-status]').text(__('Saved.')); },
-            error() { button.prop('disabled', false); weekly.find('[data-weekly-field]').prop('disabled', false); weekly.find('[data-weekly-status]').text(__('Not saved. Review the error and keep a copy before reloading.')); },
+        frappe.call({method: 'sig_warehouse.sig_operations.planner_weekly_comments.save_family_comments', args,
+            callback(r) { if (r.message && r.message.period_start !== args.period) { weeklyDirty = false; loadWeeklyComments(args.family); return; } weeklyState = r.message; weeklyDirty = false; button.prop('disabled', false); weekly.find('[data-weekly-field]').prop('disabled', false); weekly.find('[data-weekly-family]').prop('disabled', false); weekly.find('[data-weekly-status]').text(__('Saved for everyone in this family.')); },
+            error() { button.prop('disabled', false); weekly.find('[data-weekly-field]').prop('disabled', false); weekly.find('[data-weekly-family]').prop('disabled', false); weekly.find('[data-weekly-status]').text(__('Not saved. Review the error and keep a copy before reloading.')); },
         });
     });
     loadWeeklyComments();
@@ -830,6 +839,9 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             __('{0} scopes were left out because their linked ERP Project could not be classified for this mode.', [classificationWarnings.length]) +
             ' ' + __('Check the Project read access for your role.') + '</p>' : '';
         projectControl = null;
+        // Keep the comments panel outside the subtree rebuilt below, then
+        // place it directly after the map and before the planning tabs.
+        weekly.detach();
         root.html('<div class="sig-planner-shell">' +
             '<section class="sig-planner-toolbar"><div class="sig-planner-toolbar-head"><div class="sig-planner-toolbar-title"><h2>' + (filters.mode === 'Incident' ? __('Incident plan') : __('Field plan')) +
             '</h2><p>' + esc(fmtDates(horizon[0] || '')) + ' – ' + esc(fmtDates(horizon[horizon.length - 1] || '')) +
@@ -898,6 +910,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             '</th><th>' + __('Source') + '</th><th>' + __('Position status') + '</th><th></th></tr></thead><tbody>' + renderPositionRows() + '</tbody></table></div></div></section>' +
             '<footer class="sig-planner-footer"><span>' + (filters.mode === 'Incident' ? __('Incident workload: {0} hours per site · {1}.', [esc(data.params.scope_hours), filters.scope_hours ? __('custom setting') : __('provisional average')]) : __('A visit does not remove an open Stage 2/3 scope from planning · Incident work is planned in Incident mode.')) +
             '</span><span>' + __('Road connections are proposed sequence, not calculated driving routes.') + '</span></footer></div>');
+        root.find('.sig-planner-tabs').before(weekly);
 
         projectControl = frappe.ui.form.make_control({parent: root.find('.sig-planner-project-link')[0],
             df: {fieldname: 'planner_project', label: __('Project'), fieldtype: 'Link', options: 'Project',
