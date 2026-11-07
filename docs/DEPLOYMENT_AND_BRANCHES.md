@@ -1,8 +1,19 @@
 # Deployment and branch map
 
-Last verified from Frappe Cloud and GitHub: 4 November 2026, Asia/Riyadh. This is a dated read-back; recheck before every release.
+Last verified from Frappe Cloud and GitHub: 7 November 2026, Asia/Riyadh. This is a dated read-back; recheck before every release.
 
 See also: [Deploy log](DEPLOY_LOG.md) for every production action, and [Codex and Claude coordination](CODEX_CLAUDE_COORDINATION.md) for who does what.
+
+## Production snapshot (7 November 2026, 04:34 Asia/Riyadh)
+
+- Site: `neosys.frappe.cloud` — Active on bench `bench-51251-000040-f1f`; bench group `neoweb-v16` is Active.
+- SIG Warehouse: `codex/sig-personal-home-v16` at `8b4ebe53eba55ecb1094df1f74fc2ea8cda62664`, merged PR #99. Only SIG Warehouse was selected for this release; Frappe, ERPNext and HRMS were left unchanged.
+- Cloud deployment completed successfully. An onsite pre-deployment backup completed successfully at 04:17 Asia/Riyadh. The Cloud dashboard did not expose backup/build/update IDs in the view used for this release.
+- The `/desk/sig-accounting/snb-movement-router` route rendered after migration in an authenticated Administrator session. Its queue was empty. No ERP business records were created or changed.
+- The permission snapshot comparison showed only the two expected “missing before” entries becoming available (`SNB Movement Review` and `SNB Movement Review Event`); no existing access grant was removed. The new Page and review DocType grant `Accounts User`, `Accounts Manager`, and `System Manager` read/create/write/report access. Delete/submit/cancel are not granted.
+- Actual Accounts User/Accounts Manager fresh-session acceptance and repeat-migration acceptance remain **NOT TESTED**. Accounts roles still cannot read Employee records; employee-linked decisions fail closed until a separate access decision. This router is a review foundation only: it does not create JE/PE drafts, sync the AM snapshot, or post accounting entries.
+
+The 4 November snapshot below is retained as historical release evidence.
 
 ## Production snapshot (4 November 2026, 21:37 Asia/Riyadh)
 
@@ -17,11 +28,11 @@ See also: [Deploy log](DEPLOY_LOG.md) for every production action, and [Codex an
 - SIG WhatsApp, live: `v16-migration` at `9bfd1bd`. SIG QR Design, live: `v16-migration` at `39ecff6`.
 - Trial: the site `neosys-v16-trial.frappe.cloud` has left the Frappe Cloud site list. Its bench `bench-51214-000014-f28f3` is still Active with no sites. Removal awaits owner confirmation.
 
-## Branch map (SIG Warehouse, GitHub `9eskot9-max/SIG_Warehouse`), checked 4 November 2026
+## Branch map (SIG Warehouse, GitHub `9eskot9-max/SIG_Warehouse`), checked 7 November 2026
 
 | Branch | Role today | Relevant revision | Live on production? |
 |---|---|---|---|
-| `codex/sig-personal-home-v16` | Production source configured in Frappe Cloud. | `4d39efa` installed on bench `000030`; latest source and installed hashes match. | Pipeline `dddifl1q9e` and site update `0kb4f0p4ru` succeeded; site is Active. Excel Setup People route rendered as Administrator and routing revision 1 read back. Functional workflows and non-admin persona acceptance are NOT TESTED. |
+| `codex/sig-personal-home-v16` | Production source configured in Frappe Cloud. | `8b4ebe5` installed on bench `000040`; latest source and installed hashes match. | PR #99 is merged and deployed; site is Active. The SNB Movement Router route rendered as Administrator. Review-only; draft creation and non-admin persona acceptance are NOT TESTED. |
 | `main` | GitHub default; not the v16 build source. | `f32c7ea` | Its sole ahead commit is patch-equivalent to the intake guide/UOM list-view change already represented in production. No unique source patch remains to port from current `main`. |
 | `v16-migration` | Former v16 staging; no longer built. | `5e63f85` | No unique commits ahead of production. |
 
