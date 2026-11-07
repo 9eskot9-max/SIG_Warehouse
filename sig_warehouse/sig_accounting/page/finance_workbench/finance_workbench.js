@@ -47,7 +47,7 @@ frappe.pages['finance-workbench'].on_page_load = function (wrapper) {
     ];
 
     const tawalAndOperations = [
-        {variant: 'navy', title: __('SNB movement router'), iconSvg: '<svg viewBox="0 0 48 48" fill="none" stroke="#386c91" stroke-width="1.7"><path d="M5 16 24 7l19 9M8 20h32M9 38h30M12 20v16M24 20v16M36 20v16"/><path d="m17 28 4 4 9-10"/></svg>', description: __('Review captured SNB movements and save accountant routing decisions.'), roleAny: ['System Manager', 'Accounts User', 'Accounts Manager'], doctype: 'SNB Movement Review', route: ['snb-movement-router']},
+        {variant: 'navy', title: __('Bank movement router'), iconSvg: '<svg viewBox="0 0 48 48" fill="none" stroke="#386c91" stroke-width="1.7"><path d="M5 16 24 7l19 9M8 20h32M9 38h30M12 20v16M24 20v16M36 20v16"/><path d="m17 28 4 4 9-10"/></svg>', description: __('Review SNB and Alinma bank evidence and save accountant routing decisions.'), roleAny: ['System Manager', 'Accounts User', 'Accounts Manager'], doctype: 'SNB Movement Review', route: ['snb-movement-router']},
         {
             variant: 'navy',
             title: __('Tawal customer invoices'), iconSvg: "<svg viewBox=\"0 0 48 48\" fill=\"none\" stroke=\"#386c91\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M13 5h20l7 7v32H13z\" fill=\"#e3efff\"/><path d=\"M33 5v8h7\"/><path d=\"M17 21h14M17 26h14M17 31h11\"/></svg>",

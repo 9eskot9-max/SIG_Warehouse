@@ -19,7 +19,7 @@ def _data(value):
 
 def _require(permission):
     if frappe.session.user == "Guest" or not frappe.has_permission(DOCTYPE, permission):
-        frappe.throw(_("You do not have permission for SNB movement review."), frappe.PermissionError)
+        frappe.throw(_("You do not have permission for bank movement review."), frappe.PermissionError)
 
 
 def _json(value):
@@ -42,7 +42,7 @@ def ingest(items):
     _require("create")
     from sig_warehouse.sig_operations.app_connections import TODOIST_OWNER
     if frappe.session.user != TODOIST_OWNER and "System Manager" not in frappe.get_roles():
-        frappe.throw(_("Only the SNB integration owner may ingest movements."), frappe.PermissionError)
+        frappe.throw(_("Only the configured movement integration owner may ingest movements."), frappe.PermissionError)
     rows = _data(items)
     if not isinstance(rows, list) or not 1 <= len(rows) <= 100:
         frappe.throw(_("Send between 1 and 100 movements per request."))
