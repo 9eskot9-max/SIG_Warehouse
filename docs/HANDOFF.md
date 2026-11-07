@@ -2,15 +2,15 @@
 
 Codex is the active repository agent at the owner’s direction. The owner can change the holder at any moment; Claude is not currently in the rotation.
 
-Codex deployed PR #101 on 7 November 2026, adding Alinma statement evidence to the existing SNB Movement Router. The installed SIG Warehouse revision is `70566a25ec224e83b64757717a8bb7227344d8a6` on bench `bench-51251-000041-f1f`. The shared Bank Movement Router remains review-only: it does not create or post JE/PE drafts. See `docs/SNB_MOVEMENT_ROUTER.md` for remaining work and acceptance gates. Codex remains the active agent; production releases remain owner-controlled.
+Codex deployed PR #104 on 7 November 2026, adding family-shared weekly comments to Field Planner. The installed SIG Warehouse revision is `88faf84585ab7b4aaf09c013160abcdf0978aa6b` on bench `bench-51251-000043-f1f`. A retroactive PR #103 deployment row and the PR #104 release row are in `docs/DEPLOY_LOG.md`. Field Planner API family reads passed as `9eskot9@gmail.com` (ERP Admin/System Manager), but client-side route rendering and fresh Operations persona acceptance remain NOT TESTED. Codex remains the active agent; production releases remain owner-controlled.
 
 | Field | Value |
 |---|---|
 | Baton holder | **Codex** (owner-directed; Claude inactive) |
 | Next holder | **Codex, unless the owner reassigns** |
 | Branch | `codex/sig-personal-home-v16` (production source) |
-| Latest deployed source commit | `70566a25ec224e83b64757717a8bb7227344d8a6` live on `neosys.frappe.cloud`, bench `bench-51251-000041-f1f`; only SIG Warehouse was updated on 7 November 2026. |
-| Open items for the next holder | PR #101 is deployed: the shared Bank Movement Router includes Alinma received-credit and salary-candidate review lanes but does not create JE/PE drafts or post accounting entries. The exact Desk URL returned HTTP 200 HTML; client-side rendering, fresh Accounts User/Accounts Manager workflows, outside-role behavior, Arabic/English rendering and migration-repeatability acceptance remain NOT TESTED. Accounts roles still cannot read Employee, so employee-linked decisions fail closed; do not broaden Employee access without a separate reviewed change. No Alinma movements were ingested. AM snapshot synchronization, verified draft creation/readback, duplicate recovery, account-pairing review, invoice allocation, and route-specific validations remain incomplete. PR #89 People-routing role/profile acceptance remains NOT TESTED. See `docs/SNB_MOVEMENT_ROUTER.md` and the 7 November PR #101 row in `docs/DEPLOY_LOG.md`. |
+| Latest deployed source commit | `88faf84585ab7b4aaf09c013160abcdf0978aa6b` live on `neosys.frappe.cloud`, bench `bench-51251-000043-f1f`; PR #104; only SIG Warehouse was updated on 7 November 2026. |
+| Open items for the next holder | Field Planner family comment API reads pass as the ERP Admin/System Manager API identity; client-side route rendering and fresh-session checks for Projects User, Projects Manager and SIG Field Ops remain NOT TESTED. The existing Page roles and Site Cycle read gate still govern access. PR #101 Bank Movement Router remains review-only and does not create JE/PE drafts; actual Accounts User/Manager workflows, outside-role behavior, Arabic/English rendering, AM snapshot sync, verified draft creation/readback, duplicate recovery, account pairing, invoice allocation and route-specific validation remain open. PR #89 People-routing role/profile acceptance remains NOT TESTED. See `docs/DEPLOY_LOG.md` rows for PR #103 and #104 and `docs/SNB_MOVEMENT_ROUTER.md`. |
 | Waiting on the owner | Weekly PM check per project family (families, recipients and project mapping). Six legacy Payment Entry drafts. 98 draft petty-cash journals. |
 
 ## Rules

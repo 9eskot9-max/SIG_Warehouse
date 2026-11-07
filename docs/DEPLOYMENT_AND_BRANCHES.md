@@ -1,17 +1,17 @@
 # Deployment and branch map
 
-Last verified from Frappe Cloud and GitHub: 7 November 2026, Asia/Riyadh. This is a dated read-back; recheck before every release.
+Last verified from Frappe Cloud and GitHub: 7 November 2026, 23:56 Asia/Riyadh. This is a dated read-back; recheck before every release.
 
 See also: [Deploy log](DEPLOY_LOG.md) for every production action, and [Codex and Claude coordination](CODEX_CLAUDE_COORDINATION.md) for who does what.
 
-## Production snapshot (7 November 2026, 11:46 Asia/Riyadh)
+## Production snapshot (7 November 2026, 23:56 Asia/Riyadh)
 
-- Site: `neosys.frappe.cloud` — Active on `bench-51251-000041-f1f`; bench group `bench-51251` is Active.
-- SIG Warehouse installed revision: `70566a25ec224e83b64757717a8bb7227344d8a6`, merged PR #101. Only SIG Warehouse was built/updated; Frappe, ERPNext and HRMS hashes are unchanged.
-- Pre-release backup `063gk3n9v9` succeeded. Build `ahlt3vvq8j` and Site Update `2rvjflsotm` succeeded; update used backup enabled. Press API confirms site Active on the target bench and installed hash matches.
-- The existing `/desk/sig-accounting/snb-movement-router` URL returned HTTP 200 HTML; its Page metadata reads “Bank Movement Router” and retains Accounts User, Accounts Manager and System Manager roles. Client-side rendering was NOT TESTED because Computer Use could not verify the active browser URL.
-- Alinma received credits and salary-transfer narrative candidates use the shared review API. Other debits remain out of scope. No Alinma item was ingested; the adapter remains preview-first and requires an explicit `--push` for ingestion. No JE/PE drafts or accounting postings are created.
-- Focused before/after access snapshots found no Page-role or effective DocType-permission changes. Accounts roles still cannot read Employee; employee-linked decisions remain fail-closed. Fresh Finance persona, linked-record workflow, Arabic/English rendering and migration-repeatability checks are NOT TESTED. No business records changed.
+- Site: `neosys.frappe.cloud` — Active on `bench-51251-000043-f1f`; bench group `bench-51251` is Active.
+- SIG Warehouse installed revision: `88faf84585ab7b4aaf09c013160abcdf0978aa6b`, merged PR #104. Only SIG Warehouse was built/updated; Frappe, ERPNext and HRMS were left unchanged.
+- Pre-release backup `crrs762ot0`, build `bt9oh5qltj`, and Site Update `37mjr9uvku` succeeded. Press API confirms the site is Active on the target bench and the installed hash matches.
+- Field Planner now provides shared weekly comments for Capex, Incident and 5G / Colocation. A new DocType remains directly readable/reportable only by System Manager; the endpoint uses the existing Planner role and Site Cycle read gate. No existing Page roles or DocType matrices changed.
+- Extended permission snapshot diff has one expected removal (the “missing” marker for the new DocType) and the declared new DocType read/report and field entries. API reads of all three family scopes passed as `9eskot9@gmail.com` (ERP Admin/System Manager). Client-side Desk route rendering and fresh-session Operations persona checks remain NOT TESTED; the GPT-owned browser could not open the Cloud dashboard during this run.
+- The prior PR #103 deployment is now recorded retroactively in `docs/DEPLOY_LOG.md`; its OpenAI suggestion and warehouse persona checks remain NOT TESTED.
 
 The 04:34 snapshot below records the pre-Alinma SNB router deployment and is retained as historical evidence.
 
