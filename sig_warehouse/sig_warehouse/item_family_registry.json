@@ -1032,6 +1032,119 @@
       "TOL",
       "T-TOL",
       ""
+    ],
+    [
+      "C",
+      "CW",
+      "Miscellaneous civil components",
+      "CMP",
+      "C-CMP",
+      ""
+    ],
+    [
+      "M",
+      "",
+      "Miscellaneous mechanical components",
+      "CMP",
+      "M-CMP",
+      ""
+    ],
+    [
+      "E",
+      "",
+      "Switches",
+      "SW",
+      "E-SW",
+      ""
+    ],
+    [
+      "E",
+      "",
+      "Electrical outlets and receptacles",
+      "RCP",
+      "E-RCP",
+      ""
+    ],
+    [
+      "E",
+      "",
+      "Relays and relay accessories",
+      "RLY",
+      "E-RLY",
+      ""
+    ],
+    [
+      "E",
+      "",
+      "Cable glands",
+      "GLND",
+      "E-GLND",
+      ""
+    ],
+    [
+      "E",
+      "",
+      "Generator sets",
+      "GEN",
+      "E-GEN",
+      ""
+    ],
+    [
+      "E",
+      "",
+      "Generator controllers",
+      "GCTRL",
+      "E-GCTRL",
+      ""
+    ],
+    [
+      "E",
+      "",
+      "Electrical cable joints and termination",
+      "JNT",
+      "E-JNT",
+      ""
+    ],
+    [
+      "M",
+      "",
+      "Valves",
+      "VAL",
+      "M-VAL",
+      ""
+    ],
+    [
+      "C",
+      "CW",
+      "Fences gates and posts",
+      "FNC",
+      "C-FNC",
+      ""
+    ],
+    [
+      "C",
+      "CW",
+      "Shelters and enclosures",
+      "SHL",
+      "C-SHL",
+      ""
+    ],
+    [
+      "C",
+      "CW",
+      "Safety rails and fall protection",
+      "RAIL",
+      "C-RAIL",
+      ""
+    ],
+    [
+      "C",
+      "CW",
+      "Tower structures and components",
+      "TWR",
+      "C-TWR",
+      ""
     ]
-  ]
+  ],
+  "update_note": "Catalogue-informed additions for future items; v57 keys retained for compatibility. Domain CMP families are fallbacks."
 }
