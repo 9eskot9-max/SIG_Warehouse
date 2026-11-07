@@ -26,6 +26,11 @@ def api(monkeypatch):
     planner._require_access = lambda: None
     planner._riyadh_now = lambda: datetime(2026, 11, 8, 19, 0)
     monkeypatch.setitem(sys.modules, planner.__name__, planner)
+    family = types.ModuleType("sig_warehouse.sig_warehouse.project_family")
+    family.DISPLAY_LABELS = {"Capex": "Capex", "Incident": "Incident", "Colocation": "5G / Colocation"}
+    family.normalize_family = lambda value: {"Capex": "Capex", "Incident": "Incident", "Colocation": "Colocation",
+                                             "5G / Colocation": "Colocation"}.get(value, "")
+    monkeypatch.setitem(sys.modules, family.__name__, family)
     path = Path(__file__).parents[1] / "sig_operations" / "planner_weekly_comments.py"
     spec = importlib.util.spec_from_file_location("planner_comments_under_test", path)
     module = importlib.util.module_from_spec(spec)
@@ -107,3 +112,61 @@ def test_save_is_scoped_to_employee_and_rejects_stale_write(api):
     assert second["comments"]["last_week"] == "Updated"
     api.frappe.session.user = "other@example.com"
     assert api.get_comments()["comments"]["last_week"] == ""
+
+
+def test_family_comments_use_authoritative_families_without_employee_lookup(api):
+    api.frappe.get_list = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("Employee lookup is not required"))
+    result = api.get_family_comments()
+    assert result["family"] == "Capex"
+    assert result["families"] == [
+        {"value": "Capex", "label": "Capex"},
+        {"value": "Incident", "label": "Incident"},
+        {"value": "Colocation", "label": "5G / Colocation"},
+    ]
+    assert result["comments"] == {"last_week": "", "this_week": "", "erp_plan": ""}
+    assert result["period_start"] == "2026-11-08"
+
+
+def test_family_comments_reject_unconfigured_family(api):
+    with pytest.raises(ValueError, match="configured project families"):
+        api.get_family_comments("Other")
+
+
+def test_family_comments_reject_stale_period_and_oversized_text(api):
+    with pytest.raises(ValueError, match="period has changed"):
+        api.save_family_comments("Capex", "2026-11-01", last_week="old")
+    with pytest.raises(ValueError, match="4,000"):
+        api.save_family_comments("Capex", "2026-11-08", last_week="x" * 4001)
+
+
+def test_family_comments_are_shared_per_family_and_reject_stale_write(api):
+    records = {}
+
+    class Doc:
+        def __init__(self, values):
+            self.__dict__.update(values)
+            self.modified = ""
+
+        def get(self, key):
+            return getattr(self, key, "")
+
+        def update(self, values):
+            self.__dict__.update(values)
+
+        def save(self, ignore_permissions=False):
+            assert ignore_permissions
+            self.modified = str(int(self.modified or 0) + 1)
+            records[self.entry_key] = self
+
+    api.frappe.db.exists = lambda doctype, name: name in records
+    api.frappe.get_doc = lambda doctype, name=None: Doc(doctype) if isinstance(doctype, dict) else records[name]
+    api.frappe.cache = lambda: types.SimpleNamespace(lock=lambda *args, **kwargs: nullcontext())
+    first = api.save_family_comments("5G / Colocation", "2026-11-08", last_week="Shared update")
+    assert first["family"] == "Colocation"
+    assert first["family_label"] == "5G / Colocation"
+    assert first["comments"]["last_week"] == "Shared update"
+    assert api.get_family_comments("Capex")["comments"]["last_week"] == ""
+    with pytest.raises(ValueError, match="another session"):
+        api.save_family_comments("Colocation", "2026-11-08", last_week="stale")
+    second = api.save_family_comments("Colocation", "2026-11-08", last_week="Revised", modified=first["modified"])
+    assert second["comments"]["last_week"] == "Revised"

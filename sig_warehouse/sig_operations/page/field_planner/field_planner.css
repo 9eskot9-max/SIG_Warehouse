@@ -191,11 +191,18 @@
 @media(max-width:460px){.sig-planner-metrics{gap:6px}.sig-planner-card{min-height:60px;padding:7px}.sig-planner-live-map-controls button{padding:6px 8px;font-size:11px}.sig-planner-leaflet,.sig-planner-svg{height:54vh;min-height:390px}.sig-planner-shell th,.sig-planner-shell td{padding:10px}}
 .sig-planner-weekly-comments { margin: 12px 0; padding: 16px; background: var(--card-bg, #fff); border: 1px solid var(--border-color, #d7dce0); border-radius: 10px; }
 .sig-planner-weekly-heading h2 { margin: 0 0 4px; font-size: 18px; }
+.sig-planner-weekly-title { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.sig-planner-weekly-title label { display: flex; align-items: center; gap: 8px; color: var(--text-muted, #65717b); font-size: 13px; font-weight: 600; }
+.sig-planner-weekly-title select { min-width: 170px; padding: 7px 10px; border: 1px solid var(--border-color, #c8d0d8); border-radius: 7px; background: var(--control-bg, #fff); color: var(--text-color, #20262c); font-weight: 600; }
 .sig-planner-weekly-heading p { margin: 0 0 12px; color: var(--text-muted, #65717b); }
 .sig-planner-weekly-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .sig-planner-weekly-fields label { display: flex; flex-direction: column; gap: 6px; font-weight: 600; }
 .sig-planner-weekly-fields textarea { width: 100%; min-height: 84px; resize: vertical; border: 1px solid var(--border-color, #d7dce0); border-radius: 6px; padding: 8px; background: var(--control-bg, #f5f6f7); color: var(--text-color, #20262c); font-weight: 400; }
 .sig-planner-weekly-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
 .sig-planner-weekly-actions span { color: var(--text-muted, #65717b); }
+.sig-planner-weekly-save { display: inline-flex; align-items: center; gap: 8px; min-height: 38px; padding: 8px 14px; border: 1px solid #176b52; border-radius: 8px; background: #197a5d; color: #fff; font-weight: 700; box-shadow: 0 2px 5px rgba(20, 75, 58, .18); transition: background .15s ease, box-shadow .15s ease, transform .15s ease; }
+.sig-planner-weekly-save:hover:not(:disabled) { background: #12664d; box-shadow: 0 4px 9px rgba(20, 75, 58, .24); transform: translateY(-1px); }
+.sig-planner-weekly-save:disabled { cursor: wait; opacity: .65; }
+.sig-planner-weekly-save-icon { display: inline-grid; width: 19px; height: 19px; place-items: center; border-radius: 50%; background: rgba(255, 255, 255, .2); font-size: 13px; }
 .sig-planner-weekly-history { margin-top: 12px; }
 @media (max-width: 800px) { .sig-planner-weekly-fields { grid-template-columns: 1fr; } }

@@ -1,0 +1,20 @@
+{
+ "doctype": "DocType",
+ "name": "SIG Planner Family Weekly Comment",
+ "module": "SIG Operations",
+ "custom": 0,
+ "autoname": "field:entry_key",
+ "track_changes": 1,
+ "field_order": ["entry_key", "family", "period_start", "last_week", "this_week", "erp_plan"],
+ "fields": [
+  {"fieldname": "entry_key", "fieldtype": "Data", "label": "Entry Key", "reqd": 1, "unique": 1, "read_only": 1},
+  {"fieldname": "family", "fieldtype": "Data", "label": "Project Family", "reqd": 1, "read_only": 1},
+  {"fieldname": "period_start", "fieldtype": "Date", "label": "Period Starts", "reqd": 1, "read_only": 1},
+  {"fieldname": "last_week", "fieldtype": "Long Text", "label": "Last Week Summary"},
+  {"fieldname": "this_week", "fieldtype": "Long Text", "label": "This Week Plan"},
+  {"fieldname": "erp_plan", "fieldtype": "Long Text", "label": "Comment on ERP Plan"}
+ ],
+ "permissions": [{"role": "System Manager", "read": 1, "report": 1}],
+ "sort_field": "period_start",
+ "sort_order": "DESC"
+}
