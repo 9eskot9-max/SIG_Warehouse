@@ -2,7 +2,7 @@
 
 Codex is the active repository agent at the owner’s direction. The owner can change the holder at any moment; Claude is not currently in the rotation.
 
-Codex is preparing the SNB movement router on an isolated topic branch; production releases remain owner-controlled.
+Codex has prepared the initial SNB movement router on `codex/snb-movement-router`. It saves accountant decisions but does not yet create or post JE/PE drafts; see `docs/SNB_MOVEMENT_ROUTER.md` for remaining work and acceptance gates. Codex remains the active agent; production releases remain owner-controlled.
 
 | Field | Value |
 |---|---|
