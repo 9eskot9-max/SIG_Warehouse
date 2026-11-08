@@ -60,5 +60,6 @@ sig_warehouse.sig_warehouse.patches.v1_0.add_pm_weekly_settings
 sig_warehouse.sig_warehouse.patches.v1_0.default_wh_catalogue_for_new_items
 sig_warehouse.sig_warehouse.patches.v1_0.refine_item_family_suggestion_prompt
 sig_warehouse.sig_warehouse.patches.v1_0.restrict_legacy_import_and_site_box
+sig_warehouse.sig_warehouse.patches.v1_0.enable_snb_router_supplier_po_read
 sig_warehouse.sig_warehouse.patches.v1_0.advanced_cleanup_v1
 sig_warehouse.sig_warehouse.patches.v1_0.repair_obed_routing_identity
