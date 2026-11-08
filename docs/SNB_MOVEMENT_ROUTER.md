@@ -6,6 +6,12 @@ The existing `/desk/sig-accounting/snb-movement-router` page is bank-neutral whi
 
 The ERP intake is idempotent by the source-scoped recognition row ID. Repeating identical source evidence keeps prior accountant decisions; differing source evidence for the same identity is surfaced as a conflict instead of being silently overwritten. The page separates banks and the existing Receipts, Payments, Own Accounts, Other and Deferred lanes. A review decision is stored in ERP with the user, time and previous decision. The form uses optimistic concurrency; stale edits must be reloaded.
 
+## Supplier-reference release read-back — 8 November 2026
+
+PR #107 is deployed on Active site `neosys.frappe.cloud`, bench `bench-51251-000044-f1f`, SIG Warehouse `15e19ad9dcb78dfa84561bd7ccb9e519e7477434`. The scoped build `cjttcdn4t5`, pre-release backup `5ijcqqru0c`, and Site Update `cpv4g6kcho` succeeded. The router route rendered in an authenticated ERP session after the update.
+
+The live permission snapshot has zero removals and the expected Purchase Order read-only additions for Accounts User and Accounts Manager. The snapshot also records the three new review-reference fields. Fresh Finance-role PO/PI selection, linked-record permission behavior, Arabic/English rendering and migration repeatability remain **NOT TESTED** per owner direction. The feature remains review-only: it does not create, submit or reconcile Payment Entries. Snapshot evidence is local at `ERPNext/backups/permission_release_snb_po_linking_20261108/`.
+
 For outgoing supplier movements, the review page can now list permission-visible submitted Purchase Orders and open Purchase Invoices matching the selected Supplier, Company, and bank currency. Purchase Orders are labeled as advance references; Purchase Invoices use a reviewer-entered amount bounded by current outstanding. The optional selection is stored in the review record and audit history. If TX Manager supplied an allocation in the matched transfer request, the router displays it as a suggestion pending accountant confirmation. No selection means unallocated. Purchase Receipt is not offered. This is a review link only: the router still does not create or submit Payment Entries, and selection is never proof of settlement.
 
 ## Scope and boundaries
@@ -37,7 +43,7 @@ Baseline source: production `DEPLOYMENT_AND_BRANCHES.md` (7 November 2026) and t
 | `SNB Movement Review Event` child rows | Inherits its parent workflow; no independent role rows | No change | NOT TESTED |
 | Finance Workbench navigation card | Same three `roleAny` roles and same existing Page route | Relabel card to Bank Movement Router | NOT TESTED from normal menu |
 | Customer, Purchase Invoice, Supplier, Employee, Company, Account and Currency links | Existing effective access only | No change; edits still require normal read checks for selected links | NOT TESTED for Accounts User/Manager |
-| Purchase Order | Accounts User and Accounts Manager did not have read access in the live baseline | Add read only at permlevel 0 for both roles; preserve all existing roles and ptypes through an exact-baseline migration | NOT TESTED after migration |
+| Purchase Order | Accounts User and Accounts Manager did not have read access in the live baseline | Add read only at permlevel 0 for both roles; preserve all existing roles and ptypes through an exact-baseline migration | Live snapshot PASS; Finance lookup workflow NOT TESTED |
 | Purchase Order Item and Purchase Invoice Item | Existing linked child DocTypes | No permission change | NOT TESTED |
 | Reports and Workspaces | None added or changed | None | No change |
 | Movement integration identity | Configured integration owner or System Manager may ingest; ordinary callers denied | Same gate for Alinma queue | NOT TESTED against live identities |
