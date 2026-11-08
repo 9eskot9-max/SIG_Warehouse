@@ -132,9 +132,6 @@ def _configured_project_rows(datasets, allow_conflicts=False):
             frappe.throw("Project family fields disagree for " + project.name + "; reconcile before syncing RV80")
         family = family_state["family"] or (family_state["values"][0]["value"] if family_state["values"] else str(setup_row.get("family") or "").strip())
         assignment_state = _assignment_default_state(project.name, project.custom_default_tawal_contact)
-        if assignment_state["needs_reconciliation"] and not allow_conflicts:
-            frappe.throw("Project default and active TAWAL assignment disagree for " + project.name + "; reconcile them before syncing")
-        explicit_contact = assignment_state["default_contact"]
         family_default = _family_default(datasets, family_state["family"])
         project_rule = _project_contact_rule(datasets, project.name)
         if project_rule:
@@ -149,9 +146,6 @@ def _configured_project_rows(datasets, allow_conflicts=False):
                 contact_source = "family default" if family_default else "unconfigured"
                 contact_from = family_default.get("effective_from", "") if family_default else ""
                 contact_to = family_default.get("effective_to", "") if family_default else ""
-        elif explicit_contact:
-            effective_contact, contact_source = explicit_contact, "PO exception"
-            contact_from, contact_to = "", ""
         else:
             effective_contact = family_default.get("tawal_contact") if family_default else ""
             contact_source = "family default" if family_default else "unconfigured"
@@ -347,60 +341,11 @@ def save_po_setup(rows, base_revision, base_hash):
         if contact and contact not in directory and contact != expected[project]["default_contact"]:
             frappe.throw("Select an active TAWAL contact for " + project)
 
-    current_projects = {row["project"]: row for row in current["projects"]}
     for project, row in supplied.items():
-        before = current_projects[project]
-        if (before.get("contact_rule_mode") or before.get("contact_source") == "family default") and before["default_contact"] != row["default_contact"]:
-            frappe.throw("This PO uses a family or dated TAWAL rule. Change its inherit, exception or cleared rule in setup; the legacy PO contact editor cannot safely change it.")
-        if before.get("needs_reconciliation") and not row["resolve_conflict"]:
-            if before["default_contact"] != row["default_contact"]:
-                frappe.throw("Confirm the PM reconciliation for " + project + " before saving.")
-            if before["csv_alias"] != row["csv_alias"]:
-                frappe.db.set_value("Project", project, {"custom_excel_csv_alias": row["csv_alias"]})
-            continue
-        assignment_state_changed = (
-            (before.get("needs_reconciliation") and row["resolve_conflict"])
-            or before["default_contact"] != row["default_contact"]
-        )
-        if not assignment_state_changed:
-            project_values = {}
-            if before["csv_alias"] != row["csv_alias"]:
-                project_values["custom_excel_csv_alias"] = row["csv_alias"]
-            if project_values:
-                frappe.db.set_value("Project", project, project_values)
-            continue  # Alias-only/unchanged saves must not rewrite native assignments.
-        assignments = frappe.get_all("SIG Project PM Assignment", filters={"project": project},
-                                     fields=["name", "tawal_contact", "active", "is_default"],
-                                     limit_page_length=1000)
-        selected_assignment = None
-        if row["default_contact"]:
-            selected_assignment = next((item for item in assignments
-                                        if item.tawal_contact == row["default_contact"]), None)
-        # Clear the old default before inserting/updating its replacement. The
-        # SIG Project PM Assignment validator rejects a second active default.
-        for assignment in assignments:
-            if int(assignment.is_default or 0) and not (selected_assignment and assignment.name == selected_assignment.name):
-                frappe.db.set_value("SIG Project PM Assignment", assignment.name, {"is_default": 0})
-        if row["default_contact"] and not selected_assignment:
-            frappe.get_doc({
-                "doctype": "SIG Project PM Assignment", "project": project,
-                "tawal_contact": row["default_contact"], "active": 1,
-                "is_default": 1, "source": "Excel Setup",
-            }).insert(ignore_permissions=True)
-        elif selected_assignment:
-            values = {}
-            if int(getattr(selected_assignment, "active", 0) or 0) != 1:
-                values["active"] = 1
-            if int(getattr(selected_assignment, "is_default", 0) or 0) != 1:
-                values["is_default"] = 1
-            if values:
-                frappe.db.set_value("SIG Project PM Assignment", selected_assignment.name, values)
-
-        project_values = {}
-        if before["csv_alias"] != row["csv_alias"]:
-            project_values["custom_excel_csv_alias"] = row["csv_alias"]
-        if before["default_contact"] != row["default_contact"] or before.get("needs_reconciliation"):
-            project_values["custom_default_tawal_contact"] = row["default_contact"] or None
-        if project_values:
-            frappe.db.set_value("Project", project, project_values)
+        before = expected[project]
+        if before["default_contact"] != row["default_contact"] or row["resolve_conflict"]:
+            frappe.throw("Change TAWAL PMs using family defaults or dated PO rules; this editor only saves CSV labels.")
+    for project, row in supplied.items():
+        if expected[project]["csv_alias"] != row["csv_alias"]:
+            frappe.db.set_value("Project", project, {"custom_excel_csv_alias": row["csv_alias"]})
     return {"result": "saved", **_po_setup_state(datasets, allow_conflicts=True)}

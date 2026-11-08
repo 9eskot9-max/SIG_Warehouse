@@ -153,47 +153,6 @@ def test_unrelated_save_preserves_inactive_default_and_assignments(alias):
     assert writes == ([('Project', 'P', {'custom_excel_csv_alias': alias})] if alias else [])
 
 
-def test_replacing_default_clears_old_assignment_before_inserting_new_one():
-    assignments = [SimpleNamespace(name='OLD-ASSIGNMENT', tawal_contact='OLD', active=1, is_default=1)]
-    events = []
-
-    def set_value(doctype, name, values):
-        events.append(('set', doctype, name, dict(values)))
-        if doctype == 'SIG Project PM Assignment':
-            row = next(item for item in assignments if item.name == name)
-            for field, value in values.items():
-                setattr(row, field, value)
-
-    class FakeDoc:
-        def __init__(self, values):
-            self.values = values
-
-        def insert(self, ignore_permissions=False):
-            assert not any(item.active and item.is_default for item in assignments)
-            events.append(('insert', self.values['tawal_contact']))
-            assignments.append(SimpleNamespace(name='NEW-ASSIGNMENT', **self.values))
-
-    fake = SimpleNamespace(
-        db=SimpleNamespace(set_value=set_value),
-        get_all=lambda *a, **k: assignments,
-        get_doc=lambda values: FakeDoc(values),
-        throw=lambda message: (_ for _ in ()).throw(ValueError(message)),
-    )
-    namespace = setup_functions(fake)
-    state = {'projects': [{'project': 'P', 'csv_alias': '', 'default_contact': 'PROJECT',
-                           'needs_reconciliation': True}],
-             'contacts': [{'id': 'NEW', 'active': True}], 'hash': 'HASH'}
-    namespace.update(_require=lambda **k: None, _state=lambda **k: (SimpleNamespace(revision=8), {}),
-                     _validated_v3=lambda d, w: d, _po_setup_state=lambda d, allow_conflicts=True: state)
-
-    namespace['save_po_setup']([{'project': 'P', 'csv_alias': '', 'default_contact': 'NEW', 'resolve_conflict': True}], 8, 'HASH')
-
-    assert events[0] == ('set', 'SIG Project PM Assignment', 'OLD-ASSIGNMENT', {'is_default': 0})
-    assert events[1] == ('insert', 'NEW')
-    assert events[2] == ('set', 'Project', 'P', {'custom_default_tawal_contact': 'NEW'})
-    assert sum(bool(item.active and item.is_default) for item in assignments) == 1
-
-
 def test_unconfirmed_conflict_is_not_reconciled_by_unrelated_save():
     writes = []
     fake = SimpleNamespace(db=SimpleNamespace(set_value=lambda *a: writes.append(a)),
@@ -205,5 +164,5 @@ def test_unconfirmed_conflict_is_not_reconciled_by_unrelated_save():
                      _validated_v3=lambda d, w: d, _po_setup_state=lambda d, allow_conflicts=True: state)
     namespace['save_po_setup']([{'project': 'P', 'csv_alias': '', 'default_contact': 'PROJECT'}], 8, 'HASH')
     assert writes == []
-    with pytest.raises(ValueError, match='Confirm the PM reconciliation'):
+    with pytest.raises(ValueError, match='family defaults or dated PO rules'):
         namespace['save_po_setup']([{'project': 'P', 'csv_alias': '', 'default_contact': 'OTHER'}], 8, 'HASH')
