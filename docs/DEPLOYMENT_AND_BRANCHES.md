@@ -1,10 +1,19 @@
 # Deployment and branch map
 
-Last verified from Frappe Cloud and GitHub: 8 November 2026, 09:35 Asia/Riyadh. This is a dated read-back; recheck before every release.
+Last verified from Frappe Cloud and GitHub: 8 November 2026, 15:55 Asia/Riyadh. This is a dated read-back; recheck before every release.
 
 See also: [Deploy log](DEPLOY_LOG.md) for every production action, and [Codex and Claude coordination](CODEX_CLAUDE_COORDINATION.md) for who does what.
 
-## Production snapshot (8 November 2026, 09:35 Asia/Riyadh)
+## Production snapshot (8 November 2026, 15:55 Asia/Riyadh)
+
+- Site: `neosys.frappe.cloud` — Active on `bench-51251-000045-f1f`; bench group `bench-51251` is Active.
+- SIG Warehouse installed revision: `35d8747e753dfbaaae1d380243b01df0e8e6b74b`, merged PR #109. Only SIG Warehouse was selected for the build and update; Frappe, ERPNext and HRMS were unchanged.
+- Pre-release onsite backup succeeded at 15:17 (Cloud UI did not expose a backup ID). Scoped build pipeline `3gpbleqfj5` succeeded; site Pull succeeded at 15:52; in-place migration `8qpttdf28r` succeeded in 27 seconds with failing-patch skip disabled.
+- The TAWAL resolver now uses the active Project-family default unless a dated PO rule overrides or clears it. Live Excel Setup read-back shows Omar Abbad as the 5G / Colocation family default effective 5 November and an empty PO TAWAL PM rules table. The previous Muhannad value came from legacy Project/assignment contact data; it was incorrectly labelled as a PO exception despite no dated PO rule.
+- Captured permission snapshot diff: 0 removals and 0 additions. `/desk/sig-operations/excel-setup` rendered in the authenticated Administrator session. Actual non-admin persona acceptance, migration repeatability and the active RV80 workbook import/compile remain NOT TESTED.
+- No ERP business records were created or changed. Local permission evidence is in `ERPNext/backups/permission_release_tcn_family_contact_20261108/`.
+
+## Historical production snapshot (8 November 2026, 09:35 Asia/Riyadh)
 
 - Site: `neosys.frappe.cloud` — Active on `bench-51251-000044-f1f`; bench group `bench-51251` is Active.
 - SIG Warehouse installed revision: `15e19ad9dcb78dfa84561bd7ccb9e519e7477434`, merged PR #107. Only SIG Warehouse changed from the preceding active bench; Frappe, ERPNext and HRMS stayed unchanged.
@@ -52,7 +61,7 @@ The 4 November snapshot below is retained as historical release evidence.
 
 | Branch | Role today | Relevant revision | Live on production? |
 |---|---|---|---|
-| `codex/sig-personal-home-v16` | Production source configured in Frappe Cloud. | `15e19ad` installed on bench `000044`; latest application change is PR #107. | PR #107 is merged and deployed; site is Active. The shared Bank Movement Router renders and supports supplier PO/PI references for review. Finance persona, linked-record selection and accounting draft workflow remain NOT TESTED. Review-only; no draft creation or posting. |
+| `codex/sig-personal-home-v16` | Production source configured in Frappe Cloud. | `35d8747` installed on bench `000045`; latest application change is PR #109. | PR #109 is merged and deployed; site is Active. The TCN TAWAL resolver uses Project-family defaults with dated PO rules as exceptions. Excel Setup confirms Omar Abbad for 5G / Colocation and no configured PO rule rows. The route rendered as Administrator; actual non-admin persona and RV80 workbook import/compile remain NOT TESTED. |
 | `main` | GitHub default; not the v16 build source. | `f32c7ea` | Its sole ahead commit is patch-equivalent to the intake guide/UOM list-view change already represented in production. No unique source patch remains to port from current `main`. |
 | `v16-migration` | Former v16 staging; no longer built. | `5e63f85` | No unique commits ahead of production. |
 
