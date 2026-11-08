@@ -1,10 +1,19 @@
 # Deployment and branch map
 
-Last verified from Frappe Cloud and GitHub: 7 November 2026, 23:56 Asia/Riyadh. This is a dated read-back; recheck before every release.
+Last verified from Frappe Cloud and GitHub: 8 November 2026, 09:35 Asia/Riyadh. This is a dated read-back; recheck before every release.
 
 See also: [Deploy log](DEPLOY_LOG.md) for every production action, and [Codex and Claude coordination](CODEX_CLAUDE_COORDINATION.md) for who does what.
 
-## Production snapshot (7 November 2026, 23:56 Asia/Riyadh)
+## Production snapshot (8 November 2026, 09:35 Asia/Riyadh)
+
+- Site: `neosys.frappe.cloud` — Active on `bench-51251-000044-f1f`; bench group `bench-51251` is Active.
+- SIG Warehouse installed revision: `15e19ad9dcb78dfa84561bd7ccb9e519e7477434`, merged PR #107. Only SIG Warehouse changed from the preceding active bench; Frappe, ERPNext and HRMS stayed unchanged.
+- Pre-release backup `5ijcqqru0c`, scoped build `cjttcdn4t5`, and Site Update `cpv4g6kcho` succeeded. Installed-app read-back matches the full target hash.
+- The SNB Movement Router now supports optional Purchase Order advance references and Purchase Invoice allocations for supplier payments. TX Manager can carry a selected reference through Am and the existing importer path. The review remains separate from Payment Entry creation and submission.
+- Permission snapshot diff: 0 removals and 7 expected additions (Accounts User/Manager read-only Purchase Order permissions and the three review-reference fields). The router route rendered in an authenticated ERP session. Finance-role workflow, linked-document selection and migration-repeatability acceptance remain NOT TESTED per owner direction; see `docs/SNB_MOVEMENT_ROUTER.md` and the local snapshot evidence.
+- TX Manager is running locally at `http://127.0.0.1:4317`; its outbox was empty at launch. No bank transfer or ERP business record was created.
+
+## Previous production snapshot (7 November 2026, 23:56 Asia/Riyadh)
 
 - Site: `neosys.frappe.cloud` — Active on `bench-51251-000043-f1f`; bench group `bench-51251` is Active.
 - SIG Warehouse installed revision: `88faf84585ab7b4aaf09c013160abcdf0978aa6b`, merged PR #104. Only SIG Warehouse was built/updated; Frappe, ERPNext and HRMS were left unchanged.
@@ -39,11 +48,11 @@ The 4 November snapshot below is retained as historical release evidence.
 - SIG WhatsApp, live: `v16-migration` at `9bfd1bd`. SIG QR Design, live: `v16-migration` at `39ecff6`.
 - Trial: the site `neosys-v16-trial.frappe.cloud` has left the Frappe Cloud site list. Its bench `bench-51214-000014-f28f3` is still Active with no sites. Removal awaits owner confirmation.
 
-## Branch map (SIG Warehouse, GitHub `9eskot9-max/SIG_Warehouse`), checked 7 November 2026
+## Branch map (SIG Warehouse, GitHub `9eskot9-max/SIG_Warehouse`), checked 8 November 2026
 
 | Branch | Role today | Relevant revision | Live on production? |
 |---|---|---|---|
-| `codex/sig-personal-home-v16` | Production source configured in Frappe Cloud. | `70566a2` installed on bench `000041`; a later documentation-only commit may advance branch HEAD without changing the installed app hash. | PR #101 is merged and deployed; site is Active. The shared Bank Movement Router serves both banks. HTTP route check passed; client-side render, Finance persona and linked-record workflow are NOT TESTED. Review-only; no draft creation or accounting posting. |
+| `codex/sig-personal-home-v16` | Production source configured in Frappe Cloud. | `15e19ad` installed on bench `000044`; latest application change is PR #107. | PR #107 is merged and deployed; site is Active. The shared Bank Movement Router renders and supports supplier PO/PI references for review. Finance persona, linked-record selection and accounting draft workflow remain NOT TESTED. Review-only; no draft creation or posting. |
 | `main` | GitHub default; not the v16 build source. | `f32c7ea` | Its sole ahead commit is patch-equivalent to the intake guide/UOM list-view change already represented in production. No unique source patch remains to port from current `main`. |
 | `v16-migration` | Former v16 staging; no longer built. | `5e63f85` | No unique commits ahead of production. |
 
