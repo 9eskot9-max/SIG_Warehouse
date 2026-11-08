@@ -16,7 +16,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
     // storage and workbook contracts stay stable so this is a safe UI-only
     // reorganization rather than a second configuration model.
     const setupGroups = [
-        {key: 'projects', label: __('Projects and client coordination'), description: __('Choose the canonical ERP Project for a PO. The Project family drives workbook template selection; the client TAWAL PM can use a family default with a PO-specific rule. An existing explicit PO contact remains the fallback before a family default.'), datasets: ['projects', 'family_tawal_defaults', 'project_tawal_rules']},
+        {key: 'projects', label: __('Projects and client coordination'), description: __('Choose the canonical ERP Project for a PO. The Project family drives workbook template selection; the client TAWAL PM can use a family default with a PO-specific rule. Only an explicit PO rule overrides the family default.'), datasets: ['projects', 'family_tawal_defaults', 'project_tawal_rules']},
         {key: 'mapping', label: __('WhatsApp Tags and workbook mappings'), description: __('WhatsApp Tags are normalized and linked to UPL values for the workbooks. The UPL catalogue and detailed Mapping Master remain maintained in Excel; this page stores the reusable ERP-side rules.'), datasets: ['tag_definitions', 'tag_upl_links', 'material_upl_links']},
         {key: 'tcn', label: __('TCN generation rules'), description: __('These are wording defaults consumed by RV80 TCN generation. PO family selects the existing Sync MOP template in the workbook; this page does not define MOP templates or CSV processing.'), datasets: ['builder_defaults']},
         {key: 'delivery', label: __('Field crews and Project teams'), description: __('Operations family teams share cycle work; Project exceptions replace the family team for that Project. Planner assigns eligible sites to teams in the selected DC or Incident mode. Evidence and cycle closure keep their existing workflow.'), datasets: ['ops_team_members', 'operational_teams', 'team_memberships', 'people:project_assignments']},
@@ -425,9 +425,9 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
                 (row.needs_reconciliation ? '<div class="es-po-conflict" style="margin-top:8px;padding:8px 10px;border-inline-start:3px solid #e0a100;background:var(--alert-bg,#fff8e1);font-size:12px;line-height:1.45"><strong>' + esc(__('PM mismatch')) +
                     '</strong><br>' + esc(__('Project: ')) + esc(contactName(row.project_default_contact)) +
                     '<br>' + esc(__('Active assignment: ')) + esc(contactName(row.assignment_default_contact)) +
-                    '<br><label><input type="checkbox" data-field="resolve_conflict"> ' + esc(__('Confirm the selected PM to align both records')) + '</label></div>' : '') + '</td>' +
+                    '<br>' + esc(__('Legacy records differ; they do not determine the TCN PM.')) + '</div>' : '') + '</td>' +
                 '<td><input class="form-control" data-field="csv_alias" maxlength="140" value="' + esc(row.csv_alias) + '"></td>' +
-                '<td><select class="form-control" data-field="default_contact"><option value="">' + esc(__('No default')) + '</option>' +
+                '<td><select class="form-control" data-field="default_contact" disabled><option value="">' + esc(__('No default')) + '</option>' +
                 (row.default_contact && !contacts.some(contact => contact.id === row.default_contact) ?
                     '<option value="' + esc(row.default_contact) + '" selected>' + esc(__('Inactive or unavailable default')) + ' · ' + esc(row.default_contact) + '</option>' : '') +
                 contacts.map(contact => '<option value="' + esc(contact.id) + '" ' +
@@ -442,7 +442,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
                 '<button type="button" class="btn btn-default btn-sm es-manage-contacts">' +
                 esc(__('Manage TAWAL contact directory')) + '</button>' +
                 '<p class="text-muted small" style="margin-top:8px">' +
-            esc(__('The ERP contact serial is the stable choice key. Contacts can be reused on any PO. This sets the existing PO-level default, which takes precedence over a family default; dated PO rules can explicitly override both.')) + '</p>');
+            esc(__('TCN uses the family TAWAL PM unless a dated PO rule sets an exception or clears it. Edit those settings in Projects and client coordination. This dialog saves CSV labels only; legacy Project contacts remain unchanged.')) + '</p>');
             dialog.fields_dict.settings.$wrapper.find('.es-manage-contacts').on('click', () => {
                 dialog.hide();
                 frappe.set_route('List', 'SIG TAWAL Contact');
