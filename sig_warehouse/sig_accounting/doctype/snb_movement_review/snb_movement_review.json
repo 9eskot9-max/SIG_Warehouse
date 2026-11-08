@@ -1,6 +1,6 @@
 {
  "doctype":"DocType", "name":"SNB Movement Review", "module":"SIG Accounting", "autoname":"field:source_hash", "track_changes":1,
- "field_order":["source_hash","source_key","event_date","source_account_tail","direction","amount","currency","source_json","recognition_json","erp_hint_json","review_status","lane","route","category","party_type","party","company","bank_account","counter_account","material_treatment","notes","audit"],
+ "field_order":["source_hash","source_key","event_date","source_account_tail","direction","amount","currency","source_json","recognition_json","erp_hint_json","review_status","lane","route","category","party_type","party","company","bank_account","counter_account","material_treatment","payment_reference_doctype","payment_reference","payment_reference_amount","notes","audit"],
  "fields":[
   {"fieldname":"source_hash","fieldtype":"Data","label":"Source identity hash","reqd":1,"unique":1,"read_only":1},
   {"fieldname":"source_key","fieldtype":"Data","label":"Source key","reqd":1,"read_only":1},
@@ -22,6 +22,9 @@
   {"fieldname":"bank_account","fieldtype":"Link","label":"Bank account","options":"Account","read_only":1},
   {"fieldname":"counter_account","fieldtype":"Link","label":"Counter account","options":"Account","read_only":1},
   {"fieldname":"material_treatment","fieldtype":"Data","label":"Material treatment","read_only":1},
+  {"fieldname":"payment_reference_doctype","fieldtype":"Select","label":"Supplier payment reference type","options":"\\nPurchase Order\\nPurchase Invoice","read_only":1},
+  {"fieldname":"payment_reference","fieldtype":"Dynamic Link","label":"Supplier payment reference","options":"payment_reference_doctype","read_only":1},
+  {"fieldname":"payment_reference_amount","fieldtype":"Currency","label":"Supplier reference amount","options":"currency","read_only":1},
   {"fieldname":"notes","fieldtype":"Small Text","label":"Accountant note","read_only":1},
   {"fieldname":"audit","fieldtype":"Table","label":"Review history","options":"SNB Movement Review Event","read_only":1}
  ],

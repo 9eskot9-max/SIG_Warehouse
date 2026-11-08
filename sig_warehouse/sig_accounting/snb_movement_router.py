@@ -10,7 +10,7 @@ DOCTYPE = "SNB Movement Review"
 LANES = {"RECEIPTS", "PAYMENTS", "OWN_ACCOUNTS", "OTHER", "DEFERRED"}
 ROUTES = {"CUSTOMER_RECEIPT", "OWN_ACCOUNT_TRANSFER", "PETTY_CASH_FUNDING", "SUPPLIER_PAYMENT", "MATERIAL_SUPPLIER_PAYMENT", "SUBCONTRACTOR_PAYMENT", "MAINTENANCE_PAYMENT", "LOGISTICS_PAYMENT", "HR_EMPLOYEE_PAYMENT", "SALARY_PAYMENT", "SADAD_PAYMENT", "EMPLOYEE_PAYMENT", "OTHER", "DEFERRED_TAWAL", "DEFERRED_XXCL"}
 STATUSES = {"PENDING", "REVIEWED", "NEEDS_CLARIFICATION", "DEFERRED"}
-FIELDS = ("lane", "route", "category", "party_type", "party", "company", "bank_account", "counter_account", "material_treatment", "notes", "review_status")
+FIELDS = ("lane", "route", "category", "party_type", "party", "company", "bank_account", "counter_account", "material_treatment", "payment_reference_doctype", "payment_reference", "payment_reference_amount", "notes", "review_status")
 
 
 def _data(value):
@@ -90,6 +90,64 @@ def get_movement(name):
     return {"name": doc.name, "modified": doc.modified, "id": doc.source_key, "source": _data(doc.source_json) or {}, "recognition": _data(doc.recognition_json) or {}, "erp": _data(doc.erp_hint_json) or {}, "review": {field: doc.get(field) for field in FIELDS}}
 
 
+@frappe.whitelist()
+def get_supplier_payment_references(name, supplier, company):
+    """Return permission-filtered submitted SAR PO/PI references for one debit."""
+    _require("read")
+    movement = frappe.get_doc(DOCTYPE, name)
+    movement.check_permission("read")
+    if movement.direction != "DEBIT":
+        frappe.throw(_("Payment references are available only for outgoing bank movements."))
+    supplier = str(supplier or "").strip()
+    company = str(company or "").strip()
+    if not supplier or not company:
+        return {"purchase_orders": [], "purchase_invoices": []}
+    _check_link("Supplier", supplier)
+    _check_link("Company", company)
+    common = {"supplier": supplier, "company": company, "currency": movement.currency, "docstatus": 1}
+    orders = frappe.get_list(
+        "Purchase Order", filters=common,
+        fields=["name", "transaction_date", "currency", "grand_total", "advance_paid", "status"],
+        order_by="transaction_date desc", page_length=100,
+    )
+    invoice_filters = {**common, "outstanding_amount": [">", 0]}
+    invoices = frappe.get_list(
+        "Purchase Invoice", filters=invoice_filters,
+        fields=["name", "posting_date", "currency", "grand_total", "outstanding_amount", "status"],
+        order_by="posting_date desc", page_length=100,
+    )
+    return {"purchase_orders": orders, "purchase_invoices": invoices}
+
+
+def _validate_payment_reference(movement, clean):
+    doctype = clean["payment_reference_doctype"]
+    name = clean["payment_reference"]
+    amount = flt(clean["payment_reference_amount"])
+    has_type_or_name = bool(doctype or name)
+    if not has_type_or_name:
+        if amount:
+            frappe.throw(_("Clear the payment reference amount when no document is selected."))
+        return
+    if doctype not in ("Purchase Order", "Purchase Invoice") or not name:
+        frappe.throw(_("Select a Purchase Order or Purchase Invoice."))
+    supplier_routes = {"SUPPLIER_PAYMENT", "MATERIAL_SUPPLIER_PAYMENT", "SUBCONTRACTOR_PAYMENT", "MAINTENANCE_PAYMENT", "LOGISTICS_PAYMENT"}
+    if (clean["party_type"] != "Supplier" or not clean["party"] or movement.direction != "DEBIT"
+            or clean["lane"] != "PAYMENTS" or clean["route"] not in supplier_routes):
+        frappe.throw(_("A payment reference needs an outgoing movement linked to its Supplier."))
+    if not clean["company"]:
+        frappe.throw(_("Choose a Company before linking a supplier document."))
+    bank_amount = abs(flt(movement.amount))
+    if amount <= 0 or amount - bank_amount > 0.005:
+        frappe.throw(_("The reference amount must be positive and cannot exceed the bank movement."))
+    reference = frappe.get_doc(doctype, name)
+    reference.check_permission("read")
+    if (reference.docstatus != 1 or reference.supplier != clean["party"]
+            or reference.company != clean["company"] or reference.currency != movement.currency):
+        frappe.throw(_("The selected document must be submitted and match the Supplier, Company, and bank currency."))
+    if doctype == "Purchase Invoice" and amount - flt(reference.outstanding_amount) > 0.005:
+        frappe.throw(_("The Purchase Invoice has less outstanding than the selected allocation."))
+
+
 @frappe.whitelist(methods=["POST"])
 def save_review(name, modified, decision):
     _require("write")
@@ -102,7 +160,8 @@ def save_review(name, modified, decision):
     data = _data(decision)
     if not isinstance(data, dict):
         frappe.throw(_("Invalid review decision."))
-    clean = {field: str(data.get(field) or "").strip()[:2000 if field == "notes" else 140] for field in FIELDS}
+    clean = {field: str(data.get(field) or "").strip()[:2000 if field == "notes" else 140] for field in FIELDS if field != "payment_reference_amount"}
+    clean["payment_reference_amount"] = flt(data.get("payment_reference_amount"))
     if clean["lane"] not in LANES or clean["route"] not in ROUTES or clean["review_status"] not in STATUSES:
         frappe.throw(_("Choose a valid lane, route, and review state."))
     if clean["party_type"] not in ("", "Customer", "Supplier", "Employee", "Other") or clean["material_treatment"] not in ("", "STOCK", "OPERATIONAL_NON_STOCK"):
@@ -111,6 +170,7 @@ def save_review(name, modified, decision):
         _check_link(clean["party_type"], clean["party"])
     for field, doctype in (("company", "Company"), ("bank_account", "Account"), ("counter_account", "Account")):
         _check_link(doctype, clean[field])
+    _validate_payment_reference(doc, clean)
     previous = {field: doc.get(field) for field in FIELDS}
     doc.update(clean)
     doc.append("audit", {"reviewer": frappe.session.user, "reviewed_at": now_datetime(), "previous_json": _json(previous), "decision_json": _json(clean)})
