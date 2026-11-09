@@ -1,6 +1,18 @@
 # Bank movement router: SNB and Alinma review foundation
 
-## Bank evidence and existing ERP documents — pending release
+## Bank evidence and existing ERP documents — deployed 9 November 2026
+
+### Production read-back
+
+PR #114 is deployed on Active site `neosys.frappe.cloud`, bench `bench-51251-000047-f1f`, with SIG Warehouse `1abfea6fafc354ab48d5aff0bb6f3d60be93e519`. The pre-release backup `5bturq3kqk`, scoped build `be87drsr6v`, and Site Update `6o68oodm8j` succeeded. The update moved the site from bench `000046` to `000047`; the new bench had the exact target revision and only SIG Warehouse pending. The Site Update API returned timestamps `2026-11-09 16:11:11–16:11:22` without a timezone; see `docs/DEPLOY_LOG.md` for the timestamp note.
+
+After deployment, `router_basic_sync.mjs --apply` created 916 SNB review rows. A second identical run returned 916 existing rows, with no source or hint conflicts. The Desk route `/desk/accounts/snb-movement-router` rendered in an authenticated ERP session and displayed 48 Receipts, 442 Payments and 426 Other rows. It also listed existing marked Payment Entries with their bank/date/status. Journal Entries are shown as **Bank unconfirmed**, because their marker does not establish the bank. The 252 ERP document references received from the source remain hints; they have not been independently read back against each document.
+
+The basic Alinma adapter is deployed, including routing unclassified debits to the Other review lane. No Alinma statement rows were ingested because there is no approved live feed/queue in this task; source-account mapping and row-to-document matching are deferred. The adapter does not create or submit ERP accounting documents.
+
+Permission snapshots before and after the release compare with **0 additions and 0 removals**. Fresh Accounts User/Manager and outside-role sessions, Arabic/English rendering, migration repeatability, and full SNB row-to-document linking remain **NOT TESTED**. No accounting entries were created or submitted, and no bank transfer was initiated. Snapshot evidence is local at `ERPNext/backups/permission_release_bank_router_20261109/`.
+
+The existing scheduled checker now runs the guarded SNB sync after a completed SNB run. The sync stops if a lock or evidence conflict is present, and it remains review-only.
 
 The router lists permission-visible Payment Entries marked with `custom_snb_idempotency_key` and Journal Entries marked with `custom_pc_statement_key`, with their current document status. A journal's marker alone does not identify the bank. The list does not create a payment or prove that a document is reconciled to a particular statement row. The separate local `ERPNext/scripts/snb/router_basic_sync.mjs` builds account-scoped review identities from captured Am rows and sends source evidence to the owner-only ingest method; it requires `--apply` for a write. ERP links carried from Am remain unverified hints. Repeated identical evidence preserves Finance decisions, and a newly available document hint may be added without altering source or review; changed source or conflicting hints stop for review. The sync never creates or submits accounting documents.
 
