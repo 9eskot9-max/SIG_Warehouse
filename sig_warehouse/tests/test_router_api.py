@@ -105,6 +105,24 @@ def test_ingest_is_idempotent_and_keeps_derived_evidence_refreshable(api):
     assert doc.source_json == api._json(source), "source evidence never changes"
 
 
+def test_ingest_allows_only_the_legacy_parser_family_enrichment(api):
+    legacy = {"event_date": "2026-11-09", "direction": "DEBIT", "signed_amount": -5}
+    source = {**legacy, "parser_family": "BANK_FEE"}
+    name = hashlib.sha256(b"SNB-row").hexdigest()
+    doc = Doc(source_key="SNB-row", source_json=api._json(legacy), recognition_json="{}", erp_hint_json="{}", account_scope_hash="")
+    api.frappe.db = types.SimpleNamespace(exists=lambda *a: True, sql=lambda *a: None)
+    api.frappe.get_doc = lambda *a: doc
+    item = {"id": "SNB-row", "source": source, "account_scope_hash": "a" * 64,
+            "recognition": {"related_fee_rows": [], "category": "XXPC"}}
+    result = api.ingest([item])
+    assert result == [{"id": "SNB-row", "status": "DERIVED_UPDATED", "name": name}]
+    assert json.loads(doc.source_json) == source
+    assert doc.account_scope_hash == "a" * 64
+    assert api.ingest([item])[0]["status"] == "EXISTS"
+    changed = {**source, "signed_amount": -6}
+    assert api.ingest([{**item, "source": changed}])[0]["status"] == "SOURCE_CONFLICT"
+
+
 def test_ingest_hint_conflict_and_scope_rules(api):
     source = {"event_date": "2026-11-09", "direction": "CREDIT"}
     scope = "a" * 64

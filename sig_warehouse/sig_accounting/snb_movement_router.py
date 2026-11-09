@@ -86,10 +86,24 @@ def ingest(items):
             frappe.db.sql("SELECT name FROM `tabSNB Movement Review` WHERE name=%s FOR UPDATE", (name,))
             doc = frappe.get_doc(DOCTYPE, name)
             doc.check_permission("read")
-            if doc.source_key != key or doc.source_json != source_json:
+            old_source = _data(doc.source_json) or {}
+            new_source = _data(source_json)
+            # The first SNB bridge imported statement rows before parser_family
+            # was added to the source payload. Accept only that exact additive
+            # enrichment so the deployed engine can classify fee rows; any
+            # changed original evidence remains a hard conflict.
+            parser_upgrade = (
+                isinstance(old_source, dict) and isinstance(new_source, dict)
+                and "parser_family" not in old_source and "parser_family" in new_source
+                and bool(new_source.get("parser_family"))
+                and {k: v for k, v in new_source.items() if k != "parser_family"} == old_source
+            )
+            if doc.source_key != key or (old_source != new_source and not parser_upgrade):
                 results.append({"id": key, "status": "SOURCE_CONFLICT", "name": name})
                 continue
             changed, scope_changed = False, False
+            if parser_upgrade:
+                doc.source_json = source_json
             if scope:
                 if doc.account_scope_hash and doc.account_scope_hash != scope:
                     results.append({"id": key, "status": "ACCOUNT_SCOPE_CONFLICT", "name": name})
@@ -113,8 +127,8 @@ def ingest(items):
                 hint.update({"linked_doc": incoming, "readback_status": "NEEDS_LIVE_READBACK"})
                 doc.erp_hint_json = _json(hint)
                 status = "HINT_UPDATED"
-            elif changed or scope_changed:
-                status = "DERIVED_UPDATED" if changed else "ACCOUNT_SCOPE_UPDATED"
+            elif changed or scope_changed or parser_upgrade:
+                status = "DERIVED_UPDATED" if changed or parser_upgrade else "ACCOUNT_SCOPE_UPDATED"
             else:
                 results.append({"id": key, "status": "EXISTS", "name": name})
                 continue
