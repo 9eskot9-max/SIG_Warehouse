@@ -13,3 +13,7 @@
 .snb-hint-rule-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid #e9efed; }
 .snb-hint-rule-row small { display: block; color: #667b78; margin-top: 3px; }
 .snb-related-fees { margin: 12px 0; padding: 10px; border: 1px solid #e9efed; border-radius: 8px; }
+.snb-controls{display:flex;gap:8px;align-items:center;margin:10px 0}.snb-controls input{max-width:340px}.snb-banner{color:#667b78;font-size:12px}
+.snb-actions{margin:14px 0}.snb-actions label{display:block;margin:6px 0}.snb-actions .form-control{margin:6px 0}.snb-actions details{margin-top:10px}
+.snb-fees{margin:10px 0;padding:8px 10px;border:1px solid #e9efed;border-radius:8px;background:#f7faf9}.snb-fees p{margin:3px 0}.snb-error{color:#a64239}
+.snb-grid{grid-template-columns:minmax(260px,340px) minmax(360px,1fr)}

@@ -1,0 +1,259 @@
+"""The engine on one movement at a time, with a fake context. No Frappe is imported."""
+import datetime as dt
+import sys
+import types
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parents[1] / "sig_accounting"))
+
+from bank_router import engine as E  # noqa: E402
+from bank_router.text import account_scope, hint_key  # noqa: E402
+
+SCOPE = account_scope("23659568000109")
+BANK = "13121"
+
+
+class Registry:
+    def __init__(self, identifiers=None, counterparties=None):
+        self.identifiers, self.counterparties = identifiers or {}, counterparties or {}
+
+    def lookup(self, kind, value):
+        hit = self.identifiers.get((kind, hint_key(kind, value)))
+        return [hit] if hit else []
+
+    def facts(self, cp):
+        return self.counterparties.get(cp, {})
+
+
+class Ledger:
+    def __init__(self, docs=None):
+        self.docs = docs or []
+
+    def candidates(self, bank_gl, day):
+        return [d for d in self.docs if d["bank_account"] == bank_gl]
+
+    def doc(self, doctype, name, bank_gl, marker=None):
+        for d in self.docs:
+            if (marker and d.get("marker") == marker) or (name and d["name"] == name):
+                return d
+        return None
+
+    def covers_fee(self, doctype, name, bank_gl, fee_total):
+        return any(d["name"] == name and d.get("fee_line") == fee_total for d in self.docs)
+
+
+class Parties:
+    def __init__(self, names=None):
+        self.names = names or {}
+
+    def exact(self, party_type, name):
+        return self.names.get((party_type, hint_key("NAME", name)), "")
+
+
+class Ctx:
+    def __init__(self, auto=False, registry=None, ledger=None, parties=None, holding_customer="Unidentified Receipts", fail=False):
+        self.settings = types.SimpleNamespace(
+            scopes={SCOPE: BANK}, company_scopes=frozenset({SCOPE, account_scope("01400010326605")}),
+            auto_draft=lambda day: auto, categories={"PROJECT_OPERATING_COST": "5130 - Subcontract"},
+            holding_supplier="Collective", holding_customer=holding_customer, default_expense="5126 - Misc",
+            fee_account="538", vat_account="", draft_fees=False)
+        self.registry, self.ledger, self.parties = registry or Registry(), ledger or Ledger(), parties or Parties()
+        self.claimed, self.created, self.fail = set(), [], fail
+
+    def holding(self, doctype, name):
+        return any(d["name"] == name and d.get("holding") for d in self.ledger.docs)
+
+    def create(self, kind, mv, target, fees):
+        if self.fail:
+            raise RuntimeError("ERP refused the draft")
+        name = f"DRAFT-{len(self.created) + 1}"
+        self.created.append((kind, target))
+        return ("Journal Entry" if "account" in str(target) and "expense_account" in target else "Payment Entry"), name
+
+
+def movement(amount, narrative, family="IPS_LOCAL", key="K1", day="2026-10-05", **extra):
+    source = {"parser_family": family, "transaction_description": "Local transfer", "detail_description": narrative, "reference": "R1"}
+    mv = {"name": "m-" + key, "key": key, "amount": amount, "date": dt.date.fromisoformat(day), "scope": SCOPE, "source": source,
+          "recognition": {}, "hint": {}, "fees": []}
+    mv.update(extra)
+    return mv
+
+
+def doc(name, amount, day, **more):
+    d = {"doctype": "Journal Entry", "name": name, "date": day, "docstatus": 1, "amount": amount, "reference": "", "marker": "", "bank_account": BANK}
+    d.update(more)
+    return d
+
+
+IPS_OUT = "SAUDI ARABIA SAINMA ACME TRADING ESTABLISHMENT 1234567890123"
+IPS_IN = "CITY:Jeddah *****SAUDI ARABIA SAINMA شركة رسوخ المتقدمة للمقاولات 1234567890123456 دفعة"
+
+
+def test_existing_posted_journal_is_linked_not_drafted():
+    ctx = Ctx(auto=True, ledger=Ledger([doc("JV-1", -1000, "2026-10-05")]))
+    out = E.process(movement(-1000, IPS_OUT), ctx)
+    assert (out["engine_state"], out["erp_document"], out["link_method"]) == ("POSTED", "JV-1", "LEDGER")
+    assert not ctx.created
+
+
+def test_draft_found_in_ledger_is_draft_ready_and_marker_wins():
+    docs = [doc("JV-1", -1000, "2026-10-05", docstatus=0), doc("JV-2", -1000, "2026-10-05", docstatus=0, marker="K1")]
+    out = E.process(movement(-1000, IPS_OUT), Ctx(ledger=Ledger(docs)))
+    assert (out["engine_state"], out["erp_document"], out["link_method"]) == ("DRAFT_READY", "JV-2", "MARKER")
+
+
+def test_several_candidates_ask_for_a_decision():
+    docs = [doc("JV-1", -1000, "2026-10-04"), doc("JV-2", -1000, "2026-10-06")]
+    out = E.process(movement(-1000, IPS_OUT), Ctx(ledger=Ledger(docs)))
+    assert (out["engine_state"], out["decision_type"]) == ("NEEDS_YOU", "PICK_DOCUMENT")
+    assert [d["name"] for d in out["candidates"]["documents"]] == ["JV-1", "JV-2"]
+
+
+def test_two_movements_never_claim_the_same_document():
+    ctx = Ctx(ledger=Ledger([doc("JV-1", -1000, "2026-10-05")]))
+    first = E.process(movement(-1000, IPS_OUT, key="K1"), ctx)
+    second = E.process(movement(-1000, IPS_OUT, key="K2"), ctx)
+    assert first["erp_document"] == "JV-1" and second["erp_document"] == ""
+
+
+def test_drafting_off_leaves_a_decision_and_creates_nothing():
+    ctx = Ctx(auto=False)
+    out = E.process(movement(-1000, IPS_OUT), ctx)
+    assert (out["engine_state"], out["decision_type"], out["kind"]) == ("NEEDS_YOU", "ROUTE_PARTY", "SUPPLIER_PAYMENT")
+    assert not ctx.created
+
+
+def test_unknown_payee_goes_on_collective_and_stays_in_the_inbox():
+    ctx = Ctx(auto=True)
+    out = E.process(movement(-1000, IPS_OUT), ctx)
+    assert (out["engine_state"], out["decision_type"], out["route_source"]) == ("NEEDS_YOU", "ROUTE_PARTY", "HOLDING")
+    assert ctx.created[0][1]["party"] == "Collective" and ctx.created[0][1]["intended"] == "ACME TRADING ESTABLISHMENT"
+    assert out["link_method"] == "AUTO_DRAFT"
+
+
+def test_identified_supplier_is_a_real_draft():
+    registry = Registry({("NAME", hint_key("NAME", "ACME TRADING ESTABLISHMENT")): ("CP-A", "ACTIVE")}, {"CP-A": {"supplier": "SUP-ACME"}})
+    ctx = Ctx(auto=True, registry=registry)
+    out = E.process(movement(-1000, IPS_OUT), ctx)
+    assert (out["engine_state"], out["counterparty"], out["route_source"]) == ("DRAFT_READY", "CP-A", "IDENTIFIER")
+    assert ctx.created[0][1]["party"] == "SUP-ACME" and not ctx.created[0][1]["holding"]
+
+
+def test_exact_unique_name_matches_an_erp_party_without_a_rule():
+    ctx = Ctx(auto=True, parties=Parties({("Supplier", hint_key("NAME", "ACME TRADING ESTABLISHMENT")): "SUP-X"}))
+    out = E.process(movement(-1000, IPS_OUT), ctx)
+    assert (out["route_source"], ctx.created[0][1]["party"]) == ("EXACT_NAME", "SUP-X")
+
+
+def test_unknown_payer_goes_on_the_holding_customer_and_needs_no_invoice():
+    ctx = Ctx(auto=True)
+    out = E.process(movement(2500, IPS_IN, family="IPS_LOCAL", key="K9"), ctx)
+    assert out["kind"] == "CUSTOMER_RECEIPT" and ctx.created[0][1]["party"] == "Unidentified Receipts"
+    assert out["engine_state"] == "NEEDS_YOU"
+
+
+def test_receipt_cannot_be_drafted_without_a_holding_customer():
+    out = E.process(movement(2500, IPS_IN, key="K9"), Ctx(auto=True, holding_customer=""))
+    assert (out["engine_state"], out["decision_type"]) == ("NEEDS_YOU", "ROUTE_PARTY")
+
+
+def test_person_payment_is_an_expense_journal_from_the_category():
+    mv = movement(-3000, "OTBANK:SABBPERSON NAME", family="LOCAL_OTBANK")
+    mv["recognition"] = {"am_beneficiary_mapping": {"route": "JE_PERSON|PROJECT_OPERATING_COST|CONFIRMED|NO_PI", "beneficiary_name": "PERSON NAME"}}
+    ctx = Ctx(auto=True)
+    out = E.process(mv, ctx)
+    assert out["kind"] == "EXPENSE_PAYMENT" and ctx.created[0][1]["expense_account"] == "5130 - Subcontract"
+    assert out["engine_state"] == "DRAFT_READY"
+
+
+def test_petty_cash_waits_for_the_importer_or_for_hr():
+    mv = movement(-2000, "1234567890123 BEN ID:555123", family="INTERNAL_BEN_ID")
+    mv["recognition"] = {"category": "XXPC", "am_category_status": "MATCHED"}
+    assert E.process(mv, Ctx(auto=True))["decision_type"] == "NEEDS_HR_LINK"
+    registry = Registry({("BEN_ID", "555123"): ("CP-E", "ACTIVE")}, {"CP-E": {"is_employee": True, "custody_account": "132223 - Adnan"}})
+    out = E.process(mv, Ctx(auto=True, registry=registry))
+    assert (out["kind"], out["engine_state"], out["decision_type"]) == ("PETTY_CASH", "PENDING", "")
+
+
+def test_own_transfers_tawal_and_other_lines_are_deferred_not_drafted():
+    ctx = Ctx(auto=True)
+    own = E.process(movement(-5000, "01400010326605 BEN ID:2323429130", family="INTERNAL_BEN_ID", key="A"), ctx)
+    tawal = E.process(movement(5000, "TELECOMMUNICATIONS TOWERS COMPANY", family="INCOMING_LOCAL", key="B"), ctx)
+    sadad = E.process(movement(-700, "SADAD", family="SADAD", key="C"), ctx)
+    assert [o["engine_state"] for o in (own, tawal, sadad)] == ["DEFERRED"] * 3
+    assert [o["kind"] for o in (own, tawal, sadad)] == ["OWN_TRANSFER", "SPECIALIST", "OTHER"]
+    assert not ctx.created
+
+
+def test_conflicting_identifiers_are_never_resolved_by_the_engine():
+    registry = Registry({("BEN_ID", "555123"): ("CP-A", "ACTIVE"), ("ACCOUNT", hint_key("ACCOUNT", "38759875000102")): ("CP-B", "ACTIVE")},
+                        {"CP-A": {}, "CP-B": {}})
+    out = E.process(movement(-900, "38759875000102 BEN ID:555123", family="INTERNAL_BEN_ID"), Ctx(auto=True, registry=registry))
+    assert (out["engine_state"], out["decision_type"]) == ("NEEDS_YOU", "CONFLICT")
+
+
+def test_a_manual_choice_is_kept_over_identifiers():
+    registry = Registry({}, {"CP-M": {"supplier": "SUP-M"}})
+    mv = movement(-1000, IPS_OUT, route_source="MANUAL", counterparty="CP-M")
+    ctx = Ctx(auto=True, registry=registry)
+    out = E.process(mv, ctx)
+    assert (out["route_source"], ctx.created[0][1]["party"]) == ("MANUAL", "SUP-M")
+
+
+def test_a_failing_draft_is_reported_on_the_line_and_stops_nothing():
+    out = E.process(movement(-1000, IPS_OUT), Ctx(auto=True, fail=True))
+    assert (out["engine_state"], out["decision_type"]) == ("NEEDS_YOU", "CREATE_DRAFT")
+    assert "ERP refused" in out["signals"]["error"]
+
+
+def test_an_existing_link_is_kept_and_a_cancelled_one_is_dropped():
+    ledger = Ledger([doc("JV-1", -1000, "2026-10-05", docstatus=0)])
+    mv = movement(-1000, IPS_OUT, erp_doctype="Journal Entry", erp_document="JV-1", link_method="MANUAL")
+    out = E.process(mv, Ctx(ledger=ledger))
+    assert (out["erp_document"], out["link_method"]) == ("JV-1", "MANUAL")
+    cancelled = Ledger([doc("JV-1", -1000, "2026-10-05", docstatus=2)])
+    gone = E.process(mv, Ctx(ledger=cancelled))
+    assert gone["erp_document"] == ""
+
+
+def test_a_wrong_match_is_never_offered_again():
+    mv = movement(-1000, IPS_OUT, candidates={"rejected": ["JV-1"]})
+    out = E.process(mv, Ctx(ledger=Ledger([doc("JV-1", -1000, "2026-10-05")])))
+    assert out["erp_document"] == "" and out["candidates"]["rejected"] == ["JV-1"]
+
+
+def test_unknown_statement_account_is_reported_not_guessed():
+    mv = movement(-1000, IPS_OUT)
+    mv["scope"] = "0" * 64
+    out = E.process(mv, Ctx(auto=True))
+    assert out["engine_state"] == "DEFERRED" and "not in Bank Router Settings" in out["signals"]["error"]
+
+
+def test_fee_line_follows_its_main_line_document():
+    ledger = Ledger([doc("JV-1", -1000, "2026-10-05", fee_line=1.15)])
+    fee = movement(-1.15, "fee", family="BANK_FEE", key="F1")
+    fee["parent"] = {"name": "m-K1", "key": "K1", "erp_doctype": "Journal Entry", "erp_document": "JV-1", "docstatus": 1, "fee_total": 1.15}
+    out = E.process(fee, Ctx(ledger=ledger))
+    assert (out["kind"], out["engine_state"], out["erp_document"], out["parent_movement"]) == ("BANK_CHARGE", "POSTED", "JV-1", "m-K1")
+    orphan = E.process(movement(-1.15, "fee", family="FEE_VAT", key="F2"), Ctx())
+    assert orphan["engine_state"] == "DEFERRED"
+
+
+def test_rerun_returns_identical_values():
+    ctx = Ctx(ledger=Ledger([doc("JV-1", -1000, "2026-10-05")]))
+    first = E.process(movement(-1000, IPS_OUT), ctx)
+    again = E.process(movement(-1000, IPS_OUT, erp_doctype=first["erp_doctype"], erp_document=first["erp_document"], link_method=first["link_method"]), Ctx(ledger=ctx.ledger))
+    assert {k: first[k] for k in ("engine_state", "erp_document", "kind")} == {k: again[k] for k in ("engine_state", "erp_document", "kind")}
+
+
+def test_a_wrong_am_link_is_flagged_so_the_sync_can_correct_it():
+    ledger = Ledger([doc("JV-OLD", -3193242.19, "2026-08-03"), doc("JV-NEW", -790, "2026-08-03")])
+    mv = movement(-790, IPS_OUT, key="K7", day="2026-08-03", erp_doctype="", erp_document="", hint={"linked_doc": "JV-OLD"})
+    out = E.process(mv, Ctx(ledger=ledger))
+    assert out["erp_document"] == "JV-NEW" and out["signals"]["am_link_rejected"] is True
+
+
+def test_an_accepted_am_link_is_not_flagged():
+    ledger = Ledger([doc("JV-1", -1000, "2026-10-05")])
+    out = E.process(movement(-1000, IPS_OUT, key="K8", hint={"linked_doc": "JV-1"}), Ctx(ledger=ledger))
+    assert out["link_method"] == "AM_LINK" and out["signals"]["am_link_rejected"] is False

@@ -1,0 +1,119 @@
+{
+ "doctype": "DocType",
+ "name": "Bank Router Settings",
+ "module": "SIG Accounting",
+ "issingle": 1,
+ "track_changes": 1,
+ "field_order": [
+  "auto_draft_enabled",
+  "auto_draft_from",
+  "draft_fees",
+  "section_parties",
+  "holding_supplier",
+  "holding_customer",
+  "default_expense_account",
+  "fee_account",
+  "vat_account",
+  "own_names",
+  "section_tables",
+  "bank_accounts",
+  "categories"
+ ],
+ "fields": [
+  {
+   "fieldname": "auto_draft_enabled",
+   "fieldtype": "Check",
+   "label": "Create drafts automatically",
+   "default": "0",
+   "description": "Off: the router only links and shows. On: drafts are created for lines dated on or after the start date."
+  },
+  {
+   "fieldname": "auto_draft_from",
+   "fieldtype": "Date",
+   "label": "Draft lines dated from",
+   "depends_on": "auto_draft_enabled"
+  },
+  {
+   "fieldname": "draft_fees",
+   "fieldtype": "Check",
+   "label": "Also draft bank charges",
+   "default": "0"
+  },
+  {
+   "fieldname": "section_parties",
+   "fieldtype": "Section Break",
+   "label": "Holding parties and default accounts"
+  },
+  {
+   "fieldname": "holding_supplier",
+   "fieldtype": "Link",
+   "label": "Holding Supplier",
+   "options": "Supplier",
+   "default": "Collective"
+  },
+  {
+   "fieldname": "holding_customer",
+   "fieldtype": "Link",
+   "label": "Holding Customer",
+   "options": "Customer"
+  },
+  {
+   "fieldname": "default_expense_account",
+   "fieldtype": "Link",
+   "label": "Default expense account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "fee_account",
+   "fieldtype": "Link",
+   "label": "Bank charges account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "vat_account",
+   "fieldtype": "Link",
+   "label": "VAT account for bank charges",
+   "options": "Account",
+   "description": "Leave blank to book VAT on the bank charges account, as Finance does today."
+  },
+  {
+   "fieldname": "section_tables",
+   "fieldtype": "Section Break",
+   "label": "Bank accounts and categories"
+  },
+  {
+   "fieldname": "bank_accounts",
+   "fieldtype": "Table",
+   "label": "Bank accounts",
+   "options": "Bank Router Account"
+  },
+  {
+   "fieldname": "categories",
+   "fieldtype": "Table",
+   "label": "Categories",
+   "options": "Bank Router Category"
+  },
+  {
+   "fieldname": "own_names",
+   "fieldtype": "Small Text",
+   "label": "Our own names (one per line)",
+   "description": "Names under which our own company appears in a bank beneficiary list. Lines to them are own transfers."
+  }
+ ],
+ "permissions": [
+  {
+   "role": "Accounts Manager",
+   "read": 1,
+   "write": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1
+  },
+  {
+   "role": "Accounts User",
+   "read": 1
+  }
+ ]
+}

@@ -1,0 +1,135 @@
+{
+ "doctype": "DocType",
+ "name": "Bank Counterparty",
+ "module": "SIG Accounting",
+ "autoname": "hash",
+ "track_changes": 1,
+ "title_field": "display_name",
+ "search_fields": "display_name",
+ "field_order": [
+  "display_name",
+  "status",
+  "is_company",
+  "handler",
+  "is_employee",
+  "custody_account",
+  "employee",
+  "section_routes",
+  "customer",
+  "supplier",
+  "expense_account",
+  "category",
+  "notes",
+  "am_key"
+ ],
+ "fields": [
+  {
+   "fieldname": "display_name",
+   "fieldtype": "Data",
+   "label": "Name",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "ACTIVE\nINACTIVE",
+   "default": "ACTIVE",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "is_company",
+   "fieldtype": "Check",
+   "label": "Our own company or account",
+   "default": "0"
+  },
+  {
+   "fieldname": "handler",
+   "fieldtype": "Select",
+   "label": "Specialist workflow",
+   "options": "\nTAWAL"
+  },
+  {
+   "fieldname": "is_employee",
+   "fieldtype": "Check",
+   "label": "Employee",
+   "default": "0"
+  },
+  {
+   "fieldname": "custody_account",
+   "fieldtype": "Link",
+   "label": "Custody account",
+   "options": "Account",
+   "depends_on": "is_employee"
+  },
+  {
+   "fieldname": "employee",
+   "fieldtype": "Link",
+   "label": "Employee",
+   "options": "Employee",
+   "depends_on": "is_employee"
+  },
+  {
+   "fieldname": "section_routes",
+   "fieldtype": "Section Break",
+   "label": "Where this counterparty routes"
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer"
+  },
+  {
+   "fieldname": "supplier",
+   "fieldtype": "Link",
+   "label": "Supplier",
+   "options": "Supplier"
+  },
+  {
+   "fieldname": "expense_account",
+   "fieldtype": "Link",
+   "label": "Expense account (person or category)",
+   "options": "Account"
+  },
+  {
+   "fieldname": "category",
+   "fieldtype": "Data",
+   "label": "Category"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "am_key",
+   "fieldtype": "Data",
+   "label": "Sheet Am beneficiary key",
+   "read_only": 1,
+   "search_index": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "Accounts User",
+   "read": 1,
+   "report": 1
+  },
+  {
+   "role": "Accounts Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1
+  }
+ ]
+}

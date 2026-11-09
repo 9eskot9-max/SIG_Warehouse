@@ -1,0 +1,104 @@
+{
+ "doctype": "DocType",
+ "name": "Bank Counterparty Identifier",
+ "module": "SIG Accounting",
+ "autoname": "field:identity_key",
+ "track_changes": 1,
+ "field_order": [
+  "identity_key",
+  "counterparty",
+  "kind",
+  "value",
+  "normalized",
+  "status",
+  "source",
+  "first_seen",
+  "note"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_key",
+   "fieldtype": "Data",
+   "label": "Identity key",
+   "reqd": 1,
+   "unique": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "counterparty",
+   "fieldtype": "Link",
+   "label": "Counterparty",
+   "options": "Bank Counterparty",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "kind",
+   "fieldtype": "Select",
+   "label": "Kind",
+   "options": "IBAN\nACCOUNT\nBEN_ID\nDEP_ID\nNAME\nSADAD_CODE",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "value",
+   "fieldtype": "Data",
+   "label": "Value",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "normalized",
+   "fieldtype": "Data",
+   "label": "Normalised value",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "ACTIVE\nSUGGESTED\nREVOKED",
+   "default": "ACTIVE",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "source",
+   "fieldtype": "Select",
+   "label": "Source",
+   "options": "SEED_AM\nLEDGER\nROUTER\nMANUAL",
+   "default": "MANUAL"
+  },
+  {
+   "fieldname": "first_seen",
+   "fieldtype": "Date",
+   "label": "First seen"
+  },
+  {
+   "fieldname": "note",
+   "fieldtype": "Small Text",
+   "label": "Note"
+  }
+ ],
+ "permissions": [
+  {
+   "role": "Accounts User",
+   "read": 1,
+   "report": 1
+  },
+  {
+   "role": "Accounts Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1
+  }
+ ]
+}

@@ -1,33 +1,332 @@
 {
- "doctype":"DocType", "name":"SNB Movement Review", "module":"SIG Accounting", "autoname":"field:source_hash", "track_changes":1,
- "field_order":["source_hash","source_key","event_date","source_account_tail","account_scope_hash","direction","amount","currency","source_json","recognition_json","erp_hint_json","review_status","lane","route","category","party_type","party","company","bank_account","counter_account","material_treatment","payment_reference_doctype","payment_reference","payment_reference_amount","notes","audit"],
- "fields":[
-  {"fieldname":"source_hash","fieldtype":"Data","label":"Source identity hash","reqd":1,"unique":1,"read_only":1},
-  {"fieldname":"source_key","fieldtype":"Data","label":"Source key","reqd":1,"read_only":1},
-  {"fieldname":"event_date","fieldtype":"Date","label":"Bank date","reqd":1,"in_list_view":1,"read_only":1},
-  {"fieldname":"source_account_tail","fieldtype":"Data","label":"Account ending","read_only":1},
-  {"fieldname":"account_scope_hash","fieldtype":"Data","label":"Account scope fingerprint","read_only":1},
-  {"fieldname":"direction","fieldtype":"Select","label":"Direction","options":"CREDIT\nDEBIT","read_only":1},
-  {"fieldname":"amount","fieldtype":"Currency","label":"Signed amount","read_only":1},
-  {"fieldname":"currency","fieldtype":"Link","label":"Currency","options":"Currency","read_only":1},
-  {"fieldname":"source_json","fieldtype":"Long Text","label":"Bank evidence","read_only":1},
-  {"fieldname":"recognition_json","fieldtype":"Long Text","label":"Recognition evidence","read_only":1},
-  {"fieldname":"erp_hint_json","fieldtype":"Long Text","label":"ERP link hint","read_only":1},
-  {"fieldname":"review_status","fieldtype":"Select","label":"Review status","options":"PENDING\nREVIEWED\nNEEDS_CLARIFICATION\nDEFERRED","default":"PENDING","in_list_view":1,"read_only":1},
-  {"fieldname":"lane","fieldtype":"Data","label":"Review lane","read_only":1},
-  {"fieldname":"route","fieldtype":"Data","label":"Route","read_only":1},
-  {"fieldname":"category","fieldtype":"Data","label":"Category","read_only":1},
-  {"fieldname":"party_type","fieldtype":"Data","label":"Party type","read_only":1},
-  {"fieldname":"party","fieldtype":"Data","label":"Party","read_only":1},
-  {"fieldname":"company","fieldtype":"Link","label":"Company","options":"Company","read_only":1},
-  {"fieldname":"bank_account","fieldtype":"Link","label":"Bank account","options":"Account","read_only":1},
-  {"fieldname":"counter_account","fieldtype":"Link","label":"Counter account","options":"Account","read_only":1},
-  {"fieldname":"material_treatment","fieldtype":"Data","label":"Material treatment","read_only":1},
-  {"fieldname":"payment_reference_doctype","fieldtype":"Select","label":"Supplier payment reference type","options":"\\nPurchase Order\\nPurchase Invoice","read_only":1},
-  {"fieldname":"payment_reference","fieldtype":"Dynamic Link","label":"Supplier payment reference","options":"payment_reference_doctype","read_only":1},
-  {"fieldname":"payment_reference_amount","fieldtype":"Currency","label":"Supplier reference amount","options":"currency","read_only":1},
-  {"fieldname":"notes","fieldtype":"Small Text","label":"Accountant note","read_only":1},
-  {"fieldname":"audit","fieldtype":"Table","label":"Review history","options":"SNB Movement Review Event","read_only":1}
+ "doctype": "DocType",
+ "name": "SNB Movement Review",
+ "module": "SIG Accounting",
+ "autoname": "field:source_hash",
+ "track_changes": 1,
+ "field_order": [
+  "source_hash",
+  "source_key",
+  "event_date",
+  "source_account_tail",
+  "account_scope_hash",
+  "direction",
+  "amount",
+  "currency",
+  "source_json",
+  "recognition_json",
+  "erp_hint_json",
+  "engine_state",
+  "decision_type",
+  "kind",
+  "counterparty",
+  "route_source",
+  "erp_doctype",
+  "erp_document",
+  "link_method",
+  "parent_movement",
+  "signals_json",
+  "candidates_json",
+  "processed_at",
+  "review_status",
+  "lane",
+  "route",
+  "category",
+  "party_type",
+  "party",
+  "company",
+  "bank_account",
+  "counter_account",
+  "material_treatment",
+  "payment_reference_doctype",
+  "payment_reference",
+  "payment_reference_amount",
+  "notes",
+  "audit"
  ],
- "permissions":[{"role":"Accounts User","read":1,"write":1,"create":1,"report":1},{"role":"Accounts Manager","read":1,"write":1,"create":1,"report":1},{"role":"System Manager","read":1,"write":1,"create":1,"report":1}], "sort_field":"event_date","sort_order":"DESC"
+ "fields": [
+  {
+   "fieldname": "source_hash",
+   "fieldtype": "Data",
+   "label": "Source identity hash",
+   "reqd": 1,
+   "unique": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "source_key",
+   "fieldtype": "Data",
+   "label": "Source key",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "event_date",
+   "fieldtype": "Date",
+   "label": "Bank date",
+   "reqd": 1,
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "source_account_tail",
+   "fieldtype": "Data",
+   "label": "Account ending",
+   "read_only": 1
+  },
+  {
+   "fieldname": "account_scope_hash",
+   "fieldtype": "Data",
+   "label": "Account scope fingerprint",
+   "read_only": 1
+  },
+  {
+   "fieldname": "direction",
+   "fieldtype": "Select",
+   "label": "Direction",
+   "options": "CREDIT\nDEBIT",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Signed amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "source_json",
+   "fieldtype": "Long Text",
+   "label": "Bank evidence",
+   "read_only": 1
+  },
+  {
+   "fieldname": "recognition_json",
+   "fieldtype": "Long Text",
+   "label": "Recognition evidence",
+   "read_only": 1
+  },
+  {
+   "fieldname": "erp_hint_json",
+   "fieldtype": "Long Text",
+   "label": "ERP link hint",
+   "read_only": 1
+  },
+  {
+   "fieldname": "review_status",
+   "fieldtype": "Select",
+   "label": "Review status",
+   "options": "PENDING\nREVIEWED\nNEEDS_CLARIFICATION\nDEFERRED",
+   "default": "PENDING",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "lane",
+   "fieldtype": "Data",
+   "label": "Review lane",
+   "read_only": 1
+  },
+  {
+   "fieldname": "route",
+   "fieldtype": "Data",
+   "label": "Route",
+   "read_only": 1
+  },
+  {
+   "fieldname": "category",
+   "fieldtype": "Data",
+   "label": "Category",
+   "read_only": 1
+  },
+  {
+   "fieldname": "party_type",
+   "fieldtype": "Data",
+   "label": "Party type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "party",
+   "fieldtype": "Data",
+   "label": "Party",
+   "read_only": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "read_only": 1
+  },
+  {
+   "fieldname": "bank_account",
+   "fieldtype": "Link",
+   "label": "Bank account",
+   "options": "Account",
+   "read_only": 1
+  },
+  {
+   "fieldname": "counter_account",
+   "fieldtype": "Link",
+   "label": "Counter account",
+   "options": "Account",
+   "read_only": 1
+  },
+  {
+   "fieldname": "material_treatment",
+   "fieldtype": "Data",
+   "label": "Material treatment",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payment_reference_doctype",
+   "fieldtype": "Select",
+   "label": "Supplier payment reference type",
+   "options": "\\nPurchase Order\\nPurchase Invoice",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payment_reference",
+   "fieldtype": "Dynamic Link",
+   "label": "Supplier payment reference",
+   "options": "payment_reference_doctype",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payment_reference_amount",
+   "fieldtype": "Currency",
+   "label": "Supplier reference amount",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Accountant note",
+   "read_only": 1
+  },
+  {
+   "fieldname": "audit",
+   "fieldtype": "Table",
+   "label": "Review history",
+   "options": "SNB Movement Review Event",
+   "read_only": 1
+  },
+  {
+   "fieldname": "engine_state",
+   "fieldtype": "Select",
+   "label": "Router state",
+   "options": "PENDING\nNEEDS_YOU\nDRAFT_READY\nPOSTED\nDEFERRED",
+   "default": "PENDING",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "decision_type",
+   "fieldtype": "Select",
+   "label": "Decision needed",
+   "options": "\nROUTE_PARTY\nPICK_DOCUMENT\nCREATE_DRAFT\nCONFLICT\nNEEDS_HR_LINK",
+   "read_only": 1
+  },
+  {
+   "fieldname": "kind",
+   "fieldtype": "Select",
+   "label": "Kind",
+   "options": "\nBANK_CHARGE\nOWN_TRANSFER\nSPECIALIST\nPETTY_CASH\nEMPLOYEE\nOTHER\nEXPENSE_PAYMENT\nSUPPLIER_PAYMENT\nCUSTOMER_RECEIPT",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "counterparty",
+   "fieldtype": "Link",
+   "label": "Counterparty",
+   "options": "Bank Counterparty",
+   "read_only": 1
+  },
+  {
+   "fieldname": "route_source",
+   "fieldtype": "Select",
+   "label": "How the party was found",
+   "options": "\nIDENTIFIER\nINTENT\nEXACT_NAME\nSUGGESTED\nHOLDING\nMANUAL",
+   "read_only": 1
+  },
+  {
+   "fieldname": "erp_doctype",
+   "fieldtype": "Data",
+   "label": "ERP document type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "erp_document",
+   "fieldtype": "Data",
+   "label": "ERP document",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "link_method",
+   "fieldtype": "Select",
+   "label": "How it was linked",
+   "options": "\nMARKER\nAM_LINK\nLEDGER\nAUTO_DRAFT\nMANUAL",
+   "read_only": 1
+  },
+  {
+   "fieldname": "parent_movement",
+   "fieldtype": "Data",
+   "label": "Main movement (for fee lines)",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "signals_json",
+   "fieldtype": "Long Text",
+   "label": "Signals",
+   "read_only": 1
+  },
+  {
+   "fieldname": "candidates_json",
+   "fieldtype": "Long Text",
+   "label": "Document candidates",
+   "read_only": 1
+  },
+  {
+   "fieldname": "processed_at",
+   "fieldtype": "Datetime",
+   "label": "Last routed",
+   "read_only": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "Accounts User",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1
+  },
+  {
+   "role": "Accounts Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1
+  }
+ ],
+ "sort_field": "event_date",
+ "sort_order": "DESC"
 }
