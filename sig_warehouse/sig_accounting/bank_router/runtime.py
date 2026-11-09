@@ -194,7 +194,15 @@ class Context:
                 return "Journal Entry", existing
             body = documents.expense_journal(movement, target["expense_account"], bank_gl, use_fees, s.fee_account, s.vat_account, target["label"], kind)
             doc = frappe.get_doc(body)
-            doc.insert()
+            savepoint = "bank_router_main_draft"
+            frappe.db.savepoint(savepoint)
+            try:
+                doc.insert()
+            except Exception:
+                frappe.db.rollback(save_point=savepoint)
+                frappe.db.release_savepoint(savepoint)
+                raise
+            frappe.db.release_savepoint(savepoint)
             self.ledger.register("Journal Entry", doc.name, mv["date"], -abs(flt(mv["amount"])), bank_gl, mv["key"])
             return "Journal Entry", doc.name
         existing = self._existing("Payment Entry", "custom_snb_idempotency_key", mv["key"])
@@ -205,7 +213,15 @@ class Context:
         body = documents.payment_entry(movement, target["party_type"], target["party"], party_account, bank_gl, target["label"], kind,
                                        target["holding"], target.get("intended", ""))
         doc = frappe.get_doc(body)
-        doc.insert()
+        savepoint = "bank_router_main_draft"
+        frappe.db.savepoint(savepoint)
+        try:
+            doc.insert()
+        except Exception:
+            frappe.db.rollback(save_point=savepoint)
+            frappe.db.release_savepoint(savepoint)
+            raise
+        frappe.db.release_savepoint(savepoint)
         self.ledger.register("Payment Entry", doc.name, mv["date"], flt(mv["amount"]), bank_gl, mv["key"], target["party"])
         return "Payment Entry", doc.name
 
@@ -219,7 +235,15 @@ class Context:
         movement = {"key": mv["key"], "amount": mv["amount"], "date": mv["date"], "reference": mv["source"].get("reference", "")}
         bank_gl = s.scopes[mv["scope"]]
         doc = frappe.get_doc(documents.fee_journal(movement, fees, bank_gl, s.fee_account, s.vat_account))
-        doc.insert()
+        savepoint = "bank_router_fee_draft"
+        frappe.db.savepoint(savepoint)
+        try:
+            doc.insert()
+        except Exception:
+            frappe.db.rollback(save_point=savepoint)
+            frappe.db.release_savepoint(savepoint)
+            raise
+        frappe.db.release_savepoint(savepoint)
         total = sum(abs(flt(f["amount"])) for f in fees)
         self.ledger.register("Journal Entry", doc.name, mv["date"], -total, bank_gl, marker)
         return doc.name
@@ -303,7 +327,9 @@ def run(phase="main", start=0, limit=120, names=None):
     days = [getdate(r.event_date) for r in rows]
     ctx = Context(min(days), max(days))
     index, children = load_index()
-    for r in batch:
+    for ordinal, r in enumerate(batch):
+        savepoint = f"bank_router_movement_{ordinal}"
+        frappe.db.savepoint(savepoint)
         try:
             mv = to_engine(r.name, index, children, ctx)
             out = engine.process(mv, ctx)
@@ -314,8 +340,17 @@ def run(phase="main", start=0, limit=120, names=None):
                     entry[f] = out.get(f, "")
             result["states"][out["engine_state"]] += 1
         except Exception:
+            # Keep the batch resilient without committing half of one movement's writes.
+            frappe.db.rollback(save_point=savepoint)
+            frappe.db.release_savepoint(savepoint)
+            # The rollback can invalidate the in-memory ledger and claimed-document cache.
+            # Rebuild those caches only on the exceptional path before routing the next line.
+            ctx = Context(min(days), max(days))
+            index, children = load_index()
             result["errors"] += 1
             frappe.log_error(title="Bank router could not route a movement", message=f"{r.name}\n{frappe.get_traceback()}")
+        else:
+            frappe.db.release_savepoint(savepoint)
         result["processed"] += 1
     result["states"] = dict(result["states"])
     return result
