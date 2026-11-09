@@ -12,6 +12,7 @@ import frappe
 from frappe.utils import cint, flt, getdate, now_datetime
 
 from . import documents, engine
+from .adapters import snb
 from .classify import EXPENSE_PAYMENT
 from .text import DEFAULT_COMPANY_SCOPES, hint_key, normalize_text
 
@@ -20,7 +21,7 @@ SETTINGS = "Bank Router Settings"
 IDENTIFIER = "Bank Counterparty Identifier"
 COUNTERPARTY = "Bank Counterparty"
 FEE_FILTERS = ('%"parser_family":"BANK_FEE"%', '%"parser_family":"FEE_VAT"%')
-ROUTING_FIELDS = ("engine_state", "decision_type", "kind", "counterparty", "route_source", "erp_doctype", "erp_document",
+ROUTING_FIELDS = ("engine_state", "decision_type", "kind", "accounting_treatment", "accounting_account", "counterparty", "route_source", "erp_doctype", "erp_document",
                   "link_method", "parent_movement")
 
 
@@ -39,6 +40,7 @@ class Settings:
         self.scopes = {row.account_scope_hash: row.gl_account for row in doc.bank_accounts or [] if row.account_scope_hash}
         self.company_scopes = frozenset(set(self.scopes) | set(DEFAULT_COMPANY_SCOPES))
         self.categories = {str(row.code).upper(): row.expense_account for row in doc.categories or [] if row.expense_account}
+        self.billers = {str(row.biller_code).strip(): row.expense_account for row in doc.billers or [] if row.biller_code and row.expense_account}
         self.holding_supplier = doc.holding_supplier or ""
         self.holding_customer = doc.holding_customer or ""
         self.default_expense = doc.default_expense_account or ""
@@ -59,7 +61,7 @@ class Registry:
             IDENTIFIER, fields=["name", "counterparty", "status"], filters={"status": ["!=", "REVOKED"]}, limit_page_length=0)}
         self.cps = {r.name: r for r in frappe.get_all(
             COUNTERPARTY, fields=["name", "display_name", "status", "is_company", "handler", "is_employee", "custody_account", "employee",
-                                  "customer", "supplier", "expense_account", "category"], limit_page_length=0)}
+                                  "customer", "supplier", "expense_account", "category", "default_treatment"], limit_page_length=0)}
 
     def lookup(self, kind, value):
         hit = self.ids.get(identity_key(kind, value))
@@ -183,6 +185,42 @@ class Context:
         found = frappe.db.get_value(doctype, {field: key, "docstatus": ["<", 2]}, "name")
         return found
 
+    def _payment_references(self, mv, target):
+        """Revalidate the explicitly selected TX Manager PO/PI reference before making a PE draft."""
+        request = (mv.get("recognition") or {}).get("transfer_request") or {}
+        raw = request.get("allocation_json") or "[]"
+        try:
+            rows = json.loads(raw) if isinstance(raw, str) else raw
+        except (TypeError, ValueError):
+            raise ValueError("Supplier payment reference data is not valid JSON; review the transfer request.")
+        if not rows:
+            return None
+        if target.get("party_type") != "Supplier" or not isinstance(rows, list) or len(rows) > 10:
+            raise ValueError("Only a supplier Payment Entry can carry these Purchase Order or Purchase Invoice references.")
+        reference_types = set()
+        total = 0.0
+        references = []
+        for row in rows:
+            doctype, name = str(row.get("reference_doctype") or ""), str(row.get("reference_name") or "").strip()
+            amount = flt(row.get("allocated_amount"))
+            if doctype not in ("Purchase Order", "Purchase Invoice") or not name or amount <= 0:
+                raise ValueError("Supplier reference must name a Purchase Order or Purchase Invoice and a positive allocation.")
+            reference_types.add(doctype)
+            doc = frappe.get_doc(doctype, name)
+            doc.check_permission("read")
+            if doc.docstatus != 1 or doc.company != documents.COMPANY or doc.currency != "SAR" or doc.supplier != target.get("party"):
+                raise ValueError(f"{doctype} {name} no longer matches the supplier, company, currency, or submitted state.")
+            available = flt(doc.get("outstanding_amount")) if doctype == "Purchase Invoice" else flt(doc.grand_total) - flt(doc.get("advance_paid"))
+            if amount - available > 0.005:
+                raise ValueError(f"Allocation exceeds the current available amount on {doctype} {name}.")
+            references.append({"reference_doctype": doctype, "reference_name": name, "allocated_amount": amount})
+            total += amount
+        if len(reference_types) > 1:
+            raise ValueError("A single supplier payment cannot mix Purchase Order advances and Purchase Invoice allocations.")
+        if total - abs(flt(mv.get("amount"))) > 0.005:
+            raise ValueError("Supplier reference allocations exceed the bank movement amount.")
+        return references
+
     def create(self, kind, mv, target, fees):
         s = self.settings
         movement = {"key": mv["key"], "amount": mv["amount"], "date": mv["date"], "reference": mv["source"].get("reference", "")}
@@ -210,8 +248,9 @@ class Context:
             return "Payment Entry", existing
         from erpnext.accounts.party import get_party_account
         party_account = get_party_account(target["party_type"], target["party"], documents.COMPANY)
+        references = self._payment_references(mv, target)
         body = documents.payment_entry(movement, target["party_type"], target["party"], party_account, bank_gl, target["label"], kind,
-                                       target["holding"], target.get("intended", ""))
+                                       target["holding"], target.get("intended", ""), references)
         doc = frappe.get_doc(body)
         savepoint = "bank_router_main_draft"
         frappe.db.savepoint(savepoint)
@@ -254,7 +293,7 @@ def load_index():
     """Light view of every movement: name -> dict, plus fee children by main movement."""
     rows = frappe.get_all(DOCTYPE, fields=["name", "source_key", "event_date", "amount", "account_scope_hash", "source_json", "recognition_json",
                                            "erp_hint_json", "engine_state", "kind", "counterparty", "route_source", "erp_doctype",
-                                           "erp_document", "link_method", "candidates_json", "parent_movement", "modified"], limit_page_length=0)
+                                           "erp_document", "link_method", "accounting_treatment", "accounting_account", "candidates_json", "parent_movement", "modified"], limit_page_length=0)
     index = {}
     for r in rows:
         source = json.loads(r.source_json or "{}")
@@ -279,6 +318,8 @@ def to_engine(name, index, children, ctx):
           "scope": r.account_scope_hash or "", "source": source, "recognition": entry["recognition"],
           "hint": json.loads(r.erp_hint_json or "{}"), "route_source": r.route_source or "", "counterparty": r.counterparty or "",
           "erp_doctype": r.erp_doctype or "", "erp_document": r.erp_document or "", "link_method": r.link_method or "",
+          "accounting_treatment": r.accounting_treatment or "", "accounting_account": r.accounting_account or "",
+          "paired_transfer": entry.get("paired_transfer") or {},
           "candidates": json.loads(r.candidates_json or "{}"), "fees": children.get(name, [])}
     parent_name = entry.get("parent_name")
     if parent_name:
@@ -288,6 +329,40 @@ def to_engine(name, index, children, ctx):
                         "docstatus": (ctx.ledger.doc(p.erp_doctype, p.erp_document, ctx.settings.scopes.get(p.account_scope_hash), None) or {}).get("docstatus", 0)
                         if p.erp_document else 0, "fee_total": sum(abs(c["amount"]) for c in children.get(parent_name, []))}
     return mv
+
+
+def pair_own_transfers(index, settings, max_days=2):
+    """Pair only explicit own-account SNB transfers with one unique opposite bank leg."""
+    own = []
+    for name, entry in index.items():
+        row, source = entry["row"], entry["source"]
+        signals = snb.parse(source, settings.company_scopes)
+        mined = entry["recognition"]
+        route = str((mined.get("am_beneficiary_mapping") or {}).get("route") or "")
+        if not (signals.get("own_account") or route == "JE_BANK_TRANSFER"):
+            continue
+        gl = settings.scopes.get(row.account_scope_hash or "")
+        if not gl:
+            continue
+        own.append({"name": name, "key": row.source_key, "date": getdate(row.event_date), "amount": flt(row.amount),
+                    "gl": gl, "currency": source.get("currency") or "SAR"})
+    candidates = {}
+    for left in own:
+        candidates[left["name"]] = [right for right in own if right["name"] != left["name"] and right["gl"] != left["gl"]
+            and right["currency"] == left["currency"] and left["amount"] * right["amount"] < 0
+            and abs(abs(left["amount"]) - abs(right["amount"])) <= 0.005
+            and abs((left["date"] - right["date"]).days) <= max_days]
+    pairs = {}
+    for left in own:
+        matches = candidates[left["name"]]
+        if len(matches) != 1:
+            continue
+        right = matches[0]
+        if len(candidates.get(right["name"], [])) != 1 or candidates[right["name"]][0]["name"] != left["name"]:
+            continue
+        first, second = sorted((left, right), key=lambda row: (row["date"], row["name"]))
+        pairs[left["name"]] = {"name": right["name"], "source_key": right["key"], "primary": left["name"] == first["name"]}
+    return pairs
 
 
 def apply(name, out, user=None):
@@ -304,7 +379,7 @@ def apply(name, out, user=None):
     for f, v in values.items():
         doc.set(f, v)
     doc.processed_at = now_datetime()
-    if any(f in changed for f in ("engine_state", "erp_document", "counterparty", "kind")):
+    if any(f in changed for f in ("engine_state", "erp_document", "counterparty", "kind", "accounting_treatment", "accounting_account")):
         doc.append("audit", {"reviewer": user or frappe.session.user, "reviewed_at": now_datetime(),
                              "previous_json": _json(previous), "decision_json": _json({f: values[f] for f in ROUTING_FIELDS})})
     doc.flags.snb_router_write = True
@@ -312,7 +387,7 @@ def apply(name, out, user=None):
     return True
 
 
-def run(phase="main", start=0, limit=120, names=None, review_only=False, bank=""):
+def run(phase="main", start=0, limit=120, names=None, review_only=False, bank="", manual_draft=False):
     """Route a batch. Phase 'main' handles every line except bank charges; 'fees' handles those after their main lines."""
     like = "or".join([" source_json like %s "] * 2)
     bank_filter = " and source_key like %s" if bank == "SNB" else ""
@@ -330,7 +405,14 @@ def run(phase="main", start=0, limit=120, names=None, review_only=False, bank=""
     ctx = Context(min(days), max(days))
     if review_only:
         ctx.settings._enabled = False
+    elif manual_draft:
+        if not names or len(names) != 1:
+            frappe.throw("Manual drafting requires exactly one reviewed movement.")
+        ctx.settings.auto_draft = lambda day: True
     index, children = load_index()
+    pairs = pair_own_transfers(index, ctx.settings)
+    for name, pair in pairs.items():
+        index[name]["paired_transfer"] = pair
     for ordinal, r in enumerate(batch):
         savepoint = f"bank_router_movement_{ordinal}"
         frappe.db.savepoint(savepoint)

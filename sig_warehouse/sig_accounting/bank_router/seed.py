@@ -18,9 +18,10 @@ def _clean(value):
     return "" if (not value or "???" in value) else value
 
 
-def plan(b, suppliers, supplier_names, own_names, scopes=DEFAULT_COMPANY_SCOPES, categories=None):
-    """What one beneficiary contributes. `suppliers` is the set of enabled Supplier ids, `supplier_names` {name: id}."""
+def plan(b, suppliers, supplier_names, own_names, scopes=DEFAULT_COMPANY_SCOPES, categories=None, customers=None, customer_names=None):
+    """Resolve beneficiary links against enabled ERP Suppliers and Customers by ID or exact name."""
     categories = categories or {}
+    customers, customer_names = customers or set(), customer_names or {}
     names = [n for n in (_clean(b.get("beneficiary_name")), _clean(b.get("nickname"))) if n]
     display = names[0] if names else _clean(b.get("erp_party")) or "Unnamed beneficiary"
     identifiers = []
@@ -45,19 +46,24 @@ def plan(b, suppliers, supplier_names, own_names, scopes=DEFAULT_COMPANY_SCOPES,
                 identifiers.append(("NAME", key[:PREFIX_LENGTH].strip()))
     erp_party = str(b.get("erp_party") or "")
     record = _clean(b.get("erp_record_id"))
-    supplier = ""
+    supplier = customer = ""
     if record in suppliers:
         supplier = record
+    elif record in customers:
+        customer = record
     else:
-        match = re.match(r"^Supplier:\s*(.+)$", erp_party, re.I)
+        match = re.match(r"^(Supplier|Customer):\s*(.+)$", erp_party, re.I)
         if match:
-            wanted = _clean(match.group(1))
-            supplier = wanted if wanted in suppliers else supplier_names.get(wanted, "")
+            party_type, wanted = match.group(1).lower(), _clean(match.group(2))
+            if party_type == "supplier":
+                supplier = wanted if wanted in suppliers else supplier_names.get(wanted, "")
+            else:
+                customer = wanted if wanted in customers else customer_names.get(wanted, "")
     employee = re.match(r"^Employee:\s*([^|]+)\|\s*(\d+)", erp_party)
     route = str(b.get("proposed_route") or "")
     category = route.split("|")[1] if "|" in route and route.split("|")[0] in ("JE_PERSON", "PAY_SUPPLIER") else ""
     own = own or any(normalize_text(n) in own_names or any(normalize_text(n).startswith(o) for o in own_names) for n in names)
-    return {"am_key": str(b.get("source_key") or ""), "display_name": display, "identifiers": identifiers, "supplier": supplier,
+    return {"am_key": str(b.get("source_key") or ""), "display_name": display, "identifiers": identifiers, "supplier": supplier, "customer": customer,
             "is_employee": bool(employee), "custody_gl": employee.group(2) if employee else "", "category": category,
             "expense_account": categories.get(category, "") if route.startswith("JE_PERSON") else "",
             "is_company": own, "handler": "TAWAL" if any(TAWAL_PATTERN.search(n) for n in names) else ""}
@@ -74,12 +80,15 @@ def apply(rows):
     s = Settings()
     suppliers = {r.name: r.supplier_name for r in frappe.get_all("Supplier", fields=["name", "supplier_name"], filters={"disabled": 0}, limit_page_length=0)}
     supplier_names = {n: i for i, n in suppliers.items()}
-    existing_cp = {r.am_key: r for r in frappe.get_all(COUNTERPARTY, fields=["name", "am_key", "supplier", "custody_account", "employee",
+    customers = {r.name: r.customer_name for r in frappe.get_all("Customer", fields=["name", "customer_name"], filters={"disabled": 0}, limit_page_length=0)}
+    customer_names = {n: i for i, n in customers.items()}
+    existing_cp = {r.am_key: r for r in frappe.get_all(COUNTERPARTY, fields=["name", "am_key", "supplier", "customer", "custody_account", "employee",
                    "expense_account", "category", "is_company", "handler", "is_employee"], filters={"am_key": ["!=", ""]}, limit_page_length=0)}
     existing_ids = {r.name: r.counterparty for r in frappe.get_all(IDENTIFIER, fields=["name", "counterparty"], limit_page_length=0)}
     counts = {"counterparties_created": 0, "counterparties_updated": 0, "identifiers_created": 0, "duplicates": [], "skipped": 0}
     for b in rows:
-        p = plan(b, set(suppliers), supplier_names, s.own_names, s.company_scopes, s.categories)
+        p = plan(b, set(suppliers), supplier_names, s.own_names, s.company_scopes, s.categories,
+                 customers=set(customers), customer_names=customer_names)
         if not p["am_key"]:
             counts["skipped"] += 1
             continue
@@ -91,6 +100,7 @@ def apply(rows):
                                   "is_company": cint_(p["is_company"]), "handler": p["handler"], "is_employee": 0,
                                   "custody_account": custody or None, "employee": employee or None,
                                   "supplier": p["supplier"] or None if not p["is_company"] else None,
+                                  "customer": p["customer"] or None if not p["is_company"] else None,
                                   "expense_account": p["expense_account"] or None, "category": p["category"]})
             doc.flags.bank_router_write = True
             doc.insert()
@@ -99,7 +109,7 @@ def apply(rows):
         else:
             cp_name = cp.name
             fills = {}
-            for field, value in (("supplier", p["supplier"]), ("custody_account", custody), ("employee", employee),
+            for field, value in (("supplier", p["supplier"]), ("customer", p["customer"]), ("custody_account", custody), ("employee", employee),
                                  ("expense_account", p["expense_account"]), ("category", p["category"])):
                 if value and not cp.get(field) and not (field == "supplier" and (p["is_company"] or cp.is_company)):
                     fills[field] = value

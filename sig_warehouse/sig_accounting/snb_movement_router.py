@@ -240,11 +240,13 @@ def _payload(doc, fees=None, statuses=None):
         "name": doc.name, "modified": str(doc.modified), "event_date": str(doc.event_date), "amount": flt(doc.amount), "currency": doc.currency,
         "account_tail": doc.source_account_tail, "bank": str(source.get("bank") or "SNB"), "direction": doc.direction,
         "engine_state": doc.engine_state, "decision_type": doc.decision_type or "", "kind": doc.kind or "",
+        "accounting_treatment": doc.accounting_treatment or "", "accounting_account": doc.accounting_account or "",
         "counterparty": doc.counterparty or "", "counterparty_name": frappe.db.get_value(COUNTERPARTY, doc.counterparty, "display_name") if doc.counterparty else "",
         "display_name": (signals.get("display_name") or mapping.get("beneficiary_name") or "")[:140],
         "route_source": doc.route_source or "", "erp_doctype": doc.erp_doctype or "", "erp_document": doc.erp_document or "",
         "doc_status": statuses.get((doc.erp_doctype, doc.erp_document)), "link_method": doc.link_method or "",
         "category": recognition.get("category") if recognition.get("am_category_status") == "MATCHED" else "",
+        "transfer_request": recognition.get("transfer_request") or {},
         "signals": signals, "candidates": _data(doc.candidates_json) or {}, "reference": source.get("reference", ""),
         "narrative": "\n".join(str(source.get(k) or "") for k in ("transaction_description", "detail_description", "extra_description", "remarks") if source.get(k)),
         "fees": fees or [], "notes": doc.notes or "", "parent_movement": doc.parent_movement or "",
@@ -404,19 +406,38 @@ def _learn_identifiers(doc, cp):
         ident.insert(ignore_permissions=True)
 
 
-def _retarget_draft(doc, kind, target, cp):
-    """Change the party or account on a draft this system created. A converted draft is deleted and rebuilt by the engine."""
+def _retarget_draft(doc, kind, target, cp, treatment=None):
+    """Retarget or safely replace only this router's own unsubmitted draft."""
     if not doc.erp_document or doc.link_method != "AUTO_DRAFT":
-        return
+        return None
     stored = frappe.db.get_value(doc.erp_doctype, doc.erp_document, ["docstatus"], as_dict=True)
     if not stored or stored.docstatus != 0:
-        return
+        return None
     key = (_data(doc.source_json) or {}).get("statement_key") or doc.source_key
+    desired_doctype = {"PAYMENT_ENTRY": "Payment Entry", "JOURNAL_ENTRY": "Journal Entry"}.get(treatment or doc.get("accounting_treatment"))
+    if desired_doctype and desired_doctype != doc.erp_doctype:
+        marker_field = "custom_snb_idempotency_key" if doc.erp_doctype == "Payment Entry" else "custom_pc_statement_key"
+        old = frappe.get_doc(doc.erp_doctype, doc.erp_document)
+        if old.get(marker_field) != key:
+            frappe.throw(_("This linked draft does not carry this movement's router marker; it has been kept."))
+        if doc.erp_doctype == "Payment Entry" and old.get("references"):
+            frappe.throw(_("This Payment Entry has invoice or order allocations. Review them before changing its document type."))
+        old.check_permission("write")
+        old.check_permission("delete")
+        if not frappe.has_permission(desired_doctype, "create"):
+            frappe.throw(_("You cannot create the selected {0} draft.").format(desired_doctype), frappe.PermissionError)
+        old_name = doc.erp_document
+        frappe.delete_doc(doc.erp_doctype, old_name)
+        old_doctype = doc.erp_doctype
+        doc.erp_doctype, doc.erp_document, doc.link_method = "", "", ""
+        return {"doctype": old_doctype, "name": old_name}
     if doc.erp_doctype == "Payment Entry" and kind in (SUPPLIER_PAYMENT, CUSTOMER_RECEIPT) and target.get("party"):
         from erpnext.accounts.party import get_party_account
         pe = frappe.get_doc("Payment Entry", doc.erp_document)
         if pe.get("custom_snb_idempotency_key") != key:
             return
+        if pe.get("party") != target["party"] and pe.get("references"):
+            frappe.throw(_("This draft has invoice or order allocations. Review them before changing its party."))
         account = get_party_account(target["party_type"], target["party"], pe.company)
         pe.party_type, pe.party = target["party_type"], target["party"]
         pe.party_name = frappe.db.get_value(target["party_type"], target["party"], PARTY_LABEL[target["party_type"]])
@@ -424,7 +445,6 @@ def _retarget_draft(doc, kind, target, cp):
             pe.paid_to = account
         else:
             pe.paid_from = account
-        pe.set("references", [])
         pe.custom_linkage_agent = "Done"
         # Saving the review line does not grant write access to the linked accounting document.
         pe.check_permission("write")
@@ -436,12 +456,7 @@ def _retarget_draft(doc, kind, target, cp):
         je.accounts[0].account = target["account"]
         je.check_permission("write")
         je.save()
-    else:
-        marker_field = "custom_snb_idempotency_key" if doc.erp_doctype == "Payment Entry" else "custom_pc_statement_key"
-        if frappe.db.get_value(doc.erp_doctype, doc.erp_document, marker_field) == key:
-            # `force` only bypasses link checks; keep Frappe's ordinary delete permission check.
-            frappe.delete_doc(doc.erp_doctype, doc.erp_document, force=True)
-            doc.erp_doctype = doc.erp_document = doc.link_method = ""
+    return None
 
 
 @frappe.whitelist(methods=["POST"])
@@ -455,46 +470,87 @@ def route_movement(name, modified, target):
     _require("write")
     target = _data(target)
     doc = _lock(name, modified)
-    if doc.kind not in DRAFTABLE:
-        frappe.throw(_("This kind of movement is not routed to a party here."))
     signals = _data(doc.signals_json) or {}
     label = signals.get("display_name") or ""
     kind_type = target.get("type")
+    treatment = str(target.get("treatment") or doc.accounting_treatment or "").upper()
+    if treatment not in ("PAYMENT_ENTRY", "JOURNAL_ENTRY", "FINANCE_HANDLES"):
+        frappe.throw(_("Choose Payment Entry, Journal Entry, or Finance handles this."))
+    if doc.kind not in ("UNKNOWN", "SUPPLIER_PAYMENT", "EXPENSE_PAYMENT", "CUSTOMER_RECEIPT", "EMPLOYEE"):
+        frappe.throw(_("This movement is held for its specialist, petty-cash, own-transfer, or fee workflow."))
+    previous = {"counterparty": doc.counterparty or "", "accounting_treatment": doc.accounting_treatment or "",
+                "accounting_account": doc.get("accounting_account") or ""}
     resolved = {}
+    if treatment == "FINANCE_HANDLES":
+        _retarget_draft(doc, doc.kind, {}, None, treatment)
+        doc.accounting_treatment = treatment
+        doc.accounting_account = ""
+        doc.flags.snb_router_write = True
+        doc.append("audit", {"reviewer": frappe.session.user, "reviewed_at": now_datetime(), "previous_json": _json(previous),
+                             "decision_json": _json({"accounting_treatment": treatment})})
+        doc.save()
+        runtime.run("main", 0, 1, names=[doc.name])
+        return {"movement": get_movement(name), "rerouted": 0}
     cp = _ensure_counterparty(doc, label)
-    if kind_type in ("PARTY", "NEW_PARTY"):
+    if treatment == "PAYMENT_ENTRY" and kind_type in ("PARTY", "NEW_PARTY"):
         party_type = target.get("party_type")
-        if party_type not in PARTY_DOCTYPES or (doc.kind == CUSTOMER_RECEIPT) != (party_type == "Customer"):
+        expected_party = "Customer" if doc.direction == "CREDIT" else "Supplier"
+        if party_type != expected_party:
             frappe.throw(_("Incoming receipts take a Customer; outgoing payments take a Supplier."))
         party = _new_party(party_type, target.get("name"), target.get("vat"), target.get("country")) if kind_type == "NEW_PARTY" else str(target.get("party") or "")
         _check_link(party_type, party)
         if frappe.db.get_value(party_type, party, "disabled"):
             frappe.throw(_("Select an enabled party."))
         cp.set("customer" if party_type == "Customer" else "supplier", party)
+        doc.accounting_account = ""
         resolved = {"party_type": party_type, "party": party}
-    elif kind_type == "EXPENSE":
+    elif treatment == "JOURNAL_ENTRY" and kind_type == "EXPENSE" and doc.direction == "DEBIT":
         account = str(target.get("account") or "")
         if frappe.db.get_value("Account", account, ["root_type", "is_group"], as_dict=True) in (None,) or \
                 frappe.db.get_value("Account", account, "root_type") != "Expense" or frappe.db.get_value("Account", account, "is_group"):
             frappe.throw(_("Choose an expense account that is not a group."))
-        cp.expense_account = account
+        doc.accounting_account = account
         resolved = {"account": account}
-    elif kind_type == "HOLDING":
-        resolved = {}
     else:
-        frappe.throw(_("Unknown routing choice."))
-    if kind_type != "HOLDING":
-        cp.flags.bank_router_write = True
-        cp.save(ignore_permissions=True)
-        _learn_identifiers(doc, cp)
-        doc.counterparty, doc.route_source = cp.name, "MANUAL"
-        _retarget_draft(doc, doc.kind, resolved, cp)
-    doc.append("audit", {"reviewer": frappe.session.user, "reviewed_at": now_datetime(), "previous_json": _json({"counterparty": doc.counterparty}),
+        frappe.throw(_("Choose a party for Payment Entry or an expense account for Journal Entry."))
+    remember = str(target.get("remember_default") or "0") == "1"
+    if remember:
+        cp.default_treatment = treatment
+        if treatment == "JOURNAL_ENTRY":
+            cp.expense_account = doc.accounting_account
+    cp.flags.bank_router_write = True
+    cp.save(ignore_permissions=True)
+    _learn_identifiers(doc, cp)
+    doc.accounting_treatment = treatment
+    doc.counterparty, doc.route_source = cp.name, "MANUAL"
+    replaced = _retarget_draft(doc, doc.kind, resolved, cp, treatment)
+    doc.append("audit", {"reviewer": frappe.session.user, "reviewed_at": now_datetime(), "previous_json": _json(previous),
                          "decision_json": _json({"routed": target})})
     doc.flags.snb_router_write = True
     doc.save()
-    runtime.run("main", 0, 1, names=[doc.name])
+    result = runtime.run("main", 0, 1, names=[doc.name], manual_draft=bool(replaced))
+    if replaced and (result.get("errors") or not get_movement(name).get("erp_document")):
+        frappe.throw(_("The replacement draft could not be created. The original draft was restored; review the movement and try again."))
     return {"movement": get_movement(name), "rerouted": 0}
+
+
+@frappe.whitelist(methods=["POST"])
+def create_reviewed_draft(name, modified):
+    """Create one draft after the reviewer has explicitly chosen its treatment."""
+    _require("write")
+    doc = _lock(name, modified)
+    if doc.erp_document or doc.decision_type != "CREATE_DRAFT":
+        frappe.throw(_("Refresh this movement and resolve its existing document or pending review first."))
+    doctype = {"PAYMENT_ENTRY": "Payment Entry", "JOURNAL_ENTRY": "Journal Entry"}.get(doc.accounting_treatment)
+    if not doctype or not frappe.has_permission(doctype, "create"):
+        frappe.throw(_("An explicit treatment and permission to create the selected document are required."), frappe.PermissionError)
+    result = runtime.run("main", 0, 1, names=[name], manual_draft=True)
+    if result.get("errors"):
+        frappe.throw(_("The draft could not be created. Review the movement and its error details."))
+    movement = get_movement(name)
+    if not movement.get("erp_document"):
+        frappe.throw(_("No draft was created. Review any matching documents and the selected party or account."))
+    return movement
 
 
 @frappe.whitelist(methods=["POST"])
@@ -525,12 +581,44 @@ def pick_document(name, modified, doctype, document):
     offered = {(c["doctype"], c["name"]) for c in (_data(doc.candidates_json) or {}).get("documents", [])}
     if (doctype, document) not in offered:
         frappe.throw(_("That document was not offered for this movement."))
+    claimed = frappe.db.sql("SELECT name FROM `tabSNB Movement Review` WHERE erp_doctype=%s AND erp_document=%s AND name!=%s FOR UPDATE",
+                            (doctype, document, name))
+    if claimed:
+        frappe.throw(_("This document is already linked to another movement. Refresh and review the match."))
     doc.erp_doctype, doc.erp_document, doc.link_method = doctype, document, "MANUAL"
     doc.append("audit", {"reviewer": frappe.session.user, "reviewed_at": now_datetime(), "previous_json": "{}", "decision_json": _json({"linked": document})})
     doc.flags.snb_router_write = True
     doc.save()
     runtime.run("main", 0, 5, names=[doc.name])
     return get_movement(name)
+
+
+@frappe.whitelist(methods=["POST"])
+def bulk_confirm_unique_matches(items):
+    """Link only rows already showing exactly one eligible ledger candidate; never create a document."""
+    _require("write")
+    items = _data(items)
+    if not isinstance(items, list) or not 1 <= len(items) <= 100:
+        frappe.throw(_("Select between 1 and 100 movements."))
+    results = []
+    for item in items:
+        if not isinstance(item, dict) or not item.get("name"):
+            results.append({"name": "", "status": "INVALID"})
+            continue
+        doc = frappe.get_doc(DOCTYPE, item["name"])
+        doc.check_permission("write")
+        candidates = (_data(doc.candidates_json) or {}).get("documents", [])
+        if doc.engine_state != "NEEDS_YOU" or doc.decision_type != "PICK_DOCUMENT" or len(candidates) != 1:
+            results.append({"name": doc.name, "status": "HELD", "reason": "not a unique offered document"})
+            continue
+        c = candidates[0]
+        try:
+            pick_document(doc.name, str(doc.modified), c["doctype"], c["name"])
+            results.append({"name": doc.name, "status": "LINKED", "document": c["name"]})
+        except Exception as error:
+            results.append({"name": doc.name, "status": "FAILED", "reason": str(error)[:220]})
+    return {"results": results, "linked": sum(r["status"] == "LINKED" for r in results),
+            "held": sum(r["status"] == "HELD" for r in results)}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -548,7 +636,7 @@ def list_counterparties(query="", start=0, limit=50):
     _require("read")
     term = str(query or "").strip()
     return frappe.get_list(COUNTERPARTY, or_filters={"display_name": ["like", f"%{term}%"]} if term else None,
-                           fields=["name", "display_name", "status", "supplier", "customer", "expense_account", "is_company", "is_employee", "handler"],
+                           fields=["name", "display_name", "status", "supplier", "customer", "expense_account", "default_treatment", "is_company", "is_employee", "handler"],
                            order_by="display_name asc", start=max(0, int(start)), page_length=min(100, max(1, int(limit))))
 
 

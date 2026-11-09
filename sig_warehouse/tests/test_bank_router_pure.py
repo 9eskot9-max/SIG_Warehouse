@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "sig_accounting"))
 from bank_router import classify as C  # noqa: E402
 from bank_router import documents as D  # noqa: E402
 from bank_router import reconcile as R  # noqa: E402
+from bank_router import seed  # noqa: E402
 from bank_router.adapters import snb  # noqa: E402
 from bank_router.identify import identify  # noqa: E402
 from bank_router.text import account_scope, hint_key, is_company_number, normalize_text  # noqa: E402
@@ -98,6 +99,12 @@ def test_tawal_and_bank_adjustments_are_flagged():
     assert snb.parse(line("CREDIT", "UNKNOWN_FORMAT", "VAT Rebate"))["adjustment"]
 
 
+def test_sadad_biller_code_is_extracted_without_inferring_a_payee():
+    parsed = snb.parse(line("DEBIT", "SADAD", "SADAD payment", "Biller Code: 101 Electricity"))
+    assert parsed["biller_code"] == "101"
+    assert parsed["identifiers"] == [] and not parsed["display_name"]
+
+
 # ---- identify -----------------------------------------------------------------------------------------------
 def registry(entries):
     return lambda kind, value: entries.get((kind, hint_key(kind, value)), [])
@@ -118,6 +125,24 @@ def test_identify_suggested_and_none():
     assert identify([], reg)["status"] == "NONE"
 
 
+def test_beneficiary_registry_resolves_enabled_customer_and_supplier_links():
+    customer = seed.plan({"source_key": "BEN-C", "beneficiary_name": "Customer Name", "erp_record_id": "CUST-1"},
+                         set(), {}, set(), customers={"CUST-1"})
+    supplier = seed.plan({"source_key": "BEN-S", "beneficiary_name": "Supplier Name", "erp_party": "Supplier: Supplier Name"},
+                         {"SUP-1"}, {"Supplier Name": "SUP-1"}, set())
+    assert customer["customer"] == "CUST-1" and customer["supplier"] == ""
+    assert supplier["supplier"] == "SUP-1" and supplier["customer"] == ""
+
+
+def test_beneficiary_registry_resolves_customer_exact_name_and_ignores_untyped_id():
+    linked = seed.plan({"source_key": "BEN-C", "beneficiary_name": "Acme", "erp_party": "Customer: Acme"},
+                       set(), {}, set(), customers={"CUST-2"}, customer_names={"Acme": "CUST-2"})
+    ignored = seed.plan({"source_key": "BEN-X", "beneficiary_name": "Acme", "erp_record_id": "OTHER-1"},
+                        {"SUP-1"}, {}, set(), customers={"CUST-2"})
+    assert linked["customer"] == "CUST-2"
+    assert ignored["customer"] == "" and ignored["supplier"] == ""
+
+
 # ---- classify -----------------------------------------------------------------------------------------------
 @pytest.mark.parametrize("direction,family,signals,facts,intent,route,expected", [
     ("DEBIT", "BANK_FEE", {}, {}, "", "", C.BANK_CHARGE),
@@ -128,6 +153,8 @@ def test_identify_suggested_and_none():
     ("DEBIT", "IPS_LOCAL", {"tawal": True}, {}, "", "", C.SPECIALIST),
     ("DEBIT", "INTERNAL_BEN_ID", {}, {"custody_account": "132223"}, "XXPC", "JE_EMPLOYEE", C.PETTY_CASH),
     ("DEBIT", "INTERNAL_BEN_ID", {}, {}, "XXPC", "", C.PETTY_CASH),
+    ("DEBIT", "INTERNAL_BEN_ID", {}, {"is_employee": True}, "XXSC", "JE_EMPLOYEE", C.UNKNOWN),
+    ("DEBIT", "LOCAL_OTBANK", {}, {}, "XXMT", "PAY_SUPPLIER|MAINTENANCE|CONFIRMED", C.UNKNOWN),
     ("DEBIT", "INTERNAL_BEN_ID", {}, {"is_employee": True}, "", "", C.EMPLOYEE),
     ("DEBIT", "IPS_LOCAL", {}, {}, "", "JE_EMPLOYEE", C.EMPLOYEE),
     ("DEBIT", "IPS_LOCAL", {}, {}, "XXSL", "", C.EMPLOYEE),
@@ -136,7 +163,7 @@ def test_identify_suggested_and_none():
     ("DEBIT", "IPS_LOCAL", {}, {"expense_account": "5130"}, "", "", C.EXPENSE_PAYMENT),
     ("DEBIT", "IPS_LOCAL", {}, {}, "", "JE_PERSON|PROJECT_OPERATING_COST|CONFIRMED|NO_PI", C.EXPENSE_PAYMENT),
     ("DEBIT", "IPS_LOCAL", {}, {}, "XXMR", "PAY_SUPPLIER|MATERIAL_SUPPLY|CONFIRMED", C.SUPPLIER_PAYMENT),
-    ("DEBIT", "LOCAL_OTBANK", {}, {}, "", "", C.SUPPLIER_PAYMENT),
+    ("DEBIT", "LOCAL_OTBANK", {}, {}, "", "", C.UNKNOWN),
     ("CREDIT", "IPS_LOCAL", {"format": "IPS_LOCAL"}, {}, "", "", C.CUSTOMER_RECEIPT),
     ("CREDIT", "INCOMING_LOCAL", {"format": "INTERNAL_SNB"}, {}, "", "", C.CUSTOMER_RECEIPT),
     ("CREDIT", "INCOMING_LOCAL", {"format": "LARGE_LOCAL", "own_account": True}, {}, "", "", C.OWN_TRANSFER),

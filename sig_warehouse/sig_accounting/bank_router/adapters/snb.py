@@ -64,6 +64,9 @@ def parse(source, scopes=DEFAULT_COMPANY_SCOPES):
     out = {"format": fmt, "identifiers": [], "display_name": "", "own_account": False,
            "tawal": bool(TAWAL_PATTERN.search(text)), "adjustment": bool(ADJUSTMENT_PATTERN.search(text)),
            "reference": str(source.get("reference") or "").strip()}
+    biller = re.search(r"\b(?:BILLER(?:\s*(?:ID|CODE))?)\s*[:#-]?\s*(\d{2,8})\b", text, re.I)
+    if str(source.get("parser_family") or "").upper() == "SADAD" and biller:
+        out["biller_code"] = biller.group(1)
     if not fmt:
         return out
     party_id = re.search(r"(?P<label>BEN|DEP)\s*ID\s*:\s*(?P<value>\d+)", detail, re.I)
