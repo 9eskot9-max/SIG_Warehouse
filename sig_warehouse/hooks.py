@@ -46,6 +46,10 @@ override_whitelisted_methods = {
     "sig_pc_close_transaction": "sig_warehouse.sig_warehouse.pc_journal.confirm_receipt",
     "sig_pc_create_pc_journal_draft": "sig_warehouse.sig_warehouse.pc_journal.confirm_receipt",
     "sig_pc_reject_transaction": "sig_warehouse.sig_warehouse.pc_journal.reject_receipt",
+    # Keep the established API route while moving invoice evidence allocation
+    # into app-owned, reviewable code. The implementation enforces the same
+    # Sales Invoice read boundary as the former API Server Script.
+    "register_tawal_invoice_evidence": "sig_warehouse.sig_warehouse.tawal_invoice_evidence.register_tawal_invoice_evidence",
 }
 permission_query_conditions = {
     "SIG PC Transaction": "sig_warehouse.sig_warehouse.pc_journal.transaction_query_conditions",
