@@ -1,5 +1,7 @@
 # Deploy log — SIG ERP (neosys.frappe.cloud)
 
+| 2026-11-09 — PENDING | Owner via Codex | Bank movement review sync and marked ERP documents | PENDING | PENDING | PENDING | PENDING | Deployment has not yet occurred. Record exact UTC time, target revision, backup, build/update IDs, permission comparison, route and persona outcomes after the attempt. |
+
 One row per production action. Times are Frappe Cloud times (UTC as shown in the dashboard). Add the row in the same
 pull request that changes the deployed commit, or in the commit that records the deploy. Never edit an old row;
 add a correction row instead.

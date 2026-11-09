@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const script = path.join(here, 'alinma_router_push.mjs');
 
-test('Alinma preview routes received credits and salary candidates only', () => {
+test('Alinma preview includes credits, salary candidates and unclassified debits', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'alinma-router-'));
   const file = path.join(dir, 'queue.json');
   const key = (n) => String(n).repeat(64);
@@ -28,7 +28,7 @@ test('Alinma preview routes received credits and salary candidates only', () => 
     assert.equal(run.status, 0, run.stderr);
     const summary = JSON.parse(run.stdout);
     assert.deepEqual(summary, {
-      mode: 'preview', bank: 'ALINMA', rows_to_route: 2,
+      mode: 'preview', bank: 'ALINMA', rows_to_route: 3,
       received_amounts: 1, salary_candidates: 1, other_debits: 1,
     });
     assert.doesNotMatch(run.stdout, /1234567890/);

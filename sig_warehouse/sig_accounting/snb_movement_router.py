@@ -59,12 +59,28 @@ def ingest(items):
             frappe.throw(_("Movement evidence exceeds the size limit."))
         name = hashlib.sha256(key.encode("utf-8")).hexdigest()
         if frappe.db.exists(DOCTYPE, name):
+            frappe.db.sql("SELECT name FROM `tabSNB Movement Review` WHERE name=%s FOR UPDATE", (name,))
             doc = frappe.get_doc(DOCTYPE, name)
             doc.check_permission("read")
             if doc.source_key != key or doc.source_json != source_json:
                 results.append({"id": key, "status": "SOURCE_CONFLICT", "name": name})
             else:
-                results.append({"id": key, "status": "EXISTS", "name": name})
+                # A staging link is a hint, not proof of a readable ERP document.
+                # Never change source evidence or the accountant's saved decision.
+                old = _data(doc.erp_hint_json) or {}
+                incoming = item.get("erp") or {}
+                old_link = str(old.get("linked_doc") or "").strip()
+                new_link = str(incoming.get("linked_doc") or "").strip()
+                if old_link and new_link and old_link != new_link:
+                    results.append({"id": key, "status": "HINT_CONFLICT", "name": name})
+                elif new_link and not old_link:
+                    old.update({"linked_doc": new_link, "readback_status": "NEEDS_LIVE_READBACK"})
+                    doc.erp_hint_json = _json(old)
+                    doc.flags.snb_router_write = True
+                    doc.save()
+                    results.append({"id": key, "status": "HINT_UPDATED", "name": name})
+                else:
+                    results.append({"id": key, "status": "EXISTS", "name": name})
             continue
         doc = frappe.new_doc(DOCTYPE)
         doc.update({"source_hash": name, "source_key": key, "event_date": source["event_date"], "source_account_tail": str(source.get("account_tail") or "")[-4:], "direction": source["direction"], "amount": flt(source.get("signed_amount")), "currency": source.get("currency") or "SAR", "source_json": source_json, "recognition_json": _json(item.get("recognition") or {}), "erp_hint_json": _json(item.get("erp") or {}), "review_status": "PENDING"})
@@ -88,6 +104,31 @@ def get_movement(name):
     doc = frappe.get_doc(DOCTYPE, name)
     doc.check_permission("read")
     return {"name": doc.name, "modified": doc.modified, "id": doc.source_key, "source": _data(doc.source_json) or {}, "recognition": _data(doc.recognition_json) or {}, "erp": _data(doc.erp_hint_json) or {}, "review": {field: doc.get(field) for field in FIELDS}}
+
+
+@frappe.whitelist()
+def list_marked_documents(doctype, start=0, limit=100):
+    """List visible bank-marked accounting documents without creating review records.
+
+    The Journal Entry field denotes statement evidence, not necessarily SNB;
+    don't infer a bank from it. User Permissions still apply via get_list.
+    """
+    _require("read")
+    marker = {"Payment Entry": "custom_snb_idempotency_key",
+              "Journal Entry": "custom_pc_statement_key"}.get(doctype)
+    if not marker:
+        frappe.throw(_("Unsupported accounting document type."))
+    if not frappe.has_permission(doctype, "read"):
+        return {"available": False, "rows": []}
+    start = max(0, int(start))
+    limit = min(200, max(1, int(limit)))
+    rows = frappe.get_list(doctype, filters={marker: ["is", "set"]},
+                           fields=["name", "docstatus", "posting_date", marker],
+                           order_by="posting_date desc, name asc", start=start, page_length=limit)
+    return {"available": True, "rows": [{"doctype": doctype, "name": row.name,
+            "docstatus": row.docstatus, "posting_date": str(row.posting_date or ""),
+            "statement_key": row.get(marker),
+            "bank": "SNB" if doctype == "Payment Entry" else "UNCONFIRMED"} for row in rows]}
 
 
 @frappe.whitelist()

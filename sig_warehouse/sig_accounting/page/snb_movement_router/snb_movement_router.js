@@ -7,6 +7,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     const routes = ['CUSTOMER_RECEIPT','OWN_ACCOUNT_TRANSFER','PETTY_CASH_FUNDING','SUPPLIER_PAYMENT','MATERIAL_SUPPLIER_PAYMENT','SUBCONTRACTOR_PAYMENT','MAINTENANCE_PAYMENT','LOGISTICS_PAYMENT','HR_EMPLOYEE_PAYMENT','SALARY_PAYMENT','SADAD_PAYMENT','EMPLOYEE_PAYMENT','OTHER','DEFERRED_TAWAL','DEFERRED_XXCL'];
     const state = {rows: [], lane: 'RECEIPTS', bank: 'ALL', selected: '', search: '', referenceQueryKey: ''};
     root.html(`<header><h2>${__('Review bank movements')}</h2><p>${__('Review bank evidence from connected sources and save an accountant decision. ERP draft creation is not yet enabled.')}</p><button class="btn btn-default" data-refresh>${__('Refresh')}</button></header><label class="snb-bank-filter">${__('Bank')} <select data-bank><option value="ALL">${__('All banks')}</option><option value="SNB">SNB</option><option value="ALINMA">Alinma</option></select></label><nav data-lanes></nav><input class="form-control" data-search placeholder="${__('Search party, account ending, reference…')}"><section class="snb-grid"><aside><h4 data-title></h4><div data-queue></div></aside><article data-evidence></article><article data-review></article></section>`);
+    root.append(`<section class="snb-marked-documents"><h3>${__('Bank-linked ERP documents')}</h3><p>${__('These existing accounting documents have a bank statement marker. Journal Entry markers do not identify the bank by themselves.')}</p><div data-marked-documents>${__('Loading…')}</div></section>`);
     const q = s => el.querySelector(s);
     const bankOf = x => String(x.source.bank || 'SNB').toUpperCase() === 'ALINMA' ? 'ALINMA' : 'SNB';
     const bankRows = () => state.rows.filter(x => state.bank === 'ALL' || bankOf(x) === state.bank);
@@ -77,10 +78,29 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
         q('[data-review]').innerHTML = `<h3>${__('Accountant decision')}</h3><p>${__('Suggestions require review. Select exact ERP names for linked records.')}</p><label>${__('Lane')}<select data-field="lane">${opt(Object.keys(lanes),d.lane || r.lane,lanes)}</select></label><label>${__('Route')}<select data-field="route">${opt(routes,d.route || r.route)}</select></label><label>${__('Category')}<select data-field="category">${opt(['XXPC','XXSL','XXCL','XXMT','XXMR','XXOM','XXSC','XXLG','XXHR','ALINMA_SALARY_CANDIDATE'],d.category || r.category)}</select></label><label>${__('Party type')}<select data-field="party_type">${opt(['Customer','Supplier','Employee','Other'],partyTypeValue)}</select></label><label>${__('ERP party')}<input data-field="party" value="${esc(partyValue)}"></label><label>${__('Company')}<input data-field="company" value="${esc(d.company || '')}"></label><label>${__('Bank GL account')}<input data-field="bank_account" value="${esc(d.bank_account || '')}"></label><label>${__('Counter GL account')}<input data-field="counter_account" value="${esc(d.counter_account || '')}"></label><label>${__('Material treatment')}<select data-field="material_treatment">${opt(['STOCK','OPERATIONAL_NON_STOCK'],d.material_treatment)}</select></label>${s.direction==='DEBIT'?`<section class="snb-payment-reference"><h4>${__('Supplier payment reference · optional')}</h4><p>${__('Purchase Orders are advance references. Purchase Invoices allocate against outstanding. No selection leaves the payment unallocated. Purchase Receipts are not payment references.')}</p><label>${__('Document')}<select data-reference-choice><option value="" ${effectiveRef?'':'selected'}>${__('No document · leave unallocated')}</option>${effectiveRef?`<option value="${esc(effectiveRef)}" selected>${esc(effectiveRef.replace('::',' · '))}</option>`:''}</select></label><label>${__('Allocated amount')}<input data-reference-amount type="number" min="0" max="${Math.abs(Number(s.signed_amount||0))}" step="0.01" value="${esc(d.payment_reference_amount || requestRef?.allocated_amount || '')}"></label><small data-reference-status>${__('Choose Supplier and Company to load submitted documents. The list respects your ERP permissions.')}</small></section>`:''}<label>${__('Review state')}<select data-field="review_status">${opt(['PENDING','REVIEWED','NEEDS_CLARIFICATION','DEFERRED'],d.review_status || 'PENDING')}</select></label><label>${__('Note')}<textarea data-field="notes">${esc(d.notes || '')}</textarea></label><button class="btn btn-primary" data-save>${__('Save decision')}</button><div data-message></div>`;
         loadPaymentReferences(x);
     }
+    async function loadMarkedDocuments() {
+        const target=q('[data-marked-documents]');
+        try {
+            const all=[], unavailable=[];
+            for (const doctype of ['Payment Entry','Journal Entry']) {
+                let start=0, part;
+                do {
+                    const response=await frappe.call({method:method+'list_marked_documents',args:{doctype,start,limit:200}});
+                    const data=response.message || {};
+                    if (!data.available) { unavailable.push(doctype); break; }
+                    part=data.rows || []; all.push(...part); start+=part.length;
+                } while(part.length===200);
+            }
+            target.innerHTML=(unavailable.length ? `<p>${__('Some document types are unavailable to your account')}: ${unavailable.map(esc).join(', ')}</p>` : '') +
+                (all.length ? all.map(x=>`<p><a href="#" data-erp-doctype="${esc(x.doctype)}" data-erp-name="${esc(x.name)}">${esc(x.doctype)} · ${esc(x.name)}</a> · ${esc(x.posting_date)} · ${esc(x.bank==='SNB'?'SNB':__('Bank unconfirmed'))} · ${esc(({0:__('Draft'),1:__('Submitted'),2:__('Cancelled')})[x.docstatus] || __('Unknown'))}<br><small>${__('Statement marker')}: ${esc(x.statement_key)}</small></p>`).join('') : `<p>${__('No marked ERP documents visible.')}</p>`);
+        } catch(e) { target.textContent=__('Could not load marked ERP documents. Check your document access and refresh.'); }
+    }
     async function load() {
+        loadMarkedDocuments();
         try { let rows=[],start=0,part; do { part=(await frappe.call({method:method+'list_movements',args:{start,limit:200}})).message || []; rows=rows.concat(part); start+=part.length; } while(part.length===200 && start<10000); state.rows=rows; render(); }
         catch(e) { frappe.msgprint(__('Could not load bank movements. Check your access.')); }
     }
+    root.on('click','[data-erp-doctype]',function(event){event.preventDefault();frappe.set_route('Form',this.dataset.erpDoctype,this.dataset.erpName);});
     root.on('click','[data-lane]',function(){state.lane=this.dataset.lane;state.selected='';render();});
     root.on('change','[data-bank]',function(){state.bank=this.value;state.selected='';render();});
     root.on('click','[data-row]',function(){state.selected=this.dataset.row;render();});
