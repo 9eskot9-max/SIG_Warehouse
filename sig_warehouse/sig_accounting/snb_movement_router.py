@@ -171,8 +171,10 @@ def list_links(start=0, limit=200):
 def engine_status():
     _require("read")
     settings = runtime.Settings()
-    counts = {row.engine_state: row.n for row in frappe.db.sql(
-        "select engine_state, count(*) n from `tabSNB Movement Review` group by engine_state", as_dict=True)}
+    visible = frappe.get_list(DOCTYPE, fields=["engine_state"], limit_page_length=0)
+    counts = {}
+    for row in visible:
+        counts[row.engine_state] = counts.get(row.engine_state, 0) + 1
     return {"auto_draft": settings._enabled, "auto_draft_from": str(settings._from or ""), "banks_configured": len(settings.scopes),
             "holding_customer": bool(settings.holding_customer), "counts": counts}
 
@@ -188,7 +190,7 @@ def _doc_status(rows):
     for doctype, names in by_type.items():
         if doctype not in ("Payment Entry", "Journal Entry") or not frappe.has_permission(doctype, "read"):
             continue
-        for d in frappe.get_all(doctype, filters={"name": ["in", list(names)]}, fields=["name", "docstatus"], limit_page_length=0):
+        for d in frappe.get_list(doctype, filters={"name": ["in", list(names)]}, fields=["name", "docstatus"], limit_page_length=0):
             out[(doctype, d.name)] = d.docstatus
     return out
 
@@ -218,8 +220,8 @@ def _fees_for(names):
     if not names:
         return {}
     out = {}
-    for r in frappe.get_all(DOCTYPE, filters={"parent_movement": ["in", names]},
-                            fields=["name", "parent_movement", "amount", "source_json", "erp_doctype", "erp_document"], limit_page_length=0):
+    for r in frappe.get_list(DOCTYPE, filters={"parent_movement": ["in", names]},
+                             fields=["name", "parent_movement", "amount", "source_json", "erp_doctype", "erp_document"], limit_page_length=0):
         family = (_data(r.source_json) or {}).get("parser_family", "")
         out.setdefault(r.parent_movement, []).append({"name": r.name, "amount": flt(r.amount), "family": family,
                                                       "erp_doctype": r.erp_doctype or "", "erp_document": r.erp_document or ""})
@@ -252,7 +254,9 @@ def list_inbox(tab="needs", bank="ALL", search="", start=0, limit=50):
         p = _payload(d, [{**f, "doc_status": statuses.get((f["erp_doctype"], f["erp_document"]))} for f in fees.get(d.name, [])], statuses)
         if bank == "ALL" or p["bank"].upper() == bank:
             items.append(p)
-    counts = {t: frappe.db.count(DOCTYPE, {"engine_state": ["in", states]}) for t, states in TABS.items()}
+    visible_states = frappe.get_list(DOCTYPE, fields=["engine_state"], limit_page_length=0)
+    counts = {tab_name: sum(1 for row in visible_states if row.engine_state in states)
+              for tab_name, states in TABS.items()}
     return {"items": items, "counts": counts, "has_more": len(rows) == limit}
 
 
@@ -299,8 +303,10 @@ def _new_party(doctype, name, vat=""):
     name = str(name or "").strip()
     if len(name) < 3 or len(name) > 140:
         frappe.throw(_("Enter the party's full name."))
+    if not frappe.has_permission(doctype, "read"):
+        frappe.throw(_("You need read access to check existing {0} records before creating one.").format(doctype), frappe.PermissionError)
     field = PARTY_LABEL[doctype]
-    same = [r for r in frappe.get_all(doctype, filters={"disabled": 0}, fields=["name", field], limit_page_length=0)
+    same = [r for r in frappe.get_list(doctype, filters={"disabled": 0}, fields=["name", field], limit_page_length=0)
             if normalize_text(r.get(field)) == normalize_text(name)]
     if same:
         frappe.throw(_("{0} already exists: {1}. Select it instead.").format(doctype, ", ".join(r.name for r in same)))
@@ -377,19 +383,21 @@ def _retarget_draft(doc, kind, target, cp):
             pe.paid_from = account
         pe.set("references", [])
         pe.custom_linkage_agent = "Done"
-        pe.flags.ignore_permissions = True
+        # Saving the review line does not grant write access to the linked accounting document.
+        pe.check_permission("write")
         pe.save()
     elif doc.erp_doctype == "Journal Entry" and kind == EXPENSE_PAYMENT and target.get("account"):
         je = frappe.get_doc("Journal Entry", doc.erp_document)
         if je.get("custom_pc_statement_key") != key or not je.accounts:
             return
         je.accounts[0].account = target["account"]
-        je.flags.ignore_permissions = True
+        je.check_permission("write")
         je.save()
     else:
         marker_field = "custom_snb_idempotency_key" if doc.erp_doctype == "Payment Entry" else "custom_pc_statement_key"
         if frappe.db.get_value(doc.erp_doctype, doc.erp_document, marker_field) == key:
-            frappe.delete_doc(doc.erp_doctype, doc.erp_document, ignore_permissions=True, force=True)
+            # `force` only bypasses link checks; keep Frappe's ordinary delete permission check.
+            frappe.delete_doc(doc.erp_doctype, doc.erp_document, force=True)
             doc.erp_doctype = doc.erp_document = doc.link_method = ""
 
 
@@ -399,7 +407,7 @@ def route_movement(name, modified, target):
 
     target: {"type": "PARTY", "party_type", "party"} | {"type": "NEW_PARTY", "party_type", "name", "vat"} |
             {"type": "EXPENSE", "account"} | {"type": "HOLDING"}
-    The line's identifiers are remembered, so the same payer is recognised next time and every waiting line is re-routed.
+    The line's identifiers are remembered for later engine runs; this user action re-processes only the line they reviewed.
     """
     _require("write")
     target = _data(target)
@@ -442,9 +450,8 @@ def route_movement(name, modified, target):
                          "decision_json": _json({"routed": target})})
     doc.flags.snb_router_write = True
     doc.save()
-    waiting = [r.name for r in frappe.get_all(DOCTYPE, filters={"engine_state": ["in", ["NEEDS_YOU", "PENDING"]]}, fields=["name"], limit_page_length=300)]
-    runtime.run("main", 0, 300, names=waiting + [doc.name])
-    return {"movement": get_movement(name), "rerouted": len(waiting)}
+    runtime.run("main", 0, 1, names=[doc.name])
+    return {"movement": get_movement(name), "rerouted": 0}
 
 
 @frappe.whitelist(methods=["POST"])

@@ -55,6 +55,9 @@ class Doc:
     def get(self, key):
         return getattr(self, key, None)
 
+    def set(self, key, value):
+        setattr(self, key, value)
+
 
 def test_only_the_integration_owner_may_run_the_engine_or_read_links(api):
     api.frappe.session.user = "someone@example.com"
@@ -98,7 +101,7 @@ def test_ingest_hint_conflict_and_scope_rules(api):
 def test_new_party_refuses_an_existing_exact_name_and_applies_defaults(api):
     row = types.SimpleNamespace(name="CUST-1", customer_name="Khutut Co")
     row.get = lambda key: row.customer_name
-    api.frappe.get_all = lambda *a, **k: [row]
+    api.frappe.get_list = lambda *a, **k: [row]
     with pytest.raises(ValueError, match="already exists: CUST-1"):
         api._new_party("Customer", "  khutut  co ")
     created = {}
@@ -106,7 +109,7 @@ def test_new_party_refuses_an_existing_exact_name_and_applies_defaults(api):
         name = "CUST-2"
         def insert(self):
             created.update(self.__dict__)
-    api.frappe.get_all = lambda *a, **k: []
+    api.frappe.get_list = lambda *a, **k: []
     api.frappe.get_doc = lambda values: Inserted(**values)
     assert api._new_party("Supplier", "New Supplier Ltd", "300123") == "CUST-2"
     assert created["supplier_group"] == "Local" and created["supplier_type"] == "Company" and created["tax_id"] == "300123"
@@ -153,8 +156,82 @@ def test_pick_only_accepts_an_offered_candidate(api):
 
 
 def test_accounts_user_cannot_create_a_supplier_and_is_told_so(api):
-    api.frappe.get_all = lambda *a, **k: []
+    api.frappe.get_list = lambda *a, **k: []
     api.frappe.has_permission = lambda doctype, permission: not (doctype == "Supplier" and permission == "create")
     with pytest.raises(PermissionError, match="cannot create a new Supplier"):
         api._new_party("Supplier", "Brand New Supplier Co")
     assert api.frappe.has_permission("Customer", "create") is True
+
+
+def test_retarget_saves_router_draft_with_normal_write_permission(api, monkeypatch):
+    permissions = []
+    class Payment(Doc):
+        def check_permission(self, permission):
+            permissions.append(permission)
+        def save(self):
+            assert not getattr(self.flags, "ignore_permissions", False)
+            self.saved = True
+    payment = Payment(custom_snb_idempotency_key="K1", company="Co", payment_type="Pay", accounts=[])
+    api.frappe.db = types.SimpleNamespace(get_value=lambda doctype, name, *args, **kwargs:
+        types.SimpleNamespace(docstatus=0) if doctype == "Payment Entry" and name == "PE-1" else "Supplier Ltd")
+    api.frappe.get_doc = lambda *args: payment
+    erp_party = types.ModuleType("erpnext.accounts.party")
+    erp_party.get_party_account = lambda *args: "Payables - Co"
+    monkeypatch.setitem(sys.modules, "erpnext", types.ModuleType("erpnext"))
+    monkeypatch.setitem(sys.modules, "erpnext.accounts", types.ModuleType("erpnext.accounts"))
+    monkeypatch.setitem(sys.modules, "erpnext.accounts.party", erp_party)
+    review = Doc(erp_document="PE-1", erp_doctype="Payment Entry", link_method="AUTO_DRAFT",
+                 source_json=json.dumps({"statement_key": "K1"}))
+    api._retarget_draft(review, api.SUPPLIER_PAYMENT, {"party_type": "Supplier", "party": "SUP-1"}, Doc())
+    assert permissions == ["write"]
+    assert payment.saved and payment.party == "SUP-1"
+
+
+def test_retarget_deletes_only_with_frappe_normal_delete_permission(api):
+    calls = []
+    api.frappe.db = types.SimpleNamespace(get_value=lambda doctype, name, *args, **kwargs:
+        types.SimpleNamespace(docstatus=0) if args and args[0] == ["docstatus"] else "K1")
+    api.frappe.delete_doc = lambda *args, **kwargs: calls.append((args, kwargs))
+    review = Doc(erp_document="JE-1", erp_doctype="Journal Entry", link_method="AUTO_DRAFT",
+                 source_json=json.dumps({"statement_key": "K1"}))
+    api._retarget_draft(review, "OTHER", {}, Doc())
+    assert calls == [(('Journal Entry', 'JE-1'), {"force": True})]
+    assert review.erp_document == ""
+
+
+def test_related_document_status_uses_permission_filtered_list(api):
+    api.frappe.get_all = lambda *a, **k: (_ for _ in ()).throw(AssertionError("get_all bypassed read filters"))
+    api.frappe.get_list = lambda *a, **k: [types.SimpleNamespace(name="PE-1", docstatus=0)]
+    result = api._doc_status([{"erp_doctype": "Payment Entry", "erp_document": "PE-1"}])
+    assert result == {("Payment Entry", "PE-1"): 0}
+
+
+def test_party_duplicate_check_requires_read_permission(api):
+    api.frappe.get_list = lambda *a, **k: []
+    api.frappe.has_permission = lambda doctype, permission: not (doctype == "Supplier" and permission == "read")
+    with pytest.raises(PermissionError, match="need read access"):
+        api._new_party("Supplier", "New Supplier Ltd")
+
+
+def test_manual_route_reprocesses_only_the_reviewed_movement(api, monkeypatch):
+    api.frappe.db = types.SimpleNamespace(sql=lambda *a: None, exists=lambda *a: False,
+                                          get_value=lambda *a, **k: False)
+    movement = Doc(name="ROW-1", modified="now", kind=api.SUPPLIER_PAYMENT, signals_json="{}",
+                   counterparty="", erp_document="", erp_doctype="", link_method="")
+    movement.append = lambda *a, **k: None
+    counterparty = Doc(name="CP-1", supplier="", customer="", expense_account="")
+    counterparty.save = lambda **kwargs: None
+    def get_doc(doctype, name=None):
+        if doctype == api.DOCTYPE:
+            return movement
+        return Doc(name=name, check_permission=lambda permission: None)
+    api.frappe.get_doc = get_doc
+    monkeypatch.setattr(api, "_ensure_counterparty", lambda *a: counterparty)
+    monkeypatch.setattr(api, "_learn_identifiers", lambda *a: None)
+    monkeypatch.setattr(api, "_retarget_draft", lambda *a: None)
+    reruns = []
+    api.runtime.run = lambda *args, **kwargs: reruns.append((args, kwargs))
+    monkeypatch.setattr(api, "get_movement", lambda name: {"name": name})
+    result = api.route_movement("ROW-1", "now", {"type": "PARTY", "party_type": "Supplier", "party": "SUP-1"})
+    assert result == {"movement": {"name": "ROW-1"}, "rerouted": 0}
+    assert reruns == [(('main', 0, 1), {"names": ["ROW-1"]})]
