@@ -1,0 +1,37 @@
+# Bank router revamp — implementation notes
+
+Status: implementation is coded in the isolated worktree and shared local SNB integration files; it is not deployed or ready to merge. The Am-gated rule protocol described in the older sections below was replaced on 9 November by an ERP-authoritative design with a readable Sheet Am payer tab; read `ERPNext/docs/bank_router_structure_v2_handoff_20261109.md` first. See `docs/SNB_MOVEMENT_ROUTER.md` for the coded scope, cross-system release dependency and remaining read-back limitation.
+
+## Current behavior and evidence
+
+- The live SNB basic sync reads `snb_rows` from Am and sends source evidence to ERP. It does not run `recognition_v1`, the existing customer receipt index, the Am beneficiary registry, or TX Manager category matching. Khutut's 8 November receipt is visible in ERP with no beneficiary match or ERP document hint. The bank narrative itself names the payer, but the identity has not been confirmed as a particular ERP Customer.
+- The 9 November Am read found 48 positive movements: 23 incoming internal SNB transfers, 8 incoming IPS local transfers, 11 incoming local transfers, and 6 reversals/other credits. Thus the three requested bank narrative families are all represented. The existing parser currently folds the internal SNB and larger local receipts into `INCOMING_LOCAL`; matching must use explicit transaction type as well as the parsed family. Amount alone is not proof of transfer type.
+- Of 426 fee/VAT rows, 416 have exactly one non-fee main row with the same **full** source account and bank reference; 10 have no unique main row under that rule. Grouping should preserve each physical statement row and its own accounting status. Ambiguous rows remain visible in Other. A Payment Entry amount should not silently absorb separate fee/VAT postings.
+- The existing local customer receipt index contains review suggestions and an ambiguous JASH example. It is not a Sheet Am identity registry or an approved client mapping. No AI is needed to start: a reviewer can confirm a source-specific stable hint and select an accessible ERP Customer, with suggestions for matching unconfirmed rows. Conflicts, short/generic text and multiple customers require review.
+- The existing `snb_rows_resolve` Apps Script handler locates a row by idempotency key alone. It is not a safe account-scoped identity registry or a suitable bulk updater for these mappings without further work. Any Am design needs account-scoped uniqueness, explicit rule version, reviewer, audit trail, conflict handling, and recovery for an ERP/Am write that succeeds on only one side.
+
+## Khutut read-back and execution approach
+
+The 8 November Riyadh-date SAR 29,814.11 incoming local movement is present in Am `snb_rows`. Its `erp_doc`, `proposed_route` and `resolution_status` are blank. Am serializes its date as 7 November 21:00 UTC, which is 8 November in Riyadh; the statement key also uses 8 November. The ERP review screen shows the movement but no client match or document hint. This proves the evidence path from Am, not an ERP Customer link or a posted receipt.
+
+Read-only ERP lookup found two enabled Customer records with the same display name, `شركه خطوط المباني للمقاولات` and `شركه خطوط المباني للمقاولات - 1`. The first had three submitted Sales Invoices and the second had none in the permission-visible query. Invoice history can prioritize candidates, but it does not prove which Customer belongs to the bank payer or which invoice was settled. The reviewer must choose the exact record; do not create a mapping from this investigation.
+
+Proposed implementation order:
+
+1. Add account-scoped ERP document read-back and a default queue for draft, unlinked, and unknown-status movements; offer a checkbox to include submitted documents. Do not hide unknown or ambiguous states. Use normal ERP permissions for each linked document.
+2. Parse three explicit incoming SNB narrative types, extract a stable payer hint separately for each, and present a permission-filtered Customer picker. The reviewer confirms the hint and the exact Customer. Save a bank/type-scoped identity rule in an auditable Am registry; publish matching older and future movements as suggestions requiring separate approval. Keep existing TAWAL handling and reviewed decisions intact. Handle ERP/Am partial failures with a retryable, idempotent outbox and explicit status.
+3. Refresh derived recognition from Am and TX Manager without changing source evidence or saved reviews. Show XXPC as Petty Cash and identify the relevant beneficiary and ledger for review, including multi-account custody cases.
+4. Use full account plus bank reference to present uniquely linked fee and VAT rows inside their main movement, with separate draft/submitted indicators. Keep unpaired or ambiguous lines in Other and never include supplier bank fees in the supplier amount by inference.
+5. Make date, amount, payer, suggested Customer, linked ERP status, and the decision controls the primary view; put raw narrative, company, account fields and supplier allocations behind optional details. Default the established company while preserving server-side validation.
+
+The presentation, candidate list and deterministic grouping are comparatively straightforward. Verified posting status and two-way Am rule persistence require coordinated app, local sync and Apps Script changes, access review, and failure-recovery checks. AI can be considered later for unresolved narratives; it is not a prerequisite for this workflow.
+
+## Original prototype and review requirements
+
+- The original Desk prototype contained a conservative checkbox, a Petty Cash label and collapsed accounting fields. The current code replaces its reserved-status check with a guarded live read-back; live Desk, role and end-to-end acceptance remain NOT TESTED.
+- Implement and verify account-scoped ERP read-back of linked documents before filtering a movement as posted. A bare marker or an unverified Am document name is insufficient, particularly for Journal Entries and duplicate keys.
+- Implement a permission-filtered Customer selector and an auditable, bank/type-scoped identity rule. A confirmation must store the selected rule in Am for future imports and expose it as a suggestion for all matching unconfirmed ERP review rows, without changing decisions or submitted accounting documents. Preserve conflicts and user permissions; cover concurrent approvals and failure recovery.
+- Carry authoritative Am beneficiary, TX Manager category/XXPC, and fee-family evidence into ERP as refreshable derived suggestions without modifying immutable source evidence or overwriting accountant decisions. The live synchronization script runs separately from this app and must be changed and released in coordination with the app.
+- Add an expandable main-transaction fee/VAT checklist backed by proven account-scoped family links. Preserve separate ERP documents and their independent draft/submitted status. Unknown or ambiguous family members stay visible for review.
+- Confirm current Google Apps Script source/deployment and add a reviewed Am registry route before relying on cross-system rule persistence. Alinma should later use the same review pattern with its own source and verified account mapping.
+- Run targeted logic, permissions, source-conflict and integration checks; verify actual Finance workflows in a fresh session when available. Deployment requires a new explicit deployment request under the SIG ERP release workflow.

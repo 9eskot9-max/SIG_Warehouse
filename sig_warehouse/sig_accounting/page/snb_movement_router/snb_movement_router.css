@@ -4,3 +4,12 @@
 .snb-payment-reference { margin: 14px 0; padding: 12px; border: 1px solid #dce8e4; border-radius: 8px; background: #f7faf9; }
 .snb-payment-reference h4 { margin: 0 0 6px; }
 .snb-payment-reference p,.snb-payment-reference small { color: #667b78; }
+.snb-unposted { display: inline-flex; align-items: center; gap: 6px; margin: 8px 12px; }
+.snb-unposted input { width: auto; }
+.snb-hint-suggestion,.snb-hint-rule { margin: 10px 0; padding: 11px; border: 1px solid #dce8e4; border-radius: 8px; background: #f7faf9; }
+.snb-hint-suggestion small,.snb-hint-rule small,.snb-related-fees small { color: #667b78; display: block; margin-top: 6px; }
+.snb-hint-rule button { margin-top: 8px; }
+.snb-hint-rules { margin: 14px 0; background: #fff; border: 1px solid #dfe8e6; border-radius: 10px; padding: 14px; }
+.snb-hint-rule-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid #e9efed; }
+.snb-hint-rule-row small { display: block; color: #667b78; margin-top: 3px; }
+.snb-related-fees { margin: 12px 0; padding: 10px; border: 1px solid #e9efed; border-radius: 8px; }
