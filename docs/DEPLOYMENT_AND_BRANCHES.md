@@ -1,8 +1,17 @@
 # Deployment and branch map
 
-Last verified from Frappe Cloud and GitHub: 9 November 2026, 08:11 UTC. This is a dated read-back; recheck before every release.
+Last verified from Frappe Cloud and GitHub: 9 November 2026, 10:53 UTC. This is a dated read-back; recheck before every release.
 
 See also: [Deploy log](DEPLOY_LOG.md) for every production action, and [Codex and Claude coordination](CODEX_CLAUDE_COORDINATION.md) for who does what.
+
+## Production snapshot (9 November 2026, 10:53 UTC)
+
+- Site: `neosys.frappe.cloud` — Active on `bench-51251-000047-f1f`; bench group `bench-51251` is Active.
+- SIG Warehouse installed revision: `1abfea6fafc354ab48d5aff0bb6f3d60be93e519`, merged PR #114. The scoped pipeline `be87drsr6v`, pre-release backup `5bturq3qkq`, and Site Update `6o68oodm8j` succeeded. The site moved from bench `000046` to `000047`; the new bench held the exact target revision. The Site Update API returned `2026-11-09 16:11:11–16:11:22` without a timezone; see the deploy log for the timestamp note.
+- Installed Frappe, ERPNext and HRMS revisions are unchanged from bench `000046`. Cloud read-back at 10:53 UTC reports no pending app updates. The release evidence after PR #114 is documentation only; installed app behavior remains at `1abfea6`.
+- The Bank Movement Router now shows 916 SNB review rows after an idempotent sync (second pass: 916 existing, zero conflicts). Current lanes: 48 Receipts, 442 Payments and 426 Other. Marked Payment Entries display bank/date/status; Journal Entries are explicitly bank-unconfirmed. Source-provided ERP references remain unverified hints.
+- The basic Alinma adapter routes unclassified debits into Other, but no Alinma rows were ingested and account mapping remains for later review. No accounting entries were created or submitted. Before/after permission snapshots show zero additions and removals. Fresh finance/outside-role persona checks, Arabic/English rendering and migration repeatability are NOT TESTED.
+- The existing checker runs the review-only SNB sync after a successful SNB run and stops on locks or conflicts. Full details and Cloud IDs are in [Deploy log](DEPLOY_LOG.md) and [SNB Movement Router](SNB_MOVEMENT_ROUTER.md).
 
 ## Production snapshot (9 November 2026, 08:11 UTC)
 
