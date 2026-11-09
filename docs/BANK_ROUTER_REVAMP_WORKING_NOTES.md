@@ -9,6 +9,7 @@ Updated 9 November 2026. This note follows the owner-approved ERP-authoritative 
 - SNB has three narrative formats: internal SNB transfer, IPS local transfer, and larger local transfer. Classify from statement text/parser evidence, not SAR 20,000 alone. A mapping learned from one reviewed line can suggest matches for other lines; each line still needs review.
 - Show related bank-fee/VAT rows on the main movement. Include fees in an expense JE; use a separate fee JE for a Payment Entry route. Do not add fees to a Supplier or Customer balance.
 - Keep unknown payer/payee decisions visible with the ERP holding parties (`Unidentified Receipts` and `Collective`). `XXPC` is petty-cash evidence; do not infer Employee ownership or resolve HR custody links here.
+- Owner clarified that the SAB account ending `0001` and the Al Rajhi account named “Mohammed Algain Rahji” are his personal accounts used to fund company petty cash, separate from his personal-loan account/transactions. Keep custody/funding separate from Employee and loan-account identity; do not resolve the held transfers or assign an Employee automatically.
 - Auto-drafting stays off until the owner chooses an effective date. Deployment must not create or submit Payment Entries or Journal Entries, initiate transfers, or activate auto-drafting.
 - Alinma remains a review-only foundation until an approved feed and account mapping exist.
 
@@ -20,17 +21,16 @@ Updated 9 November 2026. This note follows the owner-approved ERP-authoritative 
 
 ## Implementation and release
 
-- Router engine, API, DocTypes, page and ZATCA-compatible migration patch are on `codex/sig-personal-home-v16` at `a2be2cbe651c9cd9f1a0ed65d7bd69ac80430cae`, with corrective hardening being prepared on a fast-forward topic branch.
-- Production remains Active on `bench-51251-000047-f1f` at `1abfea6`. Cloud group build `8btodmgkro` did not reach the site. Both site update attempts recovered; the later job log confirms it ran the older patch without the required country field. See `docs/SNB_MOVEMENT_ROUTER.md` and `docs/DEPLOY_LOG.md`.
-- A static review found that the initial target bypassed PE/JE permissions when retargeting drafts, reprocessed unrelated pending movements after a human route action, and lacked per-movement DB rollback. The corrective branch removes those issues and uses permission-filtered reads. Incident `PERM-20261109-01` is recorded in the local ERP permission register; no permission matrix changes are intended.
-- Local focused tests cover parsing, routing, API guards, permission behavior, and rollback boundaries. Live migration, actual Desk rendering, Arabic/English, repeat migration, and fresh Finance persona acceptance remain NOT TESTED until a successful install and safe read-only review.
+- PR #117 merged as `17405d19da92244ee02d7dbe41b9136ca92d3c8c` and is deployed on Active site `neosys.frappe.cloud`, bench `bench-51251-000049-f1f`. Cloud reports the installed SIG Warehouse hash matches the full target with no update pending. Deployment IDs and the stale-code failures are in `docs/DEPLOY_LOG.md`.
+- The migrate patch ran; `Unidentified Receipts` has `custom_country=Saudi Arabia`; Bank Router Settings has both SNB account mappings; automatic drafting remains off. No PE/JE was created or submitted during deployment.
+- The Desk route renders, but the review engine has not run on the 916 existing SNB rows. They remain `PENDING` with no linked ERP document; the page shows Needs you 0, Drafts 0, Posted 0 and Deferred 916. Do not claim those rows are routed or linked. A review-only engine batch is a separate production write; preserve held custody/employee cases and keep draft creation disabled.
+- The focused permission comparison against the post-PR114 snapshot has zero removals and 13 expected read-only review-field additions. A different older snapshot had different explicit DocType coverage, so its broad diff is not comparable. Actual ERP identity/role, Finance personas, Arabic/English, repeated migration, and end-to-end matching remain NOT TESTED. Static finding PERM-20261109-01 is recorded in the local ERP permission register.
 
 ## Safe next steps
 
-1. Finish and review the corrective topic PR from the current production head; preserve fast-forward-only history and include the actual failed-update records in the durable deploy log.
-2. Take and verify a fresh site backup. Build only SIG Warehouse, wait until the exact site destination bench has the target hash, and confirm only SIG Warehouse is pending.
-3. Run the site update with backup enabled. If migration fails, stop and diagnose; do not replay partial ERP writes blindly.
-4. Read back the installed app hash, patch log, DocTypes, Bank Router Settings, holding Customer country, existing 916 review rows, and absence of router-created PE/JE markers. Keep the router auto-draft setting off and avoid any accounting-document write.
-5. Verify the route in an authenticated ERP session, compare the scoped permission snapshot, and record route and persona checks as PASS/FAIL/NOT TESTED. Do not describe untested Finance workflows as verified.
+1. Decide whether to run a review-only engine batch on the existing 916 SNB rows. With auto-drafting off, it writes classifications/suggestions and review audit data, not accounting documents.
+2. Before any batch, inspect candidates and protect the owner-held custody/employee cases. Do not infer an Employee, assign petty-cash funding, or confuse company petty cash with the personal-loan account.
+3. If authorized, read back every batch outcome, errors/conflicts and PE/JE counts. Keep auto-drafting off and list unresolved rows for Finance.
+4. Build the Alinma source/mapping workflow only after an approved feed and account mapping exist; the current adapter does not ingest Alinma rows.
 
 The browser now exposes the Cloud Updates page, so use its Site Update details for failure logs and target status. Never use the legacy `deploy_sig_warehouse_bench.py`; it points at `bench-38491`.
