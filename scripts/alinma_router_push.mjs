@@ -35,13 +35,14 @@ function dateIso(value) {
 const items = [];
 const skipped = { other_debits: 0 };
 for (const row of queue.items) {
-  if (row.movement_type === 'OTHER_DEBIT') { skipped.other_debits += 1; continue; }
-  if (!['RECEIVED_AMOUNT', 'SALARY_TRANSFER_CANDIDATE'].includes(row.movement_type)) throw new Error('Unknown Alinma movement type; no rows sent.');
+  if (!['RECEIVED_AMOUNT', 'SALARY_TRANSFER_CANDIDATE', 'OTHER_DEBIT'].includes(row.movement_type)) throw new Error('Unknown Alinma movement type; no rows sent.');
   if (!/^[a-f0-9]{64}$/.test(String(row.key || '')) || !/^\d{8,34}$/.test(String(row.account || '')) || !row.reference) throw new Error('Alinma source identity is incomplete; no rows sent.');
   const amount = Number(row.signed_amount);
   const direction = row.movement_type === 'RECEIVED_AMOUNT' ? 'CREDIT' : 'DEBIT';
   if (!Number.isFinite(amount) || (direction === 'CREDIT' && amount <= 0) || (direction === 'DEBIT' && amount >= 0)) throw new Error('Alinma amount and direction disagree; no rows sent.');
-  const salary = direction === 'DEBIT';
+  const salary = row.movement_type === 'SALARY_TRANSFER_CANDIDATE';
+  const other = row.movement_type === 'OTHER_DEBIT';
+  if (other) skipped.other_debits += 1;
   const source = {
     bank: 'ALINMA',
     event_date: dateIso(row.date),
@@ -55,15 +56,15 @@ for (const row of queue.items) {
     balance: String(row.balance || ''),
   };
   const recognition = {
-    lane: salary ? 'PAYMENTS' : 'RECEIPTS',
-    route: salary ? 'SALARY_PAYMENT' : 'CUSTOMER_RECEIPT',
+    lane: other ? 'OTHER' : salary ? 'PAYMENTS' : 'RECEIPTS',
+    route: other ? 'OTHER' : salary ? 'SALARY_PAYMENT' : 'CUSTOMER_RECEIPT',
     category: salary ? 'ALINMA_SALARY_CANDIDATE' : '',
-    status: salary ? 'SALARY_CANDIDATE_REVIEW' : 'UNMATCHED_RECEIVED_CREDIT',
+    status: other ? 'UNCLASSIFIED_DEBIT' : salary ? 'SALARY_CANDIDATE_REVIEW' : 'UNMATCHED_RECEIVED_CREDIT',
     confidence: salary ? 'NARRATIVE_CANDIDATE' : 'NONE',
-    reason: salary
+    reason: other ? 'Bank debit captured for review; no accounting route or party was inferred.' : salary
       ? 'Outbound statement narrative matches a salary/payroll marker; accountant confirms that this is payroll.'
       : 'Bank credit captured for receivables review; no customer, invoice, or accounting account was inferred.',
-    evidence: salary ? ['ALINMA source', 'Outbound salary/payroll narrative candidate'] : ['ALINMA source', 'Bank statement credit'],
+    evidence: other ? ['ALINMA source', 'Unclassified bank debit'] : salary ? ['ALINMA source', 'Outbound salary/payroll narrative candidate'] : ['ALINMA source', 'Bank statement credit'],
     party_candidates: [],
     invoice_candidates: [],
   };
