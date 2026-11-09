@@ -1,17 +1,17 @@
 # Deployment and branch map
 
-Last verified from Frappe Cloud and GitHub: 8 November 2026, 15:55 Asia/Riyadh. This is a dated read-back; recheck before every release.
+Last verified from Frappe Cloud and GitHub: 9 November 2026, 08:11 UTC. This is a dated read-back; recheck before every release.
 
 See also: [Deploy log](DEPLOY_LOG.md) for every production action, and [Codex and Claude coordination](CODEX_CLAUDE_COORDINATION.md) for who does what.
 
-## Production snapshot (8 November 2026, 15:55 Asia/Riyadh)
+## Production snapshot (9 November 2026, 08:11 UTC)
 
-- Site: `neosys.frappe.cloud` — Active on `bench-51251-000045-f1f`; bench group `bench-51251` is Active.
-- SIG Warehouse installed revision: `35d8747e753dfbaaae1d380243b01df0e8e6b74b`, merged PR #109. Only SIG Warehouse was selected for the build and update; Frappe, ERPNext and HRMS were unchanged.
-- Pre-release onsite backup succeeded at 15:17 (Cloud UI did not expose a backup ID). Scoped build pipeline `3gpbleqfj5` succeeded; site Pull succeeded at 15:52; in-place migration `8qpttdf28r` succeeded in 27 seconds with failing-patch skip disabled.
-- The TAWAL resolver now uses the active Project-family default unless a dated PO rule overrides or clears it. Live Excel Setup read-back shows Omar Abbad as the 5G / Colocation family default effective 5 November and an empty PO TAWAL PM rules table. The previous Muhannad value came from legacy Project/assignment contact data; it was incorrectly labelled as a PO exception despite no dated PO rule.
-- Captured permission snapshot diff: 0 removals and 0 additions. `/desk/sig-operations/excel-setup` rendered in the authenticated Administrator session. Actual non-admin persona acceptance, migration repeatability and the active RV80 workbook import/compile remain NOT TESTED.
-- No ERP business records were created or changed. Local permission evidence is in `ERPNext/backups/permission_release_tcn_family_contact_20261108/`.
+- Site: `neosys.frappe.cloud` — Active on `bench-51251-000046-f1f`; bench group `bench-51251` is Active.
+- SIG Warehouse installed revision: `1a8b1fea1eb4f4b287b4fbc6cc2ca817fa71f11c`, merged PR #111. Only SIG Warehouse was selected for build and update; Frappe, ERPNext and HRMS remain unchanged. Source branch head `ab55b1a` includes docs-only PR #112 and is newer than the installed app revision.
+- Pre-release backup `bekaq3q6gh` succeeded with files; scoped build `2gcoksh522` and Site Update `dmqqhld9ln` succeeded. The update moved the site from bench `000045` to `000046`; installed-app read-back matches the target and Cloud reports no pending updates. The first site-update request returned HTTP 417 before a suitable destination bench was Active; the successful request was made after confirming the exact target revision on the new Active bench.
+- The TAWAL invoice handler allocates distinct open cycles per source row and creates missing cycles when rows outnumber eligible cycles. It persists closure deferral and leaves allocated cycles open. The existing Project-family PM default (Omar Abbad for 5G / Colocation, unless dated PO rules override or clear it) remains unchanged.
+- Migration Patch Log confirms the deferred-closure field patch; the new Check field is hidden and read-only. Focused before/after permission-row comparison: zero additions/removals across Sales Invoice, SIG Site, SIG Site Cycle, SIG Evidence Event and the five-role SIG Tawal Invoice Link matrix. A full snapshot diff was unavailable because the focused pre-release snapshot and full post-release snapshot use different schemas. A safe API dispatch check returned the expected missing-phase validation as `9eskot9@gmail.com`, without invoice access or writes.
+- Live invoice-cycle behavior, concurrency/partial-commit recovery, migration repeatability, actual-user persona acceptance, browser workflow and workbook PDF download remain NOT TESTED. No invoice, evidence event, invoice bridge row or cycle was created or changed. Local evidence is in `ERPNext/backups/permission_release_tawal_invoice_cycle_20261109/`.
 
 ## Historical production snapshot (8 November 2026, 09:35 Asia/Riyadh)
 
@@ -57,11 +57,11 @@ The 4 November snapshot below is retained as historical release evidence.
 - SIG WhatsApp, live: `v16-migration` at `9bfd1bd`. SIG QR Design, live: `v16-migration` at `39ecff6`.
 - Trial: the site `neosys-v16-trial.frappe.cloud` has left the Frappe Cloud site list. Its bench `bench-51214-000014-f28f3` is still Active with no sites. Removal awaits owner confirmation.
 
-## Branch map (SIG Warehouse, GitHub `9eskot9-max/SIG_Warehouse`), checked 8 November 2026
+## Branch map (SIG Warehouse, GitHub `9eskot9-max/SIG_Warehouse`), checked 9 November 2026
 
 | Branch | Role today | Relevant revision | Live on production? |
 |---|---|---|---|
-| `codex/sig-personal-home-v16` | Production source configured in Frappe Cloud. | `35d8747` installed on bench `000045`; latest application change is PR #109. | PR #109 is merged and deployed; site is Active. The TCN TAWAL resolver uses Project-family defaults with dated PO rules as exceptions. Excel Setup confirms Omar Abbad for 5G / Colocation and no configured PO rule rows. The route rendered as Administrator; actual non-admin persona and RV80 workbook import/compile remain NOT TESTED. |
+| `codex/sig-personal-home-v16` | Production source configured in Frappe Cloud. | Branch head `ab55b1a` (docs-only PR #112); installed app `1a8b1fea` on bench `000046`, from PR #111. | PR #111 is merged and deployed; PR #112 records the release only and was not rebuilt. Site is Active with no pending updates. The TAWAL invoice handler is deployed; its live invoice workflow, PDF path and actual-user acceptance remain NOT TESTED. The Project-family TAWAL PM default from PR #109 remains in place. |
 | `main` | GitHub default; not the v16 build source. | `f32c7ea` | Its sole ahead commit is patch-equivalent to the intake guide/UOM list-view change already represented in production. No unique source patch remains to port from current `main`. |
 | `v16-migration` | Former v16 staging; no longer built. | `5e63f85` | No unique commits ahead of production. |
 
