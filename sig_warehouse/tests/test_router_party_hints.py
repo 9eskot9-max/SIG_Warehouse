@@ -297,3 +297,39 @@ def test_revoking_party_approval_revokes_and_queues_its_active_rules(api):
     assert rule.status=='REVOKED' and rule.sync_status=='PENDING'
     assert rule.events[-1]['reviewer']=='finance@example.com'
 
+
+
+def test_reviewed_decisions_are_listed_for_the_sheet_without_bank_evidence(api, monkeypatch):
+    owner = types.ModuleType("sig_warehouse.sig_operations.app_connections")
+    owner.TODOIST_OWNER = "finance@example.com"
+    monkeypatch.setitem(sys.modules, owner.__name__, owner)
+    api.frappe.get_roles = lambda: ["Accounts Manager"]
+
+    class Row(dict):
+        __getattr__ = dict.__getitem__
+    calls = []
+    def get_list(doctype, **kwargs):
+        calls.append((doctype, kwargs))
+        if doctype == api.DOCTYPE:
+            return [Row(name="m1", source_key="K1", account_scope_hash=SCOPE, party_type="Customer", party="CUST-1", review_status="REVIEWED", modified="t"),
+                    Row(name="m2", source_key="K2", account_scope_hash=SCOPE, party_type="Supplier", party="SUP-HIDDEN", review_status="REVIEWED", modified="t")]
+        if doctype == "Customer":
+            return [Row(name="CUST-1", customer_name="Khutut Co")]
+        return []
+    api.frappe.get_list = get_list
+    result = api.list_reviewed_for_sync()
+    assert calls[0][1]["filters"]["review_status"] == "REVIEWED"
+    assert result["rows"] == [{"source_key": "K1", "party_type": "Customer", "party": "CUST-1",
+                               "party_label": "Khutut Co", "review_status": "REVIEWED"}]
+    assert result["skipped"] == 1 and not result["has_more"]
+    assert "source_json" not in json.dumps(result)
+
+
+def test_only_the_integration_owner_may_list_decisions_for_sync(api, monkeypatch):
+    owner = types.ModuleType("sig_warehouse.sig_operations.app_connections")
+    owner.TODOIST_OWNER = "finance@example.com"
+    monkeypatch.setitem(sys.modules, owner.__name__, owner)
+    api.frappe.session.user = "someone@example.com"
+    api.frappe.get_roles = lambda: ["Accounts User"]
+    with pytest.raises(PermissionError):
+        api.list_reviewed_for_sync()

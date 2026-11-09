@@ -580,6 +580,34 @@ def retry_hint_rule(name, modified):
     return {"name": rule.name, "sync_status": rule.sync_status, "modified": rule.modified}
 
 
+@frappe.whitelist()
+def list_reviewed_for_sync(start=0, limit=200):
+    """Reviewed Customer/Supplier decisions, so the sync can show them on the Sheet Am movement row.
+
+    Only the review identity (a hash of account and statement key) and the party leave ERP, never bank evidence.
+    A party the integration user cannot read stays off the sheet and is counted in `skipped`.
+    """
+    _require("read")
+    from sig_warehouse.sig_operations.app_connections import TODOIST_OWNER
+    if frappe.session.user != TODOIST_OWNER and "System Manager" not in frappe.get_roles():
+        frappe.throw(_("Only the movement integration owner may read decisions for sync."), frappe.PermissionError)
+    start = max(0, int(start)); limit = min(200, max(1, int(limit)))
+    rows = frappe.get_list(DOCTYPE, filters={"review_status": "REVIEWED", "party_type": ["in", list(PARTY_DOCTYPES)], "party": ["is", "set"]},
+        fields=["name", "source_key", "party_type", "party", "review_status", "modified"],
+        order_by="name asc", start=start, page_length=limit)
+    labels = {}
+    for doctype in PARTY_DOCTYPES:
+        names = list({row.party for row in rows if row.party_type == doctype})
+        if names and frappe.has_permission(doctype, "read"):
+            field = "customer_name" if doctype == "Customer" else "supplier_name"
+            labels[doctype] = {row.name: row.get(field) or row.name for row in frappe.get_list(
+                doctype, filters={"name": ["in", names]}, fields=["name", field], page_length=5000)}
+    result = [{"source_key": row.source_key, "party_type": row.party_type,
+               "party": row.party, "party_label": labels[row.party_type][row.party], "review_status": row.review_status}
+              for row in rows if row.party in labels.get(row.party_type, {})]
+    return {"rows": result, "has_more": len(rows) == limit, "next_start": start + len(rows), "skipped": len(rows) - len(result)}
+
+
 FAMILIES = {"IPS_LOCAL", "INTERNAL_SNB", "LARGE_LOCAL"}
 
 
