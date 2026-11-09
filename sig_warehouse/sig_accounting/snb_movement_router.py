@@ -100,6 +100,10 @@ def _hint_candidates(source):
     ips = re.search(r"SAUDI\s+ARABIA\s+(.+)$", detail, re.I)
     iban = re.search(r"(?<![A-Z0-9])(SA\d{22})(?!\d)", detail, re.I)
     if family == "INTERNAL_SNB" and party_id:
+        # The account in an internal-transfer narrative is the other side. When that is one of ours (as DEP ID/BEN ID then
+        # carry our own company ID), it is an own-account transfer: there is no payer or payee to remember.
+        if account and _is_company_number(account.group(1)):
+            return []
         values.append(("BEN_ID" if party_id.group("label").upper() == "BEN" else "DEP_ID", party_id.group("value")))
         if account and not _is_company_number(account.group(1)):
             values.append(("ACCOUNT", account.group(1)))

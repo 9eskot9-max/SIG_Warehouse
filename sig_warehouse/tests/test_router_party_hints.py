@@ -115,11 +115,13 @@ COMPANY_IBAN = "SA0380000001400010326605"   # ends in our own 14-digit account
 OTHER_IBAN = "SA1234567890123456789012"
 
 
-def test_incoming_internal_transfer_uses_dep_id_and_never_our_own_account(api):
+def test_incoming_internal_transfer_uses_dep_id_but_own_account_transfers_have_no_payer(api):
     credit = {"direction": "CREDIT", "parser_family": "INCOMING_LOCAL", "transaction_description": "Incoming Internal Transfer",
               "detail_description": "01400010326605 DEP ID:2323429130 CHNL:SNB Payment Systems"}
-    # The long number in an incoming narrative is the receiving (company) account, so only the DEP ID is a payer hint.
-    assert api._hint_candidates(credit) == [("DEP_ID", "2323429130")]
+    # The other side of this transfer is one of our own accounts, so it is an own-account transfer with no payer to remember.
+    assert api._hint_candidates(credit) == []
+    outgoing_own = {"direction": "DEBIT", "parser_family": "INTERNAL_BEN_ID", "detail_description": "01400010326605 BEN ID:2323429130"}
+    assert api._hint_candidates(outgoing_own) == []
     payer = {**credit, "detail_description": "38759875000102 DEP ID:2323429130 CHNL:SNB Payment Systems"}
     assert api._hint_candidates(payer) == [("DEP_ID", "2323429130"), ("ACCOUNT", "38759875000102")]
 
