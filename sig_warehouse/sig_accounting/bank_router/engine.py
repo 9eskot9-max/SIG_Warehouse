@@ -31,8 +31,12 @@ def mined_route(mined):
     return str((mined.get("am_beneficiary_mapping") or {}).get("route") or "")
 
 
-def category_account(route, ctx):
+def category_account(route, ctx, category=""):
     """Expense account for a person payment from Am's route 'JE_PERSON|<CATEGORY>|...'."""
+    if category:
+        account = ctx.settings.categories.get(str(category).upper(), "")
+        if account:
+            return account
     parts = str(route).split("|")
     if len(parts) > PERSON_CATEGORY_POSITION and parts[0].startswith("JE_PERSON"):
         return ctx.settings.categories.get(parts[PERSON_CATEGORY_POSITION], "")
@@ -53,16 +57,15 @@ def resolve_target(kind, mv, signals, facts, mined, ctx):
         party = facts.get("supplier") or ctx.parties.exact("Supplier", name)
         if party:
             return {"party_type": "Supplier", "party": party, "holding": False, "label": label, "intended": ""}
-        return {"party_type": "Supplier", "party": ctx.settings.holding_supplier, "holding": True, "label": label, "intended": name}
+        return None
     if kind == K.CUSTOMER_RECEIPT:
         party = facts.get("customer") or ctx.parties.exact("Customer", name)
         if party:
             return {"party_type": "Customer", "party": party, "holding": False, "label": label, "intended": ""}
-        if not ctx.settings.holding_customer:
-            return None
-        return {"party_type": "Customer", "party": ctx.settings.holding_customer, "holding": True, "label": label, "intended": name}
+        return None
     if kind == K.EXPENSE_PAYMENT:
-        account = facts.get("expense_account") or category_account(mined_route(mined), ctx) or ctx.settings.default_expense
+        account = (mv.get("accounting_account") or signals.get("biller_account")
+                   or category_account(mined_route(mined), ctx, mined_category(mined)) or facts.get("expense_account") or ctx.settings.default_expense)
         return {"expense_account": account, "holding": False, "label": label} if account else None
     return None
 
@@ -86,9 +89,12 @@ def route(mv, ctx):
     direction = "CREDIT" if float(mv["amount"]) > 0 else "DEBIT"
     bank_gl = s.scopes.get(mv["scope"])
     signals = snb.parse(source, s.company_scopes)
+    if mv.get("paired_transfer"):
+        signals["paired_transfer"] = mv["paired_transfer"]
     intent, mroute = mined_category(mined), mined_route(mined)
     out = {"signals": {k: v for k, v in signals.items() if k != "reference"} | {"intent": intent, "mined_route": mroute},
            "erp_doctype": "", "erp_document": "", "link_method": "", "counterparty": "", "route_source": "", "decision_type": "",
+           "accounting_treatment": mv.get("accounting_treatment") or "", "accounting_account": mv.get("accounting_account") or "",
            "candidates": {"documents": [], "counterparties": [], "rejected": list((mv.get("candidates") or {}).get("rejected", []))}}
     if not bank_gl:
         out.update(kind="OTHER", engine_state="DEFERRED", decision_type="")
@@ -108,6 +114,36 @@ def route(mv, ctx):
 
     # Stage 3: classify
     kind = K.classify(direction, source.get("parser_family"), signals, facts, intent, mroute)
+    treatment = mv.get("accounting_treatment") or ""
+    if not treatment and facts.get("default_treatment"):
+        out["signals"]["suggested_treatment"] = facts["default_treatment"]
+    biller_account = getattr(s, "billers", {}).get(str(signals.get("biller_code") or ""))
+    if source.get("parser_family") == "SADAD":
+        if biller_account:
+            kind = K.EXPENSE_PAYMENT
+            signals["biller_account"] = biller_account
+            out["accounting_account"] = mv.get("accounting_account") or biller_account
+            treatment = treatment or "JOURNAL_ENTRY"
+        else:
+            kind = K.UNKNOWN
+    if kind not in (K.UNKNOWN, K.SUPPLIER_PAYMENT, K.EXPENSE_PAYMENT, K.CUSTOMER_RECEIPT, K.EMPLOYEE):
+        treatment = ""
+        out["accounting_account"] = ""
+    if treatment == "PAYMENT_ENTRY" and direction == "DEBIT":
+        kind = K.SUPPLIER_PAYMENT
+    elif treatment == "PAYMENT_ENTRY" and direction == "CREDIT":
+        kind = K.CUSTOMER_RECEIPT
+    elif treatment == "JOURNAL_ENTRY" and direction == "DEBIT":
+        kind = K.EXPENSE_PAYMENT
+    out["accounting_treatment"] = treatment
+    out["accounting_account"] = out.get("accounting_account") or mv.get("accounting_account") or ""
+    if kind in (K.EXPENSE_PAYMENT, K.UNKNOWN):
+        suggested_account = out["accounting_account"] or category_account(mroute, ctx, intent) or facts.get("expense_account")
+        if not suggested_account and kind == K.EXPENSE_PAYMENT and intent not in {"XXSC", "XXMT"}:
+            suggested_account = ctx.settings.default_expense
+        if suggested_account:
+            signals["suggested_account"] = suggested_account
+            out["signals"]["suggested_account"] = suggested_account
     out["kind"] = kind
 
     # Fee and VAT lines follow their main line and are never matched on amount alone.
@@ -120,6 +156,12 @@ def route(mv, ctx):
     if mv.get("erp_document"):
         existing = ctx.ledger.doc(mv["erp_doctype"], mv["erp_document"], bank_gl)
         if existing and existing["docstatus"] != 2 and existing["name"] not in out["candidates"]["rejected"]:
+            expected = {"PAYMENT_ENTRY": "Payment Entry", "JOURNAL_ENTRY": "Journal Entry"}.get(treatment)
+            if expected and existing["doctype"] != expected:
+                out.update(_document_fields(existing, mv.get("link_method") or "LEDGER"), engine_state="NEEDS_YOU", decision_type="TREATMENT_MISMATCH")
+                return out
+            if not treatment:
+                out["accounting_treatment"] = {"Payment Entry": "PAYMENT_ENTRY", "Journal Entry": "JOURNAL_ENTRY"}.get(existing["doctype"], "")
             ctx.claimed.add(existing["name"])
             state, decision = _state_for_document(existing, mv, ctx)
             out.update(_document_fields(existing, mv.get("link_method") or "LEDGER"), engine_state=state, decision_type=decision)
@@ -129,11 +171,19 @@ def route(mv, ctx):
     if linked:
         kind_name = "Payment Entry" if linked.startswith("ACC-PAY") else "Journal Entry"
         hint = ctx.ledger.doc(kind_name, linked, bank_gl)
-    outcome, docs, method = reconcile.pick_document(movement, ctx.ledger.candidates(bank_gl, movement["date"]),
+    candidates = ctx.ledger.candidates(bank_gl, movement["date"])
+    expected = {"PAYMENT_ENTRY": "Payment Entry", "JOURNAL_ENTRY": "Journal Entry"}.get(treatment)
+    if expected:
+        candidates = [candidate for candidate in candidates if candidate["doctype"] == expected]
+        if hint and hint.get("doctype") != expected:
+            hint = None
+    outcome, docs, method = reconcile.pick_document(movement, candidates,
                                                     ctx.claimed, out["candidates"]["rejected"], hint)
     if outcome == "LINK":
         doc = docs[0]
         ctx.claimed.add(doc["name"])
+        if not treatment:
+            out["accounting_treatment"] = {"Payment Entry": "PAYMENT_ENTRY", "Journal Entry": "JOURNAL_ENTRY"}.get(doc["doctype"], "")
         state, decision = _state_for_document(doc, mv, ctx)
         out.update(_document_fields(doc, method), engine_state=state, decision_type=decision)
         # Am proposed a document and the engine did not accept it (wrong amount, cancelled, or another account).
@@ -150,6 +200,15 @@ def route(mv, ctx):
         return out
     if kind in K.DEFERRED_KINDS:
         out.update(engine_state="DEFERRED", decision_type="")
+        return out
+    if treatment == "FINANCE_HANDLES":
+        out.update(engine_state="PENDING", decision_type="")
+        return out
+    if kind == K.UNKNOWN:
+        out.update(engine_state="NEEDS_YOU", decision_type="CHOOSE_TREATMENT")
+        return out
+    if kind in (K.SUPPLIER_PAYMENT, K.EXPENSE_PAYMENT, K.CUSTOMER_RECEIPT) and not treatment:
+        out.update(engine_state="NEEDS_YOU", decision_type="CONFIRM_TREATMENT" if facts.get("default_treatment") else "CHOOSE_TREATMENT")
         return out
     if kind in K.IMPORTER_OWNED:
         if kind == K.PETTY_CASH and not facts.get("custody_account"):

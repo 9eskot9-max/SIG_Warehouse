@@ -161,17 +161,18 @@ def test_new_party_refuses_an_existing_exact_name_and_applies_defaults(api):
         api._new_party("Supplier", "ab")
 
 
-def test_routing_is_only_for_party_kinds_and_checks_the_party_type(api):
+def test_routing_requires_a_treatment_and_checks_party_type(api):
     api.frappe.db = types.SimpleNamespace(sql=lambda *a: None)
-    doc = Doc(modified="t", kind="OWN_TRANSFER", signals_json="{}", counterparty="")
+    doc = Doc(modified="t", kind="OWN_TRANSFER", signals_json="{}", counterparty="", accounting_treatment="")
     api.frappe.get_doc = lambda *a: doc
-    with pytest.raises(ValueError, match="not routed to a party"):
+    with pytest.raises(ValueError, match="Choose Payment Entry"):
         api.route_movement("n", "t", {"type": "PARTY"})
     doc.kind = "CUSTOMER_RECEIPT"
+    doc.direction = "CREDIT"
     api.frappe.db.exists = lambda *a: False
     api._ensure_counterparty = lambda d, label: Doc(name="CP")
     with pytest.raises(ValueError, match="take a Customer"):
-        api.route_movement("n", "t", {"type": "PARTY", "party_type": "Supplier", "party": "S"})
+        api.route_movement("n", "t", {"type": "PARTY", "treatment": "PAYMENT_ENTRY", "party_type": "Supplier", "party": "S"})
     with pytest.raises(ValueError, match="changed since"):
         api.route_movement("n", "stale", {"type": "PARTY"})
 
@@ -231,16 +232,34 @@ def test_retarget_saves_router_draft_with_normal_write_permission(api, monkeypat
     assert payment.saved and payment.party == "SUP-1"
 
 
-def test_retarget_deletes_only_with_frappe_normal_delete_permission(api):
+def test_retarget_replaces_only_a_marked_unallocated_router_draft(api):
     calls = []
+    old = Doc(custom_snb_idempotency_key="K1", references=[], doctype="Payment Entry")
+    permissions = []
+    old.check_permission = lambda permission: permissions.append(permission)
     api.frappe.db = types.SimpleNamespace(get_value=lambda doctype, name, *args, **kwargs:
-        types.SimpleNamespace(docstatus=0) if args and args[0] == ["docstatus"] else "K1")
+        types.SimpleNamespace(docstatus=0) if args and args[0] == ["docstatus"] else None)
+    api.frappe.get_doc = lambda *args: old
+    api.frappe.has_permission = lambda doctype, permission: doctype == "Journal Entry" and permission == "create"
     api.frappe.delete_doc = lambda *args, **kwargs: calls.append((args, kwargs))
-    review = Doc(erp_document="JE-1", erp_doctype="Journal Entry", link_method="AUTO_DRAFT",
+    review = Doc(erp_document="PE-1", erp_doctype="Payment Entry", link_method="AUTO_DRAFT",
                  source_json=json.dumps({"statement_key": "K1"}))
-    api._retarget_draft(review, "OTHER", {}, Doc())
-    assert calls == [(('Journal Entry', 'JE-1'), {"force": True})]
-    assert review.erp_document == ""
+    replaced = api._retarget_draft(review, "EXPENSE_PAYMENT", {"account": "Expense - Co"}, Doc(), "JOURNAL_ENTRY")
+    assert calls == [(("Payment Entry", "PE-1"), {})]
+    assert permissions == ["write", "delete"]
+    assert replaced == {"doctype": "Payment Entry", "name": "PE-1"}
+    assert review.erp_document == "" and review.erp_doctype == ""
+
+
+def test_retarget_keeps_allocated_payment_entry_when_type_would_change(api):
+    old = Doc(custom_snb_idempotency_key="K1", references=[{"reference_name": "PINV-1"}], doctype="Payment Entry")
+    api.frappe.db = types.SimpleNamespace(get_value=lambda *a, **k: types.SimpleNamespace(docstatus=0))
+    api.frappe.get_doc = lambda *args: old
+    review = Doc(erp_document="PE-1", erp_doctype="Payment Entry", link_method="AUTO_DRAFT",
+                 source_json=json.dumps({"statement_key": "K1"}))
+    with pytest.raises(ValueError, match="allocations"):
+        api._retarget_draft(review, "EXPENSE_PAYMENT", {"account": "Expense - Co"}, Doc(), "JOURNAL_ENTRY")
+    assert review.erp_document == "PE-1"
 
 
 def test_related_document_status_uses_permission_filtered_list(api):
@@ -261,7 +280,7 @@ def test_manual_route_reprocesses_only_the_reviewed_movement(api, monkeypatch):
     api.frappe.db = types.SimpleNamespace(sql=lambda *a: None, exists=lambda *a: False,
                                           get_value=lambda *a, **k: False)
     movement = Doc(name="ROW-1", modified="now", kind=api.SUPPLIER_PAYMENT, signals_json="{}",
-                   counterparty="", erp_document="", erp_doctype="", link_method="")
+                   direction="DEBIT", counterparty="", erp_document="", erp_doctype="", link_method="", accounting_treatment="")
     movement.append = lambda *a, **k: None
     counterparty = Doc(name="CP-1", supplier="", customer="", expense_account="")
     counterparty.save = lambda **kwargs: None
@@ -276,6 +295,6 @@ def test_manual_route_reprocesses_only_the_reviewed_movement(api, monkeypatch):
     reruns = []
     api.runtime.run = lambda *args, **kwargs: reruns.append((args, kwargs))
     monkeypatch.setattr(api, "get_movement", lambda name: {"name": name})
-    result = api.route_movement("ROW-1", "now", {"type": "PARTY", "party_type": "Supplier", "party": "SUP-1"})
+    result = api.route_movement("ROW-1", "now", {"type": "PARTY", "treatment": "PAYMENT_ENTRY", "party_type": "Supplier", "party": "SUP-1"})
     assert result == {"movement": {"name": "ROW-1"}, "rerouted": 0}
-    assert reruns == [(('main', 0, 1), {"names": ["ROW-1"]})]
+    assert reruns == [(('main', 0, 1), {"names": ["ROW-1"], "manual_draft": False})]

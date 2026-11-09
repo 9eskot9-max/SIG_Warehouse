@@ -9,6 +9,7 @@ OTHER = "OTHER"
 EXPENSE_PAYMENT = "EXPENSE_PAYMENT"
 SUPPLIER_PAYMENT = "SUPPLIER_PAYMENT"
 CUSTOMER_RECEIPT = "CUSTOMER_RECEIPT"
+UNKNOWN = "UNKNOWN"
 
 FEE_FAMILIES = {"BANK_FEE", "FEE_VAT"}
 OTHER_DEBIT_FAMILIES = {"SADAD", "PAYROLL_FEE", "PAYROLL_BULK_FEE", "LG_OUTWARD", "SWIFT", "CHEQUE_OR_MANUAL", "UNKNOWN_FORMAT"}
@@ -48,13 +49,23 @@ def classify(direction, parser_family, signals, facts, intent="", mined_route=""
         return SPECIALIST
     if intent == "XXPC":
         return PETTY_CASH
+    # These purposes describe why the transfer was made, not its accounting
+    # document. Let the reviewer choose PE versus JE for each movement.
+    if intent in {"XXSC", "XXMT"}:
+        return UNKNOWN
     if facts.get("is_employee") or str(mined_route).startswith("JE_EMPLOYEE") or intent in EMPLOYEE_INTENTS:
         return EMPLOYEE
+    if str(mined_route).startswith("PAY_SUPPLIER"):
+        return SUPPLIER_PAYMENT
     if family in OTHER_DEBIT_FAMILIES:
         return OTHER
     if facts.get("expense_account") or str(mined_route).startswith("JE_PERSON"):
         return EXPENSE_PAYMENT
-    return SUPPLIER_PAYMENT
+    # A bank transfer's shape or a person's name does not prove this was a
+    # supplier payment. Keep unresolved outgoing lines explicitly unknown.
+    if facts.get("supplier"):
+        return SUPPLIER_PAYMENT
+    return UNKNOWN
 
 
 DRAFTABLE = {SUPPLIER_PAYMENT, CUSTOMER_RECEIPT, EXPENSE_PAYMENT}

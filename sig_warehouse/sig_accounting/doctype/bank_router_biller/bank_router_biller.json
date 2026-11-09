@@ -1,0 +1,14 @@
+{
+ "doctype": "DocType",
+ "name": "Bank Router Biller",
+ "module": "SIG Accounting",
+ "istable": 1,
+ "editable_grid": 1,
+ "field_order": ["biller_code", "label", "expense_account"],
+ "fields": [
+  {"fieldname": "biller_code", "fieldtype": "Data", "label": "SADAD biller code", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "label", "fieldtype": "Data", "label": "Biller", "in_list_view": 1},
+  {"fieldname": "expense_account", "fieldtype": "Link", "label": "Expense account", "options": "Account", "reqd": 1, "in_list_view": 1}
+ ],
+ "permissions": []
+}

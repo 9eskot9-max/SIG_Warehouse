@@ -19,6 +19,8 @@
   "engine_state",
   "decision_type",
   "kind",
+  "accounting_treatment",
+  "accounting_account",
   "counterparty",
   "route_source",
   "erp_doctype",
@@ -233,16 +235,31 @@
    "fieldname": "decision_type",
    "fieldtype": "Select",
    "label": "Decision needed",
-   "options": "\nROUTE_PARTY\nPICK_DOCUMENT\nCREATE_DRAFT\nCONFLICT\nNEEDS_HR_LINK",
+   "options": "\nROUTE_PARTY\nPICK_DOCUMENT\nCREATE_DRAFT\nCONFLICT\nNEEDS_HR_LINK\nCHOOSE_TREATMENT\nCONFIRM_TREATMENT\nTREATMENT_MISMATCH",
    "read_only": 1
   },
   {
    "fieldname": "kind",
    "fieldtype": "Select",
    "label": "Kind",
-   "options": "\nBANK_CHARGE\nOWN_TRANSFER\nSPECIALIST\nPETTY_CASH\nEMPLOYEE\nOTHER\nEXPENSE_PAYMENT\nSUPPLIER_PAYMENT\nCUSTOMER_RECEIPT",
+   "options": "\nBANK_CHARGE\nOWN_TRANSFER\nSPECIALIST\nPETTY_CASH\nEMPLOYEE\nOTHER\nUNKNOWN\nEXPENSE_PAYMENT\nSUPPLIER_PAYMENT\nCUSTOMER_RECEIPT",
    "read_only": 1,
    "search_index": 1
+  },
+  {
+   "fieldname": "accounting_treatment",
+   "fieldtype": "Select",
+   "label": "Accounting treatment",
+   "options": "\nPAYMENT_ENTRY\nJOURNAL_ENTRY\nFINANCE_HANDLES",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "accounting_account",
+   "fieldtype": "Link",
+   "label": "Movement expense account",
+   "options": "Account",
+   "read_only": 1
   },
   {
    "fieldname": "counterparty",

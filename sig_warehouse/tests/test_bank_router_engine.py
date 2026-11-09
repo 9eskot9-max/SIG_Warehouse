@@ -56,7 +56,7 @@ class Ctx:
             scopes={SCOPE: BANK}, company_scopes=frozenset({SCOPE, account_scope("01400010326605")}),
             auto_draft=lambda day: auto, categories={"PROJECT_OPERATING_COST": "5130 - Subcontract"},
             holding_supplier="Collective", holding_customer=holding_customer, default_expense="5126 - Misc",
-            fee_account="538", vat_account="", draft_fees=False)
+            fee_account="538", vat_account="", draft_fees=False, billers={})
         self.registry, self.ledger, self.parties = registry or Registry(), ledger or Ledger(), parties or Parties()
         self.claimed, self.created, self.fail = set(), [], fail
 
@@ -119,47 +119,113 @@ def test_two_movements_never_claim_the_same_document():
 def test_drafting_off_leaves_a_decision_and_creates_nothing():
     ctx = Ctx(auto=False)
     out = E.process(movement(-1000, IPS_OUT), ctx)
-    assert (out["engine_state"], out["decision_type"], out["kind"]) == ("NEEDS_YOU", "ROUTE_PARTY", "SUPPLIER_PAYMENT")
+    assert (out["engine_state"], out["decision_type"], out["kind"]) == ("NEEDS_YOU", "CHOOSE_TREATMENT", "UNKNOWN")
     assert not ctx.created
 
 
-def test_unknown_payee_goes_on_collective_and_stays_in_the_inbox():
+def test_unknown_payee_stays_unknown_and_never_drafts_to_collective():
     ctx = Ctx(auto=True)
     out = E.process(movement(-1000, IPS_OUT), ctx)
-    assert (out["engine_state"], out["decision_type"], out["route_source"]) == ("NEEDS_YOU", "ROUTE_PARTY", "HOLDING")
-    assert ctx.created[0][1]["party"] == "Collective" and ctx.created[0][1]["intended"] == "ACME TRADING ESTABLISHMENT"
-    assert out["link_method"] == "AUTO_DRAFT"
+    assert (out["kind"], out["engine_state"], out["decision_type"]) == ("UNKNOWN", "NEEDS_YOU", "CHOOSE_TREATMENT")
+    assert not ctx.created
 
 
 def test_identified_supplier_is_a_real_draft():
-    registry = Registry({("NAME", hint_key("NAME", "ACME TRADING ESTABLISHMENT")): ("CP-A", "ACTIVE")}, {"CP-A": {"supplier": "SUP-ACME"}})
+    registry = Registry({("NAME", hint_key("NAME", "ACME TRADING ESTABLISHMENT")): ("CP-A", "ACTIVE")},
+                        {"CP-A": {"supplier": "SUP-ACME", "default_treatment": "PAYMENT_ENTRY"}})
     ctx = Ctx(auto=True, registry=registry)
-    out = E.process(movement(-1000, IPS_OUT), ctx)
+    out = E.process(movement(-1000, IPS_OUT, accounting_treatment="PAYMENT_ENTRY"), ctx)
     assert (out["engine_state"], out["counterparty"], out["route_source"]) == ("DRAFT_READY", "CP-A", "IDENTIFIER")
     assert ctx.created[0][1]["party"] == "SUP-ACME" and not ctx.created[0][1]["holding"]
 
 
 def test_exact_unique_name_matches_an_erp_party_without_a_rule():
     ctx = Ctx(auto=True, parties=Parties({("Supplier", hint_key("NAME", "ACME TRADING ESTABLISHMENT")): "SUP-X"}))
-    out = E.process(movement(-1000, IPS_OUT), ctx)
+    out = E.process(movement(-1000, IPS_OUT, accounting_treatment="PAYMENT_ENTRY"), ctx)
     assert (out["route_source"], ctx.created[0][1]["party"]) == ("EXACT_NAME", "SUP-X")
 
 
-def test_unknown_payer_goes_on_the_holding_customer_and_needs_no_invoice():
+def test_per_movement_treatment_selects_pe_or_je_without_category_forcing_it():
+    registry = Registry({}, {"CP-M": {"supplier": "SUP-M"}})
+    pe_mv = movement(-1000, IPS_OUT, route_source="MANUAL", counterparty="CP-M", accounting_treatment="PAYMENT_ENTRY")
+    pe = E.process(pe_mv, Ctx(auto=True, registry=registry))
+    assert pe["kind"] == "SUPPLIER_PAYMENT" and pe["erp_doctype"] == "Payment Entry"
+
+    je_mv = movement(-1000, IPS_OUT, route_source="MANUAL", counterparty="CP-M", accounting_treatment="JOURNAL_ENTRY",
+                     accounting_account="5130 - Subcontract")
+    je = E.process(je_mv, Ctx(auto=True, registry=registry))
+    assert je["kind"] == "EXPENSE_PAYMENT" and je["erp_doctype"] == "Journal Entry"
+    assert je["accounting_treatment"] == "JOURNAL_ENTRY" and not Ctx().created
+
+
+def test_xxsc_purpose_needs_a_per_line_treatment_and_uses_its_configured_je_account():
+    ctx = Ctx(auto=True)
+    ctx.settings.categories["XXSC"] = "5130 - Subcontract"
+    undecided = movement(-1000, IPS_OUT)
+    undecided["recognition"] = {"category": "XXSC", "am_category_status": "MATCHED"}
+    out = E.process(undecided, ctx)
+    assert out["kind"] == "UNKNOWN" and out["decision_type"] == "CHOOSE_TREATMENT" and not ctx.created
+    assert out["signals"]["suggested_account"] == "5130 - Subcontract"
+
+    journal = movement(-1000, IPS_OUT, accounting_treatment="JOURNAL_ENTRY")
+    journal["recognition"] = {"category": "XXSC", "am_category_status": "MATCHED"}
+    ctx_journal = Ctx(auto=True)
+    ctx_journal.settings.categories["XXSC"] = "5130 - Subcontract"
+    drafted = E.process(journal, ctx_journal)
+    assert drafted["erp_doctype"] == "Journal Entry"
+    assert ctx_journal.created[0][1]["expense_account"] == "5130 - Subcontract"
+
+
+def test_remembered_treatment_is_a_default_but_line_override_wins():
+    registry = Registry({}, {"CP-M": {"supplier": "SUP-M", "default_treatment": "PAYMENT_ENTRY"}})
+    mv = movement(-1000, IPS_OUT, route_source="MANUAL", counterparty="CP-M", accounting_treatment="JOURNAL_ENTRY",
+                  accounting_account="5130 - Subcontract")
+    out = E.process(mv, Ctx(auto=True, registry=registry))
+    assert out["accounting_treatment"] == "JOURNAL_ENTRY" and out["erp_doctype"] == "Journal Entry"
+
+
+def test_payee_default_is_a_suggestion_until_the_movement_is_reviewed():
+    registry = Registry({}, {"CP-M": {"supplier": "SUP-M", "default_treatment": "PAYMENT_ENTRY"}})
+    ctx = Ctx(auto=True, registry=registry)
+    mv = movement(-1000, IPS_OUT, route_source="MANUAL", counterparty="CP-M")
+    out = E.process(mv, ctx)
+    assert out["decision_type"] == "CONFIRM_TREATMENT"
+    assert out["signals"]["suggested_treatment"] == "PAYMENT_ENTRY" and not ctx.created
+
+
+def test_finance_handled_line_is_not_drafted():
+    mv = movement(-1000, IPS_OUT, accounting_treatment="FINANCE_HANDLES")
+    ctx = Ctx(auto=True)
+    out = E.process(mv, ctx)
+    assert out["engine_state"] == "PENDING" and not ctx.created
+
+
+def test_sadad_biller_mapping_suggests_expense_je_and_never_guesses_a_supplier():
+    ctx = Ctx(auto=True)
+    ctx.settings.billers = {"101": "5420 - Electricity Expense"}
+    mv = movement(-750, "SADAD BILLER CODE: 101", family="SADAD")
+    out = E.process(mv, ctx)
+    assert out["kind"] == "EXPENSE_PAYMENT" and out["accounting_treatment"] == "JOURNAL_ENTRY"
+    assert out["erp_doctype"] == "Journal Entry"
+    assert ctx.created[0][1]["expense_account"] == "5420 - Electricity Expense"
+
+
+def test_unknown_payer_is_not_drafted_to_a_holding_customer():
     ctx = Ctx(auto=True)
     out = E.process(movement(2500, IPS_IN, family="IPS_LOCAL", key="K9"), ctx)
-    assert out["kind"] == "CUSTOMER_RECEIPT" and ctx.created[0][1]["party"] == "Unidentified Receipts"
-    assert out["engine_state"] == "NEEDS_YOU"
+    assert out["kind"] == "CUSTOMER_RECEIPT" and out["decision_type"] == "CHOOSE_TREATMENT"
+    assert out["engine_state"] == "NEEDS_YOU" and not ctx.created
 
 
 def test_receipt_cannot_be_drafted_without_a_holding_customer():
     out = E.process(movement(2500, IPS_IN, key="K9"), Ctx(auto=True, holding_customer=""))
-    assert (out["engine_state"], out["decision_type"]) == ("NEEDS_YOU", "ROUTE_PARTY")
+    assert (out["engine_state"], out["decision_type"]) == ("NEEDS_YOU", "CHOOSE_TREATMENT")
 
 
 def test_person_payment_is_an_expense_journal_from_the_category():
     mv = movement(-3000, "OTBANK:SABBPERSON NAME", family="LOCAL_OTBANK")
     mv["recognition"] = {"am_beneficiary_mapping": {"route": "JE_PERSON|PROJECT_OPERATING_COST|CONFIRMED|NO_PI", "beneficiary_name": "PERSON NAME"}}
+    mv["accounting_treatment"] = "JOURNAL_ENTRY"
     ctx = Ctx(auto=True)
     out = E.process(mv, ctx)
     assert out["kind"] == "EXPENSE_PAYMENT" and ctx.created[0][1]["expense_account"] == "5130 - Subcontract"
@@ -180,9 +246,19 @@ def test_own_transfers_tawal_and_other_lines_are_deferred_not_drafted():
     own = E.process(movement(-5000, "01400010326605 BEN ID:2323429130", family="INTERNAL_BEN_ID", key="A"), ctx)
     tawal = E.process(movement(5000, "TELECOMMUNICATIONS TOWERS COMPANY", family="INCOMING_LOCAL", key="B"), ctx)
     sadad = E.process(movement(-700, "SADAD", family="SADAD", key="C"), ctx)
-    assert [o["engine_state"] for o in (own, tawal, sadad)] == ["DEFERRED"] * 3
-    assert [o["kind"] for o in (own, tawal, sadad)] == ["OWN_TRANSFER", "SPECIALIST", "OTHER"]
+    assert [o["engine_state"] for o in (own, tawal)] == ["DEFERRED"] * 2
+    assert [o["kind"] for o in (own, tawal, sadad)] == ["OWN_TRANSFER", "SPECIALIST", "UNKNOWN"]
+    assert sadad["decision_type"] == "CHOOSE_TREATMENT"
     assert not ctx.created
+
+
+def test_personal_account_transfer_cannot_be_reclassified_by_payee_default():
+    registry = Registry({}, {"CP-OWN": {"is_company": True, "default_treatment": "PAYMENT_ENTRY", "supplier": "SUP-OWN"}})
+    mv = movement(-5000, "01400010326605 BEN ID:2323429130", family="INTERNAL_BEN_ID", key="OWN",
+                  route_source="MANUAL", counterparty="CP-OWN", accounting_treatment="PAYMENT_ENTRY")
+    out = E.process(mv, Ctx(auto=True, registry=registry))
+    assert out["kind"] == "OWN_TRANSFER" and out["engine_state"] == "DEFERRED"
+    assert out["accounting_treatment"] == "" and not Ctx().created
 
 
 def test_conflicting_identifiers_are_never_resolved_by_the_engine():
@@ -194,14 +270,16 @@ def test_conflicting_identifiers_are_never_resolved_by_the_engine():
 
 def test_a_manual_choice_is_kept_over_identifiers():
     registry = Registry({}, {"CP-M": {"supplier": "SUP-M"}})
-    mv = movement(-1000, IPS_OUT, route_source="MANUAL", counterparty="CP-M")
+    mv = movement(-1000, IPS_OUT, route_source="MANUAL", counterparty="CP-M", accounting_treatment="PAYMENT_ENTRY")
     ctx = Ctx(auto=True, registry=registry)
     out = E.process(mv, ctx)
     assert (out["route_source"], ctx.created[0][1]["party"]) == ("MANUAL", "SUP-M")
 
 
 def test_a_failing_draft_is_reported_on_the_line_and_stops_nothing():
-    out = E.process(movement(-1000, IPS_OUT), Ctx(auto=True, fail=True))
+    registry = Registry({}, {"CP-A": {"supplier": "SUP-A"}})
+    out = E.process(movement(-1000, IPS_OUT, route_source="MANUAL", counterparty="CP-A", accounting_treatment="PAYMENT_ENTRY"),
+                    Ctx(auto=True, registry=registry, fail=True))
     assert (out["engine_state"], out["decision_type"]) == ("NEEDS_YOU", "CREATE_DRAFT")
     assert "ERP refused" in out["signals"]["error"]
 

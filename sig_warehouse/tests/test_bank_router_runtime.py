@@ -2,7 +2,9 @@
 import importlib
 import sys
 import types
+import datetime as dt
 from pathlib import Path
+from bank_router.text import account_scope
 
 import pytest
 
@@ -76,6 +78,46 @@ def test_failed_fee_draft_insert_rolls_back_its_own_savepoint(runtime):
                         ("release", "bank_router_fee_draft")]
 
 
+def test_payment_entry_reference_is_rechecked_and_carried_forward(runtime):
+    module, frappe = runtime
+    class PurchaseInvoice:
+        name = "PINV-1"
+        docstatus = 1
+        company = module.documents.COMPANY
+        currency = "SAR"
+        supplier = "SUP-1"
+        grand_total = 1150
+        def get(self, field):
+            return 900 if field == "outstanding_amount" else None
+        def check_permission(self, permission):
+            assert permission == "read"
+    frappe.get_doc = lambda doctype, name: PurchaseInvoice()
+    ctx = module.Context.__new__(module.Context)
+    mv = {"amount": -500, "recognition": {"transfer_request": {"allocation_json":
+          '[{"reference_doctype":"Purchase Invoice","reference_name":"PINV-1","allocated_amount":500}]'}}}
+    refs = ctx._payment_references(mv, {"party_type": "Supplier", "party": "SUP-1"})
+    assert refs == [{"reference_doctype": "Purchase Invoice", "reference_name": "PINV-1", "allocated_amount": 500}]
+
+
+def test_payment_entry_reference_stops_if_outstanding_became_too_small(runtime):
+    module, frappe = runtime
+    class PurchaseInvoice:
+        docstatus = 1
+        company = module.documents.COMPANY
+        currency = "SAR"
+        supplier = "SUP-1"
+        def get(self, field):
+            return 200 if field == "outstanding_amount" else None
+        def check_permission(self, permission):
+            pass
+    frappe.get_doc = lambda doctype, name: PurchaseInvoice()
+    ctx = module.Context.__new__(module.Context)
+    mv = {"amount": -500, "recognition": {"transfer_request": {"allocation_json":
+          '[{"reference_doctype":"Purchase Invoice","reference_name":"PINV-1","allocated_amount":500}]'}}}
+    with pytest.raises(ValueError, match="exceeds the current available"):
+        ctx._payment_references(mv, {"party_type": "Supplier", "party": "SUP-1"})
+
+
 def test_review_only_disables_drafting_even_when_settings_enable_it(runtime, monkeypatch):
     module, frappe = runtime
     row = types.SimpleNamespace(name="movement", event_date="2026-11-09")
@@ -91,3 +133,27 @@ def test_review_only_disables_drafting_even_when_settings_enable_it(runtime, mon
     result = module.run(review_only=True)
     assert observed == [False]
     assert result["errors"] == 0
+
+
+def test_own_account_transfer_pairing_requires_one_mutual_opposite_leg(runtime):
+    module, _ = runtime
+    own_a, own_b = "01400010326605", "23659568000109"
+    scope_a, scope_b = "scope-a", "scope-b"
+    settings = types.SimpleNamespace(scopes={scope_a: "13121 - SNB A", scope_b: "13221 - SNB B"},
+                                    company_scopes=frozenset({account_scope(own_a), account_scope(own_b)}))
+
+    def entry(name, account, amount, family, desc, detail):
+        row = types.SimpleNamespace(name=name, source_key=name, event_date=dt.date(2026, 11, 8), amount=amount,
+                                    account_scope_hash=scope_a if account == own_a else scope_b)
+        return {"row": row, "source": {"parser_family": family, "transaction_description": desc,
+                                          "detail_description": detail, "direction": "CREDIT" if amount > 0 else "DEBIT"},
+                "recognition": {}}
+
+    debit = entry("OUT", own_a, -5000, "INTERNAL_BEN_ID", "Outgoing Internal Transfer", f"{own_b} BEN ID:123456")
+    credit = entry("IN", own_b, 5000, "INCOMING_LOCAL", "Incoming Internal Transfer", f"{own_a} DEP ID:123456")
+    paired = module.pair_own_transfers({"OUT": debit, "IN": credit}, settings)
+    assert paired["OUT"]["name"] == "IN" and paired["IN"]["name"] == "OUT"
+
+    second_credit = entry("IN2", own_b, 5000, "INCOMING_LOCAL", "Incoming Internal Transfer", f"{own_a} DEP ID:654321")
+    ambiguous = module.pair_own_transfers({"OUT": debit, "IN": credit, "IN2": second_credit}, settings)
+    assert ambiguous == {}

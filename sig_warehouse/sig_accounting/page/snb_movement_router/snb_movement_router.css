@@ -17,3 +17,4 @@
 .snb-actions{margin:14px 0}.snb-actions label{display:block;margin:6px 0}.snb-actions .form-control{margin:6px 0}.snb-actions details{margin-top:10px}
 .snb-fees{margin:10px 0;padding:8px 10px;border:1px solid #e9efed;border-radius:8px;background:#f7faf9}.snb-fees p{margin:3px 0}.snb-error{color:#a64239}
 .snb-grid{grid-template-columns:minmax(260px,340px) minmax(360px,1fr)}
+.snb-row-wrap{display:flex;align-items:stretch;border-bottom:1px solid #e9efed}.snb-row-wrap .snb-row{border-bottom:0}.snb-row-wrap .snb-bulk-check{padding:12px 2px;margin:0}.snb-row-wrap .snb-bulk-check input{width:auto}.snb-bulk{margin:0 0 10px}.snb-bulk button{width:100%}
