@@ -16,7 +16,8 @@ def _account(number):
 def execute():
     if not frappe.db.exists("Customer", HOLDING_CUSTOMER):
         frappe.get_doc({"doctype": "Customer", "customer_name": HOLDING_CUSTOMER, "customer_type": "Company",
-                        "customer_group": "Commercial", "territory": "Saudi Arabia"}).insert(ignore_permissions=True)
+                        "customer_group": "Commercial", "territory": "Saudi Arabia",
+                        "custom_country": "Saudi Arabia"}).insert(ignore_permissions=True)
     settings = frappe.get_doc("Bank Router Settings")
     known = {row.account_number for row in settings.bank_accounts or []}
     for number, gl, label in SNB_ACCOUNTS:
