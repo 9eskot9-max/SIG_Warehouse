@@ -312,10 +312,12 @@ def apply(name, out, user=None):
     return True
 
 
-def run(phase="main", start=0, limit=120, names=None):
+def run(phase="main", start=0, limit=120, names=None, review_only=False, bank=""):
     """Route a batch. Phase 'main' handles every line except bank charges; 'fees' handles those after their main lines."""
     like = "or".join([" source_json like %s "] * 2)
-    rows = frappe.db.sql(f"""select name, event_date from `tab{DOCTYPE}` where {'(' if phase == 'fees' else 'not ('}{like}) order by event_date, name""", FEE_FILTERS, as_dict=True)
+    bank_filter = " and source_key like %s" if bank == "SNB" else ""
+    params = (*FEE_FILTERS, "SNB-%") if bank_filter else FEE_FILTERS
+    rows = frappe.db.sql(f"""select name, event_date from `tab{DOCTYPE}` where {'(' if phase == 'fees' else 'not ('}{like}){bank_filter} order by event_date, name""", params, as_dict=True)
     if names:
         rows = [r for r in rows if r.name in set(names)]
     total = len(rows)
@@ -326,6 +328,8 @@ def run(phase="main", start=0, limit=120, names=None):
         return result
     days = [getdate(r.event_date) for r in rows]
     ctx = Context(min(days), max(days))
+    if review_only:
+        ctx.settings._enabled = False
     index, children = load_index()
     for ordinal, r in enumerate(batch):
         savepoint = f"bank_router_movement_{ordinal}"
@@ -346,6 +350,8 @@ def run(phase="main", start=0, limit=120, names=None):
             # The rollback can invalidate the in-memory ledger and claimed-document cache.
             # Rebuild those caches only on the exceptional path before routing the next line.
             ctx = Context(min(days), max(days))
+            if review_only:
+                ctx.settings._enabled = False
             index, children = load_index()
             result["errors"] += 1
             frappe.log_error(title="Bank router could not route a movement", message=f"{r.name}\n{frappe.get_traceback()}")

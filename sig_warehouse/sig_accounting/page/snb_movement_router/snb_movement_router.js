@@ -45,7 +45,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
         const expense = x.kind === 'EXPENSE_PAYMENT';
         return `<h4>${expense ? __('Expense account') : __('Who is this?')}</h4><input class="form-control" data-find placeholder="${__('Type at least two characters')}" data-type="${expense ? 'Account' : type}">
             <select class="form-control" data-choice><option value="">${__('Choose…')}</option></select><button class="btn btn-primary" data-route>${__('Route here')}</button>
-            ${expense ? '' : `<details><summary>${__('New {0}', [__(type)])}</summary><input class="form-control" data-new-name placeholder="${__('Full name')}"><input class="form-control" data-new-vat placeholder="${__('VAT number (optional)')}"><button class="btn btn-default" data-new>${__('Create and route')}</button></details>`}`;
+            ${expense ? '' : `<details><summary>${__('New {0}', [__(type)])}</summary><input class="form-control" data-new-name placeholder="${__('Full name')}"><input class="form-control" data-new-vat placeholder="${__('VAT number (optional)')}">${type === 'Customer' ? `<label>${__('Country')}</label><input class="form-control" data-new-country value="Saudi Arabia" placeholder="${__('Country name')}">` : ''}<button class="btn btn-default" data-new>${__('Create and route')}</button></details>`}`;
     }
     function renderCard() {
         const x = selected(), c = q('[data-card]');
@@ -97,7 +97,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     root.on('click', '[data-new]', function () {
         const x = selected(), name = q('[data-new-name]').value.trim();
         if (name.length < 3) { q('[data-message]').textContent = __('Enter the full name.'); return; }
-        act('route_movement', {target: {type: 'NEW_PARTY', party_type: x.kind === 'CUSTOMER_RECEIPT' ? 'Customer' : 'Supplier', name, vat: q('[data-new-vat]').value}});
+        act('route_movement', {target: {type: 'NEW_PARTY', party_type: x.kind === 'CUSTOMER_RECEIPT' ? 'Customer' : 'Supplier', name, vat: q('[data-new-vat]').value, country: q('[data-new-country]')?.value || ''}});
     });
     root.on('click', '[data-pick]', function () {
         const x = selected(), i = (q('input[name="pick"]:checked') || {}).value;

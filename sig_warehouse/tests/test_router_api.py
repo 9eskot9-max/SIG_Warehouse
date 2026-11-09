@@ -66,6 +66,26 @@ def test_only_the_integration_owner_may_run_the_engine_or_read_links(api):
             call()
 
 
+def test_list_links_returns_posted_status_and_exact_rejected_hints(api):
+    rows = [
+        types.SimpleNamespace(name="A", source_key="SNB-A", erp_doctype="Payment Entry", erp_document="ACC-PAY-1",
+                              link_method="AUTO_DRAFT", signals_json="{}", candidates_json='{"rejected":[]}'),
+        types.SimpleNamespace(name="B", source_key="SNB-B", erp_doctype="", erp_document="", link_method="",
+                              signals_json="{}", candidates_json='{"rejected":["ACC-JV-OLD"]}'),
+    ]
+    api.frappe.get_all = lambda doctype, **kwargs: (
+        rows if doctype == api.DOCTYPE else [types.SimpleNamespace(name="ACC-PAY-1", docstatus=1)]
+    )
+    result = api.list_links()
+    assert result["rows"] == [
+        {"source_key": "SNB-A", "erp_doctype": "Payment Entry", "erp_document": "ACC-PAY-1", "link_method": "AUTO_DRAFT",
+         "doc_status": 1, "am_link_rejected": False, "rejected_documents": []},
+        {"source_key": "SNB-B", "erp_doctype": "", "erp_document": "", "link_method": "",
+         "doc_status": None, "am_link_rejected": False, "rejected_documents": ["ACC-JV-OLD"]},
+    ]
+    assert result["has_more"] is False and result["next_start"] == 2
+
+
 def test_engine_rejects_an_unknown_phase(api):
     with pytest.raises(ValueError):
         api.run_engine("everything")
@@ -113,6 +133,12 @@ def test_new_party_refuses_an_existing_exact_name_and_applies_defaults(api):
     api.frappe.get_doc = lambda values: Inserted(**values)
     assert api._new_party("Supplier", "New Supplier Ltd", "300123") == "CUST-2"
     assert created["supplier_group"] == "Local" and created["supplier_type"] == "Company" and created["tax_id"] == "300123"
+    api.frappe.db = types.SimpleNamespace(exists=lambda doctype, name: doctype == "Country" and name == "Saudi Arabia")
+    api._check_link = lambda *args: None
+    with pytest.raises(ValueError, match="valid country"):
+        api._new_party("Customer", "New Customer Ltd")
+    assert api._new_party("Customer", "New Customer Ltd", country="Saudi Arabia") == "CUST-2"
+    assert created["custom_country"] == "Saudi Arabia"
     with pytest.raises(ValueError):
         api._new_party("Supplier", "ab")
 

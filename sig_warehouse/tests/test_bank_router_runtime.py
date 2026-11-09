@@ -74,3 +74,20 @@ def test_failed_fee_draft_insert_rolls_back_its_own_savepoint(runtime):
         ctx.create_fee_journal(mv, [{"amount": -1, "family": "BANK_FEE"}])
     assert db_calls == [("savepoint", "bank_router_fee_draft"), ("rollback", "bank_router_fee_draft"),
                         ("release", "bank_router_fee_draft")]
+
+
+def test_review_only_disables_drafting_even_when_settings_enable_it(runtime, monkeypatch):
+    module, frappe = runtime
+    row = types.SimpleNamespace(name="movement", event_date="2026-11-09")
+    frappe.db = types.SimpleNamespace(sql=lambda *a, **k: [row], savepoint=lambda *a: None,
+                                      rollback=lambda **k: None, release_savepoint=lambda *a: None)
+    frappe.session = types.SimpleNamespace(user="owner")
+    monkeypatch.setattr(module, "Context", lambda *a: types.SimpleNamespace(settings=types.SimpleNamespace(_enabled=True)))
+    monkeypatch.setattr(module, "load_index", lambda: ({}, {}))
+    monkeypatch.setattr(module, "to_engine", lambda *a: {})
+    monkeypatch.setattr(module, "apply", lambda *a: False)
+    observed = []
+    monkeypatch.setattr(module.engine, "process", lambda mv, ctx: observed.append(ctx.settings._enabled) or {"engine_state": "NEEDS_YOU"})
+    result = module.run(review_only=True)
+    assert observed == [False]
+    assert result["errors"] == 0

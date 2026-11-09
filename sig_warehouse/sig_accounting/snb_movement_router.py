@@ -147,24 +147,45 @@ def sync_counterparties(rows):
 
 
 @frappe.whitelist(methods=["POST"])
-def run_engine(phase="main", start=0, limit=120):
+def run_engine(phase="main", start=0, limit=120, review_only=0, bank=""):
     """Route one batch of movements. The sync calls 'main' until it reports no more, then 'fees'."""
     _integration_only()
     if phase not in ("main", "fees"):
         frappe.throw(_("Unknown phase."))
-    return runtime.run(phase, max(0, int(start)), min(300, max(1, int(limit))))
+    if bank not in ("", "SNB"):
+        frappe.throw(_("Unknown bank."))
+    return runtime.run(phase, max(0, int(start)), min(300, max(1, int(limit))), review_only=str(review_only) == "1", bank=bank)
 
 
 @frappe.whitelist()
 def list_links(start=0, limit=200):
-    """Document links ERP holds, for the sync to write back to Sheet Am. Identity and document name only."""
+    """Verified document links and explicitly rejected Am hints for Sheet Am write-back."""
     _integration_only()
     start, limit = max(0, int(start)), min(500, max(1, int(limit)))
-    rows = frappe.get_all(DOCTYPE, filters={"erp_document": ["!=", ""]},
-                          fields=["source_key", "erp_doctype", "erp_document", "link_method", "signals_json"], order_by="name asc", start=start, page_length=limit)
-    return {"rows": [{"source_key": r.source_key, "erp_doctype": r.erp_doctype, "erp_document": r.erp_document, "link_method": r.link_method,
-                      "am_link_rejected": bool((_data(r.signals_json) or {}).get("am_link_rejected"))} for r in rows],
-            "has_more": len(rows) == limit, "next_start": start + len(rows)}
+    all_rows = frappe.get_all(DOCTYPE,
+                              fields=["name", "source_key", "erp_doctype", "erp_document", "link_method", "signals_json", "candidates_json"],
+                              order_by="name asc", limit_page_length=0)
+    eligible = []
+    for r in all_rows:
+        signals = _data(r.signals_json) or {}
+        candidates = _data(r.candidates_json) or {}
+        rejected = sorted({str(x) for x in candidates.get("rejected", []) if str(x)})
+        if r.erp_document or rejected or signals.get("am_link_rejected"):
+            eligible.append((r, signals, rejected))
+    page = eligible[start:start + limit]
+    doc_names = {}
+    for r, _, _ in page:
+        if r.erp_document and r.erp_doctype in ("Payment Entry", "Journal Entry"):
+            doc_names.setdefault(r.erp_doctype, set()).add(r.erp_document)
+    doc_statuses = {}
+    for doctype, names in doc_names.items():
+        for d in frappe.get_all(doctype, filters={"name": ["in", list(names)]}, fields=["name", "docstatus"], limit_page_length=0):
+            doc_statuses[(doctype, d.name)] = d.docstatus
+    return {"rows": [{"source_key": r.source_key, "erp_doctype": r.erp_doctype or "", "erp_document": r.erp_document or "", "link_method": r.link_method or "",
+                      "doc_status": doc_statuses.get((r.erp_doctype, r.erp_document)),
+                      "am_link_rejected": bool(signals.get("am_link_rejected")), "rejected_documents": rejected}
+                     for r, signals, rejected in page],
+            "has_more": start + len(page) < len(eligible), "next_start": start + len(page)}
 
 
 @frappe.whitelist()
@@ -175,7 +196,7 @@ def engine_status():
     counts = {}
     for row in visible:
         counts[row.engine_state] = counts.get(row.engine_state, 0) + 1
-    return {"auto_draft": settings._enabled, "auto_draft_from": str(settings._from or ""), "banks_configured": len(settings.scopes),
+    return {"review_only_sync_version": 1, "auto_draft": settings._enabled, "auto_draft_from": str(settings._from or ""), "banks_configured": len(settings.scopes),
             "holding_customer": bool(settings.holding_customer), "counts": counts}
 
 
@@ -298,7 +319,7 @@ def search_expense_accounts(query=""):
     return [{"name": r.name, "label": r.name} for r in rows]
 
 
-def _new_party(doctype, name, vat=""):
+def _new_party(doctype, name, vat="", country=""):
     """Create a Customer or Supplier only when no enabled party already carries that exact name."""
     name = str(name or "").strip()
     if len(name) < 3 or len(name) > 140:
@@ -314,6 +335,12 @@ def _new_party(doctype, name, vat=""):
         # Live permissions: Accounts User can create Customers but not Suppliers. Say so plainly, not as a raw Frappe error.
         frappe.throw(_("You cannot create a new {0}. Ask an Accounts Manager, or choose an existing one.").format(doctype), frappe.PermissionError)
     values = {"doctype": doctype, field: name, **NEW_PARTY_DEFAULTS[doctype]}
+    if doctype == "Customer":
+        country = str(country or "").strip()
+        if not country or not frappe.db.exists("Country", country):
+            frappe.throw(_("Select a valid country for the new Customer."))
+        _check_link("Country", country)
+        values["custom_country"] = country
     if vat:
         values["tax_id"] = str(vat).strip()[:30]
     doc = frappe.get_doc(values)
@@ -343,15 +370,17 @@ def _ensure_counterparty(doc, label):
 
 
 def _learn_identifiers(doc, cp):
-    """Attach this line's identifiers to the counterparty. An identifier held by someone else moves here (the owner decided)."""
+    """Attach identifiers without silently moving an existing party's hint."""
     signals = _data(doc.signals_json) or {}
     for kind, value in signals.get("identifiers") or []:
         key = runtime.identity_key(kind, value)
         existing = frappe.db.exists(IDENTIFIER, key)
         if existing:
             ident = frappe.get_doc(IDENTIFIER, key)
-            if ident.counterparty != cp.name or ident.status != "ACTIVE":
-                ident.counterparty, ident.status, ident.source = cp.name, "ACTIVE", "ROUTER"
+            if ident.counterparty != cp.name:
+                frappe.throw(_("This bank hint is already linked to another counterparty; review the conflict before changing it."))
+            if ident.status != "ACTIVE":
+                ident.status, ident.source = "ACTIVE", "ROUTER"
                 ident.flags.bank_router_write = True
                 ident.save(ignore_permissions=True)
             continue
@@ -423,7 +452,7 @@ def route_movement(name, modified, target):
         party_type = target.get("party_type")
         if party_type not in PARTY_DOCTYPES or (doc.kind == CUSTOMER_RECEIPT) != (party_type == "Customer"):
             frappe.throw(_("Incoming receipts take a Customer; outgoing payments take a Supplier."))
-        party = _new_party(party_type, target.get("name"), target.get("vat")) if kind_type == "NEW_PARTY" else str(target.get("party") or "")
+        party = _new_party(party_type, target.get("name"), target.get("vat"), target.get("country")) if kind_type == "NEW_PARTY" else str(target.get("party") or "")
         _check_link(party_type, party)
         if frappe.db.get_value(party_type, party, "disabled"):
             frappe.throw(_("Select an enabled party."))

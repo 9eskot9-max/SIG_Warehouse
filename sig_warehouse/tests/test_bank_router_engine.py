@@ -92,7 +92,7 @@ IPS_IN = "CITY:Jeddah *****SAUDI ARABIA SAINMA شركة رسوخ المتقدم�
 def test_existing_posted_journal_is_linked_not_drafted():
     ctx = Ctx(auto=True, ledger=Ledger([doc("JV-1", -1000, "2026-10-05")]))
     out = E.process(movement(-1000, IPS_OUT), ctx)
-    assert (out["engine_state"], out["erp_document"], out["link_method"]) == ("POSTED", "JV-1", "LEDGER")
+    assert (out["engine_state"], out["decision_type"], out["erp_document"]) == ("NEEDS_YOU", "PICK_DOCUMENT", "")
     assert not ctx.created
 
 
@@ -110,7 +110,7 @@ def test_several_candidates_ask_for_a_decision():
 
 
 def test_two_movements_never_claim_the_same_document():
-    ctx = Ctx(ledger=Ledger([doc("JV-1", -1000, "2026-10-05")]))
+    ctx = Ctx(ledger=Ledger([doc("JV-1", -1000, "2026-10-05", marker="K1")]))
     first = E.process(movement(-1000, IPS_OUT, key="K1"), ctx)
     second = E.process(movement(-1000, IPS_OUT, key="K2"), ctx)
     assert first["erp_document"] == "JV-1" and second["erp_document"] == ""
@@ -250,7 +250,8 @@ def test_a_wrong_am_link_is_flagged_so_the_sync_can_correct_it():
     ledger = Ledger([doc("JV-OLD", -3193242.19, "2026-08-03"), doc("JV-NEW", -790, "2026-08-03")])
     mv = movement(-790, IPS_OUT, key="K7", day="2026-08-03", erp_doctype="", erp_document="", hint={"linked_doc": "JV-OLD"})
     out = E.process(mv, Ctx(ledger=ledger))
-    assert out["erp_document"] == "JV-NEW" and out["signals"]["am_link_rejected"] is True
+    assert out["erp_document"] == "" and out["decision_type"] == "PICK_DOCUMENT"
+    assert [d["name"] for d in out["candidates"]["documents"]] == ["JV-NEW"]
 
 
 def test_an_accepted_am_link_is_not_flagged():

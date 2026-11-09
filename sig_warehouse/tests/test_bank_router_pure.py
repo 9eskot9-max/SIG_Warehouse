@@ -166,9 +166,9 @@ def test_marker_beats_everything():
     assert (out[0], out[1][0]["name"], out[2]) == ("LINK", "JV-B", "MARKER")
 
 
-def test_unique_ledger_match_links_and_marks_the_method():
+def test_unique_ledger_match_requires_review():
     out = R.pick_document(movement(), [doc("JV-A", -1000, "2026-10-07"), doc("JV-B", -999, "2026-10-05"), doc("JV-C", -1000, "2026-10-20")])
-    assert (out[0], out[1][0]["name"], out[2]) == ("LINK", "JV-A", "LEDGER")
+    assert (out[0], out[1][0]["name"], out[2]) == ("PICK", "JV-A", "LEDGER")
 
 
 def test_wrong_direction_or_account_never_matches():
@@ -179,9 +179,9 @@ def test_wrong_direction_or_account_never_matches():
 def test_several_candidates_need_a_person_unless_reference_or_day_is_unique():
     twins = [doc("JV-A", -1000, "2026-10-04"), doc("JV-B", -1000, "2026-10-06")]
     assert R.pick_document(movement(), twins)[0] == "PICK"
-    assert R.pick_document(movement(), twins + [doc("JV-C", -1000, "2026-10-05")])[1][0]["name"] == "JV-C"
+    assert R.pick_document(movement(), twins + [doc("JV-C", -1000, "2026-10-05")])[0] == "PICK"
     by_ref = [doc("JV-A", -1000, "2026-10-04", reference="R1"), doc("JV-B", -1000, "2026-10-06")]
-    assert R.pick_document(movement(), by_ref)[1][0]["name"] == "JV-A"
+    assert R.pick_document(movement(), by_ref)[0] == "PICK"
 
 
 def test_claimed_rejected_and_cancelled_documents_are_skipped():
@@ -196,6 +196,7 @@ def test_am_hint_links_only_when_it_agrees_on_account_and_amount():
     assert R.pick_document(movement(), [], hint=hint)[2] == "AM_LINK"
     assert R.pick_document(movement(), [], hint=doc("JV-Z", -900, "2026-10-05"))[0] == "NONE"
     assert R.pick_document(movement(), [], hint=doc("JV-Z", -1000, "2026-10-05", bank_account="13123"))[0] == "NONE"
+    assert R.pick_document(movement(), [], hint=doc("JV-Z", 1000, "2026-10-05"))[0] == "NONE"
 
 
 # ---- documents ----------------------------------------------------------------------------------------------

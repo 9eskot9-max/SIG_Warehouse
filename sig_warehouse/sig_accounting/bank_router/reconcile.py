@@ -30,10 +30,10 @@ def pick_document(movement, candidates, claimed=(), rejected=(), hint=None, wind
     claimed, rejected = set(claimed), set(rejected)
     live = [c for c in candidates if c["docstatus"] != 2 and c["name"] not in rejected]
     for doc in live:
-        if doc.get("marker") and doc["marker"] == movement["key"]:
+        if doc.get("marker") and doc["marker"] == movement["key"] and doc["name"] not in claimed and doc["bank_account"] == movement["bank_account"] and (doc["amount"] > 0) == (float(movement["amount"]) > 0) and _same_amount(doc["amount"], movement["amount"]):
             return "LINK", [doc], "MARKER"
     if hint and hint["docstatus"] != 2 and hint["name"] not in rejected and hint["name"] not in claimed \
-            and _same_amount(hint["amount"], movement["amount"]) and hint.get("bank_account") == movement["bank_account"]:
+            and (hint["amount"] > 0) == (float(movement["amount"]) > 0) and _same_amount(hint["amount"], movement["amount"]) and hint.get("bank_account") == movement["bank_account"]:
         return "LINK", [hint], "AM_LINK"
     day = _date(movement["date"])
     near = [c for c in live
@@ -44,14 +44,6 @@ def pick_document(movement, candidates, claimed=(), rejected=(), hint=None, wind
             and abs((_date(c["date"]) - day).days) <= window]
     if not near:
         return "NONE", [], ""
-    if len(near) == 1:
-        return "LINK", near, "LEDGER"
-    by_reference = [c for c in near if movement.get("reference") and str(c.get("reference") or "").strip() == movement["reference"]]
-    if len(by_reference) == 1:
-        return "LINK", by_reference, "LEDGER"
-    same_day = [c for c in near if _date(c["date"]) == day]
-    if len(same_day) == 1:
-        return "LINK", same_day, "LEDGER"
     return "PICK", near, "LEDGER"
 
 

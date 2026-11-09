@@ -77,23 +77,18 @@ def apply(rows):
     existing_cp = {r.am_key: r for r in frappe.get_all(COUNTERPARTY, fields=["name", "am_key", "supplier", "custody_account", "employee",
                    "expense_account", "category", "is_company", "handler", "is_employee"], filters={"am_key": ["!=", ""]}, limit_page_length=0)}
     existing_ids = {r.name: r.counterparty for r in frappe.get_all(IDENTIFIER, fields=["name", "counterparty"], limit_page_length=0)}
-    employees = {}
-    for e in frappe.get_all("Employee", fields=["name", "custom_custody_account"], filters={"status": "Active", "custom_custody_account": ["!=", ""]}, limit_page_length=0):
-        employees.setdefault(e.custom_custody_account, []).append(e.name)
     counts = {"counterparties_created": 0, "counterparties_updated": 0, "identifiers_created": 0, "duplicates": [], "skipped": 0}
     for b in rows:
         p = plan(b, set(suppliers), supplier_names, s.own_names, s.company_scopes, s.categories)
         if not p["am_key"]:
             counts["skipped"] += 1
             continue
-        custody = ""
-        if p["custody_gl"]:
-            custody = frappe.db.get_value("Account", {"account_number": p["custody_gl"], "company": COMPANY}, "name") or ""
-        employee = employees.get(custody, [None])[0] if len(employees.get(custody, [])) == 1 else ""
+        # Employee and custody ownership require an explicit accounting decision.
+        custody = employee = ""
         cp = existing_cp.get(p["am_key"])
         if cp is None:
             doc = frappe.get_doc({"doctype": COUNTERPARTY, "display_name": p["display_name"][:140], "status": "ACTIVE", "am_key": p["am_key"],
-                                  "is_company": cint_(p["is_company"]), "handler": p["handler"], "is_employee": cint_(p["is_employee"]),
+                                  "is_company": cint_(p["is_company"]), "handler": p["handler"], "is_employee": 0,
                                   "custody_account": custody or None, "employee": employee or None,
                                   "supplier": p["supplier"] or None if not p["is_company"] else None,
                                   "expense_account": p["expense_account"] or None, "category": p["category"]})
@@ -108,7 +103,7 @@ def apply(rows):
                                  ("expense_account", p["expense_account"]), ("category", p["category"])):
                 if value and not cp.get(field) and not (field == "supplier" and (p["is_company"] or cp.is_company)):
                     fills[field] = value
-            for field, value in (("is_company", cint_(p["is_company"])), ("is_employee", cint_(p["is_employee"]))):
+            for field, value in (("is_company", cint_(p["is_company"])),):
                 if value and not cp.get(field):
                     fills[field] = value
             if p["handler"] and not cp.handler:
