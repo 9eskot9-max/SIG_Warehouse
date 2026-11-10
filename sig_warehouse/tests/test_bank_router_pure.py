@@ -311,3 +311,14 @@ def test_sadad_biller_names_come_from_the_public_list_and_unlisted_codes_stay_un
     assert biller_name("090") == "" and biller_name("") == ""
     parsed = snb.parse(line("DEBIT", "SADAD", "SADAD Payment", "050-100000000000001 01400010326605 1234567890"))
     assert (parsed["biller_code"], parsed["biller_name"]) == ("050", "Ministry of Labor")
+
+
+def test_vat_of_a_bank_fee_goes_to_the_vat_account_in_a_combined_je_and_in_a_separate_fee_je():
+    fees = [{"amount": -1.0, "family": "BANK_FEE"}, {"amount": -0.15, "family": "FEE_VAT"}]
+    combined = D.expense_journal(movement(), "5130 - Subcontract", "13121 - Bank", fees, "538 - Charges", "2281 - VAT 15%", "Ejaz", "EXPENSE_PAYMENT")
+    separate = D.fee_journal(movement(), fees, "13121 - Bank", "538 - Charges", "2281 - VAT 15%")
+    for je in (combined, separate):
+        debits = {a["account"]: a["debit_in_account_currency"] for a in je["accounts"] if a["debit_in_account_currency"]}
+        assert debits["538 - Charges"] == 1.0 and debits["2281 - VAT 15%"] == 0.15
+        assert round(sum(a["debit_in_account_currency"] for a in je["accounts"]) - sum(a["credit_in_account_currency"] for a in je["accounts"]), 2) == 0
+    assert separate["custom_pc_statement_key"].endswith(D.FEE_MARKER_SUFFIX) and not combined["custom_pc_statement_key"].endswith(D.FEE_MARKER_SUFFIX)

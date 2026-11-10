@@ -648,3 +648,25 @@ def test_government_fee_billers_list_accounts_in_the_owners_order_without_choosi
     assert api._account_choices("090") == ["5155 - Projects", "530 - Admin"]
     assert seen["root_type"] == "Expense" and seen["is_group"] == 0
     assert api._account_choices("002") == [] and api._account_choices("") == []
+
+
+def test_a_payment_to_an_employee_may_be_booked_to_that_employees_own_custody_ledger_only(api):
+    expense = {"root_type": "Expense", "is_group": 0, "disabled": 0, "company": "Co"}
+    custody = {"root_type": "Asset", "is_group": 0, "disabled": 0, "company": "Co"}
+    mine = {"account": "132214 - Imran - SIG"}
+    assert api._expense_account_allowed(expense, "5155 - X", None) is True
+    assert api._expense_account_allowed(custody, "132214 - Imran - SIG", mine) is True
+    assert api._expense_account_allowed(custody, "132226 - Other - SIG", mine) is False   # another person's ledger
+    assert api._expense_account_allowed(custody, "132214 - Imran - SIG", None) is False   # no mapped payee
+    assert api._expense_account_allowed({**expense, "is_group": 1}, "5 - Group", None) is False
+    assert api._expense_account_allowed({**expense, "company": "Other"}, "5155 - X", None) is False
+
+
+def test_mapped_custody_needs_one_enabled_account_and_one_active_employee(api, monkeypatch):
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True, raising=False)
+    def get_list(doctype, **kwargs):
+        return [{"name": "132214 - Imran - SIG"}] if doctype == "Account" else [{"name": "HR-EMP-9", "employee_name": "Mohammed Imran Ansary"}]
+    monkeypatch.setattr(api.frappe, "get_list", get_list, raising=False)
+    found = api._mapped_custody({"erp_party": "Employee: Mohammed Imran Ansary | 132214"})
+    assert (found["employee"], found["account"]) == ("HR-EMP-9", "132214 - Imran - SIG")
+    assert api._mapped_custody({"erp_party": "Supplier: X"}) is None and api._mapped_custody({}) is None

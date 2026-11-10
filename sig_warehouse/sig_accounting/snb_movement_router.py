@@ -322,15 +322,11 @@ def _bill_owner(signals):
     return {"employee": rows[0]["name"], "name": rows[0]["employee_name"]} if len(rows) == 1 else None
 
 
-def _suggest_pc_employee(doc, mapping, cp):
-    """Suggest only an exact Am beneficiary mapping, visible to this user."""
-    if doc.kind != "PETTY_CASH" or not cp or mapping.get("source") != "Sheet Am matched beneficiary":
-        return None
-    if not mapping.get("beneficiary_key") or mapping["beneficiary_key"] != cp.get("am_key"):
-        return None
+def _mapped_custody(mapping):
+    """The Employee and custody account Sheet Am names for this payee, verified: one enabled account, one active Employee owns it."""
     if not frappe.has_permission("Account", "read") or not frappe.has_permission("Employee", "read"):
         return None
-    match = re.fullmatch(r"Employee:\s*([^|]+?)\s*\|\s*(\d+)\s*", str(mapping.get("erp_party") or ""), re.I)
+    match = re.fullmatch(r"Employee:\s*([^|]+?)\s*\|\s*(\d+)\s*", str((mapping or {}).get("erp_party") or ""), re.I)
     if not match:
         return None
     accounts = frappe.get_list("Account", filters={"account_number": match.group(2), "company": runtime.documents.COMPANY,
@@ -341,12 +337,32 @@ def _suggest_pc_employee(doc, mapping, cp):
         "company": runtime.documents.COMPANY}, fields=["name", "employee_name"], page_length=2)
     if len(employees) != 1:
         return None
+    return {"employee": employees[0]["name"], "name": employees[0]["employee_name"], "account": accounts[0]["name"], "label": match.group(1)}
+
+
+def _suggest_pc_employee(doc, mapping, cp):
+    """Suggest only an exact Am beneficiary mapping, visible to this user."""
+    if doc.kind != "PETTY_CASH" or not cp or mapping.get("source") != "Sheet Am matched beneficiary":
+        return None
+    if not mapping.get("beneficiary_key") or mapping["beneficiary_key"] != cp.get("am_key"):
+        return None
+    found = _mapped_custody(mapping)
+    if not found:
+        return None
     # A Latin name must agree with the Employee. An Arabic label cannot be compared with the English Employee name, so the
     # custody account number (one active Employee owns it) is the identity in that case.
-    if (normalize_text(employees[0]["employee_name"]) != normalize_text(match.group(1))
-            and not re.search(r"[؀-ۿ]", match.group(1))):
+    if normalize_text(found["name"]) != normalize_text(found["label"]) and not re.search(r"[\u0600-\u06FF]", found["label"]):
         return None
-    return {"employee": employees[0]["name"], "name": employees[0]["employee_name"], "account": accounts[0]["name"]}
+    return {"employee": found["employee"], "name": found["name"], "account": found["account"]}
+
+
+def _expense_account_allowed(details, account, custody):
+    """An enabled, non-group account of this company: an Expense account, or this payee's own Employee custody ledger."""
+    if not details or details.get("is_group") or details.get("disabled") or details.get("company") != runtime.documents.COMPANY:
+        return False
+    if details.get("root_type") == "Expense":
+        return True
+    return bool(custody) and account == custody.get("account") and details.get("root_type") == "Asset"
 
 
 def _payload(doc, fees=None, statuses=None):
@@ -388,6 +404,7 @@ def _payload(doc, fees=None, statuses=None):
         "supply_types": supply_types, "supply_type": doc.get("supply_type") or _suggest_supply(supply_types, category, cp),
         "supply_threshold": SUPPLY_THRESHOLD, "bill_owner": _bill_owner(signals) if signals.get("bill_account") else None,
         "account_choices": _account_choices(signals.get("biller_code")) if doc.direction == "DEBIT" else [],
+        "custody_choice": _mapped_custody(mapping) if doc.direction == "DEBIT" and doc.kind in ("UNKNOWN", "EXPENSE_PAYMENT", "EMPLOYEE") else None,
         "purpose_default_treatment": purpose_default,
         "request_supplier": request_supplier, "request_supplier_conflict": bool(party and request_supplier and party != request_supplier),
         "payment_reference_doctype": doc.get("payment_reference_doctype") or "",
@@ -813,9 +830,9 @@ def route_movement(name, modified, target):
         account = str(target.get("account") or "")
         _check_link("Account", account)
         details = frappe.db.get_value("Account", account, ["root_type", "is_group", "disabled", "company"], as_dict=True)
-        if (not details or details.get("root_type") != "Expense" or details.get("is_group")
-                or details.get("disabled") or details.get("company") != runtime.documents.COMPANY):
-            frappe.throw(_("Choose an enabled expense account for this company that is not a group."))
+        custody = _mapped_custody((_data(doc.recognition_json) or {}).get("am_beneficiary_mapping") or {})
+        if not _expense_account_allowed(details, account, custody):
+            frappe.throw(_("Choose an enabled expense account for this company that is not a group, or this payee's own custody ledger."))
         doc.accounting_account = account
         doc.payment_reference_doctype = doc.payment_reference = ""
         doc.payment_reference_amount = 0
