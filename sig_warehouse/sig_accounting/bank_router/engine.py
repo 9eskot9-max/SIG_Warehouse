@@ -108,7 +108,8 @@ def _payee_evidence(facts, mined):
     mapped = re.fullmatch(r"Employee:[^|]*\|\s*(\d+)\s*", label)
     number = custody.group(1) if custody else (mapped.group(1) if mapped else "")
     supplier = facts.get("supplier") or (label.split(":", 1)[1].strip() if label.startswith("Supplier:") else "")
-    return {"custody": number, "supplier": supplier}
+    return {"custody": number, "supplier": supplier,
+            "verified_custody": bool(custody), "verified_supplier": bool(facts.get("supplier"))}
 
 
 def route(mv, ctx):

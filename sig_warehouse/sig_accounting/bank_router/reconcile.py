@@ -26,11 +26,11 @@ def payee_fit(movement, doc):
     """
     payee = movement.get("payee") or {}
     custody, supplier = str(payee.get("custody") or ""), str(payee.get("supplier") or "")
-    if custody and doc.get("counter") is not None and doc["doctype"] == "Journal Entry":
+    if custody and payee.get("verified_custody") and doc.get("counter") is not None and doc["doctype"] == "Journal Entry":
         if custody in doc["counter"]:
             return "ok"
         return "other" if any(str(account).startswith("1322") for account in doc["counter"]) else "unknown"
-    if supplier and doc.get("party") and doc["doctype"] == "Payment Entry":
+    if supplier and payee.get("verified_supplier") and doc.get("party") and doc["doctype"] == "Payment Entry":
         return "ok" if doc["party"] == supplier else "other"
     return "unknown"
 

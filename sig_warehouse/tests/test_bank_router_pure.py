@@ -325,9 +325,10 @@ def test_vat_of_a_bank_fee_goes_to_the_vat_account_in_a_combined_je_and_in_a_sep
 
 
 def test_payee_fit_compares_like_with_like():
-    mv = {"payee": {"custody": "132210", "supplier": "SUP-1"}}
+    mv = {"payee": {"custody": "132210", "supplier": "SUP-1", "verified_custody": True, "verified_supplier": True}}
     je = {"doctype": "Journal Entry", "counter": {"132210"}}
     assert R.payee_fit(mv, je) == "ok" and R.payee_fit(mv, {**je, "counter": {"132228"}}) == "other"
     pe = {"doctype": "Payment Entry", "party": "SUP-1"}
     assert R.payee_fit(mv, pe) == "ok" and R.payee_fit(mv, {**pe, "party": "SUP-2"}) == "other"
     assert R.payee_fit({}, je) == "unknown" and R.payee_fit(mv, {"doctype": "Journal Entry"}) == "unknown"
+    assert R.payee_fit({"payee": {"custody": "132210"}}, je) == "unknown"

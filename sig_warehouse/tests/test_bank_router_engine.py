@@ -387,12 +387,17 @@ def _bilal_line(day="2026-09-16"):
     mv = movement(-1500, "11100071178405 BEN ID:2472775614 xxpc", family="INTERNAL_BEN_ID", day=day)
     mv["recognition"] = {"category": "XXPC", "am_category_status": "MATCHED",
                          "am_beneficiary_mapping": {"source": "Sheet Am matched beneficiary", "erp_party": "Employee: Bilal | 132210"}}
+    mv.update(route_source="MANUAL", counterparty="CP-B")
     return mv
+
+
+def _bilal_context(docs):
+    return Ctx(ledger=Ledger(docs), registry=Registry(counterparties={"CP-B": {"custody_account": "132210 - Bilal"}}))
 
 
 def test_a_document_of_another_payee_is_never_offered():
     docs = [doc("JV-13", -1500, "2026-09-13", counter={"132210"}), doc("JV-20", -1500, "2026-09-20", counter={"132228"})]
-    out = E.process(_bilal_line(), Ctx(ledger=Ledger(docs)))
+    out = E.process(_bilal_line(), _bilal_context(docs))
     assert out["decision_type"] == "PICK_DOCUMENT"
     assert [d["name"] for d in out["candidates"]["documents"]] == ["JV-13"]        # Imran's custody entry is gone
 
@@ -402,14 +407,14 @@ def test_the_same_day_document_of_this_payee_is_linked_without_asking():
             doc("JV-20", -1500, "2026-09-20", counter={"132228"})]
     line = _bilal_line()
     line["unique_statement_amount"] = True
-    out = E.process(line, Ctx(ledger=Ledger(docs)))
+    out = E.process(line, _bilal_context(docs))
     assert (out["erp_document"], out["link_method"], out["engine_state"]) == ("JV-16", "LEDGER", "POSTED")
     line["unique_statement_amount"] = False
-    assert E.process(line, Ctx(ledger=Ledger(docs)))["decision_type"] == "PICK_DOCUMENT"
+    assert E.process(line, _bilal_context(docs))["decision_type"] == "PICK_DOCUMENT"
     # the 13 September line finds its own entry, not the neighbour
     earlier = _bilal_line("2026-09-13")
     earlier["unique_statement_amount"] = True
-    assert E.process(earlier, Ctx(ledger=Ledger(docs)))["erp_document"] == "JV-13"
+    assert E.process(earlier, _bilal_context(docs))["erp_document"] == "JV-13"
 
 
 def test_without_payee_evidence_the_old_pick_behaviour_stays():
