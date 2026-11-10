@@ -387,6 +387,7 @@ def _payload(doc, fees=None, statuses=None):
         "pc_employee_suggestion": pc_suggestion,
         "supply_types": supply_types, "supply_type": doc.get("supply_type") or _suggest_supply(supply_types, category, cp),
         "supply_threshold": SUPPLY_THRESHOLD, "bill_owner": _bill_owner(signals) if signals.get("bill_account") else None,
+        "account_choices": _account_choices(signals.get("biller_code")) if doc.direction == "DEBIT" else [],
         "purpose_default_treatment": purpose_default,
         "request_supplier": request_supplier, "request_supplier_conflict": bool(party and request_supplier and party != request_supplier),
         "payment_reference_doctype": doc.get("payment_reference_doctype") or "",
@@ -434,6 +435,23 @@ def _suggest_supply(types, category, cp):
         return code
     usual = str((cp or {}).get("category") or "").upper()
     return usual if usual in codes else ""
+
+
+# Billers whose payments are government fees. The card lists these accounts for Finance to choose from; it never picks one.
+GOVERNMENT_FEE_ACCOUNTS = ["5155", "530", "5145", "533", "539", "524"]
+FEE_BILLERS = {"090": GOVERNMENT_FEE_ACCOUNTS, "093": GOVERNMENT_FEE_ACCOUNTS, "050": GOVERNMENT_FEE_ACCOUNTS,
+               "234": GOVERNMENT_FEE_ACCOUNTS, "259": GOVERNMENT_FEE_ACCOUNTS, "255": GOVERNMENT_FEE_ACCOUNTS, "060": ["531"]}
+
+
+def _account_choices(biller_code):
+    """Expense accounts Finance may choose for this biller, in the owner's order, as real ERP account names."""
+    numbers = FEE_BILLERS.get(str(biller_code or ""), [])
+    if not numbers or not frappe.has_permission("Account", "read"):
+        return []
+    rows = frappe.get_list("Account", filters={"account_number": ["in", numbers], "company": runtime.documents.COMPANY, "disabled": 0,
+                                                "is_group": 0, "root_type": "Expense"}, fields=["name", "account_number"], page_length=20)
+    by_number = {str(r["account_number"]): r["name"] for r in rows}
+    return [by_number[n] for n in numbers if n in by_number]
 
 
 KIND_GROUPS = {

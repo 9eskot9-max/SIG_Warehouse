@@ -636,3 +636,15 @@ def test_a_sadad_bill_account_names_the_employee_only_when_erp_holds_it(api, mon
     assert api._bill_owner({}) is None
     monkeypatch.setattr(api.frappe, "has_permission", lambda *args: False, raising=False)
     assert api._bill_owner({"bill_account": "2286958091"}) is None
+
+
+def test_government_fee_billers_list_accounts_in_the_owners_order_without_choosing(api, monkeypatch):
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True, raising=False)
+    seen = {}
+    def get_list(doctype, **kwargs):
+        seen.update(kwargs["filters"])
+        return [{"name": "530 - Admin", "account_number": "530"}, {"name": "5155 - Projects", "account_number": "5155"}]
+    monkeypatch.setattr(api.frappe, "get_list", get_list, raising=False)
+    assert api._account_choices("090") == ["5155 - Projects", "530 - Admin"]
+    assert seen["root_type"] == "Expense" and seen["is_group"] == 0
+    assert api._account_choices("002") == [] and api._account_choices("") == []

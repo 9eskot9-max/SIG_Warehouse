@@ -303,3 +303,11 @@ def test_draft_remarks_name_the_type_of_supply():
     mv = {"key": "K", "amount": -100, "date": dt.date(2026, 11, 3), "reference": "R", "supply": "Maintenance"}
     assert "Type of supply: Maintenance" in D.remarks(mv, "Payee", "SUPPLIER_PAYMENT")
     assert "Type of supply" not in D.remarks({**mv, "supply": ""}, "Payee", "SUPPLIER_PAYMENT")
+
+
+def test_sadad_biller_names_come_from_the_public_list_and_unlisted_codes_stay_unnamed():
+    from bank_router.sadad_billers import biller_name
+    assert biller_name("050") == "Ministry of Labor" and biller_name("5") == "Mobily" and biller_name("020").endswith("Zakat and Tax")
+    assert biller_name("090") == "" and biller_name("") == ""
+    parsed = snb.parse(line("DEBIT", "SADAD", "SADAD Payment", "050-100000000000001 01400010326605 1234567890"))
+    assert (parsed["biller_code"], parsed["biller_name"]) == ("050", "Ministry of Labor")

@@ -5,6 +5,7 @@ never decides a format. Another bank gets its own adapter that returns the same 
 """
 import re
 
+from ..sadad_billers import biller_name
 from ..text import DEFAULT_COMPANY_SCOPES, hint_key, is_company_number, normalize_text
 
 FEE_FAMILIES = ("BANK_FEE", "FEE_VAT")
@@ -71,10 +72,12 @@ def parse(source, scopes=DEFAULT_COMPANY_SCOPES):
         bill = re.search(r"(?<!\d)(\d{2,4})-(\d{6,20})(?!\d)", detail) or re.search(r"(?<!\d)(\d{2,4})-(\d{6,20})(?!\d)", text)
         if bill:
             out["biller_code"], out["bill_account"] = bill.group(1), bill.group(2)
+            out["biller_name"] = biller_name(bill.group(1))
             # A bill (for example one worker's iqama renewal) repeats: it is remembered once Finance has routed it.
             out["identifiers"].append(("SADAD_CODE", f"{bill.group(1)}-{bill.group(2)}"))
         elif biller:
             out["biller_code"] = biller.group(1)
+            out["biller_name"] = biller_name(biller.group(1))
     if not fmt:
         return out
     party_id = re.search(r"(?P<label>BEN|DEP)\s*ID\s*:\s*(?P<value>\d+)", detail, re.I)
