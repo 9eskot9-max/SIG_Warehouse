@@ -230,3 +230,27 @@ def test_petty_cash_draft_rechecks_custody_before_inserting(runtime, monkeypatch
     with pytest.raises(ValueError, match="changed"):
         ctx.create("PETTY_CASH", mv, {"employee": "EMP-1", "custody_account": "OLD-CUSTODY", "label": "Employee"}, [])
     assert created == []
+
+
+def test_reviewed_petty_cash_draft_contains_employee_and_statement_key(runtime, monkeypatch):
+    module, frappe = runtime
+    funding = types.ModuleType("sig_warehouse.sig_warehouse.pc_funding")
+    funding._active_employee = lambda employee, company: "CUSTODY"
+    monkeypatch.setitem(sys.modules, funding.__name__, funding)
+    inserted = []
+    employee = types.SimpleNamespace(check_permission=lambda permission: None)
+    def get_doc(*args):
+        if args[0] == "Employee":
+            return employee
+        body = args[0]
+        return types.SimpleNamespace(name="JV-NEW", insert=lambda: inserted.append(body))
+    frappe.get_doc = get_doc
+    ctx = module.Context.__new__(module.Context)
+    ctx.settings = types.SimpleNamespace(scopes={"scope": "BANK"}, draft_fees=False, fee_account="Fees", vat_account="VAT")
+    ctx._existing = lambda *args: None
+    registrations = []
+    ctx.ledger = types.SimpleNamespace(register=lambda *args: registrations.append(args))
+    mv = {"key": "BANK-KEY", "amount": -1000, "date": "2026-11-09", "scope": "scope", "source": {"reference": "REF-1"}}
+    assert ctx.create("PETTY_CASH", mv, {"employee": "EMP-1", "custody_account": "CUSTODY", "label": "Employee"}, []) == ("Journal Entry", "JV-NEW")
+    assert inserted[0]["custom_pc_employee"] == "EMP-1" and inserted[0]["custom_pc_top_up"] == 1
+    assert inserted[0]["custom_pc_statement_key"] == "BANK-KEY" and len(registrations) == 1
