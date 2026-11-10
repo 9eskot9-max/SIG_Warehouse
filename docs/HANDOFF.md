@@ -2,15 +2,15 @@
 
 Codex is the active repository agent at the owner’s direction. The owner can change the holder at any moment; Claude is not currently in the rotation.
 
-Codex deployed PR #107 on 8 November 2026, adding supplier PO/PI payment references to the SNB router. The installed SIG Warehouse revision is `15e19ad9dcb78dfa84561bd7ccb9e519e7477434` on bench `bench-51251-000044-f1f`. The router rendered in an authenticated ERP session. Finance-role selection, linked-record workflows and migration-repeatability acceptance remain NOT TESTED per owner direction; see `docs/DEPLOY_LOG.md` and `docs/SNB_MOVEMENT_ROUTER.md`. The TX Manager interface is running locally at `127.0.0.1:4317`; this source has no separate remote deployment target. Codex remains the active agent; production releases remain owner-controlled.
+PR #120 was deployed on 10 November 2026. The installed SIG Warehouse revision is `ea9daba8dbc8e5753bcf7cfdd4726bc1c8d3f470` on bench `bench-51251-000056-f1f`. The Stock Entry print renderer for STE-2026-1072 returned valid HTML; PDF file completion and dispatch queue rendering/warehouse-user acceptance remain NOT TESTED. The permission comparison found no additions or removals. See the latest row in `docs/DEPLOY_LOG.md` for Cloud job IDs and evidence. The TX Manager interface is running locally at `127.0.0.1:4317`; this source has no separate remote deployment target. Codex remains the active agent; production releases remain owner-controlled.
 
 | Field | Value |
 |---|---|
 | Baton holder | **Codex** (owner-directed; Claude inactive) |
 | Next holder | **Codex, unless the owner reassigns** |
 | Branch | `codex/sig-personal-home-v16` (production source) |
-| Latest deployed source commit | `15e19ad9dcb78dfa84561bd7ccb9e519e7477434` live on `neosys.frappe.cloud`, bench `bench-51251-000044-f1f`; PR #107; only SIG Warehouse changed in this release. |
-| Open items for the next holder | Supplier PO/PI references are available in the SNB router and TX Manager. Fresh Accounts User/Manager workflow, linked PO/PI selection, Arabic/English rendering, migration repeatability and outside-role denial remain NOT TESTED. The router remains review-only and does not create or submit Payment Entries. TX Manager is local to this workstation. Field Planner fresh Operations persona acceptance and PR #89 People role/profile acceptance remain NOT TESTED. See the 8 November row in `docs/DEPLOY_LOG.md` and `docs/SNB_MOVEMENT_ROUTER.md`. |
+| Latest deployed source commit | `ea9daba8dbc8e5753bcf7cfdd4726bc1c8d3f470` live on `neosys.frappe.cloud`, bench `bench-51251-000056-f1f`; PR #120; only SIG Warehouse changed in this release. |
+| Open items for the next holder | Warehouse-user acceptance and dispatch queue route/search rendering for PR #120 remain NOT TESTED; PDF download completion is also NOT TESTED. Fresh Accounts User/Manager workflow, linked PO/PI selection, Arabic/English rendering, migration repeatability and outside-role denial remain NOT TESTED; the SNB router remains review-only and does not create or submit Payment Entries. TX Manager is local to this workstation. Field Planner fresh Operations persona acceptance and PR #89 People role/profile acceptance remain NOT TESTED. See `docs/DEPLOY_LOG.md` and `docs/SNB_MOVEMENT_ROUTER.md`. |
 | Waiting on the owner | Weekly PM check per project family (families, recipients and project mapping). Six legacy Payment Entry drafts. 98 draft petty-cash journals. |
 
 ## Rules
