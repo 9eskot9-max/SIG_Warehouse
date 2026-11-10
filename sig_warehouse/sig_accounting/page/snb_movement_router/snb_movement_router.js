@@ -14,7 +14,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     const categories = {XXPC: __('Petty Cash'), XXSL: __('Salary'), XXHR: __('HR'), XXCL: __('Deferred'), XXMT: __('Maintenance'), XXMR: __('Materials'), XXSC: __('Subcontractor'), XXLG: __('Logistics')};
     const state = {tab: 'needs', bank: 'ALL', search: '', items: [], counts: {}, selected: '', status: null, bulkSelected: new Set(), missingSelected: new Set(), hasMore: false};
     const q = s => el.querySelector(s);
-    let partyControl = null, invoiceControl = null;
+    let partyControl = null, invoiceControl = null, orderControl = null;
     const money = (n, c) => `${Number(n || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} ${esc(c || 'SAR')}`;
     const docStatus = s => s === 1 ? __('Posted') : s === 0 ? __('Draft') : s === 2 ? __('Cancelled') : __('Unknown');
     const selected = () => state.items.find(x => x.name === state.selected);
@@ -59,13 +59,13 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
                 <option value="JOURNAL_ENTRY" ${treatment === 'JOURNAL_ENTRY' ? 'selected' : ''} ${x.direction === 'CREDIT' ? 'disabled' : ''}>${__('Journal Entry')}</option>
                 <option value="FINANCE_HANDLES" ${treatment === 'FINANCE_HANDLES' ? 'selected' : ''}>${__('Finance handles outside this router')}</option></select>
             ${treatment === 'FINANCE_HANDLES' ? `<button class="btn btn-primary" data-route>${__('Save decision')}</button>` : ''}
-            ${treatment && treatment !== 'FINANCE_HANDLES' ? `<h4>${expense ? __('Expense account') : __(partyType)}</h4>${!expense && x.suggested_parties?.length ? `<p>${__('Possible match; confirm before routing:')} ${x.suggested_parties.map(p => `<button class="btn btn-xs btn-default" data-suggested-party="${esc(p)}">${esc(p)}</button>`).join(' ')}</p>` : ''}<div data-link-control></div>${!expense && x.direction === 'CREDIT' ? `<div data-invoice-control></div>` : ''}<button class="btn btn-primary" data-route>${__('Route here')}</button>
+            ${treatment && treatment !== 'FINANCE_HANDLES' ? `<h4>${expense ? __('Expense account') : __(partyType)}</h4>${!expense && x.suggested_parties?.length ? `<p>${__('Possible match; confirm before routing:')} ${x.suggested_parties.map(p => `<button class="btn btn-xs btn-default" data-suggested-party="${esc(p)}">${esc(p)}</button>`).join(' ')}</p>` : ''}<div data-link-control></div>${!expense ? `<div data-invoice-control></div>${x.direction === 'DEBIT' ? '<div data-order-control></div>' : ''}` : ''}<button class="btn btn-primary" data-route>${__('Route here')}</button>
             <label><input type="checkbox" data-remember checked> ${__('Remember the default treatment for this payee')}</label>
             ${expense ? '' : `<details><summary>${__('New {0}', [__(partyType)])}</summary><input class="form-control" data-new-name placeholder="${__('Full name')}"><input class="form-control" data-new-vat placeholder="${__('VAT number (optional)')}">${partyType === 'Customer' ? `<label>${__('Country')}</label><input class="form-control" data-new-country value="Saudi Arabia" placeholder="${__('Country name')}">` : ''}<button class="btn btn-default" data-new>${__('Create and route')}</button></details>`}` : ''}`;
     }
     function renderCard() {
         const x = selected(), c = q('[data-card]');
-        partyControl = null; invoiceControl = null;
+        partyControl = null; invoiceControl = null; orderControl = null;
         if (!x) { c.innerHTML = `<p>${__('Select a movement.')}</p>`; return; }
         const feeRows = (x.fees || []), feeTotal = feeRows.reduce((sum, f) => sum + Math.abs(Number(f.amount || 0)), 0);
         const fees = feeRows.length ? `<details class="snb-fees"><summary>${__('Related fees and VAT')} · ${money(feeTotal, x.currency)}</summary>${feeRows.map(f => `<p>${f.family === 'FEE_VAT' ? 'VAT' : __('Fee')} ${money(f.amount, x.currency)} · ${f.erp_document ? '✓ ' + docLink(f.erp_doctype, f.erp_document, f.doc_status) : '○ ' + __('not posted')}</p>`).join('')}</details>` : '';
@@ -88,13 +88,17 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
             partyControl.refresh();
             const value = doctype === 'Account' ? (x.accounting_account || x.signals?.suggested_account) : x.linked_party;
             if (value) partyControl.set_value(value);
-            const invoiceHost = q('[data-invoice-control]');
-            if (invoiceHost) {
-                invoiceControl = frappe.ui.form.make_control({parent: $(invoiceHost), df: {fieldtype: 'Link', fieldname: 'router_invoice', options: 'Sales Invoice', label: __('Sales Invoice (optional)'),
-                    get_query: () => ({filters: {customer: partyControl?.get_value() || '', docstatus: 1, outstanding_amount: ['>', 0]}})}, render_input: true});
-                invoiceControl.refresh();
-                if (x.payment_reference_doctype === 'Sales Invoice' && x.payment_reference) invoiceControl.set_value(x.payment_reference);
-            }
+            const makeReferenceControl = (selector, referenceType, label) => {
+                const referenceHost = q(selector);
+                if (!referenceHost) return null;
+                const control = frappe.ui.form.make_control({parent: $(referenceHost), df: {fieldtype: 'Link', fieldname: 'router_' + referenceType.replaceAll(' ', '_'), options: referenceType, label,
+                    get_query: () => ({filters: {...(x.direction === 'CREDIT' ? {customer: partyControl?.get_value() || ''} : {supplier: partyControl?.get_value() || ''}), docstatus: 1, company: x.company}})}, render_input: true});
+                control.refresh();
+                if (x.payment_reference_doctype === referenceType && x.payment_reference) control.set_value(x.payment_reference);
+                return control;
+            };
+            invoiceControl = makeReferenceControl('[data-invoice-control]', x.direction === 'CREDIT' ? 'Sales Invoice' : 'Purchase Invoice', __('Invoice (optional)'));
+            orderControl = makeReferenceControl('[data-order-control]', 'Purchase Order', __('Purchase Order advance (optional)'));
         }
     }
     const render = () => { renderTabs(); renderList(); renderCard(); };
@@ -154,7 +158,10 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
         if (treatment === 'FINANCE_HANDLES') { act('route_movement', {target: {type: 'FINANCE_HANDLES', treatment}}); return; }
         const value = partyControl?.get_value();
         if (!value) { q('[data-message]').textContent = __('Choose first.'); return; }
-        act('route_movement', {target: treatment === 'JOURNAL_ENTRY' ? {type: 'EXPENSE', treatment, account: value, remember_default: remember} : {type: 'PARTY', treatment, party_type: x.direction === 'CREDIT' ? 'Customer' : 'Supplier', party: value, sales_invoice: invoiceControl?.get_value() || '', remember_default: remember}});
+        const invoice = invoiceControl?.get_value() || '', order = orderControl?.get_value() || '';
+        if (invoice && order) { q('[data-message]').textContent = __('Choose an invoice or a purchase order, not both.'); return; }
+        const reference_doctype = order ? 'Purchase Order' : invoice ? (x.direction === 'CREDIT' ? 'Sales Invoice' : 'Purchase Invoice') : '';
+        act('route_movement', {target: treatment === 'JOURNAL_ENTRY' ? {type: 'EXPENSE', treatment, account: value, remember_default: remember} : {type: 'PARTY', treatment, party_type: x.direction === 'CREDIT' ? 'Customer' : 'Supplier', party: value, reference_doctype, reference_name: invoice || order, remember_default: remember}});
     });
     root.on('click', '[data-new]', function () {
         const x = selected(), name = q('[data-new-name]').value.trim();

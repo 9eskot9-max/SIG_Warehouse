@@ -505,7 +505,7 @@ def route_movement(name, modified, target):
         frappe.throw(_("This movement is held for its specialist, petty-cash, own-transfer, or fee workflow."))
     previous = {"counterparty": doc.counterparty or "", "accounting_treatment": doc.accounting_treatment or "",
                 "accounting_account": doc.get("accounting_account") or ""}
-    if doc.get("erp_document") and (target.get("sales_invoice") or doc.get("payment_reference")):
+    if doc.get("erp_document") and (target.get("sales_invoice") or target.get("reference_name") or doc.get("payment_reference")):
         frappe.throw(_("This movement has an existing draft. Review invoice allocations on that Payment Entry before changing its route."))
     resolved = {}
     if treatment == "FINANCE_HANDLES":
@@ -530,15 +530,23 @@ def route_movement(name, modified, target):
         _check_link(party_type, party)
         if frappe.db.get_value(party_type, party, "disabled"):
             frappe.throw(_("Select an enabled party."))
-        invoice_name = str(target.get("sales_invoice") or "").strip() if party_type == "Customer" else ""
-        if invoice_name:
-            invoice = frappe.get_doc("Sales Invoice", invoice_name)
-            invoice.check_permission("read")
-            if (invoice.docstatus != 1 or invoice.company != runtime.documents.COMPANY or invoice.currency != "SAR"
-                    or invoice.customer != party or flt(invoice.outstanding_amount) <= 0):
-                frappe.throw(_("Choose a submitted outstanding SAR invoice for this customer and company."))
-            doc.payment_reference_doctype, doc.payment_reference = "Sales Invoice", invoice_name
-            doc.payment_reference_amount = min(abs(flt(doc.amount)), flt(invoice.outstanding_amount))
+        reference_name = str(target.get("reference_name") or target.get("sales_invoice") or "").strip()
+        reference_type = str(target.get("reference_doctype") or ("Sales Invoice" if target.get("sales_invoice") else "")).strip()
+        if reference_name:
+            allowed = ("Sales Invoice",) if party_type == "Customer" else ("Purchase Invoice", "Purchase Order")
+            if reference_type not in allowed:
+                frappe.throw(_("Choose a supported reference for this party."))
+            reference = frappe.get_doc(reference_type, reference_name)
+            reference.check_permission("read")
+            expected_party = reference.customer if party_type == "Customer" else reference.supplier
+            if (reference.docstatus != 1 or reference.company != runtime.documents.COMPANY or reference.currency != "SAR"
+                    or expected_party != party):
+                frappe.throw(_("Choose a submitted SAR reference for this party and company."))
+            available = (flt(reference.grand_total) - flt(reference.get("advance_paid"))) if reference_type == "Purchase Order" else flt(reference.outstanding_amount)
+            if available <= 0:
+                frappe.throw(_("The selected reference has no outstanding amount."))
+            doc.payment_reference_doctype, doc.payment_reference = reference_type, reference_name
+            doc.payment_reference_amount = min(abs(flt(doc.amount)), available)
         else:
             doc.payment_reference_doctype = doc.payment_reference = ""
             doc.payment_reference_amount = 0

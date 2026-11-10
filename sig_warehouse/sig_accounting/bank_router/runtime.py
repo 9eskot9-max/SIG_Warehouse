@@ -187,19 +187,23 @@ class Context:
 
     def _payment_references(self, mv, target):
         """Revalidate the explicitly selected TX Manager PO/PI reference before making a PE draft."""
-        if target.get("party_type") == "Customer" and mv.get("payment_reference"):
-            name = mv["payment_reference"]
-            if mv.get("payment_reference_doctype") != "Sales Invoice":
-                raise ValueError("Only a Sales Invoice can be allocated to a customer receipt.")
-            invoice = frappe.get_doc("Sales Invoice", name)
-            invoice.check_permission("read")
-            if (invoice.docstatus != 1 or invoice.company != documents.COMPANY or invoice.currency != "SAR"
-                    or invoice.customer != target.get("party")):
-                raise ValueError("Sales Invoice no longer matches the customer, company, currency, or submitted state.")
+        if mv.get("payment_reference"):
+            name, doctype = mv["payment_reference"], mv.get("payment_reference_doctype")
+            party_type = target.get("party_type")
+            allowed = ("Sales Invoice",) if party_type == "Customer" else ("Purchase Invoice", "Purchase Order") if party_type == "Supplier" else ()
+            if doctype not in allowed:
+                raise ValueError("The selected payment reference does not match this party type.")
+            reference = frappe.get_doc(doctype, name)
+            reference.check_permission("read")
+            reference_party = reference.customer if party_type == "Customer" else reference.supplier
+            if (reference.docstatus != 1 or reference.company != documents.COMPANY or reference.currency != "SAR"
+                    or reference_party != target.get("party")):
+                raise ValueError("Payment reference no longer matches the customer or supplier, company, currency, or submitted state.")
+            available = (flt(reference.grand_total) - flt(reference.get("advance_paid"))) if doctype == "Purchase Order" else flt(reference.outstanding_amount)
             amount = flt(mv.get("payment_reference_amount"))
-            if amount <= 0 or amount - flt(invoice.outstanding_amount) > 0.005 or amount - abs(flt(mv.get("amount"))) > 0.005:
-                raise ValueError("Sales Invoice allocation exceeds its outstanding balance or the receipt amount.")
-            return [{"reference_doctype": "Sales Invoice", "reference_name": name, "allocated_amount": amount}]
+            if amount <= 0 or amount - available > 0.005 or amount - abs(flt(mv.get("amount"))) > 0.005:
+                raise ValueError("Payment reference allocation exceeds its outstanding balance or the movement amount.")
+            return [{"reference_doctype": doctype, "reference_name": name, "allocated_amount": amount}]
         request = (mv.get("recognition") or {}).get("transfer_request") or {}
         raw = request.get("allocation_json") or "[]"
         try:

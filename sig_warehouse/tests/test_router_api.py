@@ -355,7 +355,7 @@ def test_receipt_route_records_valid_invoice_and_clamps_allocation(api, monkeypa
     api.route_movement("R1", "t", {"type": "PARTY", "treatment": "PAYMENT_ENTRY", "party_type": "Customer", "party": "CUST", "sales_invoice": "INV-1"})
     assert movement.payment_reference == "INV-1" and movement.payment_reference_amount == 300
     invoice.customer = "OTHER"
-    with pytest.raises(ValueError, match="invoice"):
+    with pytest.raises(ValueError, match="reference"):
         api.route_movement("R1", "t", {"type": "PARTY", "treatment": "PAYMENT_ENTRY", "party_type": "Customer", "party": "CUST", "sales_invoice": "INV-1"})
 
 

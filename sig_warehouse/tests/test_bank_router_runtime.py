@@ -200,3 +200,17 @@ def test_batch_routing_never_auto_drafts_even_if_settings_are_enabled(runtime, m
     module.run(names=["ROW"])
     module.run(names=["ROW"], manual_draft=True)
     assert seen == [False, True]
+
+
+def test_supplier_purchase_order_reference_cannot_exceed_available(runtime):
+    module, frappe = runtime
+    order = types.SimpleNamespace(docstatus=1, company=module.documents.COMPANY, currency="SAR", supplier="SUP-1", grand_total=1000,
+                                  get=lambda field: 400 if field == "advance_paid" else None,
+                                  check_permission=lambda permission: None)
+    frappe.get_doc = lambda doctype, name: order
+    ctx = module.Context.__new__(module.Context)
+    mv = {"amount": -700, "payment_reference_doctype": "Purchase Order", "payment_reference": "PO-1", "payment_reference_amount": 600}
+    assert ctx._payment_references(mv, {"party_type": "Supplier", "party": "SUP-1"})[0]["allocated_amount"] == 600
+    mv["payment_reference_amount"] = 601
+    with pytest.raises(ValueError, match="outstanding"):
+        ctx._payment_references(mv, {"party_type": "Supplier", "party": "SUP-1"})
