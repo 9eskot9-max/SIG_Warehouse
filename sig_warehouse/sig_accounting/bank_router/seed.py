@@ -18,6 +18,14 @@ def _clean(value):
     return "" if (not value or "???" in value) else value
 
 
+def unique_names(records):
+    """Do not guess which ERP master a shared display name refers to."""
+    owners = {}
+    for record, label in records.items():
+        owners.setdefault(label, set()).add(record)
+    return {label: next(iter(ids)) for label, ids in owners.items() if label and len(ids) == 1}
+
+
 def plan(b, suppliers, supplier_names, own_names, scopes=DEFAULT_COMPANY_SCOPES, categories=None, customers=None, customer_names=None):
     """Resolve beneficiary links against enabled ERP Suppliers and Customers by ID or exact name."""
     categories = categories or {}
@@ -79,9 +87,9 @@ def apply(rows):
 
     s = Settings()
     suppliers = {r.name: r.supplier_name for r in frappe.get_all("Supplier", fields=["name", "supplier_name"], filters={"disabled": 0}, limit_page_length=0)}
-    supplier_names = {n: i for i, n in suppliers.items()}
+    supplier_names = unique_names(suppliers)
     customers = {r.name: r.customer_name for r in frappe.get_all("Customer", fields=["name", "customer_name"], filters={"disabled": 0}, limit_page_length=0)}
-    customer_names = {n: i for i, n in customers.items()}
+    customer_names = unique_names(customers)
     existing_cp = {r.am_key: r for r in frappe.get_all(COUNTERPARTY, fields=["name", "am_key", "supplier", "customer", "custody_account", "employee",
                    "expense_account", "category", "is_company", "handler", "is_employee"], filters={"am_key": ["!=", ""]}, limit_page_length=0)}
     existing_ids = {r.name: r.counterparty for r in frappe.get_all(IDENTIFIER, fields=["name", "counterparty"], limit_page_length=0)}

@@ -65,6 +65,8 @@ def test_purpose_defaults_are_scoped(api):
     assert api._purpose_default(cp, "XXSC") == "JOURNAL_ENTRY"
     assert api._purpose_default(cp, "XXMR") == ""
     assert api._purpose_default(cp, "") == "FINANCE_HANDLES"
+    cp["purpose_defaults_json"] = '{"XXMT":{"treatment":"JOURNAL_ENTRY","account":"MAINT"}}'
+    assert api._purpose_default(cp, "XXMT") == "JOURNAL_ENTRY"
 
 
 def test_pc_suggestion_requires_exact_mapping_and_permissions(api, monkeypatch):

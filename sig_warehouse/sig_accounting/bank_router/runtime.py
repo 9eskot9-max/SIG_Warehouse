@@ -61,7 +61,7 @@ class Registry:
             IDENTIFIER, fields=["name", "counterparty", "status"], filters={"status": ["!=", "REVOKED"]}, limit_page_length=0)}
         self.cps = {r.name: r for r in frappe.get_all(
             COUNTERPARTY, fields=["name", "display_name", "status", "is_company", "handler", "is_employee", "custody_account", "employee",
-                                  "customer", "supplier", "expense_account", "category", "default_treatment"], limit_page_length=0)}
+                                  "customer", "supplier", "expense_account", "category", "default_treatment", "purpose_defaults_json"], limit_page_length=0)}
 
     def lookup(self, kind, value):
         hit = self.ids.get(identity_key(kind, value))

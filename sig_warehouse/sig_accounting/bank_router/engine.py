@@ -13,6 +13,8 @@ ctx must provide:
 `route(mv, ctx)` returns the field values to store. It never writes anything itself, so a rerun that finds
 nothing new returns the same values and the caller saves nothing.
 """
+import json
+
 from . import classify as K
 from . import reconcile
 from .adapters import snb
@@ -43,6 +45,20 @@ def category_account(route, ctx, category=""):
     return ""
 
 
+def remembered_account(facts, category):
+    """Keep purpose-specific account choices from leaking to other purposes."""
+    if not category:
+        return facts.get("expense_account") or ""
+    try:
+        defaults = facts.get("purpose_defaults_json") or {}
+        if isinstance(defaults, str):
+            defaults = json.loads(defaults)
+        value = defaults.get(category, {}) if isinstance(defaults, dict) else {}
+        return str(value.get("account") or "") if isinstance(value, dict) else ""
+    except (TypeError, ValueError):
+        return ""
+
+
 def _label(signals, mined, facts, name=""):
     mapping = mined.get("am_beneficiary_mapping") or {}
     return facts.get("display_name") or signals.get("display_name") or mapping.get("beneficiary_name") or name or ""
@@ -65,7 +81,7 @@ def resolve_target(kind, mv, signals, facts, mined, ctx):
         return None
     if kind == K.EXPENSE_PAYMENT:
         account = (mv.get("accounting_account") or signals.get("biller_account")
-                   or category_account(mined_route(mined), ctx, mined_category(mined)) or facts.get("expense_account") or ctx.settings.default_expense)
+                   or remembered_account(facts, mined_category(mined)) or category_account(mined_route(mined), ctx, mined_category(mined)) or ctx.settings.default_expense)
         return {"expense_account": account, "holding": False, "label": label} if account else None
     return None
 
@@ -142,7 +158,7 @@ def route(mv, ctx):
     out["accounting_treatment"] = treatment
     out["accounting_account"] = out.get("accounting_account") or mv.get("accounting_account") or ""
     if kind in (K.EXPENSE_PAYMENT, K.UNKNOWN):
-        suggested_account = out["accounting_account"] or category_account(mroute, ctx, intent) or facts.get("expense_account")
+        suggested_account = out["accounting_account"] or remembered_account(facts, intent) or category_account(mroute, ctx, intent)
         if not suggested_account and kind == K.EXPENSE_PAYMENT and intent not in {"XXSC", "XXMT"}:
             suggested_account = ctx.settings.default_expense
         if suggested_account:

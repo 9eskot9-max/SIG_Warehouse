@@ -236,6 +236,40 @@ def engine_status():
             "holding_customer": bool(settings.holding_customer), "counts": counts}
 
 
+@frappe.whitelist(methods=["POST"])
+def preview_shadow_matches(names, requests=None, beneficiaries=None):
+    """Compare proposed matches without changing routing or accounting records."""
+    from sig_warehouse.sig_accounting.bank_router import evidence_shadow
+
+    _require("read")
+    if not frappe.has_permission(COUNTERPARTY, "read") or not frappe.has_permission(IDENTIFIER, "read"):
+        frappe.throw(_("You need permission to read the counterparty registry."), frappe.PermissionError)
+    names, requests = _data(names), _data(requests) if requests else []
+    beneficiaries = _data(beneficiaries) if beneficiaries else []
+    if not isinstance(names, list) or not 1 <= len(names) <= 100 or len(set(names)) != len(names):
+        frappe.throw(_("Choose between 1 and 100 distinct movements."))
+    if not isinstance(requests, list) or len(requests) > 1000 or any(not isinstance(r, dict) for r in requests):
+        frappe.throw(_("Invalid transfer request evidence."))
+    if not isinstance(beneficiaries, list) or len(beneficiaries) > 3000 or any(not isinstance(r, dict) for r in beneficiaries):
+        frappe.throw(_("Invalid beneficiary evidence."))
+    counterparties = frappe.get_list(COUNTERPARTY, filters={"status": "ACTIVE"},
+        fields=["name", "status", "am_key", "display_name"], limit_page_length=0)
+    identifiers = frappe.get_list(IDENTIFIER, filters={"status": ["in", ["ACTIVE", "SUGGESTED"]]},
+        fields=["counterparty", "kind", "value", "normalized", "status"], limit_page_length=0)
+    registry = evidence_shadow.build_registry(counterparties, identifiers, beneficiaries)
+    movements, predictions, confirmed = [], [], []
+    for name in names:
+        doc = frappe.get_doc(DOCTYPE, name)
+        doc.check_permission("read")
+        source = _data(doc.source_json) or {}
+        movements.append({"source": source})
+        predictions.append(evidence_shadow.propose(source, registry))
+        confirmed.append(doc.counterparty if doc.route_source == "MANUAL" else "")
+    matches = evidence_shadow.compare_requests(movements, requests, registry)
+    return {"rows": [{"name": name, "proposal": prediction} for name, prediction in zip(names, predictions)],
+            "request_matches": matches, "score": evidence_shadow.score(predictions, confirmed)}
+
+
 # ---- inbox -------------------------------------------------------------------------------------------------
 def _doc_status(rows):
     """Current docstatus of every linked document, read fresh so Finance's own submits show at once."""
@@ -274,7 +308,8 @@ def _purpose_default(cp, category):
     defaults = _data((cp or {}).get("purpose_defaults_json")) or {}
     if not isinstance(defaults, dict):
         defaults = {}
-    return defaults.get(category, "") if category else ((cp or {}).get("default_treatment") or "")
+    value = defaults.get(category, "") if category else ((cp or {}).get("default_treatment") or "")
+    return str(value.get("treatment") or "") if isinstance(value, dict) else value
 
 
 def _suggest_pc_employee(doc, mapping, cp):
@@ -661,11 +696,11 @@ def route_movement(name, modified, target):
             defaults = _data(cp.get("purpose_defaults_json")) or {}
             if not isinstance(defaults, dict):
                 defaults = {}
-            defaults[purpose] = treatment
+            defaults[purpose] = {"treatment": treatment, "account": doc.accounting_account or ""}
             cp.purpose_defaults_json = _json(defaults)
         else:
             cp.default_treatment = treatment
-        if treatment == "JOURNAL_ENTRY":
+        if treatment == "JOURNAL_ENTRY" and not purpose:
             cp.expense_account = doc.accounting_account
     cp.flags.bank_router_write = True
     cp.save(ignore_permissions=True)

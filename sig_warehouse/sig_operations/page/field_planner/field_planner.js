@@ -401,7 +401,9 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
         const box = mount.find('.sig-planner-leaflet')[0];
         const map = L.map(box, {minZoom: 5, maxZoom: 11, scrollWheelZoom: false});
         view.leaflet = map;
-        L.tileLayer(frappe.utils.map_defaults.tiles, frappe.utils.map_defaults.options).addTo(map);
+        const tiles = frappe.utils.map_defaults.tiles;
+        const streetTiles = tiles.default_tile || {url: tiles, options: frappe.utils.map_defaults.options};
+        L.tileLayer(streetTiles.url, streetTiles.options).addTo(map);
         const bounds = [];
         (data.team_positions || []).filter((p) => p.state !== 'Incident' && p.lat != null && p.lon != null &&
             (view.extent !== 'team' || p.team_no === view.selectedTeam)).forEach((p) => {
@@ -468,7 +470,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             view.leaflet.remove(); view.leaflet = null;
         }
         view.box = view.box || BOX0.slice();
-        const street = view.base === 'street' && typeof L !== 'undefined';
+        const street = view.base === 'street' && typeof L !== 'undefined' && typeof L.map === 'function';
         const tripNode = (trip) => {
             const hasSelected = trip.stops.some((s) => String(s.cycle) === String(view.selected));
             if ((trip.status !== 'Scheduled' && !view.showUnplanned && !hasSelected) ||
@@ -1214,9 +1216,22 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
             if (view.activeTab === 'team') drawTeamPlan();
             if (view.expandedMap) root.find('.sig-planner-map-card').addClass('is-expanded');
         }
-        function setMapBase(nextBase) {
+        let mapBaseRequest = 0;
+        async function setMapBase(nextBase) {
+            const request = ++mapBaseRequest;
             if (nextBase === view.base) return;
             if (view.base === 'drawing' && nextBase === 'street') {
+                try {
+                    await Promise.all([frappe.require('leaflet.bundle.js'), frappe.require('leaflet.bundle.css')]);
+                    if (request !== mapBaseRequest) return;
+                    if (typeof L === 'undefined' || typeof L.map !== 'function' || !frappe.utils.map_defaults?.tiles) {
+                        throw new Error('Map library or tile configuration unavailable');
+                    }
+                } catch (error) {
+                    if (request !== mapBaseRequest) return;
+                    frappe.msgprint(__('The road map could not be loaded. Please check your connection and try again.'));
+                    return;
+                }
                 const [x, y, w] = view.box || BOX0, lon = 33 + (x + w / 2) / (0.91 * 40), lat = 34 - (y + (w * BOX0[3] / BOX0[2]) / 2) / 40;
                 const scale = BOX0[2] / w;
                 view.leafletView = {center: [lat, lon], zoom: Math.max(5, Math.min(11, 6 + Math.log2(scale)))};
