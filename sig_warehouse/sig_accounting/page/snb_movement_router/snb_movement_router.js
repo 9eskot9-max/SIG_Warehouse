@@ -14,7 +14,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     const categories = {XXPC: __('Petty Cash'), XXSL: __('Salary'), XXHR: __('HR'), XXCL: __('Deferred'), XXMT: __('Maintenance'), XXMR: __('Materials'), XXSC: __('Subcontractor'), XXLG: __('Logistics')};
     const state = {tab: 'needs', bank: 'ALL', search: '', items: [], counts: {}, selected: '', status: null, bulkSelected: new Set(), missingSelected: new Set(), hasMore: false};
     const q = s => el.querySelector(s);
-    let partyControl = null, invoiceControl = null, orderControl = null, employeeControl = null;
+    let partyControl = null, invoiceControl = null, orderControl = null, employeeControl = null, custodyControl = null;
     const money = (n, c) => `${Number(n || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} ${esc(c || 'SAR')}`;
     const docStatus = s => s === 1 ? __('Posted') : s === 0 ? __('Draft') : s === 2 ? __('Cancelled') : __('Unknown');
     const selected = () => state.items.find(x => x.name === state.selected);
@@ -46,7 +46,8 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
             return `<h4>${__('Which document is this?')}</h4>` + (x.candidates.documents || []).map((d, i) => `<label><input type="radio" name="pick" value="${i}"> ${esc(d.doctype)} · ${esc(d.name)} · ${esc(d.date)} · ${esc(docStatus(d.docstatus))}</label>`).join('') +
                 `<button class="btn btn-primary" data-pick>${__('Link')}</button>`;
         }
-        if (x.kind === 'PETTY_CASH' && !x.erp_document) return `<p>${__('Confirm the Employee for this petty-cash transfer. Their approved custody account will be checked before a draft is created.')}</p><div data-employee-control></div><button class="btn btn-primary" data-confirm-pc>${__('Confirm Employee')}</button>`;
+        if (x.kind === 'OWN_TRANSFER' && !x.erp_document && x.signals?.paired_transfer) return `<p>${__('This pair moves money between company bank accounts. Review both legs before creating one draft.')}</p><button class="btn btn-primary" data-own-transfer>${__('Create one transfer draft')}</button>`;
+        if (x.kind === 'PETTY_CASH' && !x.erp_document) return `<p>${__('Confirm an Employee and their custody account, or select a separate company custody ledger for a non-employee account.')}</p><div data-employee-control></div><button class="btn btn-primary" data-confirm-pc>${__('Confirm Employee')}</button><details><summary>${__('Use a company custody account without an Employee')}</summary><p>${__('Choose the ledger for this specific bank account. It will not create an Employee funding cycle.')}</p><div data-custody-control></div><button class="btn btn-default" data-confirm-custody>${__('Confirm custody account')}</button></details>`;
         const canRoute = (!x.erp_document || x.doc_status === 0) && ['SUPPLIER_PAYMENT', 'CUSTOMER_RECEIPT', 'EXPENSE_PAYMENT', 'UNKNOWN', 'EMPLOYEE'].includes(x.kind) &&
             (x.decision_type || x.link_method === 'AUTO_DRAFT' || (x.direction === 'DEBIT' && ['UNKNOWN', 'EMPLOYEE'].includes(x.kind)));
         if (!canRoute) return '';
@@ -65,7 +66,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     }
     function renderCard() {
         const x = selected(), c = q('[data-card]');
-        partyControl = null; invoiceControl = null; orderControl = null; employeeControl = null;
+        partyControl = null; invoiceControl = null; orderControl = null; employeeControl = null; custodyControl = null;
         if (!x) { c.innerHTML = `<p>${__('Select a movement.')}</p>`; return; }
         const feeRows = (x.fees || []), feeTotal = feeRows.reduce((sum, f) => sum + Math.abs(Number(f.amount || 0)), 0);
         const fees = feeRows.length ? `<details class="snb-fees"><summary>${__('Related fees and VAT')} · ${money(feeTotal, x.currency)}</summary>${feeRows.map(f => `<p>${f.family === 'FEE_VAT' ? 'VAT' : __('Fee')} ${money(f.amount, x.currency)} · ${f.erp_document ? (f.doc_status === 1 ? '✓ ' : '○ ') + docLink(f.erp_doctype, f.erp_document, f.doc_status) : '○ ' + __('not posted')}</p>`).join('')}</details>` : '';
@@ -86,6 +87,13 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
                 get_query: () => ({filters:{status:'Active', company:x.company}})}, render_input:true});
             employeeControl.refresh();
             if (x.pc_employee) employeeControl.set_value(x.pc_employee);
+        }
+        const custodyHost = q('[data-custody-control]');
+        if (custodyHost) {
+            custodyControl = frappe.ui.form.make_control({parent: $(custodyHost), df: {fieldtype:'Link', fieldname:'router_custody', options:'Account', label:__('Company custody ledger'),
+                get_query: () => ({filters:{company:x.company, root_type:'Asset', is_group:0, disabled:0}})}, render_input:true});
+            custodyControl.refresh();
+            if (x.accounting_account && !x.pc_employee) custodyControl.set_value(x.accounting_account);
         }
         const host = q('[data-link-control]');
         if (host) {
@@ -157,7 +165,9 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     root.on('click', '[data-refresh]', () => load());
     root.on('click', '[data-more]', () => load(true));
     root.on('click', '[data-create-draft]', () => act('create_reviewed_draft', {}));
+    root.on('click', '[data-own-transfer]', () => act('create_own_transfer_draft', {}));
     root.on('click', '[data-confirm-pc]', () => { const employee = employeeControl?.get_value(); if (!employee) { q('[data-message]').textContent = __('Choose an Employee.'); return; } act('confirm_petty_cash_employee', {employee}); });
+    root.on('click', '[data-confirm-custody]', () => { const account = custodyControl?.get_value(); if (!account) { q('[data-message]').textContent = __('Choose a custody ledger.'); return; } act('confirm_petty_cash_custody', {account}); });
     root.on('change', '[data-bank]', function () { state.bank = this.value; load(); });
     root.on('change', '[data-treatment]', function () { const x = selected(); if (x) x.accounting_treatment = this.value; renderCard(); });
     root.on('input', '[data-search]', function () { const v = this.value; clearTimeout(timer); timer = setTimeout(() => { state.search = v; load(); }, 300); });

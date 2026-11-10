@@ -452,3 +452,100 @@ def test_petty_cash_confirmation_records_explicit_review_without_drafting(api, m
     assert api.confirm_petty_cash_employee("R", "t", "EMP-1") == {"name": "R"}
     assert (cp.employee, cp.custody_account, movement.accounting_treatment) == ("EMP-1", "CUSTODY", "JOURNAL_ENTRY")
     assert calls == [{"names": ["R"], "review_only": True}]
+
+
+def test_own_transfer_refuses_when_either_leg_already_linked(api):
+    first = Doc(name="A", modified="t", kind="OWN_TRANSFER", signals_json='{"paired_transfer":{"name":"B"}}', erp_document="")
+    second = Doc(name="B", erp_document="JV-EXISTING")
+    api.frappe.get_doc = lambda doctype, name: first if name == "A" else second
+    api.frappe.db = types.SimpleNamespace(sql=lambda *args: None)
+    with pytest.raises(ValueError, match="already has a linked"):
+        api.create_own_transfer_draft("A", "t")
+
+
+def test_own_transfer_refuses_ambiguous_pair_after_lock(api, monkeypatch):
+    first = Doc(name="A", modified="t", kind="OWN_TRANSFER", signals_json='{"paired_transfer":{"name":"B"}}', erp_document="")
+    second = Doc(name="B", erp_document="")
+    api.frappe.get_doc = lambda doctype, name: first if name == "A" else second
+    api.frappe.db = types.SimpleNamespace(sql=lambda *args: None)
+    api.runtime.Settings = lambda: object()
+    api.runtime.load_index = lambda: ({}, {})
+    api.runtime.pair_own_transfers = lambda *args: {}
+    with pytest.raises(ValueError, match="unique opposite"):
+        api.create_own_transfer_draft("A", "t")
+
+
+def test_hint_export_requires_integration_identity_and_preserves_scope(api):
+    api.frappe.session.user = "someone@example.com"
+    with pytest.raises(PermissionError):
+        api.list_confirmed_party_hints()
+    api.frappe.session.user = "9eskot9@gmail.com"
+    ident = types.SimpleNamespace(name="a" * 64, counterparty="CP-1", kind="NAME_IPS_LOCAL", value="ACME", normalized="acme", status="ACTIVE", modified="2026-11-10")
+    api.frappe.get_all = lambda *args, **kwargs: [ident]
+    api.frappe.db = types.SimpleNamespace(get_value=lambda *args, **kwargs: types.SimpleNamespace(customer="C-1", supplier="", status="ACTIVE"))
+    result = api.list_confirmed_party_hints()
+    assert result["rows"][0]["customer"] == "C-1" and result["rows"][0]["kind"] == "NAME_IPS_LOCAL"
+    assert result["has_more"] is False and result["next_start"] == 1
+
+
+def test_manual_custody_is_explicit_and_does_not_assign_employee(api, monkeypatch):
+    movement = Doc(name="R", direction="DEBIT", kind="PETTY_CASH", erp_document="", recognition_json='{"category":"XXPC","am_category_status":"MATCHED"}',
+                   signals_json='{}', source_json='{}', counterparty="", route_source="", accounting_treatment="", accounting_account="")
+    movement.append = lambda *args: None
+    cp = Doc(name="CP", employee="", custody_account="")
+    cp.save = lambda **kwargs: None
+    monkeypatch.setattr(api, "_lock", lambda *args: movement)
+    monkeypatch.setattr(api, "_ensure_counterparty", lambda *args: cp)
+    monkeypatch.setattr(api, "_verified_custody_account", lambda account: account)
+    monkeypatch.setattr(api, "_learn_identifiers", lambda *args: None)
+    monkeypatch.setattr(api, "get_movement", lambda name: {"name":name})
+    funding = types.ModuleType("sig_warehouse.sig_warehouse.pc_funding")
+    funding._require_finance = lambda: None
+    monkeypatch.setitem(sys.modules, funding.__name__, funding)
+    calls = []
+    api.runtime.run = lambda *args, **kwargs: calls.append(kwargs) or {"errors":0}
+    api.confirm_petty_cash_custody("R", "t", "1322 - Rajhi")
+    assert cp.employee == "" and cp.custody_account == "1322 - Rajhi"
+    assert movement.accounting_account == "1322 - Rajhi" and movement.route_source == "MANUAL"
+    assert calls == [{"names":["R"], "review_only":True}]
+    with pytest.raises(ValueError, match="different custody"):
+        api.confirm_petty_cash_custody("R", "t", "1322 - SAB")
+
+
+def test_own_transfer_creates_one_draft_and_links_both_legs(api, monkeypatch):
+    import datetime
+    first = Doc(name="A", modified="t", kind="OWN_TRANSFER", signals_json='{"paired_transfer":{"name":"B"}}', erp_document="",
+                direction="DEBIT", amount=-500, currency="SAR", account_scope_hash="S1", event_date=datetime.date(2026,11,10),
+                source_json='{"statement_key":"KEY","reference":"REF"}', source_key="SNB-A")
+    second = Doc(name="B", modified="u", kind="OWN_TRANSFER", signals_json='{"paired_transfer":{"name":"A"}}', erp_document="",
+                 direction="CREDIT", amount=500, currency="SAR", account_scope_hash="S2", event_date=datetime.date(2026,11,10),
+                 source_json='{}', source_key="SNB-B")
+    for row in (first, second): row.append = lambda *args: None
+    inserted = []
+    journal = Doc(name="JV-1")
+    journal.insert = lambda: inserted.append(True)
+    api.frappe.get_doc = lambda doctype, name=None: (first if name == "A" else second) if doctype == api.DOCTYPE else journal
+    bank = types.SimpleNamespace(company=api.runtime.documents.COMPANY, account_type="Bank", disabled=0, is_group=0, account_currency="SAR")
+    api.frappe.db = types.SimpleNamespace(sql=lambda *args: None, get_value=lambda *args, **kwargs: bank, exists=lambda *args: False)
+    api.runtime.Settings = lambda: types.SimpleNamespace(scopes={"S1":"BANK-1", "S2":"BANK-2"})
+    api.runtime.load_index = lambda: ({}, {})
+    api.runtime.pair_own_transfers = lambda *args: {"A":{"name":"B"}, "B":{"name":"A"}}
+    api.runtime.getdate = lambda x: x
+    api.runtime.dt = datetime
+    api.runtime.Ledger = lambda *args: types.SimpleNamespace(candidates=lambda *args: [])
+    api.runtime.documents.own_transfer_journal = lambda *args: {"doctype":"Journal Entry"}
+    monkeypatch.setattr(api, "_check_link", lambda *args: None)
+    result = api.create_own_transfer_draft("A", "t")
+    assert inserted == [True] and result == {"journal":"JV-1", "movements":["A","B"]}
+    assert first.erp_document == second.erp_document == "JV-1"
+    assert first.link_method == second.link_method == "OWN_TRANSFER"
+
+
+def test_nonemployee_custody_selection_requires_approved_1322_ancestor(api, monkeypatch):
+    monkeypatch.setattr(api, "_check_link", lambda *args: None)
+    row = types.SimpleNamespace(company=api.runtime.documents.COMPANY, root_type="Asset", account_currency="SAR", disabled=0, is_group=0, parent_account="PARENT")
+    api.frappe.db = types.SimpleNamespace(get_value=lambda doctype, name, fields, **kwargs: row if name == "CUSTODY" else ("1322", "ROOT"))
+    assert api._verified_custody_account("CUSTODY") == "CUSTODY"
+    api.frappe.db.get_value = lambda doctype, name, fields, **kwargs: row if name == "CUSTODY" else ("1321", "")
+    with pytest.raises(ValueError, match="1322"):
+        api._verified_custody_account("CUSTODY")

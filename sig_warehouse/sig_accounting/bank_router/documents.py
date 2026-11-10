@@ -88,3 +88,10 @@ def petty_cash_journal(movement, employee, custody_account, bank_account, fees, 
                 custom_pc_funding_date=posting_date(movement), custom_pc_funding_source="Bank Statement",
                 custom_pc_bank_txn_id=str(movement.get("reference") or "")[:140])
     return body
+
+
+def own_transfer_journal(movement, from_account, to_account):
+    """One journal for both sides of a reviewed transfer between company banks."""
+    if not from_account or not to_account or from_account == to_account:
+        raise ValueError("Two distinct company bank accounts are required.")
+    return expense_journal(movement, to_account, from_account, [], "", "", "Company bank transfer", "OWN_TRANSFER")

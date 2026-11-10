@@ -281,3 +281,13 @@ def test_petty_cash_body_records_reviewed_employee_and_statement_identity():
     assert body["accounts"][1]["account"] == "131 - Bank"
     with pytest.raises(ValueError):
         D.petty_cash_journal(movement, "", "1322 - Employee", "131 - Bank", [], "Fees", "VAT")
+
+
+def test_own_transfer_journal_uses_one_debit_and_one_credit():
+    movement = {"key": "KEY-OUT", "amount": -2500, "date": "2026-11-10", "reference": "REF"}
+    body = D.own_transfer_journal(movement, "BANK-OUT", "BANK-IN")
+    assert body["custom_pc_statement_key"] == "KEY-OUT"
+    assert body["accounts"][0]["account"] == "BANK-IN" and body["accounts"][0]["debit_in_account_currency"] == 2500
+    assert body["accounts"][1]["account"] == "BANK-OUT" and body["accounts"][1]["credit_in_account_currency"] == 2500
+    with pytest.raises(ValueError):
+        D.own_transfer_journal(movement, "BANK", "BANK")

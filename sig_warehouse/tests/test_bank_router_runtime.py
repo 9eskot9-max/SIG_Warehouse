@@ -254,3 +254,20 @@ def test_reviewed_petty_cash_draft_contains_employee_and_statement_key(runtime, 
     assert ctx.create("PETTY_CASH", mv, {"employee": "EMP-1", "custody_account": "CUSTODY", "label": "Employee"}, []) == ("Journal Entry", "JV-NEW")
     assert inserted[0]["custom_pc_employee"] == "EMP-1" and inserted[0]["custom_pc_top_up"] == 1
     assert inserted[0]["custom_pc_statement_key"] == "BANK-KEY" and len(registrations) == 1
+
+
+def test_explicit_nonemployee_custody_draft_has_no_employee_funding_designation(runtime, monkeypatch):
+    module, frappe = runtime
+    router = types.ModuleType("sig_warehouse.sig_accounting.snb_movement_router")
+    router._verified_custody_account = lambda account: account
+    monkeypatch.setitem(sys.modules, router.__name__, router)
+    inserted = []
+    frappe.get_doc = lambda body: types.SimpleNamespace(name="JV-1", insert=lambda: inserted.append(body))
+    ctx = module.Context.__new__(module.Context)
+    ctx.settings = types.SimpleNamespace(scopes={"scope":"BANK"}, draft_fees=False, fee_account="FEE", vat_account="VAT")
+    ctx._existing = lambda *args: None
+    ctx.ledger = types.SimpleNamespace(register=lambda *args: None)
+    mv = {"key":"KEY", "amount":-20000, "date":"2026-11-10", "scope":"scope", "source":{}}
+    ctx.create("PETTY_CASH", mv, {"employee":"", "custody_account":"1322 - Rajhi", "label":"Owner bank"}, [])
+    assert inserted[0]["accounts"][0]["account"] == "1322 - Rajhi"
+    assert not inserted[0].get("custom_pc_employee") and not inserted[0].get("custom_pc_top_up")

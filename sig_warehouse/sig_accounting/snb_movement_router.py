@@ -204,6 +204,27 @@ def list_links(start=0, limit=200):
 
 
 @frappe.whitelist()
+def list_confirmed_party_hints(start=0, limit=200):
+    """Export reviewer-created identifiers to the Am mirror; ERP remains authoritative."""
+    _integration_only()
+    start, limit = max(0, int(start)), min(200, max(1, int(limit)))
+    ids = frappe.get_all(IDENTIFIER, filters={"source": "ROUTER"},
+        fields=["name", "counterparty", "kind", "value", "normalized", "status", "modified"],
+        order_by="name asc", start=start, page_length=limit)
+    result = []
+    for ident in ids:
+        cp = frappe.db.get_value(COUNTERPARTY, ident.counterparty,
+            ["name", "status", "customer", "supplier"], as_dict=True)
+        if not cp or not (cp.customer or cp.supplier):
+            continue
+        result.append({"identity_key": ident.name, "counterparty": ident.counterparty,
+            "kind": ident.kind, "value": ident.value, "normalized": ident.normalized,
+            "status": ident.status if cp.status == "ACTIVE" else "REVOKED",
+            "customer": cp.customer or "", "supplier": cp.supplier or "", "modified": str(ident.modified)})
+    return {"rows": result, "has_more": len(ids) == limit, "next_start": start + len(ids)}
+
+
+@frappe.whitelist()
 def engine_status():
     _require("read")
     settings = runtime.Settings()
@@ -618,6 +639,52 @@ def route_movement(name, modified, target):
     return {"movement": get_movement(name), "rerouted": 0}
 
 
+def _verified_custody_account(account):
+    account = str(account or "").strip()
+    _check_link("Account", account)
+    row = frappe.db.get_value("Account", account, ["company", "root_type", "account_currency", "disabled", "is_group", "parent_account"], as_dict=True)
+    if not row or row.company != runtime.documents.COMPANY or row.root_type != "Asset" or row.account_currency != "SAR" or row.disabled or row.is_group:
+        frappe.throw(_("Choose an enabled SAR asset account for the company."))
+    parent, seen = row.parent_account, set()
+    while parent and parent not in seen:
+        seen.add(parent)
+        number, parent = frappe.db.get_value("Account", parent, ["account_number", "parent_account"])
+        if str(number) == "1322":
+            return account
+    frappe.throw(_("Choose a custody account under the approved 1322 ledger."))
+
+
+@frappe.whitelist(methods=["POST"])
+def confirm_petty_cash_custody(name, modified, account):
+    """Finance explicitly chooses a custody ledger without assigning an Employee."""
+    _require("write")
+    from sig_warehouse.sig_warehouse.pc_funding import _require_finance
+    _require_finance()
+    doc = _lock(name, modified)
+    recognition = _data(doc.recognition_json) or {}
+    if doc.direction != "DEBIT" or doc.kind != "PETTY_CASH" or doc.erp_document or recognition.get("category") != "XXPC" or recognition.get("am_category_status") != "MATCHED":
+        frappe.throw(_("Only an unlinked, confirmed XXPC bank debit can be designated for petty cash."))
+    custody = _verified_custody_account(account)
+    cp = _ensure_counterparty(doc, (_data(doc.signals_json) or {}).get("display_name") or "")
+    if cp.get("employee"):
+        frappe.throw(_("This beneficiary is linked to an Employee. Review the ownership before changing its custody treatment."))
+    if cp.get("custody_account") and cp.get("custody_account") != custody:
+        frappe.throw(_("This beneficiary already has a different custody account. Review the account ownership first."))
+    cp.custody_account = custody
+    cp.flags.bank_router_write = True
+    cp.save(ignore_permissions=True)
+    _learn_identifiers(doc, cp)
+    doc.counterparty, doc.route_source, doc.accounting_treatment, doc.accounting_account = cp.name, "MANUAL", "JOURNAL_ENTRY", custody
+    doc.append("audit", {"reviewer": frappe.session.user, "reviewed_at": now_datetime(), "previous_json": "{}",
+        "decision_json": _json({"petty_cash_custody": custody, "employee": ""})})
+    doc.flags.snb_router_write = True
+    doc.save()
+    result = runtime.run("main", 0, 1, names=[doc.name], review_only=True)
+    if result.get("errors"):
+        frappe.throw(_("Could not review this movement; no designation was saved."))
+    return get_movement(name)
+
+
 @frappe.whitelist(methods=["POST"])
 def confirm_petty_cash_employee(name, modified, employee):
     """Record a Finance-reviewed Employee and validated custody account for one XXPC line."""
@@ -638,7 +705,7 @@ def confirm_petty_cash_employee(name, modified, employee):
     cp.flags.bank_router_write = True
     cp.save(ignore_permissions=True)
     _learn_identifiers(doc, cp)
-    doc.counterparty, doc.route_source, doc.accounting_treatment = cp.name, "MANUAL", "JOURNAL_ENTRY"
+    doc.counterparty, doc.route_source, doc.accounting_treatment, doc.accounting_account = cp.name, "MANUAL", "JOURNAL_ENTRY", ""
     doc.append("audit", {"reviewer": frappe.session.user, "reviewed_at": now_datetime(), "previous_json": "{}",
                          "decision_json": _json({"petty_cash_employee": employee, "custody_account": custody})})
     doc.flags.snb_router_write = True
@@ -666,6 +733,87 @@ def create_reviewed_draft(name, modified):
     if not movement.get("erp_document"):
         frappe.throw(_("No draft was created. Review any matching documents and the selected party or account."))
     return movement
+
+
+@frappe.whitelist(methods=["POST"])
+def create_own_transfer_draft(name, modified):
+    """Create one journal only after both unique bank legs and duplicate checks pass."""
+    _require("write")
+    if not frappe.has_permission("Journal Entry", "create"):
+        frappe.throw(_("You need permission to create a Journal Entry."), frappe.PermissionError)
+    first = frappe.get_doc(DOCTYPE, name)
+    first.check_permission("write")
+    if str(first.modified) != str(modified):
+        frappe.throw(_("This movement changed. Refresh and try again."))
+    signals = _data(first.signals_json) or {}
+    paired = signals.get("paired_transfer") or {}
+    other_name = str(paired.get("name") or "")
+    if first.kind != "OWN_TRANSFER" or not other_name or other_name == name:
+        frappe.throw(_("This movement does not have a unique paired company-bank transfer."))
+    # Lock in stable order so concurrent reviews cannot create duplicate journals.
+    for locked in sorted((name, other_name)):
+        frappe.db.sql("SELECT name FROM `tabSNB Movement Review` WHERE name=%s FOR UPDATE", (locked,))
+    first, second = frappe.get_doc(DOCTYPE, name), frappe.get_doc(DOCTYPE, other_name)
+    first.check_permission("write")
+    second.check_permission("write")
+    if str(first.modified) != str(modified):
+        frappe.throw(_("This movement changed. Refresh and try again."))
+    if first.erp_document or second.erp_document:
+        frappe.throw(_("A transfer leg already has a linked accounting document; review it first."))
+    settings = runtime.Settings()
+    index, children = runtime.load_index()
+    pairs = runtime.pair_own_transfers(index, settings)
+    if pairs.get(name, {}).get("name") != other_name or pairs.get(other_name, {}).get("name") != name:
+        frappe.throw(_("The transfer no longer has one unique opposite bank leg."))
+    if first.direction == second.direction or {first.direction, second.direction} != {"DEBIT", "CREDIT"}:
+        frappe.throw(_("The paired movements must have opposite directions."))
+    debit, credit = (first, second) if first.direction == "DEBIT" else (second, first)
+    if abs(abs(flt(debit.amount)) - abs(flt(credit.amount))) > 0.005 or debit.currency != "SAR" or credit.currency != "SAR":
+        frappe.throw(_("The paired movements must have the same SAR amount."))
+    from_account = settings.scopes.get(debit.account_scope_hash or "")
+    to_account = settings.scopes.get(credit.account_scope_hash or "")
+    if not from_account or not to_account or from_account == to_account:
+        frappe.throw(_("Both company bank accounts must be configured separately."))
+    for account in (from_account, to_account):
+        _check_link("Account", account)
+        row = frappe.db.get_value("Account", account, ["company", "account_type", "disabled", "is_group", "account_currency"], as_dict=True)
+        if not row or row.company != runtime.documents.COMPANY or row.account_type != "Bank" or row.disabled or row.is_group or row.account_currency != "SAR":
+            frappe.throw(_("Both accounts must be enabled SAR company bank accounts."))
+    source = _data(debit.source_json) or {}
+    statement_key = source.get("statement_key") or debit.source_key
+    if frappe.db.exists("Journal Entry", {"custom_pc_statement_key": statement_key, "docstatus": ["<", 2]}):
+        frappe.throw(_("A Journal Entry already uses this bank statement key."))
+    # Amount/date matches are not proof of a duplicate, but require review
+    # before creation to avoid booking a historical transfer twice.
+    ledger = runtime.Ledger(settings, min(runtime.getdate(debit.event_date), runtime.getdate(credit.event_date)),
+                            max(runtime.getdate(debit.event_date), runtime.getdate(credit.event_date)))
+    from_candidates = {row["name"] for row in ledger.candidates(from_account, runtime.getdate(debit.event_date))
+                       if row["doctype"] == "Journal Entry" and abs(flt(row["amount"]) + abs(flt(debit.amount))) <= 0.005}
+    to_candidates = {row["name"] for row in ledger.candidates(to_account, runtime.getdate(credit.event_date))
+                     if row["doctype"] == "Journal Entry" and abs(flt(row["amount"]) - abs(flt(credit.amount))) <= 0.005}
+    if from_candidates & to_candidates:
+        frappe.throw(_("A Journal Entry already moves the same amount between these accounts near this date. Review it first."))
+    if not frappe.has_permission("Payment Entry", "read"):
+        frappe.throw(_("Payment Entry read access is required to check for an existing internal transfer."), frappe.PermissionError)
+    day_start = min(runtime.getdate(debit.event_date), runtime.getdate(credit.event_date)) - runtime.dt.timedelta(days=7)
+    day_end = max(runtime.getdate(debit.event_date), runtime.getdate(credit.event_date)) + runtime.dt.timedelta(days=7)
+    existing_pe = frappe.db.exists("Payment Entry", {"payment_type": "Internal Transfer", "docstatus": ["<", 2],
+        "paid_from": from_account, "paid_to": to_account, "paid_amount": ["between", [abs(flt(debit.amount)) - 0.005, abs(flt(debit.amount)) + 0.005]],
+        "posting_date": ["between", [day_start, day_end]]})
+    if existing_pe:
+        frappe.throw(_("An internal Payment Entry already moves the same amount between these accounts near this date. Review it first."))
+    body = runtime.documents.own_transfer_journal({"key": statement_key, "amount": flt(debit.amount),
+        "date": debit.event_date, "reference": source.get("reference") or ""}, from_account, to_account)
+    journal = frappe.get_doc(body)
+    journal.insert()
+    for doc in (debit, credit):
+        doc.erp_doctype, doc.erp_document, doc.link_method = "Journal Entry", journal.name, "OWN_TRANSFER"
+        doc.engine_state, doc.decision_type = "DRAFT_READY", ""
+        doc.append("audit", {"reviewer": frappe.session.user, "reviewed_at": now_datetime(),
+            "previous_json": "{}", "decision_json": _json({"own_transfer_journal": journal.name, "paired_movement": credit.name if doc.name == debit.name else debit.name})})
+        doc.flags.snb_router_write = True
+        doc.save()
+    return {"journal": journal.name, "movements": [debit.name, credit.name]}
 
 
 @frappe.whitelist(methods=["POST"])

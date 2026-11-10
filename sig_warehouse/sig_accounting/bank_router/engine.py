@@ -219,15 +219,23 @@ def route(mv, ctx):
         return out
     if kind == K.PETTY_CASH:
         # Only an explicit router decision can designate an Employee funding cycle.
-        if mv.get("route_source") != "MANUAL" or not facts.get("employee") or not facts.get("custody_account"):
+        if mv.get("route_source") != "MANUAL":
+            out.update(engine_state="NEEDS_YOU", decision_type="NEEDS_HR_LINK")
+            return out
+        employee, custody = facts.get("employee") or "", facts.get("custody_account") or ""
+        manual_custody = mv.get("accounting_account") or ""
+        if employee and custody and not manual_custody:
+            target = {"employee": employee, "custody_account": custody, "holding": False, "label": facts.get("display_name") or ""}
+        elif manual_custody and not employee:
+            target = {"employee": "", "custody_account": manual_custody, "holding": False, "label": facts.get("display_name") or ""}
+        else:
             out.update(engine_state="NEEDS_YOU", decision_type="NEEDS_HR_LINK")
             return out
         out["accounting_treatment"] = "JOURNAL_ENTRY"
         if not s.auto_draft(mv["date"]):
             out.update(engine_state="NEEDS_YOU", decision_type="CREATE_DRAFT")
         else:
-            out["_create"] = {"employee": facts["employee"], "custody_account": facts["custody_account"],
-                              "holding": False, "label": facts.get("display_name") or ""}
+            out["_create"] = target
         return out
     if kind == K.EMPLOYEE:
         out.update(engine_state="PENDING", decision_type="")

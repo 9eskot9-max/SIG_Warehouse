@@ -348,3 +348,14 @@ def test_petty_cash_manual_confirmation_requires_review_before_draft():
     drafted = E.process(mv, ctx)
     assert drafted["engine_state"] == "DRAFT_READY"
     assert ctx.created[0][1]["employee"] == "EMP-1"
+
+
+def test_reviewed_personal_bank_custody_has_no_employee_assignment():
+    registry = Registry({}, {"CP-OWNER": {"employee": "", "custody_account": "1322 - Rajhi", "display_name": "Owner bank"}})
+    mv = movement(-20000, "1234567890123 BEN ID:555123", family="INTERNAL_BEN_ID", route_source="MANUAL", counterparty="CP-OWNER", accounting_account="1322 - Rajhi")
+    mv["recognition"] = {"category": "XXPC", "am_category_status": "MATCHED"}
+    review = E.process(mv, Ctx(auto=False, registry=registry))
+    assert review["decision_type"] == "CREATE_DRAFT" and review["accounting_account"] == "1322 - Rajhi"
+    ctx = Ctx(auto=True, registry=registry)
+    E.process(mv, ctx)
+    assert ctx.created[0][1]["employee"] == "" and ctx.created[0][1]["custody_account"] == "1322 - Rajhi"

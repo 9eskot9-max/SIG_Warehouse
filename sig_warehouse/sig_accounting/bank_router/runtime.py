@@ -245,14 +245,19 @@ class Context:
         use_fees = fees if s.draft_fees else []
         if kind == "PETTY_CASH":
             employee, custody = target.get("employee"), target.get("custody_account")
-            from sig_warehouse.sig_warehouse.pc_funding import _active_employee
-            frappe.get_doc("Employee", employee).check_permission("read")
-            if _active_employee(employee, documents.COMPANY) != custody:
-                raise ValueError("The Employee custody account changed; review the movement again.")
+            if employee:
+                from sig_warehouse.sig_warehouse.pc_funding import _active_employee
+                frappe.get_doc("Employee", employee).check_permission("read")
+                if _active_employee(employee, documents.COMPANY) != custody:
+                    raise ValueError("The Employee custody account changed; review the movement again.")
+            else:
+                from sig_warehouse.sig_accounting.snb_movement_router import _verified_custody_account
+                _verified_custody_account(custody)
             existing = self._existing("Journal Entry", "custom_pc_statement_key", mv["key"])
             if existing:
                 return "Journal Entry", existing
-            body = documents.petty_cash_journal(movement, employee, custody, bank_gl, use_fees, s.fee_account, s.vat_account, target["label"])
+            body = (documents.petty_cash_journal(movement, employee, custody, bank_gl, use_fees, s.fee_account, s.vat_account, target["label"])
+                    if employee else documents.expense_journal(movement, custody, bank_gl, use_fees, s.fee_account, s.vat_account, target["label"], "PETTY_CASH_CUSTODY"))
             doc = frappe.get_doc(body)
             doc.insert()
             self.ledger.register("Journal Entry", doc.name, mv["date"], -abs(flt(mv["amount"])), bank_gl, mv["key"])
