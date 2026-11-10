@@ -410,3 +410,45 @@ def test_request_supplier_requires_unique_match_and_readable_supplier(api):
     assert api._request_supplier(doc, recognition) == ""
     doc.direction = "CREDIT"
     assert api._request_supplier(doc, recognition) == ""
+
+
+def test_petty_cash_confirmation_rejects_conflicting_custody_and_never_drafts(api, monkeypatch):
+    import sys
+    movement = Doc(name="R", direction="DEBIT", kind="PETTY_CASH", erp_document="", recognition_json='{"category":"XXPC","am_category_status":"MATCHED"}',
+                   signals_json='{}', source_json='{}', counterparty="", route_source="", accounting_treatment="")
+    movement.append = lambda *args: None
+    cp = Doc(name="CP", employee="OTHER", custody_account="OTHER-ACCOUNT")
+    monkeypatch.setattr(api, "_lock", lambda *args: movement)
+    monkeypatch.setattr(api, "_ensure_counterparty", lambda *args: cp)
+    monkeypatch.setattr(api, "_check_link", lambda *args: None)
+    funding = types.ModuleType("sig_warehouse.sig_warehouse.pc_funding")
+    funding._active_employee = lambda employee, company: "CUSTODY"
+    funding._require_finance = lambda: None
+    monkeypatch.setitem(sys.modules, funding.__name__, funding)
+    api.runtime.run = lambda *args, **kwargs: pytest.fail("must not route a conflicting identity")
+    with pytest.raises(ValueError, match="different Employee"):
+        api.confirm_petty_cash_employee("R", "t", "EMP-1")
+    assert movement.counterparty == "" and not getattr(movement, "saved", False)
+
+
+def test_petty_cash_confirmation_records_explicit_review_without_drafting(api, monkeypatch):
+    import sys
+    movement = Doc(name="R", direction="DEBIT", kind="PETTY_CASH", erp_document="", recognition_json='{"category":"XXPC","am_category_status":"MATCHED"}',
+                   signals_json='{}', source_json='{}', counterparty="", route_source="", accounting_treatment="")
+    movement.append = lambda *args: None
+    cp = Doc(name="CP", employee="", custody_account="")
+    cp.save = lambda **kwargs: None
+    monkeypatch.setattr(api, "_lock", lambda *args: movement)
+    monkeypatch.setattr(api, "_ensure_counterparty", lambda *args: cp)
+    monkeypatch.setattr(api, "_check_link", lambda *args: None)
+    monkeypatch.setattr(api, "_learn_identifiers", lambda *args: None)
+    monkeypatch.setattr(api, "get_movement", lambda name: {"name": name})
+    funding = types.ModuleType("sig_warehouse.sig_warehouse.pc_funding")
+    funding._active_employee = lambda employee, company: "CUSTODY"
+    funding._require_finance = lambda: None
+    monkeypatch.setitem(sys.modules, funding.__name__, funding)
+    calls = []
+    api.runtime.run = lambda *args, **kwargs: calls.append(kwargs) or {"errors": 0}
+    assert api.confirm_petty_cash_employee("R", "t", "EMP-1") == {"name": "R"}
+    assert (cp.employee, cp.custody_account, movement.accounting_treatment) == ("EMP-1", "CUSTODY", "JOURNAL_ENTRY")
+    assert calls == [{"names": ["R"], "review_only": True}]

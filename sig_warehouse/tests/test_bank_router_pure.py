@@ -270,3 +270,14 @@ def test_format_specific_names_take_priority_as_suggestions_without_changing_leg
     assert ips["status"] == "SUGGESTED" and ips["candidates"] == ["IPS"]
     assert large["status"] == "SUGGESTED" and large["candidates"] == ["LARGE"]
     assert identify([("NAME", "ACME")], reg)["candidates"] == ["LEGACY"]
+
+
+def test_petty_cash_body_records_reviewed_employee_and_statement_identity():
+    movement = {"key": "BANK-KEY", "amount": -1000, "date": "2026-11-10", "reference": "REF-1"}
+    body = D.petty_cash_journal(movement, "EMP-1", "1322 - Employee", "131 - Bank", [], "Fees", "VAT", "Employee")
+    assert body["custom_pc_top_up"] == 1 and body["custom_pc_employee"] == "EMP-1"
+    assert body["custom_pc_statement_key"] == "BANK-KEY" and body["custom_pc_funding_source"] == "Bank Statement"
+    assert body["accounts"][0]["account"] == "1322 - Employee"
+    assert body["accounts"][1]["account"] == "131 - Bank"
+    with pytest.raises(ValueError):
+        D.petty_cash_journal(movement, "", "1322 - Employee", "131 - Bank", [], "Fees", "VAT")

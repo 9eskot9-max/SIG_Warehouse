@@ -254,11 +254,17 @@ def _payload(doc, fees=None, statuses=None):
     signals = _data(doc.signals_json) or {}
     statuses = statuses or {}
     mapping = recognition.get("am_beneficiary_mapping") or {}
-    cp = frappe.db.get_value(COUNTERPARTY, doc.counterparty, ["display_name", "customer", "supplier"], as_dict=True) if doc.counterparty else None
+    cp = frappe.db.get_value(COUNTERPARTY, doc.counterparty, ["display_name", "customer", "supplier", "employee", "custody_account"], as_dict=True) if doc.counterparty else None
     party_type = "Customer" if doc.direction == "CREDIT" else "Supplier"
     party = (cp or {}).get(party_type.lower()) or ""
     if party and not frappe.has_permission(party_type, "read", party):
         party = ""
+    employee = (cp or {}).get("employee") or ""
+    if employee and not frappe.has_permission("Employee", "read", employee):
+        employee = ""
+    custody = (cp or {}).get("custody_account") or "" if employee else ""
+    if custody and not frappe.has_permission("Account", "read", custody):
+        custody = ""
     request_supplier = _request_supplier(doc, recognition)
     candidate_parties = [request_supplier] if request_supplier else []
     for candidate in (_data(doc.candidates_json) or {}).get("counterparties", []):
@@ -272,6 +278,7 @@ def _payload(doc, fees=None, statuses=None):
         "accounting_treatment": doc.accounting_treatment or "", "accounting_account": doc.accounting_account or "",
         "counterparty": doc.counterparty or "", "counterparty_name": (cp or {}).get("display_name") or "",
         "linked_party_type": party_type if party else "", "linked_party": party, "suggested_parties": sorted(set(candidate_parties)),
+        "pc_employee": employee, "pc_custody_account": custody,
         "request_supplier": request_supplier, "request_supplier_conflict": bool(party and request_supplier and party != request_supplier),
         "payment_reference_doctype": doc.get("payment_reference_doctype") or "",
         "payment_reference": doc.get("payment_reference") or "",
@@ -609,6 +616,37 @@ def route_movement(name, modified, target):
     if replaced and (result.get("errors") or not get_movement(name).get("erp_document")):
         frappe.throw(_("The replacement draft could not be created. The original draft was restored; review the movement and try again."))
     return {"movement": get_movement(name), "rerouted": 0}
+
+
+@frappe.whitelist(methods=["POST"])
+def confirm_petty_cash_employee(name, modified, employee):
+    """Record a Finance-reviewed Employee and validated custody account for one XXPC line."""
+    _require("write")
+    doc = _lock(name, modified)
+    recognition = _data(doc.recognition_json) or {}
+    if doc.direction != "DEBIT" or doc.kind != "PETTY_CASH" or doc.erp_document or recognition.get("category") != "XXPC" or recognition.get("am_category_status") != "MATCHED":
+        frappe.throw(_("Only an unlinked, confirmed XXPC bank debit can be designated for petty cash."))
+    employee = str(employee or "").strip()
+    _check_link("Employee", employee)
+    from sig_warehouse.sig_warehouse.pc_funding import _active_employee, _require_finance
+    _require_finance()
+    custody = _active_employee(employee, runtime.documents.COMPANY)
+    cp = _ensure_counterparty(doc, (_data(doc.signals_json) or {}).get("display_name") or "")
+    if (cp.get("employee") and cp.get("employee") != employee) or (cp.get("custody_account") and cp.get("custody_account") != custody):
+        frappe.throw(_("This beneficiary already has a different Employee or custody account. Resolve the ownership conflict first."))
+    cp.employee, cp.custody_account, cp.is_employee = employee, custody, 1
+    cp.flags.bank_router_write = True
+    cp.save(ignore_permissions=True)
+    _learn_identifiers(doc, cp)
+    doc.counterparty, doc.route_source, doc.accounting_treatment = cp.name, "MANUAL", "JOURNAL_ENTRY"
+    doc.append("audit", {"reviewer": frappe.session.user, "reviewed_at": now_datetime(), "previous_json": "{}",
+                         "decision_json": _json({"petty_cash_employee": employee, "custody_account": custody})})
+    doc.flags.snb_router_write = True
+    doc.save()
+    result = runtime.run("main", 0, 1, names=[doc.name], review_only=True)
+    if result.get("errors"):
+        frappe.throw(_("Could not review this movement; no designation was saved."))
+    return get_movement(name)
 
 
 @frappe.whitelist(methods=["POST"])

@@ -232,13 +232,13 @@ def test_person_payment_is_an_expense_journal_from_the_category():
     assert out["engine_state"] == "DRAFT_READY"
 
 
-def test_petty_cash_waits_for_the_importer_or_for_hr():
+def test_petty_cash_requires_explicit_employee_confirmation():
     mv = movement(-2000, "1234567890123 BEN ID:555123", family="INTERNAL_BEN_ID")
     mv["recognition"] = {"category": "XXPC", "am_category_status": "MATCHED"}
     assert E.process(mv, Ctx(auto=True))["decision_type"] == "NEEDS_HR_LINK"
     registry = Registry({("BEN_ID", "555123"): ("CP-E", "ACTIVE")}, {"CP-E": {"is_employee": True, "custody_account": "132223 - Adnan"}})
     out = E.process(mv, Ctx(auto=True, registry=registry))
-    assert (out["kind"], out["engine_state"], out["decision_type"]) == ("PETTY_CASH", "PENDING", "")
+    assert (out["kind"], out["engine_state"], out["decision_type"]) == ("PETTY_CASH", "NEEDS_YOU", "NEEDS_HR_LINK")
 
 
 def test_own_transfers_tawal_and_other_lines_are_deferred_not_drafted():
@@ -336,3 +336,15 @@ def test_an_accepted_am_link_is_not_flagged():
     ledger = Ledger([doc("JV-1", -1000, "2026-10-05")])
     out = E.process(movement(-1000, IPS_OUT, key="K8", hint={"linked_doc": "JV-1"}), Ctx(ledger=ledger))
     assert out["link_method"] == "AM_LINK" and out["signals"]["am_link_rejected"] is False
+
+
+def test_petty_cash_manual_confirmation_requires_review_before_draft():
+    registry = Registry({}, {"CP-E": {"employee": "EMP-1", "custody_account": "1322 - Custody", "display_name": "Employee"}})
+    mv = movement(-2000, "1234567890123 BEN ID:555123", family="INTERNAL_BEN_ID", route_source="MANUAL", counterparty="CP-E")
+    mv["recognition"] = {"category": "XXPC", "am_category_status": "MATCHED"}
+    review = E.process(mv, Ctx(auto=False, registry=registry))
+    assert (review["kind"], review["decision_type"], review["accounting_treatment"]) == ("PETTY_CASH", "CREATE_DRAFT", "JOURNAL_ENTRY")
+    ctx = Ctx(auto=True, registry=registry)
+    drafted = E.process(mv, ctx)
+    assert drafted["engine_state"] == "DRAFT_READY"
+    assert ctx.created[0][1]["employee"] == "EMP-1"

@@ -214,3 +214,19 @@ def test_supplier_purchase_order_reference_cannot_exceed_available(runtime):
     mv["payment_reference_amount"] = 601
     with pytest.raises(ValueError, match="outstanding"):
         ctx._payment_references(mv, {"party_type": "Supplier", "party": "SUP-1"})
+
+
+def test_petty_cash_draft_rechecks_custody_before_inserting(runtime, monkeypatch):
+    module, frappe = runtime
+    funding = types.ModuleType("sig_warehouse.sig_warehouse.pc_funding")
+    funding._active_employee = lambda employee, company: "ACTUAL-CUSTODY"
+    monkeypatch.setitem(sys.modules, funding.__name__, funding)
+    employee = types.SimpleNamespace(check_permission=lambda permission: None)
+    created = []
+    frappe.get_doc = lambda *args: employee if args[0] == "Employee" else created.append(args)
+    ctx = module.Context.__new__(module.Context)
+    ctx.settings = types.SimpleNamespace(scopes={"scope": "bank"}, draft_fees=False, fee_account="Fees", vat_account="VAT")
+    mv = {"key": "K1", "amount": -10, "date": "2026-11-09", "scope": "scope", "source": {}}
+    with pytest.raises(ValueError, match="changed"):
+        ctx.create("PETTY_CASH", mv, {"employee": "EMP-1", "custody_account": "OLD-CUSTODY", "label": "Employee"}, [])
+    assert created == []

@@ -77,3 +77,14 @@ def fee_journal(movement, fees, bank_account, fee_account, vat_account):
         "user_remark": f"[SNB auto-draft] bank charges for ref {movement.get('reference') or ''}",
         "accounts": fee_lines(fees, bank_account, fee_account, vat_account),
     }
+
+
+def petty_cash_journal(movement, employee, custody_account, bank_account, fees, fee_account, vat_account, label=""):
+    """A reviewer-confirmed Employee custody top-up, subject to ERP funding validation."""
+    if not employee or not custody_account or custody_account == bank_account:
+        raise ValueError("A confirmed employee and distinct custody account are required.")
+    body = expense_journal(movement, custody_account, bank_account, fees, fee_account, vat_account, label, "PETTY_CASH")
+    body.update(custom_pc_top_up=1, custom_pc_transfer_category="XXPC", custom_pc_employee=employee,
+                custom_pc_funding_date=posting_date(movement), custom_pc_funding_source="Bank Statement",
+                custom_pc_bank_txn_id=str(movement.get("reference") or "")[:140])
+    return body

@@ -14,7 +14,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     const categories = {XXPC: __('Petty Cash'), XXSL: __('Salary'), XXHR: __('HR'), XXCL: __('Deferred'), XXMT: __('Maintenance'), XXMR: __('Materials'), XXSC: __('Subcontractor'), XXLG: __('Logistics')};
     const state = {tab: 'needs', bank: 'ALL', search: '', items: [], counts: {}, selected: '', status: null, bulkSelected: new Set(), missingSelected: new Set(), hasMore: false};
     const q = s => el.querySelector(s);
-    let partyControl = null, invoiceControl = null, orderControl = null;
+    let partyControl = null, invoiceControl = null, orderControl = null, employeeControl = null;
     const money = (n, c) => `${Number(n || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} ${esc(c || 'SAR')}`;
     const docStatus = s => s === 1 ? __('Posted') : s === 0 ? __('Draft') : s === 2 ? __('Cancelled') : __('Unknown');
     const selected = () => state.items.find(x => x.name === state.selected);
@@ -46,7 +46,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
             return `<h4>${__('Which document is this?')}</h4>` + (x.candidates.documents || []).map((d, i) => `<label><input type="radio" name="pick" value="${i}"> ${esc(d.doctype)} · ${esc(d.name)} · ${esc(d.date)} · ${esc(docStatus(d.docstatus))}</label>`).join('') +
                 `<button class="btn btn-primary" data-pick>${__('Link')}</button>`;
         }
-        if (x.decision_type === 'NEEDS_HR_LINK') return `<p>${__('This petty-cash transfer cannot be matched to an Employee until HR links the custody account.')}</p>`;
+        if (x.kind === 'PETTY_CASH' && !x.erp_document) return `<p>${__('Confirm the Employee for this petty-cash transfer. Their approved custody account will be checked before a draft is created.')}</p><div data-employee-control></div><button class="btn btn-primary" data-confirm-pc>${__('Confirm Employee')}</button>`;
         const canRoute = (!x.erp_document || x.doc_status === 0) && ['SUPPLIER_PAYMENT', 'CUSTOMER_RECEIPT', 'EXPENSE_PAYMENT', 'UNKNOWN', 'EMPLOYEE'].includes(x.kind) &&
             (x.decision_type || x.link_method === 'AUTO_DRAFT' || (x.direction === 'DEBIT' && ['UNKNOWN', 'EMPLOYEE'].includes(x.kind)));
         if (!canRoute) return '';
@@ -65,13 +65,14 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     }
     function renderCard() {
         const x = selected(), c = q('[data-card]');
-        partyControl = null; invoiceControl = null; orderControl = null;
+        partyControl = null; invoiceControl = null; orderControl = null; employeeControl = null;
         if (!x) { c.innerHTML = `<p>${__('Select a movement.')}</p>`; return; }
         const feeRows = (x.fees || []), feeTotal = feeRows.reduce((sum, f) => sum + Math.abs(Number(f.amount || 0)), 0);
         const fees = feeRows.length ? `<details class="snb-fees"><summary>${__('Related fees and VAT')} · ${money(feeTotal, x.currency)}</summary>${feeRows.map(f => `<p>${f.family === 'FEE_VAT' ? 'VAT' : __('Fee')} ${money(f.amount, x.currency)} · ${f.erp_document ? (f.doc_status === 1 ? '✓ ' : '○ ') + docLink(f.erp_doctype, f.erp_document, f.doc_status) : '○ ' + __('not posted')}</p>`).join('')}</details>` : '';
         c.innerHTML = `<div class="snb-amount">${money(x.amount, x.currency)}</div>
             <p>${esc(x.bank)} · ${esc(x.event_date)} · ••${esc(x.account_tail)} · ${__('Ref')} ${esc(x.reference || '—')}</p>
             <p><strong>${esc((x.counterparty_name && x.counterparty_name !== 'Unnamed counterparty' ? x.counterparty_name : x.linked_party || x.display_name) || __('Not identified'))}</strong> · ${esc(kinds[x.kind] || '')}${x.category ? ' · ' + esc(categories[x.category] || x.category) : ''}</p>
+            ${x.pc_employee ? `<p>${__('Confirmed Employee:')} ${esc(x.pc_employee)}${x.pc_custody_account ? ' · ' + esc(x.pc_custody_account) : ''}</p>` : ''}
             ${x.request_supplier ? `<p>${__('Matched TX Manager supplier:')} <strong>${esc(x.request_supplier)}</strong>${x.request_supplier_conflict ? ' · ' + __('Differs from the currently linked supplier; review both.') : ''}</p>` : ''}
             ${x.signals && x.signals.biller_code ? `<p>${__('SADAD biller')} · ${esc(x.signals.biller_code)}</p>` : ''}
             ${x.signals && x.signals.paired_transfer ? `<p>${__('Paired own-account transfer')} · ${esc(x.signals.paired_transfer.source_key || '')}</p>` : ''}
@@ -79,6 +80,13 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
             ${x.signals && x.signals.error ? `<p class="snb-error">${esc(x.signals.error)}</p>` : ''}${fees}
             <div class="snb-actions">${actions(x)}${x.decision_type === 'CREATE_DRAFT' && !x.erp_document ? `<button class="btn btn-primary" data-create-draft>${__('Create reviewed draft')}</button>` : ''}</div><div data-message></div>
             <details><summary>${__('Statement')}</summary><pre>${esc(x.narrative || '—')}</pre><small>${esc(x.name)}</small></details>`;
+        const employeeHost = q('[data-employee-control]');
+        if (employeeHost) {
+            employeeControl = frappe.ui.form.make_control({parent: $(employeeHost), df: {fieldtype:'Link', fieldname:'router_employee', options:'Employee', label:__('Employee'),
+                get_query: () => ({filters:{status:'Active', company:x.company}})}, render_input:true});
+            employeeControl.refresh();
+            if (x.pc_employee) employeeControl.set_value(x.pc_employee);
+        }
         const host = q('[data-link-control]');
         if (host) {
             const treatment = x.accounting_treatment || x.signals?.suggested_treatment || (x.direction === 'CREDIT' || (x.request_supplier && !x.request_supplier_conflict && !['XXSC', 'XXMT'].includes(x.category)) ? 'PAYMENT_ENTRY' : '');
@@ -149,6 +157,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     root.on('click', '[data-refresh]', () => load());
     root.on('click', '[data-more]', () => load(true));
     root.on('click', '[data-create-draft]', () => act('create_reviewed_draft', {}));
+    root.on('click', '[data-confirm-pc]', () => { const employee = employeeControl?.get_value(); if (!employee) { q('[data-message]').textContent = __('Choose an Employee.'); return; } act('confirm_petty_cash_employee', {employee}); });
     root.on('change', '[data-bank]', function () { state.bank = this.value; load(); });
     root.on('change', '[data-treatment]', function () { const x = selected(); if (x) x.accounting_treatment = this.value; renderCard(); });
     root.on('input', '[data-search]', function () { const v = this.value; clearTimeout(timer); timer = setTimeout(() => { state.search = v; load(); }, 300); });

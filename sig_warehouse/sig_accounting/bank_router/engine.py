@@ -217,11 +217,20 @@ def route(mv, ctx):
     if kind in (K.SUPPLIER_PAYMENT, K.EXPENSE_PAYMENT, K.CUSTOMER_RECEIPT) and not treatment:
         out.update(engine_state="NEEDS_YOU", decision_type="CONFIRM_TREATMENT" if facts.get("default_treatment") else "CHOOSE_TREATMENT")
         return out
-    if kind in K.IMPORTER_OWNED:
-        if kind == K.PETTY_CASH and not facts.get("custody_account"):
+    if kind == K.PETTY_CASH:
+        # Only an explicit router decision can designate an Employee funding cycle.
+        if mv.get("route_source") != "MANUAL" or not facts.get("employee") or not facts.get("custody_account"):
             out.update(engine_state="NEEDS_YOU", decision_type="NEEDS_HR_LINK")
+            return out
+        out["accounting_treatment"] = "JOURNAL_ENTRY"
+        if not s.auto_draft(mv["date"]):
+            out.update(engine_state="NEEDS_YOU", decision_type="CREATE_DRAFT")
         else:
-            out.update(engine_state="PENDING", decision_type="")
+            out["_create"] = {"employee": facts["employee"], "custody_account": facts["custody_account"],
+                              "holding": False, "label": facts.get("display_name") or ""}
+        return out
+    if kind == K.EMPLOYEE:
+        out.update(engine_state="PENDING", decision_type="")
         return out
     target = resolve_target(kind, mv, signals, facts, mined, ctx)
     if not target:

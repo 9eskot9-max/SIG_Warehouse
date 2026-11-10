@@ -243,6 +243,20 @@ class Context:
         movement = {"key": mv["key"], "amount": mv["amount"], "date": mv["date"], "reference": mv["source"].get("reference", "")}
         bank_gl = s.scopes[mv["scope"]]
         use_fees = fees if s.draft_fees else []
+        if kind == "PETTY_CASH":
+            employee, custody = target.get("employee"), target.get("custody_account")
+            from sig_warehouse.sig_warehouse.pc_funding import _active_employee
+            frappe.get_doc("Employee", employee).check_permission("read")
+            if _active_employee(employee, documents.COMPANY) != custody:
+                raise ValueError("The Employee custody account changed; review the movement again.")
+            existing = self._existing("Journal Entry", "custom_pc_statement_key", mv["key"])
+            if existing:
+                return "Journal Entry", existing
+            body = documents.petty_cash_journal(movement, employee, custody, bank_gl, use_fees, s.fee_account, s.vat_account, target["label"])
+            doc = frappe.get_doc(body)
+            doc.insert()
+            self.ledger.register("Journal Entry", doc.name, mv["date"], -abs(flt(mv["amount"])), bank_gl, mv["key"])
+            return "Journal Entry", doc.name
         if kind == EXPENSE_PAYMENT:
             existing = self._existing("Journal Entry", "custom_pc_statement_key", mv["key"])
             if existing:
