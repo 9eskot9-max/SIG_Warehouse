@@ -18,6 +18,21 @@ def _same_amount(a, b):
     return abs(abs(float(a)) - abs(float(b))) <= TOLERANCE
 
 
+def payee_fit(movement, doc):
+    """'ok' when the document's other side is this payee, 'other' when it is another payee, 'unknown' when it cannot be told.
+
+    movement["payee"] = {"custody": ledger number, "supplier": Supplier id}; a Journal Entry carries "counter" (the numbers of
+    its non-bank accounts) and a Payment Entry carries "party". Only like is compared with like.
+    """
+    payee = movement.get("payee") or {}
+    custody, supplier = str(payee.get("custody") or ""), str(payee.get("supplier") or "")
+    if custody and doc.get("counter") is not None and doc["doctype"] == "Journal Entry":
+        return "ok" if custody in doc["counter"] else "other"
+    if supplier and doc.get("party") and doc["doctype"] == "Payment Entry":
+        return "ok" if doc["party"] == supplier else "other"
+    return "unknown"
+
+
 def pick_document(movement, candidates, claimed=(), rejected=(), hint=None, window=WINDOW_DAYS):
     """Choose the document for one movement.
 
@@ -42,8 +57,14 @@ def pick_document(movement, candidates, claimed=(), rejected=(), hint=None, wind
             and (c["amount"] > 0) == (float(movement["amount"]) > 0)
             and _same_amount(c["amount"], movement["amount"])
             and abs((_date(c["date"]) - day).days) <= window]
+    # Another payee's document is never offered, however close its amount and date.
+    near = [c for c in near if payee_fit(movement, c) != "other"]
     if not near:
         return "NONE", [], ""
+    # One document on the very same day whose other side is this payee: it is this line's document.
+    exact = [c for c in near if _date(c["date"]) == day and payee_fit(movement, c) == "ok"]
+    if len(exact) == 1:
+        return "LINK", exact, "LEDGER"
     return "PICK", near, "LEDGER"
 
 

@@ -14,6 +14,7 @@ ctx must provide:
 nothing new returns the same values and the caller saves nothing.
 """
 import json
+import re
 
 from . import classify as K
 from . import reconcile
@@ -99,6 +100,17 @@ def _document_fields(doc, method):
     return {"erp_doctype": doc["doctype"], "erp_document": doc["name"], "link_method": method}
 
 
+def _payee_evidence(facts, mined):
+    """Who the other side of an existing document should be: a custody ledger number and/or a Supplier id."""
+    mapping = mined.get("am_beneficiary_mapping") or {}
+    label = str(mapping.get("erp_party") or "") if mapping.get("source") == "Sheet Am matched beneficiary" else ""
+    custody = re.match(r"\s*(\d+)", str(facts.get("custody_account") or ""))
+    mapped = re.fullmatch(r"Employee:[^|]*\|\s*(\d+)\s*", label)
+    number = custody.group(1) if custody else (mapped.group(1) if mapped else "")
+    supplier = facts.get("supplier") or (label.split(":", 1)[1].strip() if label.startswith("Supplier:") else "")
+    return {"custody": number, "supplier": supplier}
+
+
 def route(mv, ctx):
     s = ctx.settings
     source, mined = mv["source"], mv.get("recognition") or {}
@@ -171,7 +183,8 @@ def route(mv, ctx):
         return _route_charge(mv, out, ctx, bank_gl)
 
     # Stage 4: reconcile
-    movement = {"key": mv["key"], "amount": float(mv["amount"]), "date": mv["date"], "reference": signals["reference"], "bank_account": bank_gl}
+    movement = {"key": mv["key"], "amount": float(mv["amount"]), "date": mv["date"], "reference": signals["reference"], "bank_account": bank_gl,
+                "payee": _payee_evidence(facts, mined)}
     existing = None
     if mv.get("erp_document"):
         existing = ctx.ledger.doc(mv["erp_doctype"], mv["erp_document"], bank_gl)

@@ -381,3 +381,33 @@ def test_a_remembered_sadad_bill_is_recognised_and_offers_its_payee_default():
     assert out["counterparty"] == "CP-B"
     assert out["signals"]["suggested_treatment"] == "JOURNAL_ENTRY" and out["signals"]["suggested_account"] == "5155 - Iqama"
     assert out["decision_type"] == "CHOOSE_TREATMENT" and out["engine_state"] == "NEEDS_YOU"
+
+
+def _bilal_line(day="2026-09-16"):
+    mv = movement(-1500, "11100071178405 BEN ID:2472775614 xxpc", family="INTERNAL_BEN_ID", day=day)
+    mv["recognition"] = {"category": "XXPC", "am_category_status": "MATCHED",
+                         "am_beneficiary_mapping": {"source": "Sheet Am matched beneficiary", "erp_party": "Employee: Bilal | 132210"}}
+    return mv
+
+
+def test_a_document_of_another_payee_is_never_offered():
+    docs = [doc("JV-13", -1500, "2026-09-13", counter={"132210"}), doc("JV-20", -1500, "2026-09-20", counter={"132228"})]
+    out = E.process(_bilal_line(), Ctx(ledger=Ledger(docs)))
+    assert out["decision_type"] == "PICK_DOCUMENT"
+    assert [d["name"] for d in out["candidates"]["documents"]] == ["JV-13"]        # Imran's custody entry is gone
+
+
+def test_the_same_day_document_of_this_payee_is_linked_without_asking():
+    docs = [doc("JV-13", -1500, "2026-09-13", counter={"132210"}), doc("JV-16", -1500, "2026-09-16", counter={"132210"}),
+            doc("JV-20", -1500, "2026-09-20", counter={"132228"})]
+    out = E.process(_bilal_line(), Ctx(ledger=Ledger(docs)))
+    assert (out["erp_document"], out["link_method"], out["engine_state"]) == ("JV-16", "LEDGER", "POSTED")
+    # the 13 September line finds its own entry, not the neighbour
+    assert E.process(_bilal_line("2026-09-13"), Ctx(ledger=Ledger(docs)))["erp_document"] == "JV-13"
+
+
+def test_without_payee_evidence_the_old_pick_behaviour_stays():
+    mv = movement(-1500, "11100071178405 BEN ID:2472775614", family="INTERNAL_BEN_ID", day="2026-09-16")
+    docs = [doc("JV-16", -1500, "2026-09-16", counter={"132210"}), doc("JV-17", -1500, "2026-09-17", counter={"132228"})]
+    out = E.process(mv, Ctx(ledger=Ledger(docs)))
+    assert out["decision_type"] == "PICK_DOCUMENT" and len(out["candidates"]["documents"]) == 2

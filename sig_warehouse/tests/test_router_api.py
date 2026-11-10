@@ -710,3 +710,19 @@ def test_verified_payee_custody_needs_the_exact_beneficiary_and_the_name(api, mo
     assert api._verified_payee_custody({**good, "erp_party": "Employee: Someone Else | 132214"}, "K1") is None
     arabic = {**good, "erp_party": "Employee: محمد عمران | 132214"}
     assert api._verified_payee_custody(arabic, "K1")["account"] == "132214 - Imran - SIG"
+
+
+def test_verified_employee_proposals_skip_payees_that_are_already_tied_or_not_people(api, monkeypatch):
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True, raising=False)
+    monkeypatch.setattr(api.frappe, "get_list", lambda doctype, **kw: [{"name": "132214 - Imran - SIG"}] if doctype == "Account"
+                        else [{"name": "HR-EMP-9", "employee_name": "Mohammed Imran Ansary"}], raising=False)
+    mapping = {"source": "Sheet Am matched beneficiary", "beneficiary_key": "K1", "erp_party": "Employee: Mohammed Imran Ansary | 132214"}
+    rows = [{"name": "m1", "counterparty": "CP1", "recognition_json": json.dumps({"am_beneficiary_mapping": mapping})},
+            {"name": "m2", "counterparty": "CP1", "recognition_json": json.dumps({"am_beneficiary_mapping": mapping})},
+            {"name": "m3", "counterparty": "CP2", "recognition_json": json.dumps({"am_beneficiary_mapping": mapping})},
+            {"name": "m4", "counterparty": "CP3", "recognition_json": json.dumps({"am_beneficiary_mapping": mapping})}]
+    cps = {"CP1": {"am_key": "K1", "display_name": "Imran"},
+           "CP2": {"am_key": "K1", "employee": "HR-EMP-9", "custody_account": "x"},      # already tied
+           "CP3": {"am_key": "K1", "supplier": "SUP-1"}}                                  # a supplier, not a person
+    found = api._verified_employee_proposals(rows, cps.get)
+    assert list(found) == ["CP1"] and found["CP1"]["movements"] == ["m1", "m2"] and found["CP1"]["employee"] == "HR-EMP-9"

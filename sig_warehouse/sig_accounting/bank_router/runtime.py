@@ -103,13 +103,22 @@ class Ledger:
             out = r.paid_from in gls
             self._add({"doctype": "Payment Entry", "name": r.name, "date": r.posting_date, "docstatus": r.docstatus,
                        "amount": -flt(r.paid_amount) if out else flt(r.received_amount), "reference": r.reference_no or "",
-                       "marker": r.marker or "", "bank_account": r.paid_from if out else r.paid_to})
-        for r in frappe.db.sql("""select je.name, je.posting_date, je.docstatus, je.custom_pc_statement_key marker, jea.account,
+                       "marker": r.marker or "", "bank_account": r.paid_from if out else r.paid_to, "party": r.party or ""})
+        je_rows = frappe.db.sql("""select je.name, je.posting_date, je.docstatus, je.custom_pc_statement_key marker, jea.account,
                 jea.debit_in_account_currency d, jea.credit_in_account_currency c
                 from `tabJournal Entry Account` jea join `tabJournal Entry` je on je.name = jea.parent
-                where je.docstatus < 2 and je.posting_date between %(s)s and %(e)s and jea.account in %(gl)s""", window, as_dict=True):
+                where je.docstatus < 2 and je.posting_date between %(s)s and %(e)s and jea.account in %(gl)s""", window, as_dict=True)
+        counters = collections.defaultdict(set)   # JE name -> numbers of its non-bank accounts: who the other side is
+        if je_rows:
+            for c in frappe.db.sql("""select parent, account from `tabJournal Entry Account` where parent in %(names)s and account not in %(gl)s""",
+                                   {"names": tuple({r.name for r in je_rows}), "gl": gls}, as_dict=True):
+                number = re.match(r"\s*(\d+)", str(c.account or ""))
+                if number:
+                    counters[c.parent].add(number.group(1))
+        for r in je_rows:
             self._add({"doctype": "Journal Entry", "name": r.name, "date": r.posting_date, "docstatus": r.docstatus,
-                       "amount": flt(r.d) - flt(r.c), "reference": "", "marker": r.marker or "", "bank_account": r.account})
+                       "amount": flt(r.d) - flt(r.c), "reference": "", "marker": r.marker or "", "bank_account": r.account,
+                       "counter": counters.get(r.name, set())})
 
     def _add(self, candidate):
         self.rows.append(candidate)

@@ -41,7 +41,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
         <div class="snb-controls"><select data-bank><option value="ALL">${__('All banks')}</option><option value="SNB">SNB</option><option value="ALINMA">Alinma</option></select>
         <input class="form-control" data-search type="search" placeholder="${__('Search name, reference or document')}"><button class="btn btn-default" data-refresh>${__('Refresh')}</button>
         <label class="snb-group-toggle"><input type="checkbox" data-group-payee> ${__('Group by payee')}</label></div>
-        <nav data-tabs></nav><nav class="snb-types" data-types></nav><section class="snb-grid"><aside><div class="snb-bulk"><button class="btn btn-default" data-bulk>${__('Confirm selected unique matches')}</button><button class="btn btn-default" data-select-missing>${__('Select missing links on this page')}</button><button class="btn btn-default" data-clear-selected>${__('Clear selected missing links')}</button></div><div data-queue></div><button class="btn btn-default" data-more hidden>${__('Load more')}</button></aside><article data-card></article></section>`);
+        <nav data-tabs></nav><nav class="snb-types" data-types></nav><section class="snb-grid"><aside><div class="snb-bulk"><button class="btn btn-default" data-bulk>${__('Confirm selected unique matches')}</button><button class="btn btn-default" data-select-missing>${__('Select missing links on this page')}</button><button class="btn btn-default" data-clear-selected>${__('Clear selected missing links')}</button><button class="btn btn-default" data-confirm-employees>${__('Confirm verified employees')}</button></div><div data-queue></div><button class="btn btn-default" data-more hidden>${__('Load more')}</button></aside><article data-card></article></section>`);
 
     function renderTabs() {
         q('[data-tabs]').innerHTML = Object.entries(tabs).map(([k, label]) =>
@@ -244,6 +244,18 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     root.on('change', '[data-treatment]', function () { const x = selected(); if (x) x.accounting_treatment = this.value; renderCard(); });
     root.on('input', '[data-search]', function () { const v = this.value; clearTimeout(timer); timer = setTimeout(() => { state.search = v; load(); }, 300); });
     root.on('click', '[data-suggested-party]', function () { if (partyControl) partyControl.set_value(this.dataset.suggestedParty); });
+    root.on('click', '[data-confirm-employees]', async function () {
+        try {
+            const plan = (await frappe.call({method: api + 'bulk_confirm_verified_employees', type: 'POST', args: {apply: 0}})).message;
+            if (!plan.payees.length) { frappe.msgprint(__('No payee has a verified Employee waiting for confirmation.')); return; }
+            const list = plan.payees.map(p => `${esc(p.payee)} → ${esc(p.name)} · ${esc(p.account)} (${p.lines})`).join('<br>');
+            frappe.confirm(__('Confirm these {0} payees as Employees with their custody ledger?', [plan.payees.length]) + '<br><br>' + list, async () => {
+                const done = (await frappe.call({method: api + 'bulk_confirm_verified_employees', type: 'POST', args: {apply: 1}})).message;
+                frappe.show_alert({message: __('Confirmed {0} payees.', [done.applied]), indicator: 'green'});
+                load();
+            });
+        } catch (e) { frappe.msgprint(__('Could not confirm employees. Check your access.')); }
+    });
     root.on('click', '[data-pick-account]', function () { if (partyControl) partyControl.set_value(this.dataset.pickAccount); });
     root.on('click', '[data-route]', function () {
         const x = selected(), treatment = q('[data-treatment]').value, remember = q('[data-remember]')?.checked ? '1' : '0';

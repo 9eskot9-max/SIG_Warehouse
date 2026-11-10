@@ -1167,6 +1167,62 @@ def pick_document(name, modified, doctype, document):
     return get_movement(name)
 
 
+def _verified_employee_proposals(rows, get_cp):
+    """Payees not yet tied to an Employee whose Sheet Am label is verified against ERP: {counterparty: proposal}."""
+    found = {}
+    for r in rows:
+        cp = get_cp(r["counterparty"]) if r.get("counterparty") else None
+        if not cp or cp.get("employee") or cp.get("custody_account") or cp.get("is_company") or cp.get("supplier") or cp.get("customer"):
+            continue
+        mapping = (_data(r.get("recognition_json")) or {}).get("am_beneficiary_mapping") or {}
+        match = _verified_payee_custody(mapping, cp.get("am_key"))
+        if not match:
+            continue
+        entry = found.setdefault(r["counterparty"], {**match, "counterparty": r["counterparty"], "payee": cp.get("display_name") or "", "movements": []})
+        entry["movements"].append(r["name"])
+    return found
+
+
+@frappe.whitelist(methods=["POST"])
+def bulk_confirm_verified_employees(apply=0):
+    """Tie every payee whose Sheet Am Employee label is verified against ERP to that Employee and custody ledger, in one decision.
+
+    Dry run unless apply=1. Only the Employee and custody account are stored: an untagged payment still asks Finance per line.
+    """
+    _require("write")
+    from sig_warehouse.sig_warehouse.pc_funding import _active_employee, _require_finance
+    _require_finance()
+    rows = frappe.get_all(DOCTYPE, filters={"engine_state": "NEEDS_YOU", "direction": "DEBIT",
+                          "kind": ["in", ["PETTY_CASH", "UNKNOWN", "EXPENSE_PAYMENT", "EMPLOYEE"]]},
+                          fields=["name", "counterparty", "recognition_json"], limit_page_length=0)
+    cache = {}
+
+    def get_cp(name):
+        if name not in cache:
+            cache[name] = frappe.db.get_value(COUNTERPARTY, name, ["display_name", "am_key", "employee", "custody_account", "is_company", "supplier", "customer"], as_dict=True)
+        return cache[name]
+    found = _verified_employee_proposals(rows, get_cp)
+    summary = [{"counterparty": p["counterparty"], "payee": p["payee"], "employee": p["employee"], "name": p["name"], "account": p["account"],
+                "lines": len(p["movements"])} for p in found.values()]
+    if str(apply) not in ("1", "true", "True"):
+        return {"applied": 0, "payees": summary}
+    done, names = 0, []
+    for cp_name, p in found.items():
+        if _active_employee(p["employee"], runtime.documents.COMPANY) != p["account"]:
+            continue                                   # ownership changed since it was read
+        cp = frappe.get_doc(COUNTERPARTY, cp_name)
+        if cp.employee or cp.custody_account:
+            continue
+        cp.employee, cp.custody_account = p["employee"], p["account"]
+        cp.flags.bank_router_write = True
+        cp.save(ignore_permissions=True)
+        done += 1
+        names += p["movements"]
+    if names:
+        runtime.run("main", 0, min(len(names), 100), names=names[:100], review_only=True)
+    return {"applied": done, "payees": summary}
+
+
 @frappe.whitelist(methods=["POST"])
 def bulk_confirm_unique_matches(items):
     """Link only rows already showing exactly one eligible ledger candidate; never create a document."""
