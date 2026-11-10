@@ -524,6 +524,55 @@ def search_expense_accounts(query=""):
     return [{"name": r.name, "label": r.name} for r in rows]
 
 
+def _open_supplier_documents(supplier, amount, getter):
+    """Open invoices, open orders and receipts waiting to be billed for one supplier, with the ones equal to `amount` marked.
+
+    A Purchase Receipt cannot be paid directly: it is shown as a hint, and the invoice is made from it first.
+    """
+    amount = abs(float(amount or 0))
+    common = {"supplier": supplier, "docstatus": 1, "company": runtime.documents.COMPANY}
+    restricted = []
+    raw_getter = getter
+
+    def getter(doctype, **kwargs):  # a role without read on a document type sees nothing of it, and is told so
+        try:
+            return raw_getter(doctype, **kwargs)
+        except frappe.PermissionError:
+            restricted.append(doctype)
+            return []
+    invoices = getter("Purchase Invoice", filters={**common, "outstanding_amount": [">", 0], "currency": "SAR"},
+                      fields=["name", "bill_no", "posting_date", "grand_total", "outstanding_amount"], order_by="posting_date desc", page_length=30)
+    orders = getter("Purchase Order", filters={**common, "status": ["in", ["To Receive and Bill", "To Bill", "To Receive"]], "currency": "SAR"},
+                    fields=["name", "transaction_date", "grand_total", "advance_paid"], order_by="transaction_date desc", page_length=30)
+    receipts = getter("Purchase Receipt", filters={**common, "status": "To Bill"},
+                      fields=["name", "posting_date", "grand_total"], order_by="posting_date desc", page_length=30)
+
+    def mark(value):
+        return abs(float(value or 0) - amount) <= 0.5
+    return {
+        "invoices": [{"doctype": "Purchase Invoice", "name": r["name"], "bill_no": r.get("bill_no") or "", "date": str(r["posting_date"]),
+                      "total": r["grand_total"], "open": r["outstanding_amount"], "exact": mark(r["outstanding_amount"])} for r in invoices],
+        "orders": [{"doctype": "Purchase Order", "name": r["name"], "date": str(r["transaction_date"]), "total": r["grand_total"],
+                    "open": float(r["grand_total"] or 0) - float(r.get("advance_paid") or 0),
+                    "exact": mark(float(r["grand_total"] or 0) - float(r.get("advance_paid") or 0))} for r in orders],
+        "receipts": [{"doctype": "Purchase Receipt", "name": r["name"], "date": str(r["posting_date"]), "total": r["grand_total"],
+                      "exact": mark(r["grand_total"])} for r in receipts],
+        "restricted": restricted,
+    }
+
+
+@frappe.whitelist()
+def supplier_open_documents(name, supplier):
+    """What this supplier's payment can rest on: open invoices, open orders and receipts still to be billed."""
+    _require("read")
+    doc = frappe.get_doc(DOCTYPE, name)
+    doc.check_permission("read")
+    if doc.direction != "DEBIT":
+        return {"invoices": [], "orders": [], "receipts": [], "restricted": []}
+    _check_link("Supplier", supplier)
+    return _open_supplier_documents(supplier, doc.amount, frappe.get_list)
+
+
 def _new_party(doctype, name, vat="", country=""):
     """Create a Customer or Supplier only when no enabled party already carries that exact name."""
     name = str(name or "").strip()

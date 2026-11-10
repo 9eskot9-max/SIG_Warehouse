@@ -598,3 +598,30 @@ def test_fee_rows_are_never_counted_as_lines_of_their_own(api):
     assert api._shown_in_tab("posted", "BANK_CHARGE", "") is True
     assert api._shown_in_tab("needs", "UNKNOWN", "") is True
     assert set(api.KIND_GROUPS["OTHER"]) >= {"BANK_CHARGE", "SPECIALIST"}
+
+
+def test_supplier_open_documents_mark_exact_amounts_and_keep_receipts_as_hints(api):
+    calls = {}
+
+    def getter(doctype, **kwargs):
+        calls[doctype] = kwargs["filters"]
+        return {
+            "Purchase Invoice": [{"name": "PI-1", "bill_no": "B1", "posting_date": "2026-10-01", "grand_total": 500, "outstanding_amount": 366.09},
+                                 {"name": "PI-2", "bill_no": "", "posting_date": "2026-09-01", "grand_total": 900, "outstanding_amount": 900}],
+            "Purchase Order": [{"name": "PO-1", "transaction_date": "2026-10-02", "grand_total": 1000, "advance_paid": 100}],
+            "Purchase Receipt": [{"name": "PR-1", "posting_date": "2026-10-21", "grand_total": 366.09}],
+        }[doctype]
+    out = api._open_supplier_documents("SUP", -366.09, getter)
+    assert [(d["name"], d["exact"]) for d in out["invoices"]] == [("PI-1", True), ("PI-2", False)]
+    assert out["orders"][0]["open"] == 900 and out["orders"][0]["exact"] is False
+    assert out["receipts"][0]["exact"] is True and out["receipts"][0]["doctype"] == "Purchase Receipt"
+    assert calls["Purchase Receipt"]["status"] == "To Bill" and calls["Purchase Invoice"]["outstanding_amount"] == [">", 0]
+
+
+def test_supplier_open_documents_report_a_document_type_the_role_cannot_read(api):
+    def getter(doctype, **kwargs):
+        if doctype == "Purchase Receipt":
+            raise PermissionError("no")
+        return []
+    out = api._open_supplier_documents("SUP", 100, getter)
+    assert out["receipts"] == [] and out["restricted"] == ["Purchase Receipt"]
