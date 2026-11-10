@@ -670,3 +670,16 @@ def test_mapped_custody_needs_one_enabled_account_and_one_active_employee(api, m
     found = api._mapped_custody({"erp_party": "Employee: Mohammed Imran Ansary | 132214"})
     assert (found["employee"], found["account"]) == ("HR-EMP-9", "132214 - Imran - SIG")
     assert api._mapped_custody({"erp_party": "Supplier: X"}) is None and api._mapped_custody({}) is None
+
+
+def test_verified_payee_custody_needs_the_exact_beneficiary_and_the_name(api, monkeypatch):
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True, raising=False)
+    monkeypatch.setattr(api.frappe, "get_list", lambda doctype, **kw: [{"name": "132214 - Imran - SIG"}] if doctype == "Account"
+                        else [{"name": "HR-EMP-9", "employee_name": "Mohammed Imran Ansary"}], raising=False)
+    good = {"source": "Sheet Am matched beneficiary", "beneficiary_key": "K1", "erp_party": "Employee: Mohammed Imran Ansary | 132214"}
+    assert api._verified_payee_custody(good, "K1")["employee"] == "HR-EMP-9"
+    assert api._verified_payee_custody({**good, "source": "typed"}, "K1") is None
+    assert api._verified_payee_custody(good, "K2") is None
+    assert api._verified_payee_custody({**good, "erp_party": "Employee: Someone Else | 132214"}, "K1") is None
+    arabic = {**good, "erp_party": "Employee: محمد عمران | 132214"}
+    assert api._verified_payee_custody(arabic, "K1")["account"] == "132214 - Imran - SIG"

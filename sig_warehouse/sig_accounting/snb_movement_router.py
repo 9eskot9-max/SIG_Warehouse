@@ -340,20 +340,30 @@ def _mapped_custody(mapping):
     return {"employee": employees[0]["name"], "name": employees[0]["employee_name"], "account": accounts[0]["name"], "label": match.group(1)}
 
 
-def _suggest_pc_employee(doc, mapping, cp):
-    """Suggest only an exact Am beneficiary mapping, visible to this user."""
-    if doc.kind != "PETTY_CASH" or not cp or mapping.get("source") != "Sheet Am matched beneficiary":
+def _verified_payee_custody(mapping, am_key):
+    """The payee's Employee and custody ledger, only when Sheet Am's exact beneficiary is this counterparty and the name agrees.
+
+    A Latin name must agree with the Employee. An Arabic label cannot be compared with the English name, so the custody
+    account number (one active Employee owns it) is the identity in that case.
+    """
+    mapping = mapping or {}
+    if mapping.get("source") != "Sheet Am matched beneficiary":
         return None
-    if not mapping.get("beneficiary_key") or mapping["beneficiary_key"] != cp.get("am_key"):
+    if not mapping.get("beneficiary_key") or mapping["beneficiary_key"] != am_key:
         return None
     found = _mapped_custody(mapping)
     if not found:
         return None
-    # A Latin name must agree with the Employee. An Arabic label cannot be compared with the English Employee name, so the
-    # custody account number (one active Employee owns it) is the identity in that case.
-    if normalize_text(found["name"]) != normalize_text(found["label"]) and not re.search(r"[\u0600-\u06FF]", found["label"]):
+    if normalize_text(found["name"]) != normalize_text(found["label"]) and not re.search(r"[؀-ۿ]", found["label"]):
         return None
     return {"employee": found["employee"], "name": found["name"], "account": found["account"]}
+
+
+def _suggest_pc_employee(doc, mapping, cp):
+    """Suggest the verified payee Employee for a petty cash line."""
+    if doc.kind != "PETTY_CASH" or not cp:
+        return None
+    return _verified_payee_custody(mapping, cp.get("am_key"))
 
 
 def _expense_account_allowed(details, account, custody):
@@ -404,7 +414,7 @@ def _payload(doc, fees=None, statuses=None):
         "supply_types": supply_types, "supply_type": doc.get("supply_type") or _suggest_supply(supply_types, category, cp),
         "supply_threshold": SUPPLY_THRESHOLD, "bill_owner": _bill_owner(signals) if signals.get("bill_account") else None,
         "account_choices": _account_choices(signals.get("biller_code")) if doc.direction == "DEBIT" else [],
-        "custody_choice": _mapped_custody(mapping) if doc.direction == "DEBIT" and doc.kind in ("UNKNOWN", "EXPENSE_PAYMENT", "EMPLOYEE") else None,
+        "custody_choice": _verified_payee_custody(mapping, (cp or {}).get("am_key")) if doc.direction == "DEBIT" and doc.kind in ("UNKNOWN", "EXPENSE_PAYMENT", "EMPLOYEE") else None,
         "purpose_default_treatment": purpose_default,
         "request_supplier": request_supplier, "request_supplier_conflict": bool(party and request_supplier and party != request_supplier),
         "payment_reference_doctype": doc.get("payment_reference_doctype") or "",
@@ -512,7 +522,8 @@ def list_inbox(tab="needs", bank="ALL", search="", start=0, limit=50, kind_group
         or_filters = [["source_json", "like", like], ["erp_document", "like", like], ["counterparty", "like", like]]
     rows = frappe.get_list(DOCTYPE, filters=filters, or_filters=or_filters, fields=["name"], order_by="event_date desc, name asc",
                            start=start, page_length=limit)
-    docs = [frappe.get_doc(DOCTYPE, r.name) for r in rows]
+    # The same rule as the counts: fee rows never appear as lines of their own, whatever type filter is set.
+    docs = [d for d in (frappe.get_doc(DOCTYPE, r.name) for r in rows) if _shown_in_tab(tab, d.kind, d.parent_movement)]
     fees = _fees_for([d.name for d in docs])
     statuses = _doc_status([{"erp_doctype": d.erp_doctype, "erp_document": d.erp_document} for d in docs] +
                            [{"erp_doctype": f["erp_doctype"], "erp_document": f["erp_document"]} for v in fees.values() for f in v])
@@ -830,7 +841,7 @@ def route_movement(name, modified, target):
         account = str(target.get("account") or "")
         _check_link("Account", account)
         details = frappe.db.get_value("Account", account, ["root_type", "is_group", "disabled", "company"], as_dict=True)
-        custody = _mapped_custody((_data(doc.recognition_json) or {}).get("am_beneficiary_mapping") or {})
+        custody = _verified_payee_custody((_data(doc.recognition_json) or {}).get("am_beneficiary_mapping") or {}, cp.get("am_key"))
         if not _expense_account_allowed(details, account, custody):
             frappe.throw(_("Choose an enabled expense account for this company that is not a group, or this payee's own custody ledger."))
         doc.accounting_account = account
