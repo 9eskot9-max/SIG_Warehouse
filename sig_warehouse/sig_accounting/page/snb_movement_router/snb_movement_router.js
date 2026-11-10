@@ -18,6 +18,9 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     const money = (n, c) => `${Number(n || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} ${esc(c || 'SAR')}`;
     const docStatus = s => s === 1 ? __('Posted') : s === 0 ? __('Draft') : s === 2 ? __('Cancelled') : __('Unknown');
     const selected = () => state.items.find(x => x.name === state.selected);
+    const suggestedTreatment = x => x.accounting_treatment || x.purpose_default_treatment ||
+        (!x.category ? x.signals?.suggested_treatment : '') ||
+        (x.direction === 'CREDIT' || (!x.request_supplier_conflict && (x.linked_party || x.request_supplier)) ? 'PAYMENT_ENTRY' : '');
     const visibleItems = () => state.items.filter(x => {
         const pair = x.signals && x.signals.paired_transfer;
         return !pair || pair.primary || !state.items.some(other => other.name === pair.name);
@@ -47,11 +50,11 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
                 `<button class="btn btn-primary" data-pick>${__('Link')}</button>`;
         }
         if (x.kind === 'OWN_TRANSFER' && !x.erp_document && x.signals?.paired_transfer) return `<p>${__('This pair moves money between company bank accounts. Review both legs before creating one draft.')}</p><button class="btn btn-primary" data-own-transfer>${__('Create one transfer draft')}</button>`;
-        if (x.kind === 'PETTY_CASH' && !x.erp_document) return `<p>${__('Confirm an Employee and their custody account, or select a separate company custody ledger for a non-employee account.')}</p><div data-employee-control></div><button class="btn btn-primary" data-confirm-pc>${__('Confirm Employee')}</button><details><summary>${__('Use a company custody account without an Employee')}</summary><p>${__('Choose the ledger for this specific bank account. It will not create an Employee funding cycle.')}</p><div data-custody-control></div><button class="btn btn-default" data-confirm-custody>${__('Confirm custody account')}</button></details>`;
+        if (x.kind === 'PETTY_CASH' && !x.erp_document) return `<p>${__('Confirm an Employee and their custody account, or select a separate company custody ledger for a non-employee account.')}</p>${x.pc_employee_suggestion ? `<p>${__('Suggested Employee')}: <strong>${esc(x.pc_employee_suggestion.name)}</strong><br>${__('Custody account')}: ${esc(x.pc_employee_suggestion.account)}</p><button class="btn btn-default" data-change-employee>${__('Change Employee')}</button>` : ''}<div data-employee-control ${x.pc_employee_suggestion ? 'hidden' : ''}></div><button class="btn btn-primary" data-confirm-pc>${__('Confirm Employee')}</button><details><summary>${__('Use a company custody account without an Employee')}</summary><p>${__('Choose the ledger for this specific bank account. It will not create an Employee funding cycle.')}</p><div data-custody-control></div><button class="btn btn-default" data-confirm-custody>${__('Confirm custody account')}</button></details>`;
         const canRoute = (!x.erp_document || x.doc_status === 0) && ['SUPPLIER_PAYMENT', 'CUSTOMER_RECEIPT', 'EXPENSE_PAYMENT', 'UNKNOWN', 'EMPLOYEE'].includes(x.kind) &&
             (x.decision_type || x.link_method === 'AUTO_DRAFT' || (x.direction === 'DEBIT' && ['UNKNOWN', 'EMPLOYEE'].includes(x.kind)));
         if (!canRoute) return '';
-        const treatment = x.accounting_treatment || x.signals?.suggested_treatment || (x.direction === 'CREDIT' || (x.request_supplier && !x.request_supplier_conflict && !['XXSC', 'XXMT'].includes(x.category)) ? 'PAYMENT_ENTRY' : '');
+        const treatment = suggestedTreatment(x);
         const expense = treatment === 'JOURNAL_ENTRY';
         const partyType = x.direction === 'CREDIT' ? 'Customer' : 'Supplier';
         return `<h4>${x.direction === 'CREDIT' ? __('Customer receipt') : __('How should Finance account for this movement?')}</h4>
@@ -86,7 +89,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
             employeeControl = frappe.ui.form.make_control({parent: $(employeeHost), df: {fieldtype:'Link', fieldname:'router_employee', options:'Employee', label:__('Employee'),
                 get_query: () => ({filters:{status:'Active', company:x.company}})}, render_input:true});
             employeeControl.refresh();
-            if (x.pc_employee) employeeControl.set_value(x.pc_employee);
+            if (x.pc_employee || x.pc_employee_suggestion?.employee) employeeControl.set_value(x.pc_employee || x.pc_employee_suggestion.employee);
         }
         const custodyHost = q('[data-custody-control]');
         if (custodyHost) {
@@ -97,7 +100,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
         }
         const host = q('[data-link-control]');
         if (host) {
-            const treatment = x.accounting_treatment || x.signals?.suggested_treatment || (x.direction === 'CREDIT' || (x.request_supplier && !x.request_supplier_conflict && !['XXSC', 'XXMT'].includes(x.category)) ? 'PAYMENT_ENTRY' : '');
+            const treatment = suggestedTreatment(x);
             const doctype = treatment === 'JOURNAL_ENTRY' ? 'Account' : x.direction === 'CREDIT' ? 'Customer' : 'Supplier';
             partyControl = frappe.ui.form.make_control({parent: $(host), df: {fieldtype: 'Link', fieldname: 'router_party', options: doctype,
                 label: doctype === 'Account' ? __('Expense account') : __(doctype),
@@ -167,6 +170,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     root.on('click', '[data-create-draft]', () => act('create_reviewed_draft', {}));
     root.on('click', '[data-own-transfer]', () => act('create_own_transfer_draft', {}));
     root.on('click', '[data-confirm-pc]', () => { const employee = employeeControl?.get_value(); if (!employee) { q('[data-message]').textContent = __('Choose an Employee.'); return; } act('confirm_petty_cash_employee', {employee}); });
+    root.on('click', '[data-change-employee]', () => { q('[data-employee-control]').hidden = false; employeeControl?.set_value(''); });
     root.on('click', '[data-confirm-custody]', () => { const account = custodyControl?.get_value(); if (!account) { q('[data-message]').textContent = __('Choose a custody ledger.'); return; } act('confirm_petty_cash_custody', {account}); });
     root.on('change', '[data-bank]', function () { state.bank = this.value; load(); });
     root.on('change', '[data-treatment]', function () { const x = selected(); if (x) x.accounting_treatment = this.value; renderCard(); });

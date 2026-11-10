@@ -19,6 +19,7 @@
   "supplier",
   "expense_account",
   "default_treatment",
+  "purpose_defaults_json",
   "category",
   "notes",
   "am_key"
@@ -100,6 +101,13 @@
    "label": "Default accounting treatment",
    "options": "\nPAYMENT_ENTRY\nJOURNAL_ENTRY\nFINANCE_HANDLES",
    "description": "Suggested for this payee; Finance may override it on each movement."
+  },
+  {
+   "fieldname": "purpose_defaults_json",
+   "fieldtype": "Long Text",
+   "label": "Reviewed treatment defaults by purpose",
+   "read_only": 1,
+   "hidden": 1
   },
   {
    "fieldname": "category",

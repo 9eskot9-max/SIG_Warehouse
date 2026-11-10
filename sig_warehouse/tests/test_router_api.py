@@ -59,6 +59,35 @@ class Doc:
         setattr(self, key, value)
 
 
+def test_purpose_defaults_are_scoped(api):
+    cp = {"purpose_defaults_json": '{"XXMT":"PAYMENT_ENTRY","XXSC":"JOURNAL_ENTRY"}', "default_treatment": "FINANCE_HANDLES"}
+    assert api._purpose_default(cp, "XXMT") == "PAYMENT_ENTRY"
+    assert api._purpose_default(cp, "XXSC") == "JOURNAL_ENTRY"
+    assert api._purpose_default(cp, "XXMR") == ""
+    assert api._purpose_default(cp, "") == "FINANCE_HANDLES"
+
+
+def test_pc_suggestion_requires_exact_mapping_and_permissions(api, monkeypatch):
+    doc = Doc(kind="PETTY_CASH")
+    cp = {"am_key": "beneficiary-1"}
+    mapping = {"source": "Sheet Am matched beneficiary", "beneficiary_key": "beneficiary-1", "erp_party": "Employee: Abid Saeed | 13221"}
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True, raising=False)
+    def get_list(doctype, **kwargs):
+        return [{"name": "13221 - Custody - Co"}] if doctype == "Account" else [{"name": "EMP-1", "employee_name": "Abid Saeed"}]
+    monkeypatch.setattr(api.frappe, "get_list", get_list, raising=False)
+    assert api._suggest_pc_employee(doc, mapping, cp) == {"employee": "EMP-1", "name": "Abid Saeed", "account": "13221 - Custody - Co"}
+    assert api._suggest_pc_employee(doc, {**mapping, "beneficiary_key": "other"}, cp) is None
+    assert api._suggest_pc_employee(doc, {**mapping, "erp_party": "Employee: Different Name | 13221"}, cp) is None
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: False)
+    assert api._suggest_pc_employee(doc, mapping, cp) is None
+
+
+def test_pc_suggestion_rejects_ambiguous_custody(api, monkeypatch):
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True, raising=False)
+    monkeypatch.setattr(api.frappe, "get_list", lambda *args, **kwargs: [{"name": "a"}, {"name": "b"}], raising=False)
+    assert api._suggest_pc_employee(Doc(kind="PETTY_CASH"), {"source": "Sheet Am matched beneficiary", "beneficiary_key": "a", "erp_party": "Employee: Abid | 13221"}, {"am_key": "a"}) is None
+
+
 def test_only_the_integration_owner_may_run_the_engine_or_read_links(api):
     api.frappe.session.user = "someone@example.com"
     for call in (lambda: api.run_engine("main"), lambda: api.list_links(), lambda: api.sync_counterparties([])):

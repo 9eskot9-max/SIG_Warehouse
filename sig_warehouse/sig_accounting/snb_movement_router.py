@@ -269,16 +269,46 @@ def _request_supplier(doc, recognition):
     return rows[0]["name"] if len(rows) == 1 else ""
 
 
+def _purpose_default(cp, category):
+    """A purpose-specific choice must not leak into another purpose."""
+    defaults = _data((cp or {}).get("purpose_defaults_json")) or {}
+    if not isinstance(defaults, dict):
+        defaults = {}
+    return defaults.get(category, "") if category else ((cp or {}).get("default_treatment") or "")
+
+
+def _suggest_pc_employee(doc, mapping, cp):
+    """Suggest only an exact Am beneficiary mapping, visible to this user."""
+    if doc.kind != "PETTY_CASH" or not cp or mapping.get("source") != "Sheet Am matched beneficiary":
+        return None
+    if not mapping.get("beneficiary_key") or mapping["beneficiary_key"] != cp.get("am_key"):
+        return None
+    if not frappe.has_permission("Account", "read") or not frappe.has_permission("Employee", "read"):
+        return None
+    match = re.fullmatch(r"Employee:\s*([^|]+?)\s*\|\s*(\d+)\s*", str(mapping.get("erp_party") or ""), re.I)
+    if not match:
+        return None
+    accounts = frappe.get_list("Account", filters={"account_number": match.group(2), "company": runtime.documents.COMPANY,
+        "disabled": 0, "is_group": 0}, fields=["name"], page_length=2)
+    if len(accounts) != 1:
+        return None
+    employees = frappe.get_list("Employee", filters={"custom_custody_account": accounts[0]["name"], "status": "Active",
+        "company": runtime.documents.COMPANY}, fields=["name", "employee_name"], page_length=2)
+    if len(employees) != 1 or normalize_text(employees[0]["employee_name"]) != normalize_text(match.group(1)):
+        return None
+    return {"employee": employees[0]["name"], "name": employees[0]["employee_name"], "account": accounts[0]["name"]}
+
+
 def _payload(doc, fees=None, statuses=None):
     source = _data(doc.source_json) or {}
     recognition = _data(doc.recognition_json) or {}
     signals = _data(doc.signals_json) or {}
     statuses = statuses or {}
     mapping = recognition.get("am_beneficiary_mapping") or {}
-    cp = frappe.db.get_value(COUNTERPARTY, doc.counterparty, ["display_name", "customer", "supplier", "employee", "custody_account"], as_dict=True) if doc.counterparty else None
+    cp = frappe.db.get_value(COUNTERPARTY, doc.counterparty, ["display_name", "customer", "supplier", "employee", "custody_account", "am_key", "default_treatment", "purpose_defaults_json"], as_dict=True) if doc.counterparty else None
     party_type = "Customer" if doc.direction == "CREDIT" else "Supplier"
     party = (cp or {}).get(party_type.lower()) or ""
-    if party and not frappe.has_permission(party_type, "read", party):
+    if party and (not frappe.has_permission(party_type, "read", party) or frappe.db.get_value(party_type, party, "disabled")):
         party = ""
     employee = (cp or {}).get("employee") or ""
     if employee and not frappe.has_permission("Employee", "read", employee):
@@ -286,6 +316,9 @@ def _payload(doc, fees=None, statuses=None):
     custody = (cp or {}).get("custody_account") or "" if employee else ""
     if custody and not frappe.has_permission("Account", "read", custody):
         custody = ""
+    category = recognition.get("category") if recognition.get("am_category_status") == "MATCHED" else ""
+    pc_suggestion = _suggest_pc_employee(doc, mapping, cp) if not employee and category == "XXPC" else None
+    purpose_default = _purpose_default(cp, category)
     request_supplier = _request_supplier(doc, recognition)
     candidate_parties = [request_supplier] if request_supplier else []
     for candidate in (_data(doc.candidates_json) or {}).get("counterparties", []):
@@ -300,13 +333,15 @@ def _payload(doc, fees=None, statuses=None):
         "counterparty": doc.counterparty or "", "counterparty_name": (cp or {}).get("display_name") or "",
         "linked_party_type": party_type if party else "", "linked_party": party, "suggested_parties": sorted(set(candidate_parties)),
         "pc_employee": employee, "pc_custody_account": custody,
+        "pc_employee_suggestion": pc_suggestion,
+        "purpose_default_treatment": purpose_default,
         "request_supplier": request_supplier, "request_supplier_conflict": bool(party and request_supplier and party != request_supplier),
         "payment_reference_doctype": doc.get("payment_reference_doctype") or "",
         "payment_reference": doc.get("payment_reference") or "",
         "display_name": (signals.get("display_name") or mapping.get("beneficiary_name") or "")[:140],
         "route_source": doc.route_source or "", "erp_doctype": doc.erp_doctype or "", "erp_document": doc.erp_document or "",
         "doc_status": statuses.get((doc.erp_doctype, doc.erp_document)), "link_method": doc.link_method or "",
-        "category": recognition.get("category") if recognition.get("am_category_status") == "MATCHED" else "",
+        "category": category,
         "transfer_request": recognition.get("transfer_request") or {},
         "signals": signals, "candidates": _data(doc.candidates_json) or {}, "reference": source.get("reference", ""),
         "narrative": "\n".join(str(source.get(k) or "") for k in ("transaction_description", "detail_description", "extra_description", "remarks") if source.get(k)),
@@ -620,7 +655,16 @@ def route_movement(name, modified, target):
         frappe.throw(_("Choose a party for Payment Entry or an expense account for Journal Entry."))
     remember = str(target.get("remember_default") or "0") == "1"
     if remember:
-        cp.default_treatment = treatment
+        recognition = _data(doc.recognition_json) or {}
+        purpose = recognition.get("category") if recognition.get("am_category_status") == "MATCHED" else ""
+        if purpose:
+            defaults = _data(cp.get("purpose_defaults_json")) or {}
+            if not isinstance(defaults, dict):
+                defaults = {}
+            defaults[purpose] = treatment
+            cp.purpose_defaults_json = _json(defaults)
+        else:
+            cp.default_treatment = treatment
         if treatment == "JOURNAL_ENTRY":
             cp.expense_account = doc.accounting_account
     cp.flags.bank_router_write = True
