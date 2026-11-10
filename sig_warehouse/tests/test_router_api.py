@@ -662,6 +662,33 @@ def test_a_payment_to_an_employee_may_be_booked_to_that_employees_own_custody_le
     assert api._expense_account_allowed({**expense, "company": "Other"}, "5155 - X", None) is False
 
 
+def test_sadad_allows_company_liability_but_not_party_ledgers_or_other_companies(api):
+    liability = {"root_type": "Liability", "account_type": "", "is_group": 0, "disabled": 0, "company": "Co"}
+    assert api._expense_account_allowed(liability, "243 - Yanal", None, sadad=True)
+    assert not api._expense_account_allowed(liability, "243 - Yanal", None)
+    assert not api._expense_account_allowed({**liability, "account_type": "Payable"}, "243", None, sadad=True)
+    assert not api._expense_account_allowed({**liability, "company": "Other"}, "243", None, sadad=True)
+    assert api._is_sadad('{"parser_family":"SADAD"}')
+    assert not api._is_sadad('{"parser_family":"LOCAL"}')
+
+
+def test_sadad_group_filters_and_counts_statement_family(api, monkeypatch):
+    rows = [types.SimpleNamespace(engine_state="NEEDS_YOU", kind="UNKNOWN", parent_movement="", source_json='{"parser_family":"SADAD"}'),
+            types.SimpleNamespace(engine_state="NEEDS_YOU", kind="EXPENSE_PAYMENT", parent_movement="", source_json='{"parser_family":"SADAD"}'),
+            types.SimpleNamespace(engine_state="NEEDS_YOU", kind="UNKNOWN", parent_movement="", source_json='{"parser_family":"LOCAL"}')]
+    calls = []
+    def get_list(doctype, **kwargs):
+        calls.append(kwargs)
+        return rows if kwargs.get("limit_page_length") == 0 else []
+    monkeypatch.setattr(api.frappe, "get_list", get_list, raising=False)
+    monkeypatch.setattr(api, "_fees_for", lambda names: {})
+    monkeypatch.setattr(api, "_doc_status", lambda docs: {})
+    result = api.list_inbox(kind_group="SADAD")
+    assert calls[0]["filters"]["source_json"] == ["like", '%"parser_family":"SADAD"%']
+    assert result["kind_counts"]["SADAD"] == 2
+    assert result["kind_counts"]["ALL"] == 3
+
+
 def test_mapped_custody_needs_one_enabled_account_and_one_active_employee(api, monkeypatch):
     monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True, raising=False)
     def get_list(doctype, **kwargs):

@@ -12,7 +12,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
         CHOOSE_TREATMENT: __('Choose PE or JE for this movement'), CONFIRM_TREATMENT: __('Confirm the payee default for this movement'),
         TREATMENT_MISMATCH: __('Linked document type differs from the selected treatment')};
     const categories = {XXPC: __('Petty Cash'), XXSL: __('Salary'), XXHR: __('HR'), XXCL: __('Deferred'), XXMT: __('Maintenance'), XXMR: __('Materials'), XXSC: __('Subcontractor'), XXLG: __('Logistics')};
-    const kindGroups = {ALL: __('All'), UNCLASSIFIED: __('Unclassified'), PETTY_CASH: __('Petty cash'), RECEIPTS: __('Receipts'), OWN_TRANSFER: __('Own transfers'),
+    const kindGroups = {ALL: __('All'), SADAD: __('SADAD'), UNCLASSIFIED: __('Unclassified'), PETTY_CASH: __('Petty cash'), RECEIPTS: __('Receipts'), OWN_TRANSFER: __('Own transfers'),
         SUPPLIER: __('Supplier & expense'), OTHER: __('Other')};
     const state = {tab: 'needs', bank: 'ALL', search: '', items: [], counts: {}, kindCounts: {}, kindGroup: 'ALL', groupByPayee: false, selected: '', status: null,
         bulkSelected: new Set(), missingSelected: new Set(), hasMore: false, openDocs: {}, supplyChoice: {}};
@@ -29,7 +29,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     const docStatus = s => s === 1 ? __('Posted') : s === 0 ? __('Draft') : s === 2 ? __('Cancelled') : __('Unknown');
     const selected = () => state.items.find(x => x.name === state.selected);
     const suggestedTreatment = x => x.accounting_treatment || x.purpose_default_treatment ||
-        (!x.category ? x.signals?.suggested_treatment : '') ||
+        (!x.category ? x.signals?.suggested_treatment : '') || (x.is_sadad && x.direction === 'DEBIT' ? 'JOURNAL_ENTRY' : '') ||
         (x.direction === 'CREDIT' || (!x.request_supplier_conflict && (x.linked_party || x.request_supplier)) ? 'PAYMENT_ENTRY' : '');
     const visibleItems = () => state.items.filter(x => {
         const pair = x.signals && x.signals.paired_transfer;
@@ -148,8 +148,8 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
             const treatment = suggestedTreatment(x);
             const doctype = treatment === 'JOURNAL_ENTRY' ? 'Account' : x.direction === 'CREDIT' ? 'Customer' : 'Supplier';
             partyControl = frappe.ui.form.make_control({parent: $(host), df: {fieldtype: 'Link', fieldname: 'router_party', options: doctype,
-                label: doctype === 'Account' ? __('Expense account') : __(doctype),
-                get_query: () => ({filters: doctype === 'Account' ? {root_type: 'Expense', is_group: 0, disabled: 0, company: x.company} : {disabled: 0}}),
+                label: doctype === 'Account' ? __('Account') : __(doctype),
+                get_query: () => ({filters: doctype === 'Account' ? {...(x.is_sadad ? {account_type: ['not in', ['Receivable', 'Payable']]} : {root_type: 'Expense'}), is_group: 0, disabled: 0, company: x.company} : {disabled: 0}}),
                 change: () => { if (doctype === 'Supplier' && x.direction === 'DEBIT') loadOpenDocs(x); }}, render_input: true});
             partyControl.refresh();
             const typeAccount = code => (x.supply_types || []).find(t => t.code === code)?.account || '';

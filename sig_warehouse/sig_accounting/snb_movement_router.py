@@ -366,10 +366,13 @@ def _suggest_pc_employee(doc, mapping, cp):
     return _verified_payee_custody(mapping, cp.get("am_key"))
 
 
-def _expense_account_allowed(details, account, custody):
-    """An enabled, non-group account of this company: an Expense account, or this payee's own Employee custody ledger."""
+def _expense_account_allowed(details, account, custody, sadad=False):
+    """Validate the selected account for this movement and its supported JE route."""
     if not details or details.get("is_group") or details.get("disabled") or details.get("company") != runtime.documents.COMPANY:
         return False
+    if sadad:
+        # Receivable/payable ledgers need a party, which this simple JE route does not collect.
+        return details.get("account_type") not in ("Receivable", "Payable")
     if details.get("root_type") == "Expense":
         return True
     return bool(custody) and account == custody.get("account") and details.get("root_type") == "Asset"
@@ -405,6 +408,7 @@ def _payload(doc, fees=None, statuses=None):
     return {
         "name": doc.name, "modified": str(doc.modified), "event_date": str(doc.event_date), "amount": flt(doc.amount), "currency": doc.currency,
         "company": runtime.documents.COMPANY, "account_tail": doc.source_account_tail, "bank": str(source.get("bank") or "SNB"), "direction": doc.direction,
+        "is_sadad": _is_sadad(source),
         "engine_state": doc.engine_state, "decision_type": doc.decision_type or "", "kind": doc.kind or "",
         "accounting_treatment": doc.accounting_treatment or "", "accounting_account": doc.accounting_account or "",
         "counterparty": doc.counterparty or "", "counterparty_name": (cp or {}).get("display_name") or "",
@@ -495,6 +499,9 @@ KIND_GROUPS = {
     "OTHER": ["EMPLOYEE", "SPECIALIST", "OTHER", "BANK_CHARGE"],
 }
 
+def _is_sadad(source):
+    return str((_data(source) or {}).get("parser_family") or "").upper() == "SADAD"
+
 
 def _shown_in_tab(tab, kind, parent_movement):
     """Fees are shown under their main line, never as lines of their own."""
@@ -511,14 +518,16 @@ def list_inbox(tab="needs", bank="ALL", search="", start=0, limit=50, kind_group
     start, limit = max(0, int(start)), min(100, max(1, int(limit)))
     if bank not in ("ALL", "SNB", "ALINMA"):
         frappe.throw(_("Unknown bank."))
-    if kind_group != "ALL" and kind_group not in KIND_GROUPS:
+    if kind_group not in ("ALL", "SADAD") and kind_group not in KIND_GROUPS:
         frappe.throw(_("Unknown type."))
     filters = {"engine_state": ["in", TABS[tab]]}
     if bank != "ALL":
         filters["source_key"] = ["like", bank + "-%"]
     if tab == "deferred":
         filters["kind"] = ["!=", "BANK_CHARGE"]
-    if kind_group != "ALL":
+    if kind_group == "SADAD":
+        filters["source_json"] = ["like", '%"parser_family":"SADAD"%']
+    elif kind_group != "ALL":
         filters["kind"] = ["in", KIND_GROUPS[kind_group]]
     or_filters = None
     term = str(search or "").strip()
@@ -541,12 +550,13 @@ def list_inbox(tab="needs", bank="ALL", search="", start=0, limit=50, kind_group
     count_filters = {}
     if bank != "ALL":
         count_filters["source_key"] = ["like", bank + "-%"]
-    visible = frappe.get_list(DOCTYPE, filters=count_filters, or_filters=or_filters, fields=["engine_state", "kind", "parent_movement"], limit_page_length=0)
+    visible = frappe.get_list(DOCTYPE, filters=count_filters, or_filters=or_filters, fields=["engine_state", "kind", "parent_movement", "source_json"], limit_page_length=0)
     counts = {tab_name: sum(1 for row in visible if row.engine_state in states and _shown_in_tab(tab_name, row.kind, row.parent_movement))
               for tab_name, states in TABS.items()}
     kind_counts = {"ALL": counts[tab]}
     for group, kinds in KIND_GROUPS.items():
         kind_counts[group] = sum(1 for row in visible if row.engine_state in TABS[tab] and row.kind in kinds and _shown_in_tab(tab, row.kind, row.parent_movement))
+    kind_counts["SADAD"] = sum(1 for row in visible if row.engine_state in TABS[tab] and _is_sadad(row.source_json) and _shown_in_tab(tab, row.kind, row.parent_movement))
     return {"items": items, "counts": counts, "kind_counts": kind_counts, "has_more": len(rows) == limit, "next_start": start + len(rows)}
 
 
@@ -848,9 +858,11 @@ def route_movement(name, modified, target):
     elif treatment == "JOURNAL_ENTRY" and kind_type == "EXPENSE" and doc.direction == "DEBIT":
         account = str(target.get("account") or "")
         _check_link("Account", account)
-        details = frappe.db.get_value("Account", account, ["root_type", "is_group", "disabled", "company"], as_dict=True)
+        details = frappe.db.get_value("Account", account, ["root_type", "account_type", "is_group", "disabled", "company"], as_dict=True)
         custody = _verified_payee_custody((_data(doc.recognition_json) or {}).get("am_beneficiary_mapping") or {}, cp.get("am_key"))
-        if not _expense_account_allowed(details, account, custody):
+        if not _expense_account_allowed(details, account, custody, sadad=_is_sadad(doc.source_json)):
+            if _is_sadad(doc.source_json):
+                frappe.throw(_("Choose an enabled, non-group account for this company. Receivable and payable accounts need a party."))
             frappe.throw(_("Choose an enabled expense account for this company that is not a group, or this payee's own custody ledger."))
         doc.accounting_account = account
         doc.payment_reference_doctype = doc.payment_reference = ""
