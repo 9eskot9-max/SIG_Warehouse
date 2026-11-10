@@ -389,3 +389,24 @@ def test_confirming_old_snb_row_learns_newly_parsed_receipt_hint(api):
     api._learn_identifiers(movement, Doc(name="CP-1"))
     assert len(created) == 1 and created[0]["kind"] == "NAME_LARGE_LOCAL"
     assert created[0]["value"] == "ENOVA FOR FACILITIES AND ENERG"
+
+
+def test_request_supplier_requires_unique_match_and_readable_supplier(api):
+    doc = Doc(direction="DEBIT")
+    recognition = {"am_category_status": "MATCHED", "transfer_request": {"erp_party": "Supplier: ALMASAR YELLOW .CO"}}
+    seen = []
+    api.frappe.get_list = lambda doctype, **kw: seen.append((doctype, kw)) or [{"name": "SUP-ALMASAR"}]
+    assert api._request_supplier(doc, recognition) == "SUP-ALMASAR"
+    assert seen[0][1]["filters"] == {"disabled": 0}
+    assert seen[0][1]["or_filters"]["supplier_name"] == ["=", "ALMASAR YELLOW .CO"]
+    recognition["am_category_status"] = "NO_CATEGORY"
+    assert api._request_supplier(doc, recognition) == "SUP-ALMASAR"
+    recognition["am_category_status"] = "AMBIGUOUS"
+    assert api._request_supplier(doc, recognition) == ""
+    recognition["am_category_status"] = "MATCHED"
+    api.frappe.get_list = lambda *a, **k: [{"name": "SUP-1"}, {"name": "SUP-2"}]
+    assert api._request_supplier(doc, recognition) == ""
+    api.frappe.has_permission = lambda *args: False
+    assert api._request_supplier(doc, recognition) == ""
+    doc.direction = "CREDIT"
+    assert api._request_supplier(doc, recognition) == ""

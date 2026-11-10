@@ -50,7 +50,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
         const canRoute = (!x.erp_document || x.doc_status === 0) && ['SUPPLIER_PAYMENT', 'CUSTOMER_RECEIPT', 'EXPENSE_PAYMENT', 'UNKNOWN', 'EMPLOYEE'].includes(x.kind) &&
             (x.decision_type || x.link_method === 'AUTO_DRAFT' || (x.direction === 'DEBIT' && ['UNKNOWN', 'EMPLOYEE'].includes(x.kind)));
         if (!canRoute) return '';
-        const treatment = x.accounting_treatment || x.signals?.suggested_treatment || (x.direction === 'CREDIT' ? 'PAYMENT_ENTRY' : '');
+        const treatment = x.accounting_treatment || x.signals?.suggested_treatment || (x.direction === 'CREDIT' || (x.request_supplier && !x.request_supplier_conflict && !['XXSC', 'XXMT'].includes(x.category)) ? 'PAYMENT_ENTRY' : '');
         const expense = treatment === 'JOURNAL_ENTRY';
         const partyType = x.direction === 'CREDIT' ? 'Customer' : 'Supplier';
         return `<h4>${x.direction === 'CREDIT' ? __('Customer receipt') : __('How should Finance account for this movement?')}</h4>
@@ -59,7 +59,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
                 <option value="JOURNAL_ENTRY" ${treatment === 'JOURNAL_ENTRY' ? 'selected' : ''} ${x.direction === 'CREDIT' ? 'disabled' : ''}>${__('Journal Entry')}</option>
                 <option value="FINANCE_HANDLES" ${treatment === 'FINANCE_HANDLES' ? 'selected' : ''}>${__('Finance handles outside this router')}</option></select>
             ${treatment === 'FINANCE_HANDLES' ? `<button class="btn btn-primary" data-route>${__('Save decision')}</button>` : ''}
-            ${treatment && treatment !== 'FINANCE_HANDLES' ? `<h4>${expense ? __('Expense account') : __(partyType)}</h4>${!expense && x.suggested_parties?.length ? `<p>${__('Possible match; confirm before routing:')} ${x.suggested_parties.map(p => `<button class="btn btn-xs btn-default" data-suggested-party="${esc(p)}">${esc(p)}</button>`).join(' ')}</p>` : ''}<div data-link-control></div>${!expense ? `<div data-invoice-control></div>${x.direction === 'DEBIT' ? '<div data-order-control></div>' : ''}` : ''}<button class="btn btn-primary" data-route>${__('Route here')}</button>
+            ${treatment && treatment !== 'FINANCE_HANDLES' ? `<h4>${expense ? __('Expense account') : __(partyType)}</h4>${x.request_supplier_conflict ? `<p class="snb-error">${__('The matched transfer request names a different supplier. Review both before routing.')}</p>` : ''}${!expense && x.request_supplier ? `<p>${__('Matched TX Manager supplier:')} ${esc(x.request_supplier)}</p>` : ''}${!expense && x.suggested_parties?.length ? `<p>${__('Possible match; confirm before routing:')} ${x.suggested_parties.map(p => `<button class="btn btn-xs btn-default" data-suggested-party="${esc(p)}">${esc(p)}</button>`).join(' ')}</p>` : ''}<div data-link-control></div>${!expense ? `<div data-invoice-control></div>${x.direction === 'DEBIT' ? '<div data-order-control></div>' : ''}` : ''}<button class="btn btn-primary" data-route>${__('Route here')}</button>
             <label><input type="checkbox" data-remember checked> ${__('Remember the default treatment for this payee')}</label>
             ${expense ? '' : `<details><summary>${__('New {0}', [__(partyType)])}</summary><input class="form-control" data-new-name placeholder="${__('Full name')}"><input class="form-control" data-new-vat placeholder="${__('VAT number (optional)')}">${partyType === 'Customer' ? `<label>${__('Country')}</label><input class="form-control" data-new-country value="Saudi Arabia" placeholder="${__('Country name')}">` : ''}<button class="btn btn-default" data-new>${__('Create and route')}</button></details>`}` : ''}`;
     }
@@ -72,6 +72,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
         c.innerHTML = `<div class="snb-amount">${money(x.amount, x.currency)}</div>
             <p>${esc(x.bank)} · ${esc(x.event_date)} · ••${esc(x.account_tail)} · ${__('Ref')} ${esc(x.reference || '—')}</p>
             <p><strong>${esc((x.counterparty_name && x.counterparty_name !== 'Unnamed counterparty' ? x.counterparty_name : x.linked_party || x.display_name) || __('Not identified'))}</strong> · ${esc(kinds[x.kind] || '')}${x.category ? ' · ' + esc(categories[x.category] || x.category) : ''}</p>
+            ${x.request_supplier ? `<p>${__('Matched TX Manager supplier:')} <strong>${esc(x.request_supplier)}</strong>${x.request_supplier_conflict ? ' · ' + __('Differs from the currently linked supplier; review both.') : ''}</p>` : ''}
             ${x.signals && x.signals.biller_code ? `<p>${__('SADAD biller')} · ${esc(x.signals.biller_code)}</p>` : ''}
             ${x.signals && x.signals.paired_transfer ? `<p>${__('Paired own-account transfer')} · ${esc(x.signals.paired_transfer.source_key || '')}</p>` : ''}
             ${x.erp_document ? `<p>${x.doc_status === 1 ? '✓ ' : '○ '}${docLink(x.erp_doctype, x.erp_document, x.doc_status)} <small>(${esc(x.link_method)})</small>${x.doc_status == null ? ` <button class="btn btn-xs btn-default" data-clear-missing>${__('Check and clear missing link')}</button>` : x.link_method !== 'MARKER' ? ` <button class="btn btn-xs btn-default" data-unlink>${__('Wrong match')}</button>` : ''}</p>` : ''}
@@ -80,13 +81,13 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
             <details><summary>${__('Statement')}</summary><pre>${esc(x.narrative || '—')}</pre><small>${esc(x.name)}</small></details>`;
         const host = q('[data-link-control]');
         if (host) {
-            const treatment = x.accounting_treatment || x.signals?.suggested_treatment || (x.direction === 'CREDIT' ? 'PAYMENT_ENTRY' : '');
+            const treatment = x.accounting_treatment || x.signals?.suggested_treatment || (x.direction === 'CREDIT' || (x.request_supplier && !x.request_supplier_conflict && !['XXSC', 'XXMT'].includes(x.category)) ? 'PAYMENT_ENTRY' : '');
             const doctype = treatment === 'JOURNAL_ENTRY' ? 'Account' : x.direction === 'CREDIT' ? 'Customer' : 'Supplier';
             partyControl = frappe.ui.form.make_control({parent: $(host), df: {fieldtype: 'Link', fieldname: 'router_party', options: doctype,
                 label: doctype === 'Account' ? __('Expense account') : __(doctype),
                 get_query: () => ({filters: doctype === 'Account' ? {root_type: 'Expense', is_group: 0, disabled: 0, company: x.company} : {disabled: 0}})}, render_input: true});
             partyControl.refresh();
-            const value = doctype === 'Account' ? (x.accounting_account || x.signals?.suggested_account) : x.linked_party;
+            const value = doctype === 'Account' ? (x.accounting_account || x.signals?.suggested_account) : x.request_supplier_conflict ? '' : (x.linked_party || (doctype === 'Supplier' ? x.request_supplier : ''));
             if (value) partyControl.set_value(value);
             const makeReferenceControl = (selector, referenceType, label) => {
                 const referenceHost = q(selector);

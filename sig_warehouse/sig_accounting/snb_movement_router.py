@@ -231,6 +231,23 @@ def _doc_status(rows):
     return out
 
 
+def _request_supplier(doc, recognition):
+    """Offer a unique, readable ERP supplier from a uniquely matched bank request."""
+    if doc.direction != "DEBIT" or recognition.get("am_category_status") not in ("MATCHED", "NO_CATEGORY"):
+        return ""
+    request = recognition.get("transfer_request") or {}
+    match = re.fullmatch(r"Supplier:\s*(.+?)\s*", str(request.get("erp_party") or ""), flags=re.I)
+    if not match or not frappe.has_permission("Supplier", "read"):
+        return ""
+    value = match.group(1).strip()
+    if not value:
+        return ""
+    rows = frappe.get_list("Supplier", filters={"disabled": 0},
+        or_filters={"name": ["=", value], "supplier_name": ["=", value]},
+        fields=["name"], page_length=2)
+    return rows[0]["name"] if len(rows) == 1 else ""
+
+
 def _payload(doc, fees=None, statuses=None):
     source = _data(doc.source_json) or {}
     recognition = _data(doc.recognition_json) or {}
@@ -242,7 +259,8 @@ def _payload(doc, fees=None, statuses=None):
     party = (cp or {}).get(party_type.lower()) or ""
     if party and not frappe.has_permission(party_type, "read", party):
         party = ""
-    candidate_parties = []
+    request_supplier = _request_supplier(doc, recognition)
+    candidate_parties = [request_supplier] if request_supplier else []
     for candidate in (_data(doc.candidates_json) or {}).get("counterparties", []):
         candidate_party = frappe.db.get_value(COUNTERPARTY, candidate, party_type.lower())
         if candidate_party and frappe.has_permission(party_type, "read", candidate_party):
@@ -254,6 +272,7 @@ def _payload(doc, fees=None, statuses=None):
         "accounting_treatment": doc.accounting_treatment or "", "accounting_account": doc.accounting_account or "",
         "counterparty": doc.counterparty or "", "counterparty_name": (cp or {}).get("display_name") or "",
         "linked_party_type": party_type if party else "", "linked_party": party, "suggested_parties": sorted(set(candidate_parties)),
+        "request_supplier": request_supplier, "request_supplier_conflict": bool(party and request_supplier and party != request_supplier),
         "payment_reference_doctype": doc.get("payment_reference_doctype") or "",
         "payment_reference": doc.get("payment_reference") or "",
         "display_name": (signals.get("display_name") or mapping.get("beneficiary_name") or "")[:140],
