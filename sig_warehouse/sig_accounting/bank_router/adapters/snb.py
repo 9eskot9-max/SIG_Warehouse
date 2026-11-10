@@ -88,6 +88,13 @@ def parse(source, scopes=DEFAULT_COMPANY_SCOPES):
             found.append(("NAME", name))
             out["display_name"] = name
     elif fmt == "LARGE_LOCAL":
+        # Incoming local statements can carry an eight/eleven character BIC,
+        # a truncated payer name, and an EXTN reference rather than OTBANK.
+        incoming_name = re.search(r"\b[A-Z]{6}[A-Z0-9]{2}(?:[A-Z0-9]{3})?\s+(.+?)\s+EXTN[A-Z0-9]+\b", detail, re.I)
+        if not otbank and incoming_name and str(source.get("direction") or "").upper() == "CREDIT":
+            name = incoming_name.group(1).strip()
+            found.append(("NAME", name))
+            out["display_name"] = name
         if otbank:
             name = otbank.group(1).strip()
             found.append(("NAME", name))

@@ -249,3 +249,13 @@ def test_expense_journal_carries_its_fees_and_balances():
 def test_fee_journal_uses_its_own_marker():
     je = D.fee_journal(movement(), [{"amount": -1.15, "family": "BANK_FEE"}], "13121", "538", "")
     assert je["custom_pc_statement_key"] == "K1#FEE" and len(je["accounts"]) == 2
+
+
+def test_incoming_local_bic_and_extn_produces_a_reviewable_payer_name():
+    source = {"parser_family": "INCOMING_LOCAL", "direction": "CREDIT", "transaction_description": "Incoming Local transfer",
+              "detail_description": "SA CHNL: KING FAHD DIST 7639 KING FAHAD RD SA6885476230061800108SAR SUPP 23659568000109 BNPASARI ENOVA FOR FACILITIES AND ENERG EXTN980263063RK6"}
+    result = snb.parse(source)
+    assert result["display_name"] == "ENOVA FOR FACILITIES AND ENERG"
+    assert result["identifiers"] == [("NAME", "ENOVA FOR FACILITIES AND ENERG")]
+    reg = registry({("NAME", "enova for facilities and energ"): [("CP-1", "ACTIVE")]})
+    assert identify(result["identifiers"], reg)["status"] == "SUGGESTED"

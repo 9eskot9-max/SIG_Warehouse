@@ -65,3 +65,4 @@ sig_warehouse.sig_warehouse.patches.v1_0.advanced_cleanup_v1
 sig_warehouse.sig_warehouse.patches.v1_0.repair_obed_routing_identity
 sig_warehouse.sig_warehouse.patches.v1_0.add_tawal_invoice_deferred_closure
 sig_warehouse.sig_warehouse.patches.v1_0.add_bank_router_engine
+sig_warehouse.sig_warehouse.patches.v1_0.preserve_payment_entry_admin_delete

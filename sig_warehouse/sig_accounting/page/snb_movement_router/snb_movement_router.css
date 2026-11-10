@@ -18,3 +18,6 @@
 .snb-fees{margin:10px 0;padding:8px 10px;border:1px solid #e9efed;border-radius:8px;background:#f7faf9}.snb-fees p{margin:3px 0}.snb-error{color:#a64239}
 .snb-grid{grid-template-columns:minmax(260px,340px) minmax(360px,1fr)}
 .snb-row-wrap{display:flex;align-items:stretch;border-bottom:1px solid #e9efed}.snb-row-wrap .snb-row{border-bottom:0}.snb-row-wrap .snb-bulk-check{padding:12px 2px;margin:0}.snb-row-wrap .snb-bulk-check input{width:auto}.snb-bulk{margin:0 0 10px}.snb-bulk button{width:100%}
+
+.snb-grid input[type="checkbox"],.snb-grid input[type="radio"]{display:inline-block;width:auto;margin-right:6px}.snb-actions [data-link-control] .form-group{margin-bottom:10px}.snb-actions select:not([hidden]){min-height:38px}.snb-grid{grid-template-columns:minmax(260px,340px) minmax(0,1fr)}@media(max-width:650px){.snb-grid{display:flex;flex-direction:column}}
+.snb-router [hidden]{display:none!important}

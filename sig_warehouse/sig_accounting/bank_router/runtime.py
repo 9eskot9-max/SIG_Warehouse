@@ -187,6 +187,19 @@ class Context:
 
     def _payment_references(self, mv, target):
         """Revalidate the explicitly selected TX Manager PO/PI reference before making a PE draft."""
+        if target.get("party_type") == "Customer" and mv.get("payment_reference"):
+            name = mv["payment_reference"]
+            if mv.get("payment_reference_doctype") != "Sales Invoice":
+                raise ValueError("Only a Sales Invoice can be allocated to a customer receipt.")
+            invoice = frappe.get_doc("Sales Invoice", name)
+            invoice.check_permission("read")
+            if (invoice.docstatus != 1 or invoice.company != documents.COMPANY or invoice.currency != "SAR"
+                    or invoice.customer != target.get("party")):
+                raise ValueError("Sales Invoice no longer matches the customer, company, currency, or submitted state.")
+            amount = flt(mv.get("payment_reference_amount"))
+            if amount <= 0 or amount - flt(invoice.outstanding_amount) > 0.005 or amount - abs(flt(mv.get("amount"))) > 0.005:
+                raise ValueError("Sales Invoice allocation exceeds its outstanding balance or the receipt amount.")
+            return [{"reference_doctype": "Sales Invoice", "reference_name": name, "allocated_amount": amount}]
         request = (mv.get("recognition") or {}).get("transfer_request") or {}
         raw = request.get("allocation_json") or "[]"
         try:
@@ -293,7 +306,7 @@ def load_index():
     """Light view of every movement: name -> dict, plus fee children by main movement."""
     rows = frappe.get_all(DOCTYPE, fields=["name", "source_key", "event_date", "amount", "account_scope_hash", "source_json", "recognition_json",
                                            "erp_hint_json", "engine_state", "kind", "counterparty", "route_source", "erp_doctype",
-                                           "erp_document", "link_method", "accounting_treatment", "accounting_account", "candidates_json", "parent_movement", "modified"], limit_page_length=0)
+                                           "erp_document", "link_method", "accounting_treatment", "accounting_account", "payment_reference_doctype", "payment_reference", "payment_reference_amount", "candidates_json", "parent_movement", "modified"], limit_page_length=0)
     index = {}
     for r in rows:
         source = json.loads(r.source_json or "{}")
@@ -319,6 +332,8 @@ def to_engine(name, index, children, ctx):
           "hint": json.loads(r.erp_hint_json or "{}"), "route_source": r.route_source or "", "counterparty": r.counterparty or "",
           "erp_doctype": r.erp_doctype or "", "erp_document": r.erp_document or "", "link_method": r.link_method or "",
           "accounting_treatment": r.accounting_treatment or "", "accounting_account": r.accounting_account or "",
+          "payment_reference_doctype": r.payment_reference_doctype or "", "payment_reference": r.payment_reference or "",
+          "payment_reference_amount": r.payment_reference_amount or 0,
           "paired_transfer": entry.get("paired_transfer") or {},
           "candidates": json.loads(r.candidates_json or "{}"), "fees": children.get(name, [])}
     parent_name = entry.get("parent_name")
@@ -403,9 +418,9 @@ def run(phase="main", start=0, limit=120, names=None, review_only=False, bank=""
         return result
     days = [getdate(r.event_date) for r in rows]
     ctx = Context(min(days), max(days))
-    if review_only:
+    if not manual_draft or review_only:
         ctx.settings._enabled = False
-    elif manual_draft:
+    else:
         if not names or len(names) != 1:
             frappe.throw("Manual drafting requires exactly one reviewed movement.")
         ctx.settings.auto_draft = lambda day: True
@@ -432,7 +447,7 @@ def run(phase="main", start=0, limit=120, names=None, review_only=False, bank=""
             # The rollback can invalidate the in-memory ledger and claimed-document cache.
             # Rebuild those caches only on the exceptional path before routing the next line.
             ctx = Context(min(days), max(days))
-            if review_only:
+            if not manual_draft or review_only:
                 ctx.settings._enabled = False
             index, children = load_index()
             result["errors"] += 1

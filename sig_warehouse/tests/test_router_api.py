@@ -298,3 +298,94 @@ def test_manual_route_reprocesses_only_the_reviewed_movement(api, monkeypatch):
     result = api.route_movement("ROW-1", "now", {"type": "PARTY", "treatment": "PAYMENT_ENTRY", "party_type": "Supplier", "party": "SUP-1"})
     assert result == {"movement": {"name": "ROW-1"}, "rerouted": 0}
     assert reruns == [(('main', 0, 1), {"names": ["ROW-1"], "manual_draft": False})]
+
+
+def test_clear_missing_document_preserves_rejection_and_does_not_run_engine(api, monkeypatch):
+    movement = Doc(name="row", erp_doctype="Journal Entry", erp_document="ACC-JV-OLD", link_method="AM_LINK",
+                   candidates_json='{"rejected":[]}', erp_hint_json='{"linked_doc":"ACC-JV-OLD"}',
+                   engine_state="DRAFT_READY", decision_type="")
+    audit = []
+    movement.append = lambda field, row: audit.append((field, row))
+    api.frappe.db = types.SimpleNamespace(exists=lambda *args: False)
+    monkeypatch.setattr(api, "_lock", lambda *args: movement)
+    monkeypatch.setattr(api, "get_movement", lambda name: {"name": name})
+    api.runtime.run = lambda *args, **kwargs: pytest.fail("must not run routing or create a draft")
+    assert api.clear_missing_document("row", "modified") == {"name": "row"}
+    assert movement.erp_document == "" and movement.engine_state == "PENDING"
+    assert json.loads(movement.candidates_json)["rejected"] == ["ACC-JV-OLD"]
+    assert json.loads(movement.erp_hint_json)["linked_doc"] == ""
+    assert movement.saved and audit
+
+
+def test_clear_missing_document_refuses_an_existing_document(api, monkeypatch):
+    movement = Doc(erp_doctype="Payment Entry", erp_document="ACC-PAY-1")
+    monkeypatch.setattr(api, "_lock", lambda *args: movement)
+    api.frappe.db = types.SimpleNamespace(exists=lambda *args: True)
+    with pytest.raises(ValueError, match="still exists"):
+        api.clear_missing_document("row", "modified")
+    assert movement.erp_document == "ACC-PAY-1"
+
+
+def test_bulk_clear_missing_requires_unique_fresh_rows(api, monkeypatch):
+    calls = []
+    monkeypatch.setattr(api, "clear_missing_document", lambda name, modified: calls.append((name, modified)))
+    assert api.bulk_clear_missing_documents([{"name": "A", "modified": "t1"}, {"name": "B", "modified": "t2"}]) == {"cleared": 2}
+    assert calls == [("A", "t1"), ("B", "t2")]
+    with pytest.raises(ValueError):
+        api.bulk_clear_missing_documents([{"name": "A", "modified": "t1"}, {"name": "A", "modified": "t2"}])
+    with pytest.raises(ValueError):
+        api.bulk_clear_missing_documents([{"name": "A"}])
+
+
+def test_receipt_route_records_valid_invoice_and_clamps_allocation(api, monkeypatch):
+    api.frappe.db = types.SimpleNamespace(sql=lambda *a: None, exists=lambda *a: False,
+                                          get_value=lambda *a, **k: False)
+    movement = Doc(name="R1", modified="t", kind=api.CUSTOMER_RECEIPT, signals_json="{}", direction="CREDIT",
+                   counterparty="", erp_document="", erp_doctype="", link_method="", accounting_treatment="", amount=500)
+    movement.append = lambda *a, **k: None
+    cp = Doc(name="CP", customer="", supplier="", display_name="Customer name")
+    cp.save = lambda **kwargs: None
+    invoice = Doc(docstatus=1, company=api.runtime.documents.COMPANY, currency="SAR", customer="CUST", outstanding_amount=300)
+    api.frappe.get_doc = lambda doctype, name=None: movement if doctype == api.DOCTYPE else invoice
+    monkeypatch.setattr(api, "_ensure_counterparty", lambda *a: cp)
+    monkeypatch.setattr(api, "_learn_identifiers", lambda *a: None)
+    monkeypatch.setattr(api, "_retarget_draft", lambda *a: None)
+    monkeypatch.setattr(api, "_check_link", lambda *a: None)
+    monkeypatch.setattr(api, "get_movement", lambda name: {"name": name})
+    api.route_movement("R1", "t", {"type": "PARTY", "treatment": "PAYMENT_ENTRY", "party_type": "Customer", "party": "CUST", "sales_invoice": "INV-1"})
+    assert movement.payment_reference == "INV-1" and movement.payment_reference_amount == 300
+    invoice.customer = "OTHER"
+    with pytest.raises(ValueError, match="invoice"):
+        api.route_movement("R1", "t", {"type": "PARTY", "treatment": "PAYMENT_ENTRY", "party_type": "Customer", "party": "CUST", "sales_invoice": "INV-1"})
+
+
+def test_payload_hides_parties_the_user_cannot_read(api):
+    row = Doc(name="R", modified="t", event_date="2026-11-10", amount=10, currency="SAR", source_account_tail="1234",
+              direction="CREDIT", engine_state="NEEDS_YOU", decision_type="ROUTE_PARTY", kind="CUSTOMER_RECEIPT",
+              accounting_treatment="", accounting_account="", counterparty="CP", route_source="", erp_doctype="", erp_document="",
+              link_method="", source_json="{}", recognition_json="{}", signals_json="{}", candidates_json='{"counterparties":["CP2"]}',
+              notes="", parent_movement="")
+    def get_value(doctype, name, fields, **kwargs):
+        return {"display_name":"Known", "customer":"SECRET", "supplier":""} if isinstance(fields, list) else "SECRET"
+    api.frappe.db = types.SimpleNamespace(get_value=get_value)
+    api.frappe.has_permission = lambda doctype, permission, *args: False
+    payload = api._payload(row)
+    assert payload["linked_party"] == "" and payload["suggested_parties"] == []
+
+
+def test_confirming_old_snb_row_learns_newly_parsed_receipt_hint(api):
+    created = []
+    api.runtime.Settings = lambda: types.SimpleNamespace(company_scopes=frozenset())
+    api.frappe.db = types.SimpleNamespace(exists=lambda *args: False)
+    def make_doc(value):
+        doc = Doc(**value)
+        doc.insert = lambda **kwargs: created.append(value)
+        return doc
+    api.frappe.get_doc = make_doc
+    api.frappe.utils.nowdate = lambda: "2026-11-10"
+    source = {"bank": "SNB", "direction": "CREDIT", "parser_family": "INCOMING_LOCAL",
+              "transaction_description": "Incoming Local transfer", "detail_description": "BNPASARI ENOVA FOR FACILITIES AND ENERG EXTN980263063RK6"}
+    movement = Doc(signals_json='{"identifiers":[]}', source_json=json.dumps(source))
+    api._learn_identifiers(movement, Doc(name="CP-1"))
+    assert len(created) == 1 and created[0]["kind"] == "NAME"
+    assert created[0]["value"] == "ENOVA FOR FACILITIES AND ENERG"

@@ -14,7 +14,8 @@ def identify(identifiers, lookup):
     suggested = {}
     for kind, value in identifiers:
         for counterparty, status in lookup(kind, value):
-            bucket = active if status == "ACTIVE" else suggested if status == "SUGGESTED" else None
+            # Names can be truncated or shared: always require human confirmation.
+            bucket = active if status == "ACTIVE" and kind in STRONG else suggested if status in ("ACTIVE", "SUGGESTED") else None
             if bucket is None:
                 continue
             bucket.setdefault(counterparty, set()).add(kind)

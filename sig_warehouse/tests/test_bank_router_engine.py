@@ -130,13 +130,13 @@ def test_unknown_payee_stays_unknown_and_never_drafts_to_collective():
     assert not ctx.created
 
 
-def test_identified_supplier_is_a_real_draft():
+def test_name_only_match_requires_confirmation_even_when_auto_enabled():
     registry = Registry({("NAME", hint_key("NAME", "ACME TRADING ESTABLISHMENT")): ("CP-A", "ACTIVE")},
                         {"CP-A": {"supplier": "SUP-ACME", "default_treatment": "PAYMENT_ENTRY"}})
     ctx = Ctx(auto=True, registry=registry)
     out = E.process(movement(-1000, IPS_OUT, accounting_treatment="PAYMENT_ENTRY"), ctx)
-    assert (out["engine_state"], out["counterparty"], out["route_source"]) == ("DRAFT_READY", "CP-A", "IDENTIFIER")
-    assert ctx.created[0][1]["party"] == "SUP-ACME" and not ctx.created[0][1]["holding"]
+    assert (out["engine_state"], out["decision_type"], out["counterparty"]) == ("NEEDS_YOU", "ROUTE_PARTY", "")
+    assert out["candidates"]["counterparties"] == ["CP-A"] and not ctx.created
 
 
 def test_exact_unique_name_matches_an_erp_party_without_a_rule():

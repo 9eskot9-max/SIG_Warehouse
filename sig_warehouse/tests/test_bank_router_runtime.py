@@ -157,3 +157,46 @@ def test_own_account_transfer_pairing_requires_one_mutual_opposite_leg(runtime):
     second_credit = entry("IN2", own_b, 5000, "INCOMING_LOCAL", "Incoming Internal Transfer", f"{own_a} DEP ID:654321")
     ambiguous = module.pair_own_transfers({"OUT": debit, "IN": credit, "IN2": second_credit}, settings)
     assert ambiguous == {}
+
+
+def test_customer_receipt_invoice_allocation_is_revalidated(runtime):
+    module, frappe = runtime
+    invoice = types.SimpleNamespace(docstatus=1, company=module.documents.COMPANY, currency="SAR",
+                                    customer="CUST-1", outstanding_amount=300,
+                                    check_permission=lambda permission: None)
+    frappe.get_doc = lambda doctype, name: invoice
+    ctx = module.Context.__new__(module.Context)
+    mv = {"amount": 500, "payment_reference_doctype": "Sales Invoice", "payment_reference": "INV-1", "payment_reference_amount": 300}
+    assert ctx._payment_references(mv, {"party_type": "Customer", "party": "CUST-1"}) == [
+        {"reference_doctype": "Sales Invoice", "reference_name": "INV-1", "allocated_amount": 300}]
+    invoice.outstanding_amount = 200
+    with pytest.raises(ValueError, match="outstanding"):
+        ctx._payment_references(mv, {"party_type": "Customer", "party": "CUST-1"})
+    invoice.outstanding_amount = 300
+    invoice.customer = "OTHER"
+    with pytest.raises(ValueError, match="customer"):
+        ctx._payment_references(mv, {"party_type": "Customer", "party": "CUST-1"})
+
+
+def test_batch_routing_never_auto_drafts_even_if_settings_are_enabled(runtime, monkeypatch):
+    module, frappe = runtime
+    class Settings:
+        _enabled = True
+        def auto_draft(self, day): return self._enabled
+    contexts = []
+    def make_context(*args):
+        context = types.SimpleNamespace(settings=Settings())
+        contexts.append(context)
+        return context
+    frappe.db = types.SimpleNamespace(sql=lambda *a, **k: [types.SimpleNamespace(name="ROW", event_date="2026-11-09")],
+                                      savepoint=lambda *a: None, release_savepoint=lambda *a: None)
+    monkeypatch.setattr(module, "Context", make_context)
+    monkeypatch.setattr(module, "load_index", lambda: ({"ROW": {"row": {}}}, {}))
+    monkeypatch.setattr(module, "pair_own_transfers", lambda *args: {})
+    monkeypatch.setattr(module, "to_engine", lambda *args: {})
+    monkeypatch.setattr(module, "apply", lambda *args: False)
+    seen = []
+    monkeypatch.setattr(module.engine, "process", lambda movement, context: seen.append(context.settings.auto_draft(None)) or {"engine_state": "PENDING"})
+    module.run(names=["ROW"])
+    module.run(names=["ROW"], manual_draft=True)
+    assert seen == [False, True]

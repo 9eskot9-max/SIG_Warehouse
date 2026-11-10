@@ -189,21 +189,21 @@
   {
    "fieldname": "payment_reference_doctype",
    "fieldtype": "Select",
-   "label": "Supplier payment reference type",
-   "options": "\\nPurchase Order\\nPurchase Invoice",
+   "label": "Payment reference type",
+   "options": "\nPurchase Order\nPurchase Invoice\nSales Invoice",
    "read_only": 1
   },
   {
    "fieldname": "payment_reference",
    "fieldtype": "Dynamic Link",
-   "label": "Supplier payment reference",
+   "label": "Payment reference",
    "options": "payment_reference_doctype",
    "read_only": 1
   },
   {
    "fieldname": "payment_reference_amount",
    "fieldtype": "Currency",
-   "label": "Supplier reference amount",
+   "label": "Payment reference amount",
    "options": "currency",
    "read_only": 1
   },

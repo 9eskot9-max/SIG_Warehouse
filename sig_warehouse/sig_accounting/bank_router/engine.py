@@ -198,6 +198,9 @@ def route(mv, ctx):
     if ident["status"] == "CONFLICT":
         out.update(engine_state="NEEDS_YOU", decision_type="CONFLICT")
         return out
+    if ident["status"] == "SUGGESTED":
+        out.update(engine_state="NEEDS_YOU", decision_type="ROUTE_PARTY")
+        return out
     if kind in K.DEFERRED_KINDS:
         out.update(engine_state="DEFERRED", decision_type="")
         return out
