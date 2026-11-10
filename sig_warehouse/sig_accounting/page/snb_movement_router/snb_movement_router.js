@@ -173,8 +173,9 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     const render = () => { renderTabs(); renderList(); renderCard(); };
     async function load(append = false) {
         try {
-            const r = (await frappe.call({method: api + 'list_inbox', args: {tab: state.tab, bank: state.bank, search: state.search, kind_group: state.kindGroup, start: append ? state.items.length : 0, limit: 100}})).message;
+            const r = (await frappe.call({method: api + 'list_inbox', args: {tab: state.tab, bank: state.bank, search: state.search, kind_group: state.kindGroup, start: append ? state.nextStart || 0 : 0, limit: 100}})).message;
             state.items = append ? state.items.concat(r.items) : r.items; state.counts = r.counts; state.kindCounts = r.kind_counts || {}; state.hasMore = r.has_more;
+            state.nextStart = r.next_start;
             if (!visibleItems().some(x => x.name === state.selected)) state.selected = visibleItems()[0]?.name || '';
             state.status = (await frappe.call({method: api + 'engine_status'})).message;
         } catch (e) { frappe.msgprint(__('Could not load bank movements. Check your access.')); }

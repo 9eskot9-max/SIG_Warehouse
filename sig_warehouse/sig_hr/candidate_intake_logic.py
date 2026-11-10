@@ -1,8 +1,4 @@
-"""Deterministic WhatsApp intake message parsing for SIG Candidate Intake.
-
-No Frappe or network dependency: sheet rows are treated as untrusted input and
-only allowlisted, non-sensitive values are returned for HR review.
-"""
+"""Deterministic WhatsApp intake parsing for HR review."""
 import json
 import re
 import unicodedata
@@ -11,17 +7,9 @@ import unicodedata
 FIELDS = (
     ("Case ID", "case_id", False),
     ("Full Legal Name (as on ID)", "legal_name", False),
-    ("Preferred Name", "preferred_name", False),
-    ("Official Mobile Number", "official_mobile", False),
-    ("Email for ERP Contact/Login", "email", False),
-    ("Date of Birth", "date_of_birth", True),
-    ("Nationality", "nationality", True),
-    ("National ID / Iqama Number", "identity_number", True),
-    ("ID Expiry Date", "identity_expiry", True),
-    ("Saudi IBAN (for payroll, if applicable)", "iban", True),
-    ("Bank Account Holder Name", "bank_account_holder", True),
-    ("Current Address (if required by HR)", "address", True),
-    ("Emergency Contact Name / Phone / Relationship (if required by HR)", "emergency_contact", True),
+    ("Email for ERP account", "email", False),
+    ("Saudi ID / Iqama Number", "identity_number", True),
+    ("Saudi IBAN", "iban", True),
 )
 FIELD_BY_LABEL = {label.casefold(): (key, sensitive) for label, key, sensitive in FIELDS}
 SENSITIVE_PATTERNS = (
@@ -52,9 +40,8 @@ def normalize_phone(value):
 def parse_emp_data(text):
     """Return safe allowlisted values and handoffs, or a stable parse error.
 
-    The payload must start with EMP-DATA and then contain label/value row pairs.
-    Sensitive values are never returned; only USE_SECURE_FORM is accepted for
-    fields marked sensitive in the template.
+    The reply is parsed from the Maytapi Inbox and staged for HR review. Raw
+    message bodies are never copied into ERP logs or intake audit rows.
     """
     lines = [line.strip() for line in str(text or "").replace("\r", "").split("\n")]
     while lines and not lines[-1]:
@@ -81,17 +68,25 @@ def parse_emp_data(text):
         if value.upper() == "NOT_PROVIDED":
             continue
         if value.upper() == "USE_SECURE_FORM":
-            if not sensitive:
-                return {"ok": False, "error": "UNEXPECTED_SECURE_HANDOFF"}
-            handoffs.append(key)
-            continue
-        if sensitive:
-            return {"ok": False, "error": "SENSITIVE_VALUE_IN_CHAT"}
+            return {"ok": False, "error": "MISSING_REQUIRED_VALUE"}
         if "\n" in value:
             return {"ok": False, "error": "MULTILINE_VALUE"}
         values[key] = value
-    if not values.get("case_id"):
-        return {"ok": False, "error": "MISSING_CASE_ID"}
+    if not values.get("case_id") or not values.get("legal_name") or not values.get("identity_number") or not values.get("email") or not values.get("iban"):
+        return {"ok": False, "error": "MISSING_REQUIRED_VALUE"}
+    identity = values["identity_number"].strip()
+    if len(identity) != 10 or identity[0] not in "12":
+        return {"ok": False, "error": "INVALID_ID_FORMAT"}
+    if not re.fullmatch(r"[0-9]{10}", identity):
+        return {"ok": False, "error": "INVALID_ID_FORMAT"}
+    values["identity_number"] = identity
+    iban = re.sub(r"\s+", "", values["iban"]).upper()
+    if not re.fullmatch(r"SA\d{22}", iban):
+        return {"ok": False, "error": "INVALID_IBAN_FORMAT"}
+    check = "".join(str(ord(c) - 55) if c.isalpha() else c for c in iban[4:] + iban[:4])
+    if int(check) % 97 != 1:
+        return {"ok": False, "error": "INVALID_IBAN_CHECKSUM"}
+    values["iban"] = iban
     return {"ok": True, "values": values, "secure_handoffs": handoffs}
 
 
@@ -128,37 +123,20 @@ def contains_sensitive_chat_data(text):
 
 def onboarding_messages(case_id, legal_name=""):
     """Return the three outbound messages in the required send order."""
-    instructions = (
-        "Please fill in the next message. Copy it, keep EMP-DATA and each field label on its own line, "
-        "and put your answer on the line directly below that label. Use NOT_PROVIDED when a field does "
-        "not apply or you do not know it. Keep USE_SECURE_FORM for secure fields; HR will send the separate "
-        "secure form if those details are required. Do not send ID or bank details or document photos in "
-        "WhatsApp. Reply STOP to end messages."
-    )
+    instructions = "Please copy the next message and enter each answer on the separate line below its heading. HR will review your details. Reply STOP if you do not want to continue."
     fields = [
         ("Case ID", case_id, False),
         ("Full Legal Name (as on ID)", "NOT_PROVIDED", False),
-        ("Preferred Name", "NOT_PROVIDED", False),
-        ("Official Mobile Number", "NOT_PROVIDED", False),
-        ("Email for ERP Contact/Login", "NOT_PROVIDED", False),
-        ("Date of Birth", "USE_SECURE_FORM", True),
-        ("Nationality", "USE_SECURE_FORM", True),
-        ("National ID / Iqama Number", "USE_SECURE_FORM", True),
-        ("ID Expiry Date", "USE_SECURE_FORM", True),
-        ("Saudi IBAN (for payroll, if applicable)", "USE_SECURE_FORM", True),
-        ("Bank Account Holder Name", "USE_SECURE_FORM", True),
-        ("Current Address (if required by HR)", "USE_SECURE_FORM", True),
-        ("Emergency Contact Name / Phone / Relationship (if required by HR)", "USE_SECURE_FORM", True),
+        ("Email for ERP account", "NOT_PROVIDED", False),
+        ("Saudi ID / Iqama Number", "NOT_PROVIDED", True),
+        ("Saudi IBAN", "NOT_PROVIDED", True),
     ]
     template = ["EMP-DATA"]
     for label, value, _sensitive in fields:
         template.extend((label, value))
     explainer = (
-        "Hello. SIG HR is starting your onboarding. If this is your number and you agree to continue here, reply YES. "
-        "Reply STOP if this is the wrong number or you do not want messages. Do not send identity or bank details here.\n\n"
-        "مرحباً، تبدأ الموارد البشرية في SIG إجراءات انضمامك. إذا كان هذا رقمك وتوافق على التواصل هنا، يرجى الرد YES. "
-        "إذا كان الرقم غير صحيح أو لا ترغب بالرسائل، أرسل STOP. لا ترسل بيانات الهوية أو البنك هنا.\n\n"
-        "سلام، SIG کی HR آپ کی آن بورڈنگ شروع کر رہی ہے۔ اگر یہ آپ کا نمبر ہے اور آپ یہاں رابطے سے اتفاق کرتے ہیں تو YES لکھیں۔ "
-        "اگر نمبر غلط ہے یا آپ پیغامات نہیں چاہتے تو STOP لکھیں۔ شناختی یا بینک کی تفصیلات یہاں نہ بھیجیں۔"
+        "Hello. SIG HR is starting your onboarding. Please complete the short information message we will send next. Reply STOP if you do not want to continue.\n\n"
+        "مرحباً، تبدأ الموارد البشرية في SIG إجراءات انضمامك. يرجى تعبئة الرسالة التالية. لإيقاف الرسائل أرسل STOP.\n\n"
+        "سلام، SIG کی HR آپ کی آن بورڈنگ شروع کر رہی ہے۔ براہ کرم اگلا پیغام پُر کریں۔ بند کرنے کے لیے STOP لکھیں۔"
     )
     return [explainer, instructions, "\n".join(template)]

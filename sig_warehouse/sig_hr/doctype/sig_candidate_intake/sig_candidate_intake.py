@@ -22,9 +22,9 @@ class SIGCandidateIntake(Document):
             employment_fields = (
                 "candidate_name", "whatsapp_phone", "gender", "designation", "proposed_salary",
                 "salary_period", "salary_currency", "company", "date_of_joining", "employment_type",
-                "department", "reports_to", "project", "project_role", "assignment_start_date",
+                "department", "reports_to", "project", "project_role", "assignment_start_date", "pc_work_group",
                 "proposed_legal_name", "proposed_preferred_name", "proposed_official_phone",
-                "proposed_email", "date_of_birth", "nationality", "identity_type_digit",
+                "proposed_email", "date_of_birth", "nationality", "identity_type_digit", "national_id_iqama", "payroll_iban",
             )
             if any(self.get(field) != old.get(field) for field in employment_fields):
                 frappe.throw(_("Approved employment fields are locked. Correct the Employee or start a new HR-reviewed case."))
@@ -37,6 +37,7 @@ class SIGCandidateIntake(Document):
                 "outbound_intro_attempted_at", "outbound_instructions_sent_at",
                 "outbound_instructions_attempted_at", "outbound_template_sent_at",
                 "outbound_template_attempted_at", "inbound_messages",
+                "outbound_created_attempted_at", "outbound_created_sent_at",
                 "employee", "project_assignment", "consent_to_contact", "phone_control_confirmed",
                 "hr_approved_by", "hr_approved_at", "employee_creation_note", "secure_handoff_fields",
                 "identity_category", "identity_last4", "iban_last4",

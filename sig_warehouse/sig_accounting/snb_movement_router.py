@@ -457,6 +457,11 @@ def _supply_types():
 def _suggest_supply(types, category, cp):
     """The purpose TX Manager recorded wins; the payee's usual type is the fallback."""
     codes = {t["code"] for t in types}
+    defaults = _data((cp or {}).get("purpose_defaults_json")) or {}
+    remembered = defaults.get(str(category or "").upper(), {}) if isinstance(defaults, dict) else {}
+    remembered_supply = remembered.get("supply_type", "") if isinstance(remembered, dict) else ""
+    if remembered_supply in codes:
+        return remembered_supply
     code = PURPOSE_SUPPLY.get(str(category or "").upper(), "")
     if code in codes:
         return code
@@ -533,13 +538,16 @@ def list_inbox(tab="needs", bank="ALL", search="", start=0, limit=50, kind_group
         p = _payload(d, [{**f, "doc_status": statuses.get((f["erp_doctype"], f["erp_document"]))} for f in fees.get(d.name, [])], statuses)
         if bank == "ALL" or p["bank"].upper() == bank:
             items.append(p)
-    visible = frappe.get_list(DOCTYPE, fields=["engine_state", "kind", "parent_movement"], limit_page_length=0)
+    count_filters = {}
+    if bank != "ALL":
+        count_filters["source_key"] = ["like", bank + "-%"]
+    visible = frappe.get_list(DOCTYPE, filters=count_filters, or_filters=or_filters, fields=["engine_state", "kind", "parent_movement"], limit_page_length=0)
     counts = {tab_name: sum(1 for row in visible if row.engine_state in states and _shown_in_tab(tab_name, row.kind, row.parent_movement))
               for tab_name, states in TABS.items()}
     kind_counts = {"ALL": counts[tab]}
     for group, kinds in KIND_GROUPS.items():
         kind_counts[group] = sum(1 for row in visible if row.engine_state in TABS[tab] and row.kind in kinds and _shown_in_tab(tab, row.kind, row.parent_movement))
-    return {"items": items, "counts": counts, "kind_counts": kind_counts, "has_more": len(rows) == limit}
+    return {"items": items, "counts": counts, "kind_counts": kind_counts, "has_more": len(rows) == limit, "next_start": start + len(rows)}
 
 
 @frappe.whitelist()
@@ -862,7 +870,7 @@ def route_movement(name, modified, target):
             defaults = _data(cp.get("purpose_defaults_json")) or {}
             if not isinstance(defaults, dict):
                 defaults = {}
-            defaults[purpose] = {"treatment": treatment, "account": doc.accounting_account or ""}
+            defaults[purpose] = {"treatment": treatment, "account": doc.accounting_account or "", "supply_type": supply}
             cp.purpose_defaults_json = _json(defaults)
         else:
             cp.default_treatment = treatment

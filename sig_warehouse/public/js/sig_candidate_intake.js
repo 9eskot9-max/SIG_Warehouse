@@ -18,17 +18,15 @@ frappe.ui.form.on("SIG Candidate Intake", {
             }
             if (["Draft", "Correction Requested", "Awaiting Candidate"].includes(frm.doc.status) &&
                 (!frm.doc.consent_to_contact || !frm.doc.outbound_instructions_sent_at || !frm.doc.outbound_template_sent_at)) {
-                const label = frm.doc.consent_to_contact ? __("Send or retry EMP-DATA request") : __("Send WhatsApp confirmation request");
+                const label = __("Send or retry EMP-DATA request");
                 frm.add_custom_button(label, () => {
                     frappe.confirm(
-                        frm.doc.consent_to_contact
-                            ? __("Send any missing instructions or EMP-DATA message to the confirmed number?")
-                            : __("Send the neutral number confirmation message to the saved WhatsApp phone?"),
+                        __("Send the onboarding request to the saved WhatsApp number?"),
                         () => frappe.call({
                             method: "sig_warehouse.sig_hr.candidate_intake.send_candidate_messages",
                             args: { candidate: frm.doc.name },
                             freeze: true,
-                            freeze_message: __("Sending the confirmation request…"),
+                            freeze_message: __("Sending the onboarding request…"),
                         }).then((r) => {
                             if (!r.message.accepted) {
                                 const message = r.message.throttled
@@ -62,7 +60,7 @@ frappe.ui.form.on("SIG Candidate Intake", {
             if (frm.doc.status === "Approved") {
                 frm.add_custom_button(__("Create Employee"), () => {
                     frappe.confirm(
-                        __("Create one Active Employee from the HR approved fields? User, salary assignment, custody account, mappings, and messages remain separate gates."),
+                        __("Create the Employee and ERP User and send the User welcome email? Salary and PC routing are completed separately."),
                         () => frappe.call({
                             method: "sig_warehouse.sig_hr.candidate_intake.create_employee_from_candidate",
                             args: { candidate: frm.doc.name },
@@ -80,6 +78,23 @@ frappe.ui.form.on("SIG Candidate Intake", {
                             frm.reload_doc();
                         })
                     );
+                }, __("HR Review"));
+            }
+            if (frm.doc.status === "Employee Created" && frm.doc.pc_work_group && frappe.user.has_role("System Manager")) {
+                frm.add_custom_button(__("Preview PC routing"), () => {
+                    frappe.call({method: "sig_warehouse.sig_hr.candidate_intake.preview_onboarding_pc_routing", args: {candidate: frm.doc.name}}).then((r) => {
+                        const preview = r.message;
+                        frappe.confirm(__("This adds {0} reviewer scopes and removes {1}. Publish this PC routing?", [preview.added, preview.removed]), () => {
+                            frappe.call({method: "sig_warehouse.sig_hr.candidate_intake.publish_onboarding_pc_routing", args: {candidate: frm.doc.name, base_revision: preview.revision, preview_hash: preview.hash}}).then(() => frappe.show_alert(__("PC routing published")));
+                        });
+                    });
+                }, __("HR Review"));
+            }
+            if (frm.doc.status === "Employee Created" && frm.doc.salary_structure && frm.doc.salary_effective_date) {
+                frm.add_custom_button(__("Create salary assignment"), () => {
+                    frappe.confirm(__("Create and submit the salary assignment using the entered salary and effective date?"), () => {
+                        frappe.call({method: "sig_warehouse.sig_hr.candidate_intake.create_salary_assignment", args: {candidate: frm.doc.name}}).then((r) => frappe.msgprint(__("Salary assignment {0} created.", [r.message.assignment])));
+                    });
                 }, __("HR Review"));
             }
         }

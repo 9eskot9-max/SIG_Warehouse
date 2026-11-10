@@ -114,7 +114,7 @@ def _audit_send(ref_name, phone, text, attempt_field):
 
     allowed_attempt_fields = {
         "outbound_intro_attempted_at", "outbound_instructions_attempted_at",
-        "outbound_template_attempted_at",
+        "outbound_template_attempted_at", "outbound_created_attempted_at",
     }
     if attempt_field not in allowed_attempt_fields:
         frappe.throw(_("Invalid candidate message step."))
@@ -164,27 +164,25 @@ def send_candidate_messages(candidate):
         frappe.throw(_("You cannot update this intake case."), frappe.PermissionError)
     if doc.status not in ("Draft", "Correction Requested", "Awaiting Candidate"):
         frappe.throw(_("Messages can be sent only for a draft or correction case."))
-    if not doc.gender or not doc.designation or not doc.department or not doc.proposed_salary or float(doc.proposed_salary or 0) <= 0:
-        frappe.throw(_("Enter the HR-assigned gender, designation, department, and positive proposed salary before contacting the candidate."))
+    if not doc.gender or not doc.designation or not doc.proposed_salary or float(doc.proposed_salary or 0) <= 0:
+        frappe.throw(_("Enter the HR-assigned gender, designation, and positive proposed salary before contacting the candidate."))
     if not doc.salary_period or not doc.salary_currency:
         frappe.throw(_("Set the salary period and currency before contacting the candidate."))
     if doc.duplicate_status != "Clear":
         frappe.throw(_("Phone collision found. Resolve it before sending onboarding details."))
     phone = normalize_phone(doc.whatsapp_phone)
-    if doc.consent_to_contact:
-        accepted, redirected, throttled = _send_followup_after_confirmation(doc, phone)
-        return {"status": doc.status, "sent": "candidate_data_request" if accepted else "failed", "accepted": accepted, "testing_redirect": redirected, "throttled": throttled, "phone": _mask(phone)}
     messages = onboarding_messages(doc.name, doc.candidate_name)
     accepted, redirected = True, False
     if not doc.outbound_intro_sent_at:
         result = _audit_send(doc.name, phone, messages[0], "outbound_intro_attempted_at")
         accepted, redirected = result["accepted"], result["testing_redirect"]
-        if accepted:
+        if accepted and not redirected:
             doc.db_set("outbound_intro_sent_at", now_datetime(), update_modified=True)
     if not accepted:
         return {"status": doc.status, "sent": "failed", "accepted": False, "testing_redirect": redirected, "throttled": result.get("throttled", False), "phone": _mask(phone)}
     doc.db_set("status", "Awaiting Candidate", update_modified=True)
-    return {"status": "Awaiting Candidate", "sent": "confirmation_request", "accepted": True, "testing_redirect": redirected, "phone": _mask(phone)}
+    accepted, followup_redirect, throttled = _send_followup_after_confirmation(doc, phone)
+    return {"status": "Awaiting Candidate", "sent": "candidate_data_request" if accepted else "failed", "accepted": accepted, "testing_redirect": redirected or followup_redirect, "throttled": throttled, "phone": _mask(phone)}
 
 
 def _send_followup_after_confirmation(doc, phone):
@@ -203,7 +201,8 @@ def _send_followup_after_confirmation(doc, phone):
         throttled = throttled or result.get("throttled", False)
         if not result["accepted"]:
             break
-        doc.db_set(field, now_datetime(), update_modified=True)
+        if not result["testing_redirect"]:
+            doc.db_set(field, now_datetime(), update_modified=True)
     return accepted, redirected, throttled
 
 
@@ -228,19 +227,31 @@ def _apply_safe_values(doc, values, handoffs):
     case_id = str(values.get("case_id") or "").strip()
     if case_id != doc.name:
         return "CASE_ID_MISMATCH"
+    # Validate the entire reply before changing the case. Otherwise an invalid
+    # email or phone can leave a partially applied name on an HR review record.
+    email = str(values.get("email") or "").strip().lower()
+    if email and (not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email) or len(email) > 140):
+        return "INVALID_EMAIL"
+    proposed_phone = ""
+    if values.get("official_mobile"):
+        proposed_phone = normalize_phone(values["official_mobile"])
+        if not proposed_phone:
+            return "INVALID_OFFICIAL_PHONE"
     if values.get("legal_name"):
         doc.proposed_legal_name = values["legal_name"][:140]
     if values.get("preferred_name"):
         doc.proposed_preferred_name = values["preferred_name"][:140]
     if values.get("email"):
-        email = values["email"].strip().lower()
-        if "@" not in email or len(email) > 140:
-            return "INVALID_EMAIL"
         doc.proposed_email = email
+    if values.get("identity_number"):
+        doc.national_id_iqama = values["identity_number"]
+        doc.identity_type_digit = values["identity_number"][0]
+        doc.identity_last4 = values["identity_number"][-4:]
+    if values.get("iban"):
+        doc.payroll_iban = values["iban"]
+        doc.iban_last4 = values["iban"][-4:]
+    doc.proposed_official_phone = normalize_phone(doc.whatsapp_phone)
     if values.get("official_mobile"):
-        proposed_phone = normalize_phone(values["official_mobile"])
-        if not proposed_phone:
-            return "INVALID_OFFICIAL_PHONE"
         doc.proposed_official_phone = proposed_phone
         if proposed_phone != normalize_phone(doc.whatsapp_phone):
             doc.status = "Exception"
@@ -291,6 +302,17 @@ def collect_candidate_replies():
         doc = frappe.get_doc(DOCTYPE, targets[0])
         if doc.status not in OPEN_STATUSES:
             continue
+        # Never let older inbox messages affect a newer case for the same phone.
+        # Unparseable or timezone-incompatible timestamps are held for review.
+        if not inbound["received_at"] or not doc.outbound_intro_sent_at:
+            continue
+        try:
+            if get_datetime(inbound["received_at"]) < get_datetime(doc.outbound_intro_sent_at):
+                continue
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if parsed.get("ok") and parsed["values"].get("case_id") != doc.name:
+            continue
         category = "CONFIRMATION" if is_confirmation else "STOP" if is_stop else "PRIVACY_REVIEW" if parsed.get("error") == "NOT_EMP_DATA" else "EMP-DATA"
         initial_result = "NUMBER_CONFIRMED" if is_confirmation else "CANDIDATE_STOPPED" if is_stop else parsed.get("error") or "PARSED"
         if not _append_receipt(doc, inbound["message_id"], inbound["received_at"], initial_result, category):
@@ -312,10 +334,7 @@ def collect_candidate_replies():
             except Exception:
                 frappe.log_error(title="SIG Candidate Intake: follow-up send failed", message="Follow-up failed; review the restricted Maytapi send audit.")
             continue
-        elif not doc.phone_control_confirmed and parsed.get("ok"):
-            doc.status = "Exception"
-            doc.last_parse_result = "CONFIRM_PHONE_FIRST"
-        elif contains_sensitive_chat_data(inbound["text"]):
+        elif not parsed.get("ok") and parsed.get("error") == "NOT_EMP_DATA" and contains_sensitive_chat_data(inbound["text"]):
             doc.status = "Exception"
             doc.last_parse_result = "PRIVACY_REVIEW_REQUIRED"
         elif not parsed.get("ok"):
@@ -326,6 +345,8 @@ def collect_candidate_replies():
             result = _apply_safe_values(doc, parsed["values"], parsed["secure_handoffs"])
             doc.last_parse_result = result
             if result == "STAGED_FOR_HR_REVIEW":
+                doc.consent_to_contact = 1
+                doc.phone_control_confirmed = 1
                 staged += 1
             else:
                 doc.status = "Correction Requested"
@@ -375,6 +396,8 @@ def approve_candidate(candidate):
         frappe.throw(_("Resolve the duplicate check before approval."))
     if not doc.proposed_legal_name or not doc.proposed_official_phone:
         frappe.throw(_("The candidate's legal name and confirmed official phone are required."))
+    if not doc.proposed_email or not doc.national_id_iqama or not doc.payroll_iban:
+        frappe.throw(_("Review the email, Saudi ID / Iqama, and IBAN before approval."))
     if not doc.gender or not doc.designation or not doc.proposed_salary or float(doc.proposed_salary or 0) <= 0:
         frappe.throw(_("HR must enter gender, designation, and a positive proposed salary before approval."))
     if not doc.salary_period or not doc.salary_currency:
@@ -392,7 +415,7 @@ def approve_candidate(candidate):
 
 @frappe.whitelist()
 def create_employee_from_candidate(candidate):
-    """HR-approved conversion creates only Employee; later onboarding owns access/finance setup."""
+    """Create Employee and User after HR review using ordinary Frappe permissions."""
     _guard()
     doc = frappe.get_doc(DOCTYPE, candidate)
     if not doc.has_permission("write"):
@@ -420,16 +443,34 @@ def create_employee_from_candidate(candidate):
     ]
     if employee_matches:
         frappe.throw(_("An existing Employee already has this official phone; resolve or reuse that record before conversion."))
+    email = (doc.proposed_email or "").strip().lower()
+    if not email:
+        frappe.throw(_("An email is required to create the ERP User."))
+    if frappe.db.exists("User", email):
+        frappe.throw(_("A User with this email already exists. HR must review and link the existing User."))
+    if not frappe.has_permission("User", "create"):
+        frappe.throw(_("Creating the ERP User requires User create permission."), frappe.PermissionError)
+    if not frappe.db.exists("Role Profile", "SIG Employee"):
+        frappe.throw(_("The SIG Employee role profile is missing. Configure it before creating the User."))
+    user = frappe.get_doc({"doctype": "User", "email": email, "first_name": employee_name,
+                           "enabled": 1, "user_type": "System User",
+                           "role_profile_name": "SIG Employee", "send_welcome_email": 1})
+    user.insert()
     employee = frappe.get_doc({
-        "doctype": "Employee", "employee_name": employee_name, "company": doc.company,
+        "doctype": "Employee", "first_name": employee_name, "employee_name": employee_name, "company": doc.company,
         "date_of_joining": doc.date_of_joining, "date_of_birth": doc.date_of_birth,
         "gender": doc.gender, "designation": doc.designation,
         "cell_number": phone, "status": "Active",
         "department": doc.department,
         "reports_to": doc.reports_to or None,
         "personal_email": doc.proposed_email or None,
+        "user_id": user.name,
         "employment_type": doc.employment_type or None,
     })
+    if frappe.get_meta("Employee").has_field("custom_out_mudad_iban"):
+        employee.custom_out_mudad_iban = doc.payroll_iban
+    if doc.identity_type_digit == "2" and frappe.get_meta("Employee").has_field("custom_iqama_number"):
+        employee.custom_iqama_number = doc.national_id_iqama
     employee.insert()
     assignment_name = None
     if doc.project:
@@ -453,6 +494,80 @@ def create_employee_from_candidate(candidate):
     doc.flags.allow_intake_system_fields = True
     doc.hr_approved_by = frappe.session.user
     doc.hr_approved_at = now_datetime()
-    doc.employee_creation_note = "Employee created by HR approval. Verify the existing SIG Employee Onboarding control row. User, Salary Structure Assignment, custody account, mappings, and notifications require their separate onboarding gates."
+    doc.employee_creation_note = "Employee and User created by HR approval. Complete salary assignment, PC routing, and remaining onboarding checks."
     doc.save()
-    return {"employee": employee.name, "project_assignment": assignment_name, "already_created": False}
+    frappe.enqueue("sig_warehouse.sig_hr.candidate_intake.send_employee_created_notice", candidate=doc.name, enqueue_after_commit=True)
+    return {"employee": employee.name, "user": user.name, "project_assignment": assignment_name, "already_created": False}
+
+
+def send_employee_created_notice(candidate):
+    doc = frappe.get_doc(DOCTYPE, candidate)
+    if doc.status != "Employee Created" or not doc.employee or doc.outbound_created_sent_at:
+        return
+    result = _audit_send(doc.name, doc.whatsapp_phone,
+        "Your SIG employee record and ERP account have been created. Please check your email for the password setup message. Contact HR if you need help.",
+        "outbound_created_attempted_at")
+    if result["accepted"] and not result["testing_redirect"]:
+        doc.db_set("outbound_created_sent_at", now_datetime(), update_modified=True)
+
+
+def _onboarding_pc_proposal(candidate):
+    from sig_warehouse.sig_operations import people_routing
+
+    people_routing._require()
+    doc = frappe.get_doc(DOCTYPE, candidate)
+    doc.check_permission("read")
+    if not doc.employee or not doc.pc_work_group:
+        frappe.throw(_("Create the Employee and choose a PC work family first."))
+    state = people_routing.get_state()
+    matrix = state["matrix"]
+    rows = [{"employee": row["employee"], "work_group": row["work_group"],
+             "pc_review_group": row["pc_review_group"], "pc_mode": row.get("pc_mode", "override"),
+             "additional_review_groups": row.get("additional_review_groups", [])}
+            for row in matrix["employees"]]
+    if any(row["employee"] == doc.employee for row in rows):
+        frappe.throw(_("This Employee already has PC routing. Review it in People Setup."))
+    rows.append({"employee": doc.employee, "work_group": doc.pc_work_group,
+                 "pc_review_group": doc.pc_work_group, "pc_mode": "inherit", "additional_review_groups": []})
+    groups = {key: value["reviewers"] for key, value in matrix["review_groups"].items()}
+    return rows, state["revision"], groups
+
+
+@frappe.whitelist(methods=["POST"])
+def preview_onboarding_pc_routing(candidate):
+    from sig_warehouse.sig_operations import people_routing
+    rows, revision, groups = _onboarding_pc_proposal(candidate)
+    return people_routing.preview_proposed_routing(rows, revision, groups)
+
+
+@frappe.whitelist(methods=["POST"])
+def publish_onboarding_pc_routing(candidate, base_revision, preview_hash):
+    from sig_warehouse.sig_operations import people_routing
+    rows, revision, groups = _onboarding_pc_proposal(candidate)
+    if int(base_revision) != revision:
+        frappe.throw(_("Routing changed; preview it again."))
+    return people_routing.publish(rows, revision, groups, preview_hash)
+
+
+@frappe.whitelist(methods=["POST"])
+def create_salary_assignment(candidate):
+    _guard()
+    doc = frappe.get_doc(DOCTYPE, candidate)
+    doc.check_permission("write")
+    if not doc.employee or not doc.salary_structure or not doc.salary_effective_date:
+        frappe.throw(_("Create the Employee and enter a salary structure and effective date first."))
+    if doc.salary_period != "Monthly":
+        frappe.throw(_("This salary assignment requires a monthly salary."))
+    existing = frappe.get_all("Salary Structure Assignment", filters={"employee": doc.employee, "from_date": doc.salary_effective_date, "docstatus": ["!=", 2]}, fields=["name"], limit_page_length=1)
+    if existing:
+        frappe.throw(_("An assignment already exists for this employee and date. Review it before proceeding."))
+    structure = frappe.get_doc("Salary Structure", doc.salary_structure)
+    structure.check_permission("read")
+    if structure.docstatus != 1 or structure.company != doc.company or structure.currency != doc.salary_currency or structure.payroll_frequency != "Monthly":
+        frappe.throw(_("Choose a submitted monthly salary structure matching the employee's company and currency."))
+    assignment = frappe.get_doc({"doctype": "Salary Structure Assignment", "employee": doc.employee,
+        "salary_structure": structure.name, "from_date": doc.salary_effective_date,
+        "company": doc.company, "currency": doc.salary_currency, "base": doc.proposed_salary})
+    assignment.insert()
+    assignment.submit()
+    return {"assignment": assignment.name}
