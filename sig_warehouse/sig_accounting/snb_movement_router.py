@@ -312,6 +312,16 @@ def _purpose_default(cp, category):
     return str(value.get("treatment") or "") if isinstance(value, dict) else value
 
 
+def _bill_owner(signals):
+    """The Employee whose iqama number is this SADAD bill's account, when ERP holds it and the user may read it."""
+    bill = str((signals or {}).get("bill_account") or "")
+    if not bill or not frappe.has_permission("Employee", "read"):
+        return None
+    rows = frappe.get_list("Employee", filters={"custom_iqama_number": bill, "status": "Active", "company": runtime.documents.COMPANY},
+                           fields=["name", "employee_name"], page_length=2)
+    return {"employee": rows[0]["name"], "name": rows[0]["employee_name"]} if len(rows) == 1 else None
+
+
 def _suggest_pc_employee(doc, mapping, cp):
     """Suggest only an exact Am beneficiary mapping, visible to this user."""
     if doc.kind != "PETTY_CASH" or not cp or mapping.get("source") != "Sheet Am matched beneficiary":
@@ -376,7 +386,7 @@ def _payload(doc, fees=None, statuses=None):
         "pc_employee": employee, "pc_custody_account": custody,
         "pc_employee_suggestion": pc_suggestion,
         "supply_types": supply_types, "supply_type": doc.get("supply_type") or _suggest_supply(supply_types, category, cp),
-        "supply_threshold": SUPPLY_THRESHOLD,
+        "supply_threshold": SUPPLY_THRESHOLD, "bill_owner": _bill_owner(signals) if signals.get("bill_account") else None,
         "purpose_default_treatment": purpose_default,
         "request_supplier": request_supplier, "request_supplier_conflict": bool(party and request_supplier and party != request_supplier),
         "payment_reference_doctype": doc.get("payment_reference_doctype") or "",
@@ -719,7 +729,8 @@ def route_movement(name, modified, target):
     target = _data(target)
     doc = _lock(name, modified)
     signals = _data(doc.signals_json) or {}
-    label = signals.get("display_name") or ""
+    typed_label = str(target.get("label") or "").strip()[:140]
+    label = typed_label or signals.get("display_name") or ""
     kind_type = target.get("type")
     treatment = str(target.get("treatment") or doc.accounting_treatment or "").upper()
     if treatment not in ("PAYMENT_ENTRY", "JOURNAL_ENTRY", "FINANCE_HANDLES"):
@@ -744,6 +755,8 @@ def route_movement(name, modified, target):
         runtime.run("main", 0, 1, names=[doc.name])
         return {"movement": get_movement(name), "rerouted": 0}
     cp = _ensure_counterparty(doc, label)
+    if typed_label and cp.get("display_name") in ("", None, "Unnamed counterparty"):
+        cp.display_name = typed_label
     if treatment == "PAYMENT_ENTRY" and kind_type in ("PARTY", "NEW_PARTY"):
         party_type = target.get("party_type")
         expected_party = "Customer" if doc.direction == "CREDIT" else "Supplier"

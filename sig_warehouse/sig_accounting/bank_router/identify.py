@@ -1,6 +1,6 @@
 """Stage 2: who is on the other side of this line? Pure: the registry lookup is passed in."""
 
-STRONG = ("IBAN", "ACCOUNT", "BEN_ID", "DEP_ID")
+STRONG = ("IBAN", "ACCOUNT", "BEN_ID", "DEP_ID", "SADAD_CODE")
 
 
 def identify(identifiers, lookup):

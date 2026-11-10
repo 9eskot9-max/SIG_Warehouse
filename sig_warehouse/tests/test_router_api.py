@@ -625,3 +625,14 @@ def test_supplier_open_documents_report_a_document_type_the_role_cannot_read(api
         return []
     out = api._open_supplier_documents("SUP", 100, getter)
     assert out["receipts"] == [] and out["restricted"] == ["Purchase Receipt"]
+
+
+def test_a_sadad_bill_account_names_the_employee_only_when_erp_holds_it(api, monkeypatch):
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True, raising=False)
+    monkeypatch.setattr(api.frappe, "get_list", lambda *a, **k: [{"name": "HR-EMP-9", "employee_name": "Imran"}], raising=False)
+    assert api._bill_owner({"bill_account": "2286958091"}) == {"employee": "HR-EMP-9", "name": "Imran"}
+    monkeypatch.setattr(api.frappe, "get_list", lambda *a, **k: [], raising=False)
+    assert api._bill_owner({"bill_account": "2286958091"}) is None
+    assert api._bill_owner({}) is None
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: False, raising=False)
+    assert api._bill_owner({"bill_account": "2286958091"}) is None

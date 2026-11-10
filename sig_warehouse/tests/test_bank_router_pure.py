@@ -296,7 +296,7 @@ def test_own_transfer_journal_uses_one_debit_and_one_credit():
 def test_sadad_biller_is_read_from_the_real_statement_shape():
     parsed = snb.parse(line("DEBIT", "SADAD", "SADAD Payment", "165-2001003327019603 01400010326605 6950931237"))
     assert (parsed["biller_code"], parsed["bill_account"]) == ("165", "2001003327019603")
-    assert parsed["identifiers"] == [] and not parsed["display_name"]
+    assert parsed["identifiers"] == [("SADAD_CODE", "165-2001003327019603")] and not parsed["display_name"]
 
 
 def test_draft_remarks_name_the_type_of_supply():

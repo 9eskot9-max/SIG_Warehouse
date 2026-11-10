@@ -71,6 +71,8 @@ def parse(source, scopes=DEFAULT_COMPANY_SCOPES):
         bill = re.search(r"(?<!\d)(\d{2,4})-(\d{6,20})(?!\d)", detail) or re.search(r"(?<!\d)(\d{2,4})-(\d{6,20})(?!\d)", text)
         if bill:
             out["biller_code"], out["bill_account"] = bill.group(1), bill.group(2)
+            # A bill (for example one worker's iqama renewal) repeats: it is remembered once Finance has routed it.
+            out["identifiers"].append(("SADAD_CODE", f"{bill.group(1)}-{bill.group(2)}"))
         elif biller:
             out["biller_code"] = biller.group(1)
     if not fmt:

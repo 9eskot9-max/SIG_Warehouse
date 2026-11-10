@@ -370,3 +370,14 @@ def test_a_confirmed_employee_payee_is_not_asked_again_on_the_next_line():
     assert (out["kind"], out["decision_type"], out["accounting_treatment"]) == ("PETTY_CASH", "CREATE_DRAFT", "JOURNAL_ENTRY")
     unconfirmed = Registry({("BEN_ID", "555123"): ("CP-E", "ACTIVE")}, {"CP-E": {"is_employee": True, "custody_account": "1322 - Custody"}})
     assert E.process(mv, Ctx(auto=False, registry=unconfirmed))["decision_type"] == "NEEDS_HR_LINK"
+
+
+def test_a_remembered_sadad_bill_is_recognised_and_offers_its_payee_default():
+    registry = Registry({("SADAD_CODE", hint_key("SADAD_CODE", "090-2286958091")): ("CP-B", "ACTIVE")},
+                        {"CP-B": {"display_name": "Imran iqama", "default_treatment": "JOURNAL_ENTRY", "expense_account": "5155 - Iqama"}})
+    mv = movement(-412, "SADAD Payment 090-2286958091 23659568000109 7163894807", family="SADAD")
+    mv["source"]["detail_description"] = "090-2286958091 23659568000109 7163894807"
+    out = E.process(mv, Ctx(auto=False, registry=registry))
+    assert out["counterparty"] == "CP-B"
+    assert out["signals"]["suggested_treatment"] == "JOURNAL_ENTRY" and out["signals"]["suggested_account"] == "5155 - Iqama"
+    assert out["decision_type"] == "CHOOSE_TREATMENT" and out["engine_state"] == "NEEDS_YOU"
