@@ -19,7 +19,7 @@
 
     function on_our_route() {
         const r = (frappe.get_route && frappe.get_route()) || [];
-        return r[0] === 'List' && r[1] === 'Material Request' && r[2] === 'Kanban';
+        return r[0] === 'List' && r[1] === 'Material Request' && r[2] === 'Kanban' && r[3] === 'SIG Dispatch Queue';
     }
 
     // ---------------------------------------------------------------------
@@ -38,7 +38,9 @@
             ${scope} .kanban .add-card,
             ${scope} .kanban-column.add-new-column,
             ${scope} .standard-actions .primary-action,
-            ${scope} .kanban .list-comment-count { display: none !important; }
+            ${scope} .kanban .list-comment-count,
+            ${scope} .kanban .sig-kanban-count { display: none !important; }
+            ${scope} .kanban.sig-search-active .kanban-card-wrapper:not(.sig-search-card) { display: none !important; }
             ${scope} .kanban .kanban-assignments { cursor: pointer; }
         </style>`).appendTo('head');
     }
@@ -67,63 +69,47 @@
     function paint_badges_and_borders($board) {
         $board.find('.kanban-column').each(function () {
             const $col = $(this);
-            const $cards = $col.find('.kanban-cards .kanban-card-wrapper');
-            const count = $cards.filter(':visible').length;
-            let $badge = $col.find('.sig-kanban-count');
-            if (!$badge.length) {
-                $badge = $('<span class="sig-kanban-count badge pull-right" style="font-weight:normal;"></span>');
-                $col.find('.kanban-column-header').first().append($badge);
-            }
-            if ($badge.text() !== String(count)) $badge.text(count);
-
             const color = stage_color_for_column($col);
-            $cards.find('.kanban-card').css('border-left', color ? `4px solid ${color}` : '');
+            $col.find('.kanban-cards .kanban-card').css('border-left', color ? `4px solid ${color}` : '');
         });
     }
 
-    // ---------------------------------------------------------------------
-    // Search box. Always re-selects the live `.kanban` node at filter time
-    // instead of closing over the node captured when the box was inserted -
-    // Frappe replaces that node wholesale on redraw (confirmed live), so the
-    // old version's captured `$board` went stale and typing silently
-    // filtered a detached copy of the board until a full page reload.
-    // `decorate()` re-applies the current query after every redraw too, for
-    // the same reason.
-    // ---------------------------------------------------------------------
+    // Search the permission-filtered full dataset and render matches in their
+    // stages. Native Kanban pagination alone cannot find cards not yet loaded.
     let sig_search_query = '';
     let sig_search_timer = null;
     let sig_search_request = 0;
+    let sig_search_rows = [];
+    let sig_search_version = 0;
+    let sig_search_message = '';
 
     function ensure_search_box($board) {
         if (document.getElementById('sig-kanban-search-input')) return;
-        const $box = $(`<div class="sig-kanban-search" style="margin: 0 15px 10px; position: relative; max-width: 520px;">
-            <input type="text" id="sig-kanban-search-input" class="form-control input-sm" autocomplete="off" placeholder="${__('Search MIR #, MR ID, or site...')}">
-            <div class="sig-kanban-search-results" role="listbox" style="display:none; position:absolute; z-index:1000; top:100%; left:0; right:0; max-height:320px; overflow:auto; background:var(--card-bg,#fff); border:1px solid var(--border-color,#d1d8dd); border-radius:4px; box-shadow:0 2px 8px rgba(0,0,0,.12);"></div>
+        const $box = $(`<div class="sig-kanban-search" style="margin: 0 15px 10px; max-width: 520px;">
+            <input type="search" id="sig-kanban-search-input" class="form-control input-sm" autocomplete="off" placeholder="${__('Search MIR #, MR ID, or site...')}">
+            <div class="sig-kanban-search-status text-muted" role="status" aria-live="polite"></div>
         </div>`);
         $board.before($box);
-        $box.find('input').on('input', function () {
-            sig_search_query = $(this).val().trim().toLowerCase();
-            apply_search_filter($('.kanban').first());
-            paint_badges_and_borders($('.kanban').first());
+        $box.find('input').val(sig_search_query).on('input', function () {
+            sig_search_query = String($(this).val() || '').trim().toLowerCase();
             clearTimeout(sig_search_timer);
             const requestId = ++sig_search_request;
-            const $results = $box.find('.sig-kanban-search-results').empty().hide();
-            if (sig_search_query.length < 2) return;
-            sig_search_timer = setTimeout(() => search_dispatch_records(sig_search_query, requestId, $results), 250);
+            sig_search_rows = [];
+            sig_search_version++;
+            sig_search_message = sig_search_query.length === 1 ? __('Enter at least 2 characters to search.') :
+                sig_search_query ? __('Searching...') : '';
+            apply_search_filter($('.kanban').first());
+            if (sig_search_query.length >= 2) {
+                const query = sig_search_query;
+                sig_search_timer = setTimeout(() => search_dispatch_records(query, requestId), 250);
+            }
         });
         $box.find('input').on('keydown', function (event) {
-            if (event.key === 'Escape') $box.find('.sig-kanban-search-results').empty().hide();
-        });
-        $(document).off('click.sigKanbanSearch').on('click.sigKanbanSearch', function (event) {
-            if (!$.contains($box[0], event.target)) $box.find('.sig-kanban-search-results').hide();
+            if (event.key === 'Escape') { $(this).val('').trigger('input'); }
         });
     }
 
-    function search_dispatch_records(query, requestId, $results) {
-        // Search the complete, permission-visible Material Issue set so the
-        // first-page Kanban window does not hide older or later matches.
-        // Keep the fixed board filters here: this is a finder, not a way to
-        // expose other Material Request types or drafts.
+    function search_dispatch_records(query, requestId) {
         const like = `%${query.replace(/[\\%_]/g, '\\$&')}%`;
         frappe.call({
             method: 'frappe.client.get_list',
@@ -137,56 +123,64 @@
                     ['custom_site', 'like', like],
                 ],
                 order_by: 'modified desc',
-                limit_page_length: 20,
+                limit_page_length: 100,
             },
             callback: (response) => {
                 if (requestId !== sig_search_request || query !== sig_search_query) return;
-                const rows = response.message || [];
-                $results.empty();
-                if (!rows.length) {
-                    $('<div class="text-muted" style="padding:8px 10px;"></div>')
-                        .text(__('No matching submitted Material Issues found.'))
-                        .appendTo($results);
-                } else {
-                    rows.forEach((row) => {
-                        const label = [
-                            row.custom_mir_number ? `MIR ${row.custom_mir_number}` : row.name,
-                            row.custom_site,
-                            row.custom_dispatch_stage,
-                        ].filter(Boolean).join(' · ');
-                        $('<button type="button" class="btn btn-link btn-block text-left" role="option" style="display:block; width:100%; padding:7px 10px; white-space:normal;"></button>')
-                            .text(`${row.name}  —  ${label}`)
-                            .appendTo($results)
-                            .on('click', () => {
-                                $results.hide();
-                                frappe.set_route('Form', 'Material Request', row.name);
-                            });
-                    });
-                    if (rows.length === 20) {
-                        $('<div class="text-muted" style="padding:6px 10px; border-top:1px solid var(--border-color,#d1d8dd);"></div>')
-                            .text(__('Showing up to 20 matches. Refine your search to narrow the results.'))
-                            .appendTo($results);
-                    }
-                }
-                $results.show();
+                sig_search_rows = response.message || [];
+                sig_search_message = !sig_search_rows.length ? __('No matching submitted Material Issues found.') :
+                    sig_search_rows.length === 100 ? __('Showing the first 100 matches. Refine your search for more specific results.') : '';
+                sig_search_version++;
+                apply_search_filter($('.kanban').first());
+                refresh_availability($('.kanban').first());
             },
             error: () => {
-                if (requestId !== sig_search_request) return;
-                $results.empty().append(
-                    $('<div class="text-danger" style="padding:8px 10px;"></div>')
-                        .text(__('Search failed. Check your access and try again.'))
-                ).show();
+                if (requestId !== sig_search_request || query !== sig_search_query) return;
+                sig_search_rows = [];
+                sig_search_message = __('Search failed. Check your access and try again.');
+                sig_search_version++;
+                apply_search_filter($('.kanban').first());
             },
         });
     }
 
     function apply_search_filter($board) {
         if (!$board || !$board.length) return;
-        $board.find('.kanban-card-wrapper').each(function () {
-            const $card = $(this);
-            const match = !sig_search_query || $card.text().toLowerCase().includes(sig_search_query);
-            $card.toggle(match);
+        const active = sig_search_query.length > 0;
+        $board.toggleClass('sig-search-active', active);
+        const $status = $('.sig-kanban-search-status').first();
+        // Rebuild only for a new response or a replaced board. The observer
+        // also sees our own insertions; repeated replacement would flicker.
+        if ($board.data('sig-search-version') === sig_search_version &&
+            $board.find('.sig-search-card').length === ($board.data('sig-search-rendered') || 0)) return;
+        $board.data('sig-search-version', sig_search_version);
+        $board.find('.sig-search-card').remove();
+        if (!active) {
+            $board.data('sig-search-rendered', 0);
+            if ($status.text() !== sig_search_message) $status.text(sig_search_message);
+            return;
+        }
+        let rendered = 0;
+        sig_search_rows.forEach((row) => {
+            const stage = String(row.custom_dispatch_stage || 'PENDING').trim().toUpperCase();
+            const $column = $board.find('.kanban-column').filter(function () {
+                return String($(this).attr('data-column-value') || $(this).find('.kanban-title').first().text()).trim().toUpperCase() === stage;
+            }).first();
+            const $container = $column.find('.kanban-cards').first();
+            if (!$container.length) return;
+            const $card = $('<div class="kanban-card-wrapper sig-search-card"><div class="kanban-card content"><div class="sig-search-card-title"></div><div class="sig-search-card-meta text-muted"></div><button type="button" class="kanban-assignments btn btn-default btn-xs" aria-label="Actions">+</button></div></div>');
+            $card.attr('data-name', encodeURIComponent(row.name));
+            $card.find('.sig-search-card-title').text([row.name, row.custom_site].filter(Boolean).join(' '));
+            $card.find('.sig-search-card-meta').text(row.custom_mir_number ? `MIR ${row.custom_mir_number}` : '');
+            $card.find('.kanban-card').css('border-left', `4px solid ${SIG_STAGE_COLORS[stage] || '#94a3b8'}`);
+            $card.on('click', function (event) { event.stopPropagation(); frappe.set_route('Form', 'Material Request', row.name); });
+            $container.append($card);
+            rendered++;
         });
+        $board.data('sig-search-rendered', rendered);
+        const message = rendered < sig_search_rows.length ?
+            __('Some matches have a dispatch stage that is not shown on this board.') : sig_search_message;
+        if ($status.text() !== message) $status.text(message);
     }
 
     // ---------------------------------------------------------------------
@@ -234,7 +228,7 @@
         paint_cached_dots($board);
         if (sig_availability_fetch_pending) return;
         const now = Date.now();
-        const names = [...new Set($board.find('.kanban-card-wrapper').map(function () {
+        const names = [...new Set($board.find(sig_search_query ? '.sig-search-card' : '.kanban-card-wrapper:not(.sig-search-card)').map(function () {
             return decodeURIComponent($(this).attr('data-name') || '');
         }).get())].filter((n) => n && (!sig_availability_cache.has(n) || now - sig_availability_cache.get(n).at > SIG_AVAILABILITY_TTL_MS));
         if (!names.length) return;
