@@ -80,6 +80,8 @@ def test_pc_suggestion_requires_exact_mapping_and_permissions(api, monkeypatch):
     assert api._suggest_pc_employee(doc, mapping, cp) == {"employee": "EMP-1", "name": "Abid Saeed", "account": "13221 - Custody - Co"}
     assert api._suggest_pc_employee(doc, {**mapping, "beneficiary_key": "other"}, cp) is None
     assert api._suggest_pc_employee(doc, {**mapping, "erp_party": "Employee: Different Name | 13221"}, cp) is None
+    arabic = {**mapping, "erp_party": "Employee: محمد عثمان | 13221"}
+    assert api._suggest_pc_employee(doc, arabic, cp)["employee"] == "EMP-1"
     monkeypatch.setattr(api.frappe, "has_permission", lambda *args: False)
     assert api._suggest_pc_employee(doc, mapping, cp) is None
 
@@ -580,3 +582,19 @@ def test_nonemployee_custody_selection_requires_approved_1322_ancestor(api, monk
     api.frappe.db.get_value = lambda doctype, name, fields, **kwargs: row if name == "CUSTODY" else ("1321", "")
     with pytest.raises(ValueError, match="1322"):
         api._verified_custody_account("CUSTODY")
+
+
+def test_supply_type_follows_the_purpose_then_the_payee_usual_type(api):
+    types_ = [{"code": "MATERIAL_SUPPLY"}, {"code": "MAINTENANCE"}, {"code": "CONTRACTING"}]
+    assert api._suggest_supply(types_, "XXMT", {"category": "MATERIAL_SUPPLY"}) == "MAINTENANCE"
+    assert api._suggest_supply(types_, "", {"category": "material_supply"}) == "MATERIAL_SUPPLY"
+    assert api._suggest_supply(types_, "XXLG", {"category": "NOT_A_TYPE"}) == ""
+    assert api._suggest_supply(types_, "XXSC", None) == "CONTRACTING"
+
+
+def test_fee_rows_are_never_counted_as_lines_of_their_own(api):
+    assert api._shown_in_tab("deferred", "BANK_CHARGE", "") is False
+    assert api._shown_in_tab("posted", "BANK_CHARGE", "PARENT") is False
+    assert api._shown_in_tab("posted", "BANK_CHARGE", "") is True
+    assert api._shown_in_tab("needs", "UNKNOWN", "") is True
+    assert set(api.KIND_GROUPS["OTHER"]) >= {"BANK_CHARGE", "SPECIALIST"}

@@ -329,7 +329,12 @@ def _suggest_pc_employee(doc, mapping, cp):
         return None
     employees = frappe.get_list("Employee", filters={"custom_custody_account": accounts[0]["name"], "status": "Active",
         "company": runtime.documents.COMPANY}, fields=["name", "employee_name"], page_length=2)
-    if len(employees) != 1 or normalize_text(employees[0]["employee_name"]) != normalize_text(match.group(1)):
+    if len(employees) != 1:
+        return None
+    # A Latin name must agree with the Employee. An Arabic label cannot be compared with the English Employee name, so the
+    # custody account number (one active Employee owns it) is the identity in that case.
+    if (normalize_text(employees[0]["employee_name"]) != normalize_text(match.group(1))
+            and not re.search(r"[؀-ۿ]", match.group(1))):
         return None
     return {"employee": employees[0]["name"], "name": employees[0]["employee_name"], "account": accounts[0]["name"]}
 
@@ -340,7 +345,8 @@ def _payload(doc, fees=None, statuses=None):
     signals = _data(doc.signals_json) or {}
     statuses = statuses or {}
     mapping = recognition.get("am_beneficiary_mapping") or {}
-    cp = frappe.db.get_value(COUNTERPARTY, doc.counterparty, ["display_name", "customer", "supplier", "employee", "custody_account", "am_key", "default_treatment", "purpose_defaults_json"], as_dict=True) if doc.counterparty else None
+    cp = frappe.db.get_value(COUNTERPARTY, doc.counterparty, ["display_name", "customer", "supplier", "employee", "custody_account", "am_key", "default_treatment", "purpose_defaults_json", "category"], as_dict=True) if doc.counterparty else None
+    supply_types = _supply_types() if doc.direction == "DEBIT" and doc.kind in ("UNKNOWN", "SUPPLIER_PAYMENT", "EXPENSE_PAYMENT", "EMPLOYEE") else []
     party_type = "Customer" if doc.direction == "CREDIT" else "Supplier"
     party = (cp or {}).get(party_type.lower()) or ""
     if party and (not frappe.has_permission(party_type, "read", party) or frappe.db.get_value(party_type, party, "disabled")):
@@ -369,6 +375,8 @@ def _payload(doc, fees=None, statuses=None):
         "linked_party_type": party_type if party else "", "linked_party": party, "suggested_parties": sorted(set(candidate_parties)),
         "pc_employee": employee, "pc_custody_account": custody,
         "pc_employee_suggestion": pc_suggestion,
+        "supply_types": supply_types, "supply_type": doc.get("supply_type") or _suggest_supply(supply_types, category, cp),
+        "supply_threshold": SUPPLY_THRESHOLD,
         "purpose_default_treatment": purpose_default,
         "request_supplier": request_supplier, "request_supplier_conflict": bool(party and request_supplier and party != request_supplier),
         "payment_reference_doctype": doc.get("payment_reference_doctype") or "",
@@ -396,19 +404,62 @@ def _fees_for(names):
     return out
 
 
+# TX Manager purpose code -> the supply type (a row of Bank Router Settings > categories) it suggests.
+PURPOSE_SUPPLY = {"XXMR": "MATERIAL_SUPPLY", "XXMT": "MAINTENANCE", "XXSC": "CONTRACTING", "XXLG": "LOGISTICS"}
+SUPPLY_THRESHOLD = 20000  # SAR, VAT included: a supplier payment above this should rest on a Purchase Order
+
+
+def _supply_types():
+    """The configured types of supply: [{code, label, account}]."""
+    settings = frappe.get_cached_doc(runtime.SETTINGS)
+    return [{"code": str(r.code).upper(), "label": r.label or str(r.code), "account": r.expense_account or ""}
+            for r in settings.categories or [] if r.code]
+
+
+def _suggest_supply(types, category, cp):
+    """The purpose TX Manager recorded wins; the payee's usual type is the fallback."""
+    codes = {t["code"] for t in types}
+    code = PURPOSE_SUPPLY.get(str(category or "").upper(), "")
+    if code in codes:
+        return code
+    usual = str((cp or {}).get("category") or "").upper()
+    return usual if usual in codes else ""
+
+
+KIND_GROUPS = {
+    "UNCLASSIFIED": ["UNKNOWN"],
+    "PETTY_CASH": ["PETTY_CASH"],
+    "RECEIPTS": ["CUSTOMER_RECEIPT"],
+    "OWN_TRANSFER": ["OWN_TRANSFER"],
+    "SUPPLIER": ["SUPPLIER_PAYMENT", "EXPENSE_PAYMENT"],
+    "OTHER": ["EMPLOYEE", "SPECIALIST", "OTHER", "BANK_CHARGE"],
+}
+
+
+def _shown_in_tab(tab, kind, parent_movement):
+    """Fees are shown under their main line, never as lines of their own."""
+    if kind == "BANK_CHARGE" and (tab == "deferred" or parent_movement):
+        return False
+    return True
+
+
 @frappe.whitelist()
-def list_inbox(tab="needs", bank="ALL", search="", start=0, limit=50):
+def list_inbox(tab="needs", bank="ALL", search="", start=0, limit=50, kind_group="ALL"):
     _require("read")
     if tab not in TABS:
         frappe.throw(_("Unknown tab."))
     start, limit = max(0, int(start)), min(100, max(1, int(limit)))
     if bank not in ("ALL", "SNB", "ALINMA"):
         frappe.throw(_("Unknown bank."))
+    if kind_group != "ALL" and kind_group not in KIND_GROUPS:
+        frappe.throw(_("Unknown type."))
     filters = {"engine_state": ["in", TABS[tab]]}
     if bank != "ALL":
         filters["source_key"] = ["like", bank + "-%"]
     if tab == "deferred":
         filters["kind"] = ["!=", "BANK_CHARGE"]
+    if kind_group != "ALL":
+        filters["kind"] = ["in", KIND_GROUPS[kind_group]]
     or_filters = None
     term = str(search or "").strip()
     if term:
@@ -426,10 +477,13 @@ def list_inbox(tab="needs", bank="ALL", search="", start=0, limit=50):
         p = _payload(d, [{**f, "doc_status": statuses.get((f["erp_doctype"], f["erp_document"]))} for f in fees.get(d.name, [])], statuses)
         if bank == "ALL" or p["bank"].upper() == bank:
             items.append(p)
-    visible_states = frappe.get_list(DOCTYPE, fields=["engine_state"], limit_page_length=0)
-    counts = {tab_name: sum(1 for row in visible_states if row.engine_state in states)
+    visible = frappe.get_list(DOCTYPE, fields=["engine_state", "kind", "parent_movement"], limit_page_length=0)
+    counts = {tab_name: sum(1 for row in visible if row.engine_state in states and _shown_in_tab(tab_name, row.kind, row.parent_movement))
               for tab_name, states in TABS.items()}
-    return {"items": items, "counts": counts, "has_more": len(rows) == limit}
+    kind_counts = {"ALL": counts[tab]}
+    for group, kinds in KIND_GROUPS.items():
+        kind_counts[group] = sum(1 for row in visible if row.engine_state in TABS[tab] and row.kind in kinds and _shown_in_tab(tab, row.kind, row.parent_movement))
+    return {"items": items, "counts": counts, "kind_counts": kind_counts, "has_more": len(rows) == limit}
 
 
 @frappe.whitelist()
@@ -688,6 +742,10 @@ def route_movement(name, modified, target):
         resolved = {"account": account}
     else:
         frappe.throw(_("Choose a party for Payment Entry or an expense account for Journal Entry."))
+    supply = str(target.get("supply_type") or "").upper()
+    if supply and supply not in {t["code"] for t in _supply_types()}:
+        frappe.throw(_("Choose a type of supply from the list."))
+    doc.supply_type = supply
     remember = str(target.get("remember_default") or "0") == "1"
     if remember:
         recognition = _data(doc.recognition_json) or {}

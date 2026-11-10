@@ -291,3 +291,15 @@ def test_own_transfer_journal_uses_one_debit_and_one_credit():
     assert body["accounts"][1]["account"] == "BANK-OUT" and body["accounts"][1]["credit_in_account_currency"] == 2500
     with pytest.raises(ValueError):
         D.own_transfer_journal(movement, "BANK", "BANK")
+
+
+def test_sadad_biller_is_read_from_the_real_statement_shape():
+    parsed = snb.parse(line("DEBIT", "SADAD", "SADAD Payment", "165-2001003327019603 01400010326605 6950931237"))
+    assert (parsed["biller_code"], parsed["bill_account"]) == ("165", "2001003327019603")
+    assert parsed["identifiers"] == [] and not parsed["display_name"]
+
+
+def test_draft_remarks_name_the_type_of_supply():
+    mv = {"key": "K", "amount": -100, "date": dt.date(2026, 11, 3), "reference": "R", "supply": "Maintenance"}
+    assert "Type of supply: Maintenance" in D.remarks(mv, "Payee", "SUPPLIER_PAYMENT")
+    assert "Type of supply" not in D.remarks({**mv, "supply": ""}, "Payee", "SUPPLIER_PAYMENT")

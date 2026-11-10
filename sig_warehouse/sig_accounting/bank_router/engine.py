@@ -234,11 +234,12 @@ def route(mv, ctx):
         out.update(engine_state="NEEDS_YOU", decision_type="CONFIRM_TREATMENT" if facts.get("default_treatment") else "CHOOSE_TREATMENT")
         return out
     if kind == K.PETTY_CASH:
-        # Only an explicit router decision can designate an Employee funding cycle.
-        if mv.get("route_source") != "MANUAL":
+        # Only an explicit router decision can designate an Employee funding cycle. A payee whose Employee and
+        # custody account Finance already confirmed (they are never seeded) is not asked again on every line.
+        employee, custody = facts.get("employee") or "", facts.get("custody_account") or ""
+        if mv.get("route_source") != "MANUAL" and not (employee and custody):
             out.update(engine_state="NEEDS_YOU", decision_type="NEEDS_HR_LINK")
             return out
-        employee, custody = facts.get("employee") or "", facts.get("custody_account") or ""
         manual_custody = mv.get("accounting_account") or ""
         if employee and custody and not manual_custody:
             target = {"employee": employee, "custody_account": custody, "holding": False, "label": facts.get("display_name") or ""}

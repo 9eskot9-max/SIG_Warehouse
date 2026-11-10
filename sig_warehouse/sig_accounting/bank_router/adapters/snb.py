@@ -64,9 +64,15 @@ def parse(source, scopes=DEFAULT_COMPANY_SCOPES):
     out = {"format": fmt, "identifiers": [], "display_name": "", "own_account": False,
            "tawal": bool(TAWAL_PATTERN.search(text)), "adjustment": bool(ADJUSTMENT_PATTERN.search(text)),
            "reference": str(source.get("reference") or "").strip()}
-    biller = re.search(r"\b(?:BILLER(?:\s*(?:ID|CODE))?)\s*[:#-]?\s*(\d{2,8})\b", text, re.I)
-    if str(source.get("parser_family") or "").upper() == "SADAD" and biller:
-        out["biller_code"] = biller.group(1)
+    if str(source.get("parser_family") or "").upper() == "SADAD":
+        # Real statement text: "SADAD Payment 165-2001003327019603 <our account> <reference>": the number before the dash
+        # is the biller and the rest is the bill account. The older "BILLER 123" wording is still accepted.
+        biller = re.search(r"\b(?:BILLER(?:\s*(?:ID|CODE))?)\s*[:#-]?\s*(\d{2,8})\b", text, re.I)
+        bill = re.search(r"(?<!\d)(\d{2,4})-(\d{6,20})(?!\d)", detail) or re.search(r"(?<!\d)(\d{2,4})-(\d{6,20})(?!\d)", text)
+        if bill:
+            out["biller_code"], out["bill_account"] = bill.group(1), bill.group(2)
+        elif biller:
+            out["biller_code"] = biller.group(1)
     if not fmt:
         return out
     party_id = re.search(r"(?P<label>BEN|DEP)\s*ID\s*:\s*(?P<value>\d+)", detail, re.I)

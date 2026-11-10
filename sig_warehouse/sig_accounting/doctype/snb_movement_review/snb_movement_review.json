@@ -21,6 +21,7 @@
   "kind",
   "accounting_treatment",
   "accounting_account",
+  "supply_type",
   "counterparty",
   "route_source",
   "erp_doctype",
@@ -262,6 +263,12 @@
    "read_only": 1
   },
   {
+   "fieldname": "supply_type",
+   "fieldtype": "Data",
+   "label": "Type of supply",
+   "read_only": 1
+  },
+  {
    "fieldname": "counterparty",
    "fieldtype": "Link",
    "label": "Counterparty",
@@ -292,7 +299,7 @@
    "fieldname": "link_method",
    "fieldtype": "Select",
    "label": "How it was linked",
-   "options": "\nMARKER\nAM_LINK\nLEDGER\nAUTO_DRAFT\nMANUAL",
+   "options": "\nMARKER\nAM_LINK\nLEDGER\nAUTO_DRAFT\nMANUAL\nOWN_TRANSFER",
    "read_only": 1
   },
   {

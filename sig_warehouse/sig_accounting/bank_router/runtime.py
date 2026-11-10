@@ -241,6 +241,9 @@ class Context:
     def create(self, kind, mv, target, fees):
         s = self.settings
         movement = {"key": mv["key"], "amount": mv["amount"], "date": mv["date"], "reference": mv["source"].get("reference", "")}
+        supply = str(mv.get("supply_type") or "")
+        if supply:
+            movement["supply"] = next((r.label or r.code for r in s.doc.categories or [] if str(r.code).upper() == supply), supply)
         bank_gl = s.scopes[mv["scope"]]
         use_fees = fees if s.draft_fees else []
         if kind == "PETTY_CASH":
@@ -329,7 +332,7 @@ def load_index():
     """Light view of every movement: name -> dict, plus fee children by main movement."""
     rows = frappe.get_all(DOCTYPE, fields=["name", "source_key", "event_date", "amount", "account_scope_hash", "source_json", "recognition_json",
                                            "erp_hint_json", "engine_state", "kind", "counterparty", "route_source", "erp_doctype",
-                                           "erp_document", "link_method", "accounting_treatment", "accounting_account", "payment_reference_doctype", "payment_reference", "payment_reference_amount", "candidates_json", "parent_movement", "modified"], limit_page_length=0)
+                                           "erp_document", "link_method", "accounting_treatment", "accounting_account", "supply_type", "payment_reference_doctype", "payment_reference", "payment_reference_amount", "candidates_json", "parent_movement", "modified"], limit_page_length=0)
     index = {}
     for r in rows:
         source = json.loads(r.source_json or "{}")
@@ -355,6 +358,7 @@ def to_engine(name, index, children, ctx):
           "hint": json.loads(r.erp_hint_json or "{}"), "route_source": r.route_source or "", "counterparty": r.counterparty or "",
           "erp_doctype": r.erp_doctype or "", "erp_document": r.erp_document or "", "link_method": r.link_method or "",
           "accounting_treatment": r.accounting_treatment or "", "accounting_account": r.accounting_account or "",
+          "supply_type": r.supply_type or "",
           "payment_reference_doctype": r.payment_reference_doctype or "", "payment_reference": r.payment_reference or "",
           "payment_reference_amount": r.payment_reference_amount or 0,
           "paired_transfer": entry.get("paired_transfer") or {},

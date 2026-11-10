@@ -18,6 +18,8 @@ def posting_date(movement):
 def remarks(movement, label, kind, holding=False, intended=""):
     lines = ["[SNB auto-draft: do not submit until cleared]", f"Counterparty: {label or '(not identified)'}",
              f"Kind: {kind}", f"Bank ref: {movement.get('reference') or ''} | {posting_date(movement)} | {abs(float(movement['amount'])):.2f} SAR"]
+    if movement.get("supply"):
+        lines.append(f"Type of supply: {movement['supply']}")
     if holding:
         lines.append(f"Holding party (intended: {intended or 'unknown'}): confirm the real party in the Bank Router")
     return "\n".join(lines)

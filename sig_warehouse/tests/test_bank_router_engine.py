@@ -359,3 +359,14 @@ def test_reviewed_personal_bank_custody_has_no_employee_assignment():
     ctx = Ctx(auto=True, registry=registry)
     E.process(mv, ctx)
     assert ctx.created[0][1]["employee"] == "" and ctx.created[0][1]["custody_account"] == "1322 - Rajhi"
+
+
+def test_a_confirmed_employee_payee_is_not_asked_again_on_the_next_line():
+    registry = Registry({("BEN_ID", "555123"): ("CP-E", "ACTIVE")},
+                        {"CP-E": {"employee": "EMP-1", "custody_account": "1322 - Custody", "display_name": "Employee"}})
+    mv = movement(-1500, "1234567890123 BEN ID:555123", family="INTERNAL_BEN_ID")
+    mv["recognition"] = {"category": "XXPC", "am_category_status": "MATCHED"}
+    out = E.process(mv, Ctx(auto=False, registry=registry))
+    assert (out["kind"], out["decision_type"], out["accounting_treatment"]) == ("PETTY_CASH", "CREATE_DRAFT", "JOURNAL_ENTRY")
+    unconfirmed = Registry({("BEN_ID", "555123"): ("CP-E", "ACTIVE")}, {"CP-E": {"is_employee": True, "custody_account": "1322 - Custody"}})
+    assert E.process(mv, Ctx(auto=False, registry=unconfirmed))["decision_type"] == "NEEDS_HR_LINK"
