@@ -387,5 +387,5 @@ def test_confirming_old_snb_row_learns_newly_parsed_receipt_hint(api):
               "transaction_description": "Incoming Local transfer", "detail_description": "BNPASARI ENOVA FOR FACILITIES AND ENERG EXTN980263063RK6"}
     movement = Doc(signals_json='{"identifiers":[]}', source_json=json.dumps(source))
     api._learn_identifiers(movement, Doc(name="CP-1"))
-    assert len(created) == 1 and created[0]["kind"] == "NAME"
+    assert len(created) == 1 and created[0]["kind"] == "NAME_LARGE_LOCAL"
     assert created[0]["value"] == "ENOVA FOR FACILITIES AND ENERG"

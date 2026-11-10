@@ -25,7 +25,7 @@ def normalize_text(value):
 def hint_key(kind, value):
     """Comparison form of an identifier. Digit-only values ignore leading zeros (Sheets drops them)."""
     text = normalize_text(value)
-    if kind == "NAME":
+    if kind == "NAME" or str(kind).startswith("NAME_"):
         return text
     compact = text.replace(" ", "")
     return compact.lstrip("0") if compact.isdigit() else compact

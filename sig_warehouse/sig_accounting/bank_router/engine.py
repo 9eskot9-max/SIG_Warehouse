@@ -105,7 +105,11 @@ def route(mv, ctx):
     if mv.get("route_source") == "MANUAL" and mv.get("counterparty"):
         ident = {"status": "IDENTIFIED", "counterparty": mv["counterparty"], "candidates": [mv["counterparty"]], "via": "MANUAL"}
     else:
-        ident = identify(signals["identifiers"], ctx.registry.lookup)
+        identifiers = list(signals["identifiers"])
+        fmt = signals.get("format") or ""
+        if fmt in ("IPS_LOCAL", "LARGE_LOCAL", "INTERNAL_SNB"):
+            identifiers += [("NAME_" + fmt, value) for kind, value in signals["identifiers"] if kind == "NAME"]
+        ident = identify(identifiers, ctx.registry.lookup)
     cp = ident["counterparty"]
     facts = ctx.registry.facts(cp) if cp else {}
     out["counterparty"] = cp

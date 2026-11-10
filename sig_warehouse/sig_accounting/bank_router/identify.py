@@ -30,6 +30,11 @@ def identify(identifiers, lookup):
         return {"status": "IDENTIFIED", "counterparty": cp, "candidates": [cp], "via": sorted(kinds)[0]}
     if len(active) > 1:
         return {"status": "CONFLICT", "counterparty": "", "candidates": sorted(active), "via": ""}
+    # Prefer format-specific name hints. Older generic name hints remain
+    # usable as suggestions when no specific hint exists.
+    scoped = {cp: kinds for cp, kinds in suggested.items() if any(kind.startswith("NAME_") for kind in kinds)}
+    if scoped:
+        return {"status": "SUGGESTED", "counterparty": "", "candidates": sorted(scoped), "via": ""}
     if suggested:
         return {"status": "SUGGESTED", "counterparty": "", "candidates": sorted(suggested), "via": ""}
     return {"status": "NONE", "counterparty": "", "candidates": [], "via": ""}

@@ -414,6 +414,9 @@ def _learn_identifiers(doc, cp):
         signals.update(parsed)
         doc.signals_json = _json(signals)
     for kind, value in signals.get("identifiers") or []:
+        fmt = signals.get("format") or ""
+        if kind == "NAME" and fmt in ("IPS_LOCAL", "LARGE_LOCAL", "INTERNAL_SNB"):
+            kind = "NAME_" + fmt
         key = runtime.identity_key(kind, value)
         existing = frappe.db.exists(IDENTIFIER, key)
         if existing:

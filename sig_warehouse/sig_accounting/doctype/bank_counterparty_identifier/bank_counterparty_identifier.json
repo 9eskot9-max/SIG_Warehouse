@@ -36,7 +36,7 @@
    "fieldname": "kind",
    "fieldtype": "Select",
    "label": "Kind",
-   "options": "IBAN\nACCOUNT\nBEN_ID\nDEP_ID\nNAME\nSADAD_CODE",
+   "options": "IBAN\nACCOUNT\nBEN_ID\nDEP_ID\nNAME\nNAME_IPS_LOCAL\nNAME_LARGE_LOCAL\nNAME_INTERNAL_SNB\nSADAD_CODE",
    "reqd": 1,
    "in_list_view": 1
   },

@@ -259,3 +259,14 @@ def test_incoming_local_bic_and_extn_produces_a_reviewable_payer_name():
     assert result["identifiers"] == [("NAME", "ENOVA FOR FACILITIES AND ENERG")]
     reg = registry({("NAME", "enova for facilities and energ"): [("CP-1", "ACTIVE")]})
     assert identify(result["identifiers"], reg)["status"] == "SUGGESTED"
+
+
+def test_format_specific_names_take_priority_as_suggestions_without_changing_legacy_hints():
+    reg = registry({("NAME", "acme"): [("LEGACY", "ACTIVE")],
+                    ("NAME_IPS_LOCAL", "acme"): [("IPS", "ACTIVE")],
+                    ("NAME_LARGE_LOCAL", "acme"): [("LARGE", "ACTIVE")]})
+    ips = identify([("NAME", "ACME"), ("NAME_IPS_LOCAL", "ACME")], reg)
+    large = identify([("NAME", "ACME"), ("NAME_LARGE_LOCAL", "ACME")], reg)
+    assert ips["status"] == "SUGGESTED" and ips["candidates"] == ["IPS"]
+    assert large["status"] == "SUGGESTED" and large["candidates"] == ["LARGE"]
+    assert identify([("NAME", "ACME")], reg)["candidates"] == ["LEGACY"]
