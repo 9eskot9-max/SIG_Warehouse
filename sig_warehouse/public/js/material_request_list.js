@@ -91,17 +91,92 @@
     // the same reason.
     // ---------------------------------------------------------------------
     let sig_search_query = '';
+    let sig_search_timer = null;
+    let sig_search_request = 0;
 
     function ensure_search_box($board) {
         if (document.getElementById('sig-kanban-search-input')) return;
-        const $box = $(`<div class="sig-kanban-search" style="margin: 0 15px 10px;">
-            <input type="text" id="sig-kanban-search-input" class="form-control input-sm" placeholder="${__('Search MR #, site (e.g. 1011, ZMK113)...')}">
+        const $box = $(`<div class="sig-kanban-search" style="margin: 0 15px 10px; position: relative; max-width: 520px;">
+            <input type="text" id="sig-kanban-search-input" class="form-control input-sm" autocomplete="off" placeholder="${__('Search MIR #, MR ID, or site...')}">
+            <div class="sig-kanban-search-results" role="listbox" style="display:none; position:absolute; z-index:1000; top:100%; left:0; right:0; max-height:320px; overflow:auto; background:var(--card-bg,#fff); border:1px solid var(--border-color,#d1d8dd); border-radius:4px; box-shadow:0 2px 8px rgba(0,0,0,.12);"></div>
         </div>`);
         $board.before($box);
         $box.find('input').on('input', function () {
             sig_search_query = $(this).val().trim().toLowerCase();
             apply_search_filter($('.kanban').first());
             paint_badges_and_borders($('.kanban').first());
+            clearTimeout(sig_search_timer);
+            const requestId = ++sig_search_request;
+            const $results = $box.find('.sig-kanban-search-results').empty().hide();
+            if (sig_search_query.length < 2) return;
+            sig_search_timer = setTimeout(() => search_dispatch_records(sig_search_query, requestId, $results), 250);
+        });
+        $box.find('input').on('keydown', function (event) {
+            if (event.key === 'Escape') $box.find('.sig-kanban-search-results').empty().hide();
+        });
+        $(document).off('click.sigKanbanSearch').on('click.sigKanbanSearch', function (event) {
+            if (!$.contains($box[0], event.target)) $box.find('.sig-kanban-search-results').hide();
+        });
+    }
+
+    function search_dispatch_records(query, requestId, $results) {
+        // Search the complete, permission-visible Material Issue set so the
+        // first-page Kanban window does not hide older or later matches.
+        // Keep the fixed board filters here: this is a finder, not a way to
+        // expose other Material Request types or drafts.
+        const like = `%${query.replace(/[\\%_]/g, '\\$&')}%`;
+        frappe.call({
+            method: 'frappe.client.get_list',
+            args: {
+                doctype: 'Material Request',
+                fields: ['name', 'custom_mir_number', 'custom_site', 'custom_dispatch_stage'],
+                filters: [['docstatus', '=', 1], ['material_request_type', '=', 'Material Issue']],
+                or_filters: [
+                    ['name', 'like', like],
+                    ['custom_mir_number', 'like', like],
+                    ['custom_site', 'like', like],
+                ],
+                order_by: 'modified desc',
+                limit_page_length: 20,
+            },
+            callback: (response) => {
+                if (requestId !== sig_search_request || query !== sig_search_query) return;
+                const rows = response.message || [];
+                $results.empty();
+                if (!rows.length) {
+                    $('<div class="text-muted" style="padding:8px 10px;"></div>')
+                        .text(__('No matching submitted Material Issues found.'))
+                        .appendTo($results);
+                } else {
+                    rows.forEach((row) => {
+                        const label = [
+                            row.custom_mir_number ? `MIR ${row.custom_mir_number}` : row.name,
+                            row.custom_site,
+                            row.custom_dispatch_stage,
+                        ].filter(Boolean).join(' · ');
+                        $('<button type="button" class="btn btn-link btn-block text-left" role="option" style="display:block; width:100%; padding:7px 10px; white-space:normal;"></button>')
+                            .text(`${row.name}  —  ${label}`)
+                            .appendTo($results)
+                            .on('click', () => {
+                                $results.hide();
+                                frappe.set_route('Form', 'Material Request', row.name);
+                            });
+                    });
+                    if (rows.length === 20) {
+                        $('<div class="text-muted" style="padding:6px 10px; border-top:1px solid var(--border-color,#d1d8dd);"></div>')
+                            .text(__('Showing up to 20 matches. Refine your search to narrow the results.'))
+                            .appendTo($results);
+                    }
+                }
+                $results.show();
+            },
+            error: () => {
+                if (requestId !== sig_search_request) return;
+                $results.empty().append(
+                    $('<div class="text-danger" style="padding:8px 10px;"></div>')
+                        .text(__('Search failed. Check your access and try again.'))
+                ).show();
+            },
         });
     }
 
@@ -592,7 +667,20 @@
 
     window.sig_wh = Object.assign(window.sig_wh || {}, { invalidate_availability, open_mr_cancel: sig_kanban_cancel });
 
+    function wait_for_board(attempts = 0) {
+        if (!on_our_route()) return;
+        const pc = document.querySelector(`.page-container[data-page-route="${ROUTE}"]`);
+        if (pc) {
+            ensure_observer();
+            return;
+        }
+        // The router event can fire before Frappe inserts the page container.
+        // Retry briefly after navigation instead of silently missing a direct
+        // Kanban URL load for the lifetime of the Desk tab.
+        if (attempts < 40) setTimeout(() => wait_for_board(attempts + 1), 100);
+    }
+
     bind_card_actions_once();
-    frappe.router.on('change', () => setTimeout(ensure_observer, 0));
-    ensure_observer();
+    frappe.router.on('change', () => wait_for_board());
+    wait_for_board();
 })();
