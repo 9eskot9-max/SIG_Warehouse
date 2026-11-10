@@ -1169,7 +1169,7 @@ def pick_document(name, modified, doctype, document):
 
 def _verified_employee_proposals(rows, get_cp):
     """Payees not yet tied to an Employee whose Sheet Am label is verified against ERP: {counterparty: proposal}."""
-    found = {}
+    found, conflicts = {}, set()
     for r in rows:
         cp = get_cp(r["counterparty"]) if r.get("counterparty") else None
         if not cp or cp.get("employee") or cp.get("custody_account") or cp.get("is_company") or cp.get("supplier") or cp.get("customer"):
@@ -1178,8 +1178,13 @@ def _verified_employee_proposals(rows, get_cp):
         match = _verified_payee_custody(mapping, cp.get("am_key"))
         if not match:
             continue
+        if r["counterparty"] in found and any(found[r["counterparty"]].get(k) != match.get(k) for k in ("employee", "account")):
+            conflicts.add(r["counterparty"])
+            continue
         entry = found.setdefault(r["counterparty"], {**match, "counterparty": r["counterparty"], "payee": cp.get("display_name") or "", "movements": []})
         entry["movements"].append(r["name"])
+    for name in conflicts:
+        found.pop(name, None)
     return found
 
 
@@ -1192,7 +1197,7 @@ def bulk_confirm_verified_employees(apply=0):
     _require("write")
     from sig_warehouse.sig_warehouse.pc_funding import _active_employee, _require_finance
     _require_finance()
-    rows = frappe.get_all(DOCTYPE, filters={"engine_state": "NEEDS_YOU", "direction": "DEBIT",
+    rows = frappe.get_list(DOCTYPE, filters={"engine_state": "NEEDS_YOU", "direction": "DEBIT",
                           "kind": ["in", ["PETTY_CASH", "UNKNOWN", "EXPENSE_PAYMENT", "EMPLOYEE"]]},
                           fields=["name", "counterparty", "recognition_json"], limit_page_length=0)
     cache = {}
@@ -1218,8 +1223,8 @@ def bulk_confirm_verified_employees(apply=0):
         cp.save(ignore_permissions=True)
         done += 1
         names += p["movements"]
-    if names:
-        runtime.run("main", 0, min(len(names), 100), names=names[:100], review_only=True)
+    for start in range(0, len(names), 100):
+        runtime.run("main", 0, 100, names=names[start:start + 100], review_only=True)
     return {"applied": done, "payees": summary}
 
 

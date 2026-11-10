@@ -184,7 +184,8 @@ def route(mv, ctx):
 
     # Stage 4: reconcile
     movement = {"key": mv["key"], "amount": float(mv["amount"]), "date": mv["date"], "reference": signals["reference"], "bank_account": bank_gl,
-                "payee": _payee_evidence(facts, mined)}
+                "payee": _payee_evidence(facts, mined) if direction == "DEBIT" else {},
+                "unique_statement_amount": mv.get("unique_statement_amount", False)}
     existing = None
     if mv.get("erp_document"):
         existing = ctx.ledger.doc(mv["erp_doctype"], mv["erp_document"], bank_gl)

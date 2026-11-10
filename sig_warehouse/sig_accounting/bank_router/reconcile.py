@@ -27,7 +27,9 @@ def payee_fit(movement, doc):
     payee = movement.get("payee") or {}
     custody, supplier = str(payee.get("custody") or ""), str(payee.get("supplier") or "")
     if custody and doc.get("counter") is not None and doc["doctype"] == "Journal Entry":
-        return "ok" if custody in doc["counter"] else "other"
+        if custody in doc["counter"]:
+            return "ok"
+        return "other" if any(str(account).startswith("1322") for account in doc["counter"]) else "unknown"
     if supplier and doc.get("party") and doc["doctype"] == "Payment Entry":
         return "ok" if doc["party"] == supplier else "other"
     return "unknown"
@@ -47,7 +49,7 @@ def pick_document(movement, candidates, claimed=(), rejected=(), hint=None, wind
     for doc in live:
         if doc.get("marker") and doc["marker"] == movement["key"] and doc["name"] not in claimed and doc["bank_account"] == movement["bank_account"] and (doc["amount"] > 0) == (float(movement["amount"]) > 0) and _same_amount(doc["amount"], movement["amount"]):
             return "LINK", [doc], "MARKER"
-    if hint and hint["docstatus"] != 2 and hint["name"] not in rejected and hint["name"] not in claimed \
+    if hint and hint["docstatus"] != 2 and hint["name"] not in rejected and hint["name"] not in claimed and payee_fit(movement, hint) != "other" \
             and (hint["amount"] > 0) == (float(movement["amount"]) > 0) and _same_amount(hint["amount"], movement["amount"]) and hint.get("bank_account") == movement["bank_account"]:
         return "LINK", [hint], "AM_LINK"
     day = _date(movement["date"])
@@ -63,7 +65,7 @@ def pick_document(movement, candidates, claimed=(), rejected=(), hint=None, wind
         return "NONE", [], ""
     # One document on the very same day whose other side is this payee: it is this line's document.
     exact = [c for c in near if _date(c["date"]) == day and payee_fit(movement, c) == "ok"]
-    if len(exact) == 1:
+    if len(exact) == 1 and movement.get("unique_statement_amount"):
         return "LINK", exact, "LEDGER"
     return "PICK", near, "LEDGER"
 

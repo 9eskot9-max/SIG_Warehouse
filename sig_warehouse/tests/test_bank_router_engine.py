@@ -400,10 +400,16 @@ def test_a_document_of_another_payee_is_never_offered():
 def test_the_same_day_document_of_this_payee_is_linked_without_asking():
     docs = [doc("JV-13", -1500, "2026-09-13", counter={"132210"}), doc("JV-16", -1500, "2026-09-16", counter={"132210"}),
             doc("JV-20", -1500, "2026-09-20", counter={"132228"})]
-    out = E.process(_bilal_line(), Ctx(ledger=Ledger(docs)))
+    line = _bilal_line()
+    line["unique_statement_amount"] = True
+    out = E.process(line, Ctx(ledger=Ledger(docs)))
     assert (out["erp_document"], out["link_method"], out["engine_state"]) == ("JV-16", "LEDGER", "POSTED")
+    line["unique_statement_amount"] = False
+    assert E.process(line, Ctx(ledger=Ledger(docs)))["decision_type"] == "PICK_DOCUMENT"
     # the 13 September line finds its own entry, not the neighbour
-    assert E.process(_bilal_line("2026-09-13"), Ctx(ledger=Ledger(docs)))["erp_document"] == "JV-13"
+    earlier = _bilal_line("2026-09-13")
+    earlier["unique_statement_amount"] = True
+    assert E.process(earlier, Ctx(ledger=Ledger(docs)))["erp_document"] == "JV-13"
 
 
 def test_without_payee_evidence_the_old_pick_behaviour_stays():

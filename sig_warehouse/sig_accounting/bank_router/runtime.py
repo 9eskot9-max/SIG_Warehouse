@@ -347,6 +347,10 @@ def load_index():
         source = json.loads(r.source_json or "{}")
         recognition = json.loads(r.recognition_json or "{}")
         index[r.name] = {"row": r, "source": source, "recognition": recognition, "family": source.get("parser_family", "")}
+    occurrences = collections.Counter((r.account_scope_hash, str(r.event_date), round(flt(r.amount), 2)) for r in rows)
+    for entry in index.values():
+        r = entry["row"]
+        entry["unique_statement_amount"] = occurrences[(r.account_scope_hash, str(r.event_date), round(flt(r.amount), 2))] == 1
     children = collections.defaultdict(list)
     for name, entry in index.items():
         main_id = entry["recognition"].get("related_main_id")
@@ -367,7 +371,7 @@ def to_engine(name, index, children, ctx):
           "hint": json.loads(r.erp_hint_json or "{}"), "route_source": r.route_source or "", "counterparty": r.counterparty or "",
           "erp_doctype": r.erp_doctype or "", "erp_document": r.erp_document or "", "link_method": r.link_method or "",
           "accounting_treatment": r.accounting_treatment or "", "accounting_account": r.accounting_account or "",
-          "supply_type": r.supply_type or "",
+          "supply_type": r.supply_type or "", "unique_statement_amount": entry.get("unique_statement_amount", False),
           "payment_reference_doctype": r.payment_reference_doctype or "", "payment_reference": r.payment_reference or "",
           "payment_reference_amount": r.payment_reference_amount or 0,
           "paired_transfer": entry.get("paired_transfer") or {},
