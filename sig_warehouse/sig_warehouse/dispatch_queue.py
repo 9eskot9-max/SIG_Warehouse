@@ -54,9 +54,16 @@ def classify_availability(open_lines, bins):
 
 
 def worst_return_state(dns):
-    """Worst custom_return_state across outbound DNs. NONE when there is no DN."""
+    """Worst custom_return_state across outbound DNs. NONE when there is no DN.
+
+    Returns None (unknown) when any DN row does not carry the field at all, which is what
+    Frappe does for a permission-level-1 field the caller cannot read. Unknown must never be
+    shown as "pending".
+    """
     worst = "NONE"
     for dn in dns:
+        if "custom_return_state" not in dn:
+            return None
         state = str(dn.get("custom_return_state") or "PENDING").upper()
         if state not in RETURN_RANK:
             state = "PENDING"
@@ -190,20 +197,31 @@ def _fetch_lines(names):
     return lines_by_mr
 
 
+# DN summary reads use ``get_all`` on purpose. A DN's Employee link fields (dispatched to,
+# approved by, initiated by, requestor PM) are covered by each user's Employee User
+# Permission, so ``get_list`` would hide DNs addressed to other people and make the queue
+# differ per user; and the return state is a permission-level-1 field on Stock Entry that
+# Stock User cannot read. The scope is held elsewhere: callers pass only MIR names that came
+# from a permission-filtered Material Request ``get_list``, require Stock Entry read, and
+# the fields requested here are workflow status only (no employee, party or amount fields).
+DN_SUMMARY_FIELDS = ["name", "posting_date", "custom_return_state", "custom_return_closed_on"]
+DN_LINE_FIELDS = ["item_code", "qty", "uom", "custom_qty_returned", "custom_qty_custody",
+                  "custom_return_disposition"]
+
+
 def _fetch_dns(names):
-    """Outbound (non-return) Material Issue DNs per MIR, de-duplicated."""
+    """Outbound (non-return) Material Issue DNs per MIR, de-duplicated. See the note above."""
     dns_by_mr = {}
     for batch in _batches(names):
-        details = frappe.get_list("Stock Entry Detail", parent_doctype="Stock Entry", limit_page_length=0,
-                                  filters={"material_request": ["in", batch], "docstatus": 1},
-                                  fields=["parent", "material_request"])
+        details = frappe.get_all("Stock Entry Detail",
+                                 filters={"material_request": ["in", batch], "docstatus": 1},
+                                 fields=["parent", "material_request"])
         meta = {}
         for pb in _batches(sorted({d["parent"] for d in details})):
-            for se in frappe.get_list("Stock Entry", limit_page_length=0,
-                                      filters={"name": ["in", pb], "docstatus": 1, "is_return": 0,
-                                               "purpose": "Material Issue"},
-                                      fields=["name", "posting_date", "custom_return_state",
-                                              "custom_return_closed_on"]):
+            for se in frappe.get_all("Stock Entry",
+                                     filters={"name": ["in", pb], "docstatus": 1, "is_return": 0,
+                                              "purpose": "Material Issue"},
+                                     fields=DN_SUMMARY_FIELDS):
                 meta[se["name"]] = se
         seen = set()
         for d in details:
@@ -319,21 +337,19 @@ def get_mr_detail(mr):
     dn_access = bool(frappe.has_permission("Stock Entry", "read"))
     dns, returns = [], []
     if dn_access:
-        parents = sorted({d["parent"] for d in frappe.get_list(
-            "Stock Entry Detail", parent_doctype="Stock Entry", limit_page_length=0,
-            filters={"material_request": mr, "docstatus": 1}, fields=["parent"])})
-        for se in (frappe.get_list("Stock Entry", limit_page_length=0, order_by="posting_date asc, name asc",
-                                   filters={"name": ["in", parents], "docstatus": 1},
-                                   fields=["name", "posting_date", "purpose", "is_return", "custom_return_state"])
+        # `mr` passed the document-level read check above; see the note on DN_SUMMARY_FIELDS.
+        parents = sorted({d["parent"] for d in frappe.get_all(
+            "Stock Entry Detail", filters={"material_request": mr, "docstatus": 1}, fields=["parent"])})
+        for se in (frappe.get_all("Stock Entry", order_by="posting_date asc, name asc",
+                                  filters={"name": ["in", parents], "docstatus": 1},
+                                  fields=DN_SUMMARY_FIELDS + ["purpose", "is_return"])
                    if parents else []):
             if se.get("is_return"):
                 returns.append(se)
             elif se.get("purpose") == "Material Issue":
-                se["lines"] = frappe.get_list(
-                    "Stock Entry Detail", parent_doctype="Stock Entry", limit_page_length=0,
-                    filters={"parent": se["name"], "material_request": mr}, order_by="idx asc",
-                    fields=["item_code", "qty", "uom", "custom_qty_returned", "custom_qty_custody",
-                            "custom_return_disposition"])
+                se["lines"] = frappe.get_all(
+                    "Stock Entry Detail", filters={"parent": se["name"], "material_request": mr},
+                    order_by="idx asc", fields=DN_LINE_FIELDS)
                 dns.append(se)
     availability_access = bool(frappe.has_permission("Bin", "read"))
     availability = None

@@ -43,25 +43,29 @@ class FakeFrappe(ModuleType):
     def throw(self, message, exc=Exception):
         raise exc(message)
 
-    def _query(self, doctype, filters=None, fields=None, limit_page_length=0, order_by=None, **k):
+    def _query(self, doctype, filters=None, fields=None, limit_page_length=0, order_by=None, permitted=True, **k):
         flt = filters
         if isinstance(flt, dict):
             flt = [[kk, "in" if isinstance(vv, list) and vv and vv[0] == "in" else "=", vv[1] if isinstance(vv, list) else vv]
                    for kk, vv in flt.items()]
         rows = [r for r in self.tables.get(doctype, []) if all(_op(f, (r.get(c), v)) for c, f, v in (flt or []))]
+        if permitted:   # get_list: Employee User Permission hides rows addressed to others
+            rows = [r for r in rows if not r.get("_up_hidden")]
         if order_by and "creation desc" in order_by:
             rows = sorted(rows, key=lambda r: r.get("creation", ""), reverse=True)
         if limit_page_length:
             rows = rows[:limit_page_length]
-        return [{k2: v2 for k2, v2 in r.items() if (not fields or k2 in fields) and k2 not in self.deny_fields} for r in rows]
+        drop = self.deny_fields if permitted else set()   # get_list drops unreadable permlevel-1 fields
+        return [{k2: v2 for k2, v2 in r.items() if (not fields or k2 in fields) and k2 not in drop and k2 != "_up_hidden"}
+                for r in rows]
 
     def get_list(self, doctype, *a, **k):
-        self.calls.append(("get_list", doctype))
+        self.calls.append(("get_list", doctype, k.get("fields")))
         return self._query(doctype, *a, **k)
 
     def get_all(self, doctype, *a, **k):
-        self.calls.append(("get_all", doctype))
-        return self._query(doctype, *a, **k)
+        self.calls.append(("get_all", doctype, k.get("fields")))
+        return self._query(doctype, *a, permitted=False, **k)
 
 
 @pytest.fixture
@@ -104,6 +108,13 @@ def test_availability_green_yellow_red_and_none(dq):
     lines = [line("MR-G", "A", "W1", 5), line("MR-Y", "B", "W1", 5), line("MR-R", "C", "W1", 5),
              line("MR-DONE", "A", "W1", 5, issued=5)]
     assert m.classify_availability(lines, bins) == {"MR-G": "green", "MR-Y": "yellow", "MR-R": "red"}
+
+
+def test_unknown_return_state_is_never_shown_as_pending(dq):
+    m, _ = dq
+    assert m.worst_return_state([{"name": "DN-1"}]) is None          # field absent = unreadable
+    row = m.build_row(mr("MR-1", "DISPATCHED"), [line(qty=5, issued=5)], [{"name": "DN-1"}], None, TODAY)
+    assert row["return"] is None and "return_blocks_close" not in row["flags"]
 
 
 def test_worst_return_state(dq):
@@ -273,7 +284,7 @@ def test_without_stock_entry_or_bin_access_fields_are_hidden(dq):
     assert out["access"]["dn"] is False and out["access"]["availability"] is False
     assert all(r["return"] is None and r["availability"] is None for r in out["rows"])
     assert not any("return_blocks_close" in r["flags"] for r in out["rows"])
-    assert ("get_all", "Bin") not in f.calls
+    assert not any(c[:2] == ("get_all", "Bin") for c in f.calls)
 
 
 def test_viewer_cannot_dispatch(dq):
@@ -289,3 +300,52 @@ def test_detail_denied_without_document_permission(dq):
     f.perms = {"Material Request": False}
     with pytest.raises(f.PermissionError):
         m.get_mr_detail("MR-26-1190")
+
+
+def test_viewer_without_stock_entry_level_1_still_gets_return_state(dq):
+    """Hamid (Stock User) cannot read Stock Entry permlevel-1 fields; get_list would drop them."""
+    m, f = dq
+    _scenario(f)
+    f.roles = ["Stock User"]
+    f.deny_fields = {"custom_return_state", "custom_return_closed_on"}
+    out = m.get_queue()
+    by = {r["name"]: r for r in out["rows"]}
+    assert by["MR-26-1189"]["return"] == "PARTIAL" and "return_blocks_close" in by["MR-26-1189"]["flags"]
+    assert out["summary"]["return_pending"] == 1
+
+
+def test_employee_user_permission_does_not_hide_dns(dq):
+    """Users with an Employee User Permission must see the same DNs as everyone else."""
+    m, f = dq
+    _scenario(f)
+    for se in f.tables["Stock Entry"]:
+        if se["name"] in ("DN-A", "DN-B"):
+            se["_up_hidden"] = True   # dispatched to / approved by another employee
+    by = {r["name"]: r for r in m.get_queue()["rows"]}
+    assert by["MR-26-1190"]["dn"]["count"] == 1 and by["MR-26-1190"]["return"] == "PENDING"
+    assert by["MR-26-1189"]["return"] == "PARTIAL"
+    detail = m.get_mr_detail("MR-26-1189")
+    assert [d["name"] for d in detail["dns"]] == ["DN-B"]
+
+
+def test_dn_reads_request_workflow_fields_only(dq):
+    """The permission-bypassing DN reads must not carry employee, party or amount fields."""
+    m, f = dq
+    _scenario(f)
+    m.get_queue()
+    m.get_mr_detail("MR-26-1190")
+    forbidden = {"custom_dispatched_to", "custom_approved_by", "custom_initiated_by", "custom_requestor_pm",
+                 "owner", "total_amount", "supplier", "customer"}
+    bypass = [c for c in f.calls if c[0] == "get_all" and c[1] in ("Stock Entry", "Stock Entry Detail")]
+    assert bypass, "DN reads should use get_all"
+    for _, doctype, fields in bypass:
+        assert fields and not forbidden.intersection(fields), (doctype, fields)
+
+
+def test_dn_reads_only_follow_readable_requests(dq):
+    """DN lookups are keyed by MIR names that came from the permission-filtered MR list."""
+    m, f = dq
+    _scenario(f)
+    f.tables["Material Request"][0]["_up_hidden"] = True       # MR-26-1208 is not readable by this user
+    names = {r["name"] for r in m.get_queue()["rows"]}
+    assert "MR-26-1208" not in names
