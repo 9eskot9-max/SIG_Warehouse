@@ -9,7 +9,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
         BANK_CHARGE: __('Bank charge'), OTHER: __('Other')};
     const needs = {ROUTE_PARTY: __('Choose who this is'), CREATE_DRAFT: __('No draft yet'), PICK_DOCUMENT: __('Pick the matching document'),
         CONFLICT: __('Two parties claim this payer'), NEEDS_HR_LINK: __('Waiting for the HR custody link'),
-        CHOOSE_TREATMENT: __('Choose PE or JE for this movement'), CONFIRM_TREATMENT: __('Confirm the payee default for this movement'),
+        CHOOSE_TREATMENT: __('Choose PE or JE for this movement'), CHOOSE_PURPOSE: __('Choose the purpose of this employee transfer'), CONFIRM_TREATMENT: __('Confirm the payee default for this movement'),
         TREATMENT_MISMATCH: __('Linked document type differs from the selected treatment')};
     const categories = {XXPC: __('Petty Cash'), XXSL: __('Salary'), XXHR: __('HR'), XXCL: __('Deferred'), XXMT: __('Maintenance'), XXMR: __('Materials'), XXSC: __('Subcontractor'), XXLG: __('Logistics')};
     const kindGroups = {ALL: __('All'), SADAD: __('SADAD'), UNCLASSIFIED: __('Unclassified'), PETTY_CASH: __('Petty cash'), RECEIPTS: __('Receipts'), OWN_TRANSFER: __('Own transfers'),

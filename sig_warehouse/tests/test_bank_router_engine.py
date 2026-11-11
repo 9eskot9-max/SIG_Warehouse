@@ -454,6 +454,17 @@ def test_an_untreated_salary_advance_still_gets_the_advance_account_suggested():
     ctx.settings.purpose_accounts = {"XXHR": "1321 - Employee advances"}
     out = E.process(mv, ctx)
     assert out["kind"] == "EMPLOYEE" and out["signals"].get("suggested_account") == "1321 - Employee advances"
+
+
+def test_untagged_employee_debit_asks_for_purpose_in_the_review_queue():
+    registry = Registry({}, {"CP-E": {"is_employee": True, "employee": "EMP-1", "custody_account": "1322 - Custody"}})
+    mv = movement(-150, IPS_OUT, route_source="MANUAL", counterparty="CP-E")
+    ctx = Ctx(auto=True, registry=registry)
+    out = E.process(mv, ctx)
+    assert (out["kind"], out["engine_state"], out["decision_type"]) == ("EMPLOYEE", "NEEDS_YOU", "CHOOSE_PURPOSE")
+    assert not ctx.created
+
+
 def test_finance_petty_cash_is_distinct_from_unmatched_tx_tag():
     from sig_warehouse.sig_accounting.bank_router.engine import mined_category
 

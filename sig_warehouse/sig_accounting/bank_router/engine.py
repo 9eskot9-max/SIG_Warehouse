@@ -286,7 +286,10 @@ def route(mv, ctx):
             out["_create"] = target
         return out
     if kind == K.EMPLOYEE:
-        out.update(engine_state="PENDING", decision_type="")
+        if direction == "DEBIT":
+            out.update(engine_state="NEEDS_YOU", decision_type="CHOOSE_PURPOSE")
+        else:
+            out.update(engine_state="PENDING", decision_type="")
         return out
     target = resolve_target(kind, mv, signals, facts, mined, ctx)
     if not target:
