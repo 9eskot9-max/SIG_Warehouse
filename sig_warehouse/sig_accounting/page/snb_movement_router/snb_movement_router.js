@@ -155,10 +155,45 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
         const employeeHost = q('[data-employee-control]');
         if (employeeHost) {
             if (!(state.businessChoice[x.name] ?? x.business_route ?? '').startsWith('employee_')) employeeHost.insertAdjacentHTML('afterend', `<label><input type="checkbox" data-pc-remember checked> ${__('Remember this petty-cash purpose for tagged transfers')}</label>`);
-            employeeControl = frappe.ui.form.make_control({parent: $(employeeHost), df: {fieldtype:'Link', fieldname:'router_employee', options:'Employee', label:__('Employee'),
-                get_query: () => ({filters:{status:'Active', company:x.company}})}, render_input:true});
-            employeeControl.refresh();
-            if (x.pc_employee || x.pc_employee_suggestion?.employee) employeeControl.set_value(x.pc_employee || x.pc_employee_suggestion.employee);
+            const route = state.businessChoice[x.name] ?? x.business_route ?? '';
+            const initialEmployee = x.pc_employee || x.pc_employee_suggestion?.employee || '';
+            if (!route.startsWith('employee_')) {
+                employeeHost.innerHTML = `<label>${__('Employee')}</label><input type="search" class="form-control" data-pc-employee-search aria-label="${esc(__('Employee'))}" placeholder="${esc(__('Search active Employees…'))}" autocomplete="off"><div class="snb-employee-results" data-pc-employee-results></div>`;
+                const input = employeeHost.querySelector('[data-pc-employee-search]');
+                const results = employeeHost.querySelector('[data-pc-employee-results]');
+                let selectedEmployee = '', requestId = 0;
+                employeeControl = {
+                    get_value: () => selectedEmployee,
+                    set_value: (value, label = '') => {
+                        requestId++;
+                        selectedEmployee = value || '';
+                        input.value = selectedEmployee ? (label || selectedEmployee) : '';
+                        results.replaceChildren();
+                    }
+                };
+                if (initialEmployee) employeeControl.set_value(initialEmployee, x.pc_employee_name || x.pc_employee_suggestion?.name || initialEmployee);
+                input.addEventListener('input', async () => {
+                    selectedEmployee = '';
+                    const term = input.value.trim(), currentRequest = ++requestId;
+                    if (term.length < 2) {
+                        results.innerHTML = `<small>${__('Type at least two characters to search.')}</small>`;
+                        return;
+                    }
+                    results.innerHTML = `<small>${__('Searching…')}</small>`;
+                    try {
+                        const rows = (await frappe.call({method: api + 'search_petty_cash_employees', args: {name: x.name, query: term}})).message || [];
+                        if (currentRequest !== requestId) return;
+                        results.innerHTML = rows.length ? rows.map(row => `<button type="button" class="snb-employee-option" data-pc-employee="${esc(row.name)}" data-pc-employee-label="${esc(row.employee_name)}"><strong>${esc(row.employee_name)}</strong><small>${esc(row.name)}</small></button>`).join('') : `<small>${__('No active Employees matched this search.')}</small>`;
+                    } catch (e) {
+                        if (currentRequest === requestId) results.innerHTML = `<small class="snb-error">${__('Employee search is unavailable. Refresh and try again.')}</small>`;
+                    }
+                });
+            } else {
+                employeeControl = frappe.ui.form.make_control({parent: $(employeeHost), df: {fieldtype:'Link', fieldname:'router_employee', options:'Employee', label:__('Employee'),
+                    get_query: () => ({filters:{status:'Active', company:x.company}})}, render_input:true});
+                employeeControl.refresh();
+                if (initialEmployee) employeeControl.set_value(initialEmployee);
+            }
         }
         const custodyHost = q('[data-custody-control]');
         if (custodyHost) {
@@ -318,6 +353,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
         });
     });
     root.on('click', '[data-confirm-pc]', () => { const x = selected(), employee = employeeControl?.get_value(); if (!employee) { q('[data-message]').textContent = __('Choose an Employee.'); return; } act('confirm_petty_cash_employee', {employee, counterparty: x.suggested_counterparty?.name || '', remember: q('[data-pc-remember]')?.checked ? 1 : 0}); });
+    root.on('click', '[data-pc-employee]', function () { employeeControl?.set_value(this.dataset.pcEmployee, this.dataset.pcEmployeeLabel); });
     root.on('click', '[data-clear-pc]', () => act('clear_petty_cash_designation', {}));
     root.on('click', '[data-change-employee]', () => { q('[data-employee-control]').hidden = false; employeeControl?.set_value(''); });
     root.on('click', '[data-confirm-custody]', () => { const account = custodyControl?.get_value(); if (!account) { q('[data-message]').textContent = __('Choose a custody ledger.'); return; } act('confirm_petty_cash_custody', {account}); });
