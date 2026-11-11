@@ -92,8 +92,8 @@ def petty_cash_journal(movement, employee, custody_account, bank_account, fees, 
     return body
 
 
-def own_transfer_journal(movement, from_account, to_account):
+def own_transfer_journal(movement, from_account, to_account, fees=None, fee_account="", vat_account=""):
     """One journal for both sides of a reviewed transfer between company banks."""
     if not from_account or not to_account or from_account == to_account:
         raise ValueError("Two distinct company bank accounts are required.")
-    return expense_journal(movement, to_account, from_account, [], "", "", "Company bank transfer", "OWN_TRANSFER")
+    return expense_journal(movement, to_account, from_account, fees or [], fee_account, vat_account, "Company bank transfer", "OWN_TRANSFER")

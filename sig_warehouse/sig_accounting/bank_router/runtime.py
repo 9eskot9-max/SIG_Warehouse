@@ -369,6 +369,42 @@ def load_index():
     return index, children
 
 
+def mark_unique_verified_payees(index, registry):
+    """Find same-day competitors whose distinct ledger identities are all verified."""
+    groups = collections.defaultdict(list)
+    for entry in index.values():
+        row = entry["row"]
+        key = (row.account_scope_hash, str(row.event_date), round(flt(row.amount), 2))
+        groups[key].append(entry)
+    for entries in groups.values():
+        if len(entries) < 2:
+            continue
+        identities = []
+        for entry in entries:
+            row = entry["row"]
+            if not row.counterparty or row.route_source not in ("MANUAL", "IDENTIFIER"):
+                identities = []
+                break
+            facts = registry.facts(row.counterparty)
+            if facts.get("status") != "ACTIVE":
+                identities = []
+                break
+            evidence = engine._payee_evidence(facts, entry["recognition"])
+            keys = []
+            if evidence.get("verified_custody"):
+                keys.append(("custody", evidence["custody"]))
+            if evidence.get("verified_supplier"):
+                keys.append(("supplier", evidence["supplier"]))
+            if len(keys) != 1:
+                identities = []
+                break
+            identities.append(keys[0])
+        if identities and len({identity[0] for identity in identities}) == 1:
+            counts = collections.Counter(identities)
+            for entry, identity in zip(entries, identities):
+                entry["unique_statement_payee"] = counts[identity] == 1
+
+
 def to_engine(name, index, children, ctx):
     entry = index[name]
     r = entry["row"]
@@ -379,6 +415,7 @@ def to_engine(name, index, children, ctx):
           "erp_doctype": r.erp_doctype or "", "erp_document": r.erp_document or "", "link_method": r.link_method or "",
           "accounting_treatment": r.accounting_treatment or "", "accounting_account": r.accounting_account or "",
           "supply_type": r.supply_type or "", "unique_statement_amount": entry.get("unique_statement_amount", False),
+          "unique_statement_payee": entry.get("unique_statement_payee", False),
           "payment_reference_doctype": r.payment_reference_doctype or "", "payment_reference": r.payment_reference or "",
           "payment_reference_amount": r.payment_reference_amount or 0,
           "paired_transfer": entry.get("paired_transfer") or {},
@@ -471,7 +508,10 @@ def run(phase="main", start=0, limit=120, names=None, review_only=False, bank=""
         if not names or len(names) != 1:
             frappe.throw("Manual drafting requires exactly one reviewed movement.")
         ctx.settings.auto_draft = lambda day: True
+        # Fees belong to the reviewed movement even when unattended drafting is off.
+        ctx.settings.draft_fees = True
     index, children = load_index()
+    mark_unique_verified_payees(index, ctx.registry)
     pairs = pair_own_transfers(index, ctx.settings)
     for name, pair in pairs.items():
         index[name]["paired_transfer"] = pair
@@ -497,6 +537,7 @@ def run(phase="main", start=0, limit=120, names=None, review_only=False, bank=""
             if not manual_draft or review_only:
                 ctx.settings._enabled = False
             index, children = load_index()
+            mark_unique_verified_payees(index, ctx.registry)
             result["errors"] += 1
             frappe.log_error(title="Bank router could not route a movement", message=f"{r.name}\n{frappe.get_traceback()}")
         else:

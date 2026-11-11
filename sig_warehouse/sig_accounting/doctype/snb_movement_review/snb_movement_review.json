@@ -19,6 +19,8 @@
   "engine_state",
   "decision_type",
   "kind",
+  "business_route",
+  "business_purpose",
   "accounting_treatment",
   "accounting_account",
   "supply_type",
@@ -48,6 +50,18 @@
   "audit"
  ],
  "fields": [
+  {
+   "fieldname": "business_route",
+   "fieldtype": "Data",
+   "label": "Reviewed business route",
+   "read_only": 1
+  },
+  {
+   "fieldname": "business_purpose",
+   "fieldtype": "Data",
+   "label": "Reviewed business purpose",
+   "read_only": 1
+  },
   {
    "fieldname": "source_hash",
    "fieldtype": "Data",

@@ -65,7 +65,7 @@ def pick_document(movement, candidates, claimed=(), rejected=(), hint=None, wind
         return "NONE", [], ""
     # One document on the very same day whose other side is this payee: it is this line's document.
     exact = [c for c in near if _date(c["date"]) == day and payee_fit(movement, c) == "ok"]
-    if len(exact) == 1 and movement.get("unique_statement_amount"):
+    if len(exact) == 1 and (movement.get("unique_statement_amount") or movement.get("unique_statement_payee")):
         return "LINK", exact, "LEDGER"
     return "PICK", near, "LEDGER"
 

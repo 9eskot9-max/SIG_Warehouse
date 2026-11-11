@@ -293,6 +293,16 @@ def test_own_transfer_journal_uses_one_debit_and_one_credit():
         D.own_transfer_journal(movement, "BANK", "BANK")
 
 
+def test_own_transfer_journal_includes_attached_fees():
+    movement = {"key": "KEY", "amount": -100, "date": "2026-11-10", "reference": "REF"}
+    fees = [{"amount": -1, "family": "BANK_FEE"}, {"amount": -.15, "family": "FEE_VAT"}]
+    body = D.own_transfer_journal(movement, "BANK-OUT", "BANK-IN", fees, "FEE", "VAT")
+    assert [(line["account"], line["debit_in_account_currency"], line["credit_in_account_currency"]) for line in body["accounts"]] == [
+        ("BANK-IN", 100, 0), ("BANK-OUT", 0, 100), ("FEE", 1, 0), ("BANK-OUT", 0, 1),
+        ("VAT", .15, 0), ("BANK-OUT", 0, .15),
+    ]
+
+
 def test_sadad_biller_is_read_from_the_real_statement_shape():
     parsed = snb.parse(line("DEBIT", "SADAD", "SADAD Payment", "165-2001003327019603 01400010326605 6950931237"))
     assert (parsed["biller_code"], parsed["bill_account"]) == ("165", "2001003327019603")
@@ -332,6 +342,15 @@ def test_payee_fit_compares_like_with_like():
     assert R.payee_fit(mv, pe) == "ok" and R.payee_fit(mv, {**pe, "party": "SUP-2"}) == "other"
     assert R.payee_fit({}, je) == "unknown" and R.payee_fit(mv, {"doctype": "Journal Entry"}) == "unknown"
     assert R.payee_fit({"payee": {"custody": "132210"}}, je) == "unknown"
+
+
+def test_matching_distinct_verified_payee_allows_repeated_amounts():
+    mv = {**movement(), "payee": {"custody": "132210", "verified_custody": True}, "unique_statement_payee": True}
+    matching = {**doc("JV-A", -1000, "2026-10-05"), "counter": {"132210"}}
+    other = {**doc("JV-B", -1000, "2026-10-05"), "counter": {"132211"}}
+    assert R.pick_document(mv, [matching, other]) == ("LINK", [matching], "LEDGER")
+    mv["unique_statement_payee"] = False
+    assert R.pick_document(mv, [matching, other])[0] == "PICK"
 
 
 def test_the_statement_remarks_code_is_not_part_of_a_payee_name():

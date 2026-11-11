@@ -124,7 +124,7 @@ def test_review_only_disables_drafting_even_when_settings_enable_it(runtime, mon
     frappe.db = types.SimpleNamespace(sql=lambda *a, **k: [row], savepoint=lambda *a: None,
                                       rollback=lambda **k: None, release_savepoint=lambda *a: None)
     frappe.session = types.SimpleNamespace(user="owner")
-    monkeypatch.setattr(module, "Context", lambda *a: types.SimpleNamespace(settings=types.SimpleNamespace(_enabled=True)))
+    monkeypatch.setattr(module, "Context", lambda *a: types.SimpleNamespace(settings=types.SimpleNamespace(_enabled=True), registry=None))
     monkeypatch.setattr(module, "load_index", lambda: ({}, {}))
     monkeypatch.setattr(module, "to_engine", lambda *a: {})
     monkeypatch.setattr(module, "apply", lambda *a: False)
@@ -159,6 +159,31 @@ def test_own_account_transfer_pairing_requires_one_mutual_opposite_leg(runtime):
     assert ambiguous == {}
 
 
+def test_same_amount_matching_requires_every_competing_payee_to_be_verified(runtime):
+    module, _ = runtime
+    def item(counterparty, route_source="MANUAL"):
+        return {"row": types.SimpleNamespace(account_scope_hash="S", event_date="2026-11-10", amount=-1000,
+                                             counterparty=counterparty, route_source=route_source), "recognition": {}}
+    registry = types.SimpleNamespace(facts=lambda cp: {"status": "ACTIVE", "custody_account": {"A": "13221 - A", "B": "13222 - B"}.get(cp, "")})
+    index = {"a": item("A"), "b": item("B")}
+    module.mark_unique_verified_payees(index, registry)
+    assert index["a"]["unique_statement_payee"] and index["b"]["unique_statement_payee"]
+    index = {"a": item("A"), "unknown": item("", "")}
+    module.mark_unique_verified_payees(index, registry)
+    assert not index["a"].get("unique_statement_payee")
+    index = {"a": item("A"), "same": item("A")}
+    module.mark_unique_verified_payees(index, registry)
+    assert not index["a"]["unique_statement_payee"]
+    mixed = types.SimpleNamespace(facts=lambda cp: {"status": "ACTIVE", "custody_account": "13221 - A"} if cp == "A" else {"status": "ACTIVE", "supplier": "SUP-B"})
+    index = {"a": item("A"), "b": item("B")}
+    module.mark_unique_verified_payees(index, mixed)
+    assert not index["a"].get("unique_statement_payee")
+    inactive = types.SimpleNamespace(facts=lambda cp: {"status": "INACTIVE", "custody_account": "13221 - A"})
+    index = {"a": item("A"), "b": item("B")}
+    module.mark_unique_verified_payees(index, inactive)
+    assert not index["a"].get("unique_statement_payee")
+
+
 def test_customer_receipt_invoice_allocation_is_revalidated(runtime):
     module, frappe = runtime
     invoice = types.SimpleNamespace(docstatus=1, company=module.documents.COMPANY, currency="SAR",
@@ -185,13 +210,14 @@ def test_batch_routing_never_auto_drafts_even_if_settings_are_enabled(runtime, m
         def auto_draft(self, day): return self._enabled
     contexts = []
     def make_context(*args):
-        context = types.SimpleNamespace(settings=Settings())
+        context = types.SimpleNamespace(settings=Settings(), registry=None)
         contexts.append(context)
         return context
     frappe.db = types.SimpleNamespace(sql=lambda *a, **k: [types.SimpleNamespace(name="ROW", event_date="2026-11-09")],
                                       savepoint=lambda *a: None, release_savepoint=lambda *a: None)
     monkeypatch.setattr(module, "Context", make_context)
     monkeypatch.setattr(module, "load_index", lambda: ({"ROW": {"row": {}}}, {}))
+    monkeypatch.setattr(module, "mark_unique_verified_payees", lambda *args: None)
     monkeypatch.setattr(module, "pair_own_transfers", lambda *args: {})
     monkeypatch.setattr(module, "to_engine", lambda *args: {})
     monkeypatch.setattr(module, "apply", lambda *args: False)
@@ -200,6 +226,7 @@ def test_batch_routing_never_auto_drafts_even_if_settings_are_enabled(runtime, m
     module.run(names=["ROW"])
     module.run(names=["ROW"], manual_draft=True)
     assert seen == [False, True]
+    assert contexts[1].settings.draft_fees is True
 
 
 def test_supplier_purchase_order_reference_cannot_exceed_available(runtime):

@@ -1,0 +1,21 @@
+{
+ "doctype": "DocType",
+ "name": "Bank Payee Route",
+ "module": "SIG Accounting",
+ "istable": 1,
+ "editable_grid": 1,
+ "field_order": ["route", "purpose", "direction", "account", "party_type", "party", "petty_cash", "source", "confirmed_by", "confirmed_at"],
+ "fields": [
+  {"fieldname": "route", "fieldtype": "Data", "label": "Route", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "purpose", "fieldtype": "Data", "label": "Purpose", "in_list_view": 1},
+  {"fieldname": "direction", "fieldtype": "Select", "label": "Direction", "options": "DEBIT\nCREDIT", "reqd": 1},
+  {"fieldname": "account", "fieldtype": "Link", "label": "Account", "options": "Account"},
+  {"fieldname": "party_type", "fieldtype": "Link", "label": "Party type", "options": "DocType"},
+  {"fieldname": "party", "fieldtype": "Dynamic Link", "label": "Party", "options": "party_type"},
+  {"fieldname": "petty_cash", "fieldtype": "Check", "label": "Petty cash"},
+  {"fieldname": "source", "fieldtype": "Select", "label": "Source", "options": "ROUTER\nMIGRATED", "read_only": 1},
+  {"fieldname": "confirmed_by", "fieldtype": "Link", "label": "Confirmed by", "options": "User", "read_only": 1},
+  {"fieldname": "confirmed_at", "fieldtype": "Datetime", "label": "Confirmed at", "read_only": 1}
+ ],
+ "permissions": []
+}
