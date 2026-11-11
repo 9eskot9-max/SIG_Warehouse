@@ -34,10 +34,11 @@ frappe.pages['warehouse-workspace'].on_page_load = function (wrapper) {
         },
         {
             title: __('Dispatch materials'), iconSvg: "<svg viewBox=\"0 0 48 48\" fill=\"none\" stroke=\"#386c91\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 12h25v20H4zM29 20h8l6 7v5H29z\" fill=\"#e3f2e9\"/><circle cx=\"13\" cy=\"35\" r=\"4\" fill=\"#fff\"/><circle cx=\"36\" cy=\"35\" r=\"4\" fill=\"#fff\"/><path d=\"M30 25h10\"/></svg>", variant: 'blue',
-            description: __('Review material requests and issue approved items from the dispatch board.'),
+            description: __('Review material requests and issue approved items from the dispatch queue.'),
             doctype: 'Material Request',
             permission: 'write',
-            route: ['List', 'Material Request', 'Kanban']
+            page_roles: ['System Manager', 'Stock Manager', 'Stock User', 'Warehouse Manager'],
+            route: ['dispatch-queue']
         },
         {
             title: __('Receive materials'), iconSvg: "<svg viewBox=\"0 0 48 48\" fill=\"none\" stroke=\"#386c91\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7 24 24 16l17 8v13l-17 7-17-7z\" fill=\"#fff0da\"/><path d=\"m7 24 17 8 17-8M24 32v12M24 4v13m-5-5 5 5 5-5\"/></svg>", variant: 'blue',
@@ -64,11 +65,10 @@ frappe.pages['warehouse-workspace'].on_page_load = function (wrapper) {
 
     const queues = [
         {
-            title: __('Dispatch queue'), iconSvg: "<svg viewBox=\"0 0 48 48\" fill=\"none\" stroke=\"#386c91\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"9\" y=\"9\" width=\"30\" height=\"34\" rx=\"4\" fill=\"#e4f3f7\"/><path d=\"M18 9V5h12v4\"/><circle cx=\"24\" cy=\"29\" r=\"8\"/><path d=\"M24 24v5l4 2\"/></svg>", variant: 'warn',
-            description: __('Review pending, partial and dispatched material requests; issue, return or cancel the remainder.'),
+            title: __('Dispatch Kanban board'), iconSvg: "<svg viewBox=\"0 0 48 48\" fill=\"none\" stroke=\"#386c91\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"9\" y=\"9\" width=\"30\" height=\"34\" rx=\"4\" fill=\"#e4f3f7\"/><path d=\"M18 9V5h12v4\"/><circle cx=\"24\" cy=\"29\" r=\"8\"/><path d=\"M24 24v5l4 2\"/></svg>", variant: 'warn',
+            description: __('Card board view of the same dispatch queue.'),
             doctype: 'Material Request',
-            page_roles: ['System Manager', 'Stock Manager', 'Stock User', 'Warehouse Manager'],
-            route: ['dispatch-queue']
+            route: ['List', 'Material Request', 'Kanban', 'SIG Dispatch Queue']
         },
         {
             title: __('Dispatch operations'), iconSvg: "<svg viewBox=\"0 0 48 48\" fill=\"none\" stroke=\"#386c91\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 12h25v20H4zM29 20h8l6 7v5H29z\" fill=\"#e3f2e9\"/><circle cx=\"13\" cy=\"35\" r=\"4\" fill=\"#fff\"/><circle cx=\"36\" cy=\"35\" r=\"4\" fill=\"#fff\"/><path d=\"M9 19h13M9 24h13M30 25h10\"/></svg>", variant: 'navy',
