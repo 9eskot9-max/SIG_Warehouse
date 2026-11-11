@@ -41,6 +41,12 @@ class Settings:
         self.company_scopes = frozenset(set(self.scopes) | set(DEFAULT_COMPANY_SCOPES))
         self.categories = {str(row.code).upper(): row.expense_account for row in doc.categories or [] if row.expense_account}
         self.billers = {str(row.biller_code).strip(): row.expense_account for row in doc.billers or [] if row.biller_code and row.expense_account}
+        self.purpose_accounts = {}
+        for code, number in engine.PURPOSE_ACCOUNT_NUMBERS.items():
+            found = frappe.get_all("Account", filters={"account_number": number, "company": documents.COMPANY, "is_group": 0, "disabled": 0},
+                                   pluck="name", limit_page_length=2)
+            if len(found) == 1:
+                self.purpose_accounts[code] = found[0]
         self.holding_supplier = doc.holding_supplier or ""
         self.holding_customer = doc.holding_customer or ""
         self.default_expense = doc.default_expense_account or ""
@@ -57,11 +63,12 @@ class Settings:
 
 class Registry:
     def __init__(self):
-        self.ids = {r.name: (r.counterparty, r.status) for r in frappe.get_all(
-            IDENTIFIER, fields=["name", "counterparty", "status"], filters={"status": ["!=", "REVOKED"]}, limit_page_length=0)}
+        self.ids = {r.name: (r.counterparty, "CONFIRMED" if (r.status == "ACTIVE" and r.source == "ROUTER" and str(r.kind or "").startswith("NAME_"))
+                             else r.status) for r in frappe.get_all(
+            IDENTIFIER, fields=["name", "counterparty", "status", "kind", "source"], filters={"status": ["!=", "REVOKED"]}, limit_page_length=0)}
         self.cps = {r.name: r for r in frappe.get_all(
             COUNTERPARTY, fields=["name", "display_name", "status", "is_company", "handler", "is_employee", "custody_account", "employee",
-                                  "customer", "supplier", "expense_account", "category", "default_treatment", "purpose_defaults_json"], limit_page_length=0)}
+                                  "customer", "supplier", "expense_account", "category", "default_treatment", "purpose_defaults_json", "am_party"], limit_page_length=0)}
 
     def lookup(self, kind, value):
         hit = self.ids.get(identity_key(kind, value))

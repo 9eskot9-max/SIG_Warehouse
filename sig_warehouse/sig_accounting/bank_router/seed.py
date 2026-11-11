@@ -90,7 +90,7 @@ def apply(rows):
     supplier_names = unique_names(suppliers)
     customers = {r.name: r.customer_name for r in frappe.get_all("Customer", fields=["name", "customer_name"], filters={"disabled": 0}, limit_page_length=0)}
     customer_names = unique_names(customers)
-    existing_cp = {r.am_key: r for r in frappe.get_all(COUNTERPARTY, fields=["name", "am_key", "supplier", "customer", "custody_account", "employee",
+    existing_cp = {r.am_key: r for r in frappe.get_all(COUNTERPARTY, fields=["name", "am_key", "am_party", "supplier", "customer", "custody_account", "employee",
                    "expense_account", "category", "is_company", "handler", "is_employee"], filters={"am_key": ["!=", ""]}, limit_page_length=0)}
     existing_ids = {r.name: r.counterparty for r in frappe.get_all(IDENTIFIER, fields=["name", "counterparty"], limit_page_length=0)}
     counts = {"counterparties_created": 0, "counterparties_updated": 0, "identifiers_created": 0, "duplicates": [], "skipped": 0}
@@ -100,8 +100,9 @@ def apply(rows):
         if not p["am_key"]:
             counts["skipped"] += 1
             continue
-        # Employee and custody ownership require an explicit accounting decision.
+        # Employee and custody ownership require an explicit accounting decision. Am's label is kept as evidence only.
         custody = employee = ""
+        am_party = _clean(str(b.get("erp_party") or "").strip())[:140]
         cp = existing_cp.get(p["am_key"])
         if cp is None:
             doc = frappe.get_doc({"doctype": COUNTERPARTY, "display_name": p["display_name"][:140], "status": "ACTIVE", "am_key": p["am_key"],
@@ -109,7 +110,7 @@ def apply(rows):
                                   "custody_account": custody or None, "employee": employee or None,
                                   "supplier": p["supplier"] or None if not p["is_company"] else None,
                                   "customer": p["customer"] or None if not p["is_company"] else None,
-                                  "expense_account": p["expense_account"] or None, "category": p["category"]})
+                                  "expense_account": p["expense_account"] or None, "category": p["category"], "am_party": am_party})
             doc.flags.bank_router_write = True
             doc.insert()
             cp_name = doc.name
@@ -126,6 +127,8 @@ def apply(rows):
                     fills[field] = value
             if p["handler"] and not cp.handler:
                 fills["handler"] = p["handler"]
+            if am_party != (cp.get("am_party") or ""):
+                fills["am_party"] = am_party
             if fills:
                 doc = frappe.get_doc(COUNTERPARTY, cp_name)
                 doc.update(fills)
