@@ -741,7 +741,40 @@ def _confirmation_candidate(doc, settings):
             _check_link("Account", bank)
             return {"kind": "bill", "accounts": [account, bank], "account": account, "debit": account, "credit": bank,
                     "fee_parent": doc.name}
+    if (doc.direction == "DEBIT" and doc.kind in ("UNKNOWN", "SUPPLIER_PAYMENT", "EXPENSE_PAYMENT", "EMPLOYEE")
+            and doc.get("counterparty") and doc.get("decision_type") != "PICK_DOCUMENT"
+            and frappe.has_permission(COUNTERPARTY, "read", doc.counterparty)):
+        cp = frappe.get_doc(COUNTERPARTY, doc.counterparty)
+        if cp.get("status") != "ACTIVE":
+            return None
+        recognition = _data(doc.recognition_json) or {}
+        category = recognition.get("category") if recognition.get("am_category_status") == "MATCHED" else ""
+        memories = [{"confirmed": bool(row.confirmed_by), "purpose": row.purpose or "", "route": row.route,
+                     "direction": row.direction, "account": row.account or "", "party": row.party or "",
+                     "party_type": row.party_type or "", "petty_cash": row.petty_cash}
+                    for row in cp.get("confirmed_routes") or []]
+        suggestion = business_routes.resolve_route({"direction": doc.direction, "category": category}, {}, memories)
+        route, account = suggestion.get("route"), suggestion.get("account")
+        bank = settings.scopes.get(doc.account_scope_hash or "")
+        if (route in ("own_ledger", "bank_service") and account and bank and account != bank
+                and "confirmed_memory" in suggestion.get("evidence", [])
+                and frappe.has_permission("Account", "read", account) and frappe.has_permission("Account", "read", bank)):
+            _check_link("Account", account)
+            _check_link("Account", bank)
+            return {"kind": route, "account": account, "debit": account, "credit": bank,
+                    "fee_parent": doc.name}
     return None
+
+
+def _confirmation_fees(candidate, settings):
+    fees = _fees_for([candidate["fee_parent"]]).get(candidate["fee_parent"], [])
+    result = []
+    for fee in fees:
+        account = settings.vat_account if fee.get("family") == "FEE_VAT" else settings.fee_account
+        if account and not frappe.has_permission("Account", "read", account):
+            account = ""
+        result.append({"account": account or "", "family": fee.get("family"), "amount": fee.get("amount")})
+    return result
 
 
 def _confirmation_candidates(bank, search):
@@ -754,8 +787,6 @@ def _confirmation_candidates(bank, search):
                            order_by="event_date desc, name asc", limit_page_length=0)
     settings, candidates, seen = runtime.Settings(), [], set()
     for row in rows:
-        if row.kind != "OWN_TRANSFER" and not _is_sadad(row.source_json):
-            continue
         doc = frappe.get_doc(DOCTYPE, row.name)
         doc.check_permission("read")
         candidate = _confirmation_candidate(doc, settings)
@@ -787,12 +818,7 @@ def list_confirmation_queue(bank="ALL", search="", start=0, limit=50):
     settings = runtime.Settings()
     items = []
     for doc, candidate in selected:
-        candidate["fee_accounts"] = []
-        for fee in fees.get(candidate["fee_parent"], []):
-            account = settings.vat_account if fee.get("family") == "FEE_VAT" else settings.fee_account
-            if account and not frappe.has_permission("Account", "read", account):
-                account = ""
-            candidate["fee_accounts"].append({"account": account or "", "family": fee.get("family"), "amount": fee.get("amount")})
+        candidate["fee_accounts"] = _confirmation_fees(candidate, settings)
         item = _payload(doc, fees.get(candidate["fee_parent"], []), {})
         item["confirmation"] = candidate
         items.append(item)
@@ -1259,15 +1285,17 @@ def route_movement(name, modified, target):
         _remember_business_route(cp, doc, target, treatment, resolved)
         recognition = _data(doc.recognition_json) or {}
         purpose = recognition.get("category") if recognition.get("am_category_status") == "MATCHED" else ""
+        if target.get("business_route") and str(target.get("business_purpose") or "").upper() != purpose:
+            purpose = ""
         if purpose:
             defaults = _data(cp.get("purpose_defaults_json")) or {}
             if not isinstance(defaults, dict):
                 defaults = {}
             defaults[purpose] = {"treatment": treatment, "account": doc.accounting_account or "", "supply_type": supply}
             cp.purpose_defaults_json = _json(defaults)
-        else:
+        elif not target.get("business_route"):
             cp.default_treatment = treatment
-        if treatment == "JOURNAL_ENTRY" and not purpose:
+        if treatment == "JOURNAL_ENTRY" and not purpose and not target.get("business_route"):
             cp.expense_account = doc.accounting_account
     cp.flags.bank_router_write = True
     cp.save(ignore_permissions=True)
@@ -1453,7 +1481,7 @@ def preview_linked_document(name):
         _check_link(entry.party_type, entry.party)
         lines = [{"account": entry.paid_from, "credit": flt(entry.paid_amount), "debit": 0},
                  {"account": entry.paid_to, "debit": flt(entry.received_amount), "credit": 0}]
-    return {"doctype": doctype, "document": entry.name, "docstatus": entry.docstatus,
+    return {"doctype": doctype, "document": entry.name, "modified": str(entry.modified), "movement_modified": str(movement.modified), "docstatus": entry.docstatus,
             "posting_date": str(entry.posting_date), "lines": lines,
             "party_type": entry.get("party_type") or "", "party": entry.get("party") or "",
             "can_submit": bool(entry.has_permission("submit")) if entry.docstatus == 0 else False}
@@ -1535,7 +1563,7 @@ def _fee_lines_match(entry, bank, fees, main_amount=None):
 
 
 @frappe.whitelist(methods=["POST"])
-def post_reviewed_draft(name, modified):
+def post_reviewed_draft(name, modified, reviewed_document=None, reviewed_modified=None):
     """Submit the linked draft and its fee draft after explicit review."""
     _require("write")
     movement = _lock(name, modified)
@@ -1545,6 +1573,8 @@ def post_reviewed_draft(name, modified):
         frappe.throw(_("Resolve the movement's remaining review decision before posting."))
     frappe.db.sql(f"SELECT name FROM `tab{movement.erp_doctype}` WHERE name=%s FOR UPDATE", (movement.erp_document,))
     entry = frappe.get_doc(movement.erp_doctype, movement.erp_document)
+    if reviewed_document and (entry.name != reviewed_document or str(entry.modified) != str(reviewed_modified or "")):
+        frappe.throw(_("The draft changed after review. Preview it again."))
     entry.check_permission("read")
     entry.check_permission("submit")
     if entry.docstatus != 0:
@@ -1604,6 +1634,8 @@ def post_reviewed_draft(name, modified):
     entries = [entry]
     fees = _fees_for([fee_movement.name]).get(fee_movement.name, [])
     fee_entry = entry
+    if entry.doctype == "Journal Entry" and not fees and movement.get("link_method") != "OWN_TRANSFER" and not _fee_lines_match(entry, bank, [], movement.amount):
+        frappe.throw(_("The journal contains additional bank lines. Review the entry before posting."))
     if fees and entry.doctype == "Journal Entry" and not _fee_lines_match(entry, fee_bank, fees, fee_movement.amount):
         frappe.throw(_("The journal does not include all related bank fee lines."))
     if fees and entry.doctype == "Payment Entry":
@@ -1669,6 +1701,9 @@ def decide_business_route(name, modified, target, mode):
     if mode not in ("draft", "post"):
         frappe.throw(_("Choose Draft or Post."))
     target = _data(target) or {}
+    reviewed_preview = target.get("reviewed_preview")
+    if reviewed_preview and _data(reviewed_preview) != preview_route(name, target):
+        frappe.throw(_("The proposed accounts changed. Review them again."))
     route = str(target.get("business_route") or "")
     if route not in business_routes.ROUTES:
         frappe.throw(_("Choose a business purpose first."))
@@ -1752,9 +1787,14 @@ def bulk_confirm_routes(items, mode):
             doc.check_permission("write")
             if str(doc.modified) != str(row.get("modified") or ""):
                 frappe.throw(_("This movement changed. Refresh and review it again."))
-            candidate = _confirmation_candidate(doc, runtime.Settings())
+            settings = runtime.Settings()
+            candidate = _confirmation_candidate(doc, settings)
             if not candidate:
                 frappe.throw(_("This movement is no longer ready for confirmation."))
+            if row.get("reviewed_accounts") is not None and row.get("reviewed_accounts") != [candidate["debit"], candidate["credit"]]:
+                frappe.throw(_("The proposed accounts changed. Refresh and review them again."))
+            if row.get("reviewed_fees") is not None and row.get("reviewed_fees") != _confirmation_fees(candidate, settings):
+                frappe.throw(_("The related fees changed. Refresh and review them again."))
             if candidate["kind"] == "own_transfer":
                 result = create_own_transfer_draft(doc.name, str(doc.modified))
                 status, error = "draft", ""
@@ -1772,8 +1812,9 @@ def bulk_confirm_routes(items, mode):
                 biller = str((_data(doc.signals_json) or {}).get("biller_code") or "")
                 identifier = frappe.db.get_value(IDENTIFIER, runtime.identity_key("SADAD_CODE", biller),
                                                  ["counterparty", "status"], as_dict=True) if biller else None
-                counterparty = identifier.counterparty if identifier and identifier.status == "ACTIVE" else ""
-                result = decide_business_route(doc.name, str(doc.modified), {"business_route": "bill", "business_purpose": "bill",
+                counterparty = identifier.counterparty if identifier and identifier.status == "ACTIVE" else doc.get("counterparty") or ""
+                route = candidate["kind"]
+                result = decide_business_route(doc.name, str(doc.modified), {"business_route": route, "business_purpose": route,
                     "type": "EXPENSE", "treatment": "JOURNAL_ENTRY", "account": candidate["account"],
                     "counterparty": counterparty, "remember_default": "0"}, mode)
                 outcome = {"name": doc.name, "status": result["status"], "document": result["movement"].get("erp_document"),

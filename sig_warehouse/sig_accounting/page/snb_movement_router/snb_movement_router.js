@@ -264,7 +264,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     root.on('change', '[data-bulk-select]', function () { this.checked ? state.bulkSelected.add(this.value) : state.bulkSelected.delete(this.value); });
     root.on('change', '[data-confirm-select]', function () { this.checked ? state.confirmSelected.add(this.value) : state.confirmSelected.delete(this.value); });
     root.on('click', '[data-confirm-drafts], [data-confirm-posts]', function () {
-        const items = state.items.filter(x => state.confirmSelected.has(x.name)).map(x => ({name: x.name, modified: x.modified}));
+        const items = state.items.filter(x => state.confirmSelected.has(x.name)).map(x => ({name: x.name, modified: x.modified, reviewed_accounts: [x.confirmation.debit, x.confirmation.credit], reviewed_fees: x.confirmation.fee_accounts}));
         if (!items.length || items.length > 100) { frappe.msgprint(__('Select up to 100 movements.')); return; }
         const mode = this.hasAttribute('data-confirm-posts') ? 'post' : 'draft';
         frappe.confirm(__('Review the displayed accounts, then {0} {1} selected movements?', [mode === 'post' ? __('post') : __('create drafts for'), items.length]), async () => {
@@ -384,7 +384,12 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
                 else frappe.show_alert({message: result.status === 'posted' ? __('Posted') : __('Draft created'), indicator: 'green'});
             } catch (e) { frappe.msgprint(__('Could not create the entry. Review the movement and try again.')); }
         };
-        if (mode === 'post') frappe.confirm(__('Create and post this entry using the selected account?'), run); else await run();
+        try {
+            const preview = (await frappe.call({method: api + 'preview_route', type: 'POST', args: {name: x.name, target}})).message;
+            target.reviewed_preview = preview;
+            const fees = (preview.fees || []).map(row => `<p>${esc(row.family)} · ${__('Debit')} ${esc(row.debit || __('Account not configured'))} · ${__('Credit')} ${esc(row.credit)} · ${money(row.amount, preview.currency)}</p>`).join('');
+            frappe.confirm(`<p>${__('Debit')} · ${esc(preview.debit)} · ${money(preview.amount, preview.currency)}</p><p>${__('Credit')} · ${esc(preview.credit)} · ${money(preview.amount, preview.currency)}</p>${fees}<p>${mode === 'post' ? __('Create and post?') : __('Create draft?')}</p>`, run);
+        } catch (e) { frappe.msgprint(__('Could not review the proposed accounts. Check the selected party and account.')); }
     });
     root.on('click', '[data-new]', function () {
         const x = selected(), name = q('[data-new-name]').value.trim();
@@ -403,7 +408,12 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
             const entry = (await frappe.call({method: api + 'preview_linked_document', args: {name: x.name}})).message;
             const rows = entry.lines.map(line => `<tr><td>${esc(line.account)}</td><td>${money(line.debit, line.currency)}</td><td>${money(line.credit, line.currency)}</td></tr>`).join('');
             const options = {title: __('Entry preview'), message: `<p>${esc(entry.doctype)} · ${esc(entry.document)} · ${esc(docStatus(entry.docstatus))}</p><table class="table"><thead><tr><th>${__('Account')}</th><th>${__('Debit')}</th><th>${__('Credit')}</th></tr></thead><tbody>${rows}</tbody></table>`};
-            if (entry.can_submit) options.primary_action = {label: __('Post'), action: () => frappe.confirm(__('Post this reviewed entry and its related fee journal?'), () => act('post_reviewed_draft', {}))};
+            if (entry.can_submit) options.primary_action = {label: __('Post'), action: () => frappe.confirm(__('Post this reviewed entry and its related fee journal?'), async () => {
+                try {
+                    await frappe.call({method: api + 'post_reviewed_draft', type: 'POST', args: {name: x.name, modified: entry.movement_modified, reviewed_document: entry.document, reviewed_modified: entry.modified}});
+                    await load(); frappe.show_alert({message: __('Posted'), indicator: 'green'});
+                } catch (e) { frappe.msgprint(__('The entry could not be posted. Refresh and review it again.')); }
+            })};
             frappe.msgprint(options);
         } catch (e) { frappe.msgprint(__('Could not read this entry or its linked accounts.')); }
     });

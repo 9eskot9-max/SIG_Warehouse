@@ -90,8 +90,8 @@ def test_remember_business_route_requires_matching_party_and_direction(api):
 
 
 def test_entry_preview_checks_linked_account_access(api, monkeypatch):
-    movement = Doc(erp_doctype="Journal Entry", erp_document="JV-1")
-    entry = Doc(name="JV-1", docstatus=0, posting_date="2026-11-10", accounts=[
+    movement = Doc(erp_doctype="Journal Entry", erp_document="JV-1", modified="movement-v1")
+    entry = Doc(name="JV-1", modified="entry-v1", docstatus=0, posting_date="2026-11-10", accounts=[
         Doc(account="BANK", debit_in_account_currency=0, credit_in_account_currency=50, account_currency="SAR"),
         Doc(account="EXPENSE", debit_in_account_currency=50, credit_in_account_currency=0, account_currency="SAR"),
     ])
@@ -165,6 +165,31 @@ def test_fee_validation_requires_distinct_bank_lines(api):
     assert api._fee_lines_match(entry, "BANK", fees, -100)
     entry.accounts.append(Doc(account="BANK", debit_in_account_currency=0, credit_in_account_currency=50))
     assert not api._fee_lines_match(entry, "BANK", fees, -100)
+
+
+def test_changed_reviewed_draft_cannot_be_posted(api, monkeypatch):
+    movement = Doc(erp_doctype="Journal Entry", erp_document="JV-1", engine_state="DRAFT_READY", decision_type="")
+    entry = Doc(name="JV-1", modified="new-version")
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True)
+    monkeypatch.setattr(api.frappe, "db", types.SimpleNamespace(sql=lambda *args: None), raising=False)
+    monkeypatch.setattr(api, "_lock", lambda *args: movement)
+    monkeypatch.setattr(api.frappe, "get_doc", lambda *args: entry, raising=False)
+    with pytest.raises(ValueError, match="changed after review"):
+        api.post_reviewed_draft("M1", "v1", "JV-1", "old-version")
+
+
+def test_changed_reviewed_accounts_cannot_create_draft(api, monkeypatch):
+    monkeypatch.setattr(api, "preview_route", lambda *args: {"debit": "NEW"})
+    with pytest.raises(ValueError, match="accounts changed"):
+        api.decide_business_route("M1", "v1", {"reviewed_preview": {"debit": "OLD"}}, "draft")
+
+
+def test_confirmation_fee_snapshot_uses_current_accounts(api, monkeypatch):
+    monkeypatch.setattr(api, "_fees_for", lambda names: {"M1": [{"family": "FEE_VAT", "amount": -0.15}]})
+    monkeypatch.setattr(api, "_check_link", lambda *args: None)
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True)
+    settings = types.SimpleNamespace(vat_account="VAT-2", fee_account="FEE")
+    assert api._confirmation_fees({"fee_parent": "M1"}, settings) == [{"account": "VAT-2", "family": "FEE_VAT", "amount": -0.15}]
 
 
 def test_fee_creation_requires_configured_vat_account(api, monkeypatch):
@@ -351,6 +376,40 @@ def test_confirmation_candidate_needs_a_mapped_biller(api, monkeypatch):
     assert candidate["credit"] == "BANK"
     settings.billers.clear()
     assert api._confirmation_candidate(doc, settings) is None
+
+
+@pytest.mark.parametrize("route", ["own_ledger", "bank_service"])
+def test_confirmation_requires_unambiguous_confirmed_memory(api, monkeypatch, route):
+    doc = Doc(name="M1", erp_document="", parent_movement="", kind="UNKNOWN", direction="DEBIT",
+              account_scope_hash="scope", source_json="{}", signals_json="{}", counterparty="CP1",
+              recognition_json="{}", decision_type="CHOOSE_TREATMENT")
+    row = Doc(confirmed_by="finance", purpose=route.upper(), route=route, direction="DEBIT", account="LEDGER",
+              party="", party_type="", petty_cash=0)
+    cp = Doc(status="ACTIVE", confirmed_routes=[row])
+    monkeypatch.setattr(api, "_check_link", lambda *args: None)
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True)
+    monkeypatch.setattr(api.frappe, "get_doc", lambda *args: cp, raising=False)
+    settings = types.SimpleNamespace(scopes={"scope": "BANK"}, billers={})
+    assert api._confirmation_candidate(doc, settings)["debit"] == "LEDGER"
+    row.confirmed_by = ""
+    assert api._confirmation_candidate(doc, settings) is None
+    row.confirmed_by = "finance"
+    doc.decision_type = "PICK_DOCUMENT"
+    assert api._confirmation_candidate(doc, settings) is None
+
+
+def test_bulk_confirmation_holds_changed_fee_account(api, monkeypatch):
+    doc = Doc(name="M1", modified="v1")
+    db = types.SimpleNamespace(savepoint=lambda *args: None, rollback=lambda **kwargs: None, release_savepoint=lambda *args: None)
+    monkeypatch.setattr(api.frappe, "db", db, raising=False)
+    monkeypatch.setattr(api.frappe, "get_doc", lambda *args: doc, raising=False)
+    monkeypatch.setattr(api.runtime, "Settings", lambda: object(), raising=False)
+    monkeypatch.setattr(api, "_confirmation_candidate", lambda *args: {"kind": "bill", "debit": "EXP", "credit": "BANK"})
+    monkeypatch.setattr(api, "_confirmation_fees", lambda *args: [{"account": "NEW"}])
+    result = api.bulk_confirm_routes([{"name": "M1", "modified": "v1", "reviewed_accounts": ["EXP", "BANK"],
+                                       "reviewed_fees": [{"account": "OLD"}]}], "post")
+    assert result["items"][0]["status"] == "held"
+    assert "fees changed" in result["items"][0]["error"]
 
 
 def test_confirmation_pair_is_excluded_from_regular_queues(api, monkeypatch):
