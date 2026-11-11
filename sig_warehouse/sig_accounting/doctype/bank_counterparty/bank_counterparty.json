@@ -20,6 +20,7 @@
   "expense_account",
   "default_treatment",
   "purpose_defaults_json",
+  "confirmed_routes",
   "category",
   "notes",
   "am_key",
@@ -109,6 +110,13 @@
    "label": "Reviewed treatment defaults by purpose",
    "read_only": 1,
    "hidden": 1
+  },
+  {
+   "fieldname": "confirmed_routes",
+   "fieldtype": "Table",
+   "label": "Confirmed routes",
+   "options": "Bank Payee Route",
+   "read_only": 1
   },
   {
    "fieldname": "category",

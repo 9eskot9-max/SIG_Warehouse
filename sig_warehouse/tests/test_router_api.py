@@ -69,6 +69,442 @@ def test_purpose_defaults_are_scoped(api):
     assert api._purpose_default(cp, "XXMT") == "JOURNAL_ENTRY"
 
 
+def test_remember_business_route_requires_matching_party_and_direction(api):
+    cp = Doc(employee="", confirmed_routes=[])
+    def append(field, values):
+        row = Doc(**values)
+        row.update = lambda updates: row.__dict__.update(updates)
+        cp.confirmed_routes.append(row)
+        return row
+    cp.append = append
+    movement = Doc(direction="DEBIT")
+    target = {"business_route": "supplier", "business_purpose": "XXMR"}
+    with pytest.raises(ValueError, match="Supplier"):
+        api._remember_business_route(cp, movement, target, "PAYMENT_ENTRY", {"party_type": "Customer", "party": "C1"})
+    assert cp.confirmed_routes == []
+    api._remember_business_route(cp, movement, target, "PAYMENT_ENTRY", {"party_type": "Supplier", "party": "S1"})
+    assert cp.confirmed_routes[0].route == "supplier"
+    assert cp.confirmed_routes[0].confirmed_by == "9eskot9@gmail.com"
+    with pytest.raises(ValueError, match="direction"):
+        api._remember_business_route(cp, Doc(direction="CREDIT"), target, "PAYMENT_ENTRY", {"party_type": "Supplier", "party": "S1"})
+
+
+def test_entry_preview_checks_linked_account_access(api, monkeypatch):
+    movement = Doc(erp_doctype="Journal Entry", erp_document="JV-1", modified="movement-v1")
+    entry = Doc(name="JV-1", modified="entry-v1", docstatus=0, posting_date="2026-11-10", accounts=[
+        Doc(account="BANK", debit_in_account_currency=0, credit_in_account_currency=50, account_currency="SAR"),
+        Doc(account="EXPENSE", debit_in_account_currency=50, credit_in_account_currency=0, account_currency="SAR"),
+    ])
+    entry.has_permission = lambda permission: permission == "submit"
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True)
+    monkeypatch.setattr(api.frappe, "get_doc", lambda doctype, name: movement if doctype == api.DOCTYPE else entry, raising=False)
+    checked = []
+    monkeypatch.setattr(api, "_check_link", lambda doctype, name: checked.append((doctype, name)))
+    preview = api.preview_linked_document("movement")
+    assert preview["can_submit"] is True
+    assert preview["lines"][0]["credit"] == 50
+    assert checked == [("Account", "BANK"), ("Account", "EXPENSE")]
+
+
+def test_route_preview_includes_fee_and_vat_accounts(api, monkeypatch):
+    movement = Doc(name="M1", direction="DEBIT", amount=-100, currency="SAR", account_scope_hash="scope")
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True)
+    monkeypatch.setattr(api.frappe, "get_doc", lambda doctype, name: movement, raising=False)
+    monkeypatch.setattr(api.frappe, "db", types.SimpleNamespace(get_value=lambda *args, **kwargs: {"account": "ok"}), raising=False)
+    monkeypatch.setattr(api, "_check_link", lambda *args: None)
+    monkeypatch.setattr(api, "_expense_account_allowed", lambda *args, **kwargs: True)
+    monkeypatch.setattr(api.runtime, "Settings", lambda: types.SimpleNamespace(scopes={"scope": "BANK"}, fee_account="FEE", vat_account="VAT"), raising=False)
+    monkeypatch.setattr(api, "_fees_for", lambda names: {"M1": [{"amount": -1, "family": "BANK_FEE"}, {"amount": -.15, "family": "FEE_VAT"}]})
+    preview = api.preview_route("M1", {"treatment": "JOURNAL_ENTRY", "account": "EXPENSE"})
+    assert (preview["debit"], preview["credit"]) == ("EXPENSE", "BANK")
+    assert [(line["debit"], line["credit"]) for line in preview["fees"]] == [("FEE", "BANK"), ("VAT", "BANK")]
+
+
+def test_posting_requires_bank_amount_and_submit_permission(api, monkeypatch):
+    movement = Doc(erp_doctype="Journal Entry", erp_document="JV-1", name="M1", amount=-100, engine_state="DRAFT_READY", decision_type="")
+    movement.append = lambda *args: None
+    entry = Doc(doctype="Journal Entry", name="JV-1", docstatus=0, company="Co",
+                accounts=[Doc(account="BANK", debit_in_account_currency=0, credit_in_account_currency=90)])
+    submitted = []
+    entry.submit = lambda: submitted.append(entry.name)
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True)
+    monkeypatch.setattr(api.frappe, "db", types.SimpleNamespace(sql=lambda *args: None), raising=False)
+    monkeypatch.setattr(api, "_lock", lambda *args: movement)
+    monkeypatch.setattr(api.frappe, "get_doc", lambda *args: entry, raising=False)
+    monkeypatch.setattr(api, "_bank_gl", lambda *args: "BANK")
+    monkeypatch.setattr(api, "_check_link", lambda *args: None)
+    with pytest.raises(ValueError, match="bank account and amount"):
+        api.post_reviewed_draft("M1", "modified")
+    assert submitted == []
+
+
+def test_posting_checks_document_submit_permission_before_submit(api, monkeypatch):
+    movement = Doc(erp_doctype="Journal Entry", erp_document="JV-1", name="M1", amount=-100, engine_state="DRAFT_READY", decision_type="")
+    entry = Doc(doctype="Journal Entry", name="JV-1", docstatus=0, company="Co", accounts=[])
+    def check(permission):
+        if permission == "submit":
+            raise PermissionError("submit denied")
+    entry.check_permission = check
+    submitted = []
+    entry.submit = lambda: submitted.append(True)
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True)
+    monkeypatch.setattr(api.frappe, "db", types.SimpleNamespace(sql=lambda *args: None), raising=False)
+    monkeypatch.setattr(api, "_lock", lambda *args: movement)
+    monkeypatch.setattr(api.frappe, "get_doc", lambda *args: entry, raising=False)
+    with pytest.raises(PermissionError, match="submit denied"):
+        api.post_reviewed_draft("M1", "modified")
+    assert submitted == []
+
+
+def test_fee_validation_requires_distinct_bank_lines(api):
+    entry = Doc(accounts=[Doc(account="BANK", debit_in_account_currency=0, credit_in_account_currency=100),
+                          Doc(account="BANK", debit_in_account_currency=0, credit_in_account_currency=1)])
+    fees = [{"amount": -1}, {"amount": -1}]
+    assert not api._fee_lines_match(entry, "BANK", fees, -100)
+    entry.accounts.append(Doc(account="BANK", debit_in_account_currency=0, credit_in_account_currency=1))
+    assert api._fee_lines_match(entry, "BANK", fees, -100)
+    entry.accounts.append(Doc(account="BANK", debit_in_account_currency=0, credit_in_account_currency=50))
+    assert not api._fee_lines_match(entry, "BANK", fees, -100)
+
+
+def test_changed_reviewed_draft_cannot_be_posted(api, monkeypatch):
+    movement = Doc(erp_doctype="Journal Entry", erp_document="JV-1", engine_state="DRAFT_READY", decision_type="")
+    entry = Doc(name="JV-1", modified="new-version")
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True)
+    monkeypatch.setattr(api.frappe, "db", types.SimpleNamespace(sql=lambda *args: None), raising=False)
+    monkeypatch.setattr(api, "_lock", lambda *args: movement)
+    monkeypatch.setattr(api.frappe, "get_doc", lambda *args: entry, raising=False)
+    with pytest.raises(ValueError, match="changed after review"):
+        api.post_reviewed_draft("M1", "v1", "JV-1", "old-version")
+
+
+def test_changed_reviewed_accounts_cannot_create_draft(api, monkeypatch):
+    monkeypatch.setattr(api, "preview_route", lambda *args: {"debit": "NEW"})
+    with pytest.raises(ValueError, match="accounts changed"):
+        api.decide_business_route("M1", "v1", {"reviewed_preview": {"debit": "OLD"}}, "draft")
+
+
+def test_confirmation_fee_snapshot_uses_current_accounts(api, monkeypatch):
+    monkeypatch.setattr(api, "_fees_for", lambda names: {"M1": [{"family": "FEE_VAT", "amount": -0.15}]})
+    monkeypatch.setattr(api, "_check_link", lambda *args: None)
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True)
+    settings = types.SimpleNamespace(vat_account="VAT-2", fee_account="FEE")
+    assert api._confirmation_fees({"fee_parent": "M1"}, settings) == [{"account": "VAT-2", "family": "FEE_VAT", "amount": -0.15}]
+
+
+def test_fee_creation_requires_configured_vat_account(api, monkeypatch):
+    settings = types.SimpleNamespace(fee_account="FEE", vat_account="")
+    monkeypatch.setattr(api, "_check_link", lambda *args: None)
+    monkeypatch.setattr(api.frappe, "db", types.SimpleNamespace(get_value=lambda *args, **kwargs:
+        types.SimpleNamespace(company="Co", is_group=0, disabled=0)), raising=False)
+    with pytest.raises(ValueError, match="fee and VAT accounts"):
+        api._validate_fee_accounts(settings, [{"family": "FEE_VAT", "amount": -.15}])
+
+
+def test_posting_own_transfer_updates_both_legs(api, monkeypatch):
+    first = Doc(name="M1", direction="DEBIT", amount=-100, currency="SAR", erp_doctype="Journal Entry",
+                erp_document="JV-1", engine_state="DRAFT_READY", decision_type="", link_method="OWN_TRANSFER",
+                signals_json='{"paired_transfer":{"name":"M2"}}')
+    other = Doc(name="M2", direction="CREDIT", amount=100, currency="SAR", erp_doctype="Journal Entry", erp_document="JV-1")
+    for row in (first, other):
+        row.append = lambda *args: None
+    entry = Doc(doctype="Journal Entry", name="JV-1", docstatus=0, company="Co", accounts=[
+        Doc(account="BANK1", debit_in_account_currency=0, credit_in_account_currency=100),
+        Doc(account="BANK2", debit_in_account_currency=100, credit_in_account_currency=0),
+    ])
+    posted = []
+    entry.submit = lambda: posted.append("JV-1")
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True)
+    monkeypatch.setattr(api, "_lock", lambda *args: first)
+    monkeypatch.setattr(api.frappe, "get_doc", lambda doctype, name: entry if doctype == "Journal Entry" else other, raising=False)
+    monkeypatch.setattr(api.frappe, "db", types.SimpleNamespace(sql=lambda *args: None, savepoint=lambda *args: None,
+                         release_savepoint=lambda *args: None, rollback=lambda **kwargs: None), raising=False)
+    monkeypatch.setattr(api, "_bank_gl", lambda row: "BANK1" if row.name == "M1" else "BANK2")
+    monkeypatch.setattr(api, "_check_link", lambda *args: None)
+    monkeypatch.setattr(api, "_fees_for", lambda names: {})
+    api.post_reviewed_draft("M1", "t")
+    assert posted == ["JV-1"]
+    assert first.engine_state == other.engine_state == "POSTED"
+
+
+def test_posting_payment_and_fee_failure_rolls_back_both(api, monkeypatch):
+    movement = Doc(name="M1", direction="DEBIT", amount=-100, currency="SAR", erp_doctype="Payment Entry",
+                   erp_document="PE-1", engine_state="DRAFT_READY", decision_type="", link_method="AUTO_DRAFT",
+                   source_json='{"statement_key":"KEY"}', counterparty="")
+    movement.append = lambda *args: None
+    payment = Doc(doctype="Payment Entry", name="PE-1", docstatus=0, company="Co", paid_from="BANK", paid_to="SUP", paid_amount=100, received_amount=100)
+    fee = Doc(doctype="Journal Entry", name="FEE-1", docstatus=0, company="Co", custom_pc_statement_key="KEY#FEE",
+              accounts=[Doc(account="BANK", debit_in_account_currency=0, credit_in_account_currency=1)])
+    fee_movement = Doc(name="FM1", parent_movement="M1", erp_document="", erp_doctype="")
+    payment.submit = lambda: None
+    fee.submit = lambda: (_ for _ in ()).throw(ValueError("Fee failed"))
+    rollbacks = []
+    db = types.SimpleNamespace(sql=lambda *args: None, savepoint=lambda *args: None,
+        release_savepoint=lambda *args: None, rollback=lambda **kwargs: rollbacks.append(kwargs), get_value=lambda *args, **kwargs: "FEE-1")
+    monkeypatch.setattr(api.frappe, "db", db, raising=False)
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True)
+    monkeypatch.setattr(api.frappe, "get_doc", lambda doctype, name: payment if doctype == "Payment Entry" else fee if doctype == "Journal Entry" else fee_movement, raising=False)
+    monkeypatch.setattr(api, "_lock", lambda *args: movement)
+    monkeypatch.setattr(api, "_bank_gl", lambda *args: "BANK")
+    monkeypatch.setattr(api, "_check_link", lambda *args: None)
+    monkeypatch.setattr(api, "_fees_for", lambda names: {"M1": [{"name": "FM1", "amount": -1}]})
+    monkeypatch.setattr(api.runtime.documents, "FEE_MARKER_SUFFIX", "#FEE", raising=False)
+    with pytest.raises(ValueError, match="Fee failed"):
+        api.post_reviewed_draft("M1", "t")
+    assert rollbacks == [{"save_point": "bank_router_post_reviewed"}]
+    assert movement.engine_state == "DRAFT_READY"
+
+
+def test_decide_keeps_draft_when_posting_fails(api, monkeypatch):
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True)
+    monkeypatch.setattr(api, "route_movement", lambda *args: {"movement": {"name": "M1", "modified": "1", "decision_type": "CREATE_DRAFT"}})
+    monkeypatch.setattr(api, "create_reviewed_draft", lambda *args: {"name": "M1", "modified": "2", "erp_doctype": "Journal Entry", "erp_document": "JV-1", "doc_status": 0, "engine_state": "DRAFT_READY", "decision_type": ""})
+    def fail_post(*args):
+        raise ValueError("Fee journal missing")
+    monkeypatch.setattr(api, "post_reviewed_draft", fail_post)
+    result = api.decide_business_route("M1", "0", {"business_route": "other_out", "treatment": "JOURNAL_ENTRY"}, "post")
+    assert result["status"] == "draft"
+    assert result["movement"]["erp_document"] == "JV-1"
+    assert "Fee journal missing" in result["post_error"]
+
+
+def test_decide_never_posts_a_draft_with_an_unresolved_mismatch(api, monkeypatch):
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True)
+    monkeypatch.setattr(api, "route_movement", lambda *args: {"movement": {"erp_document": "PE-1", "erp_doctype": "Payment Entry", "doc_status": 0, "engine_state": "NEEDS_YOU", "decision_type": "TREATMENT_MISMATCH"}})
+    posted = []
+    monkeypatch.setattr(api, "post_reviewed_draft", lambda *args: posted.append(True))
+    with pytest.raises(ValueError, match="remaining review"):
+        api.decide_business_route("M1", "0", {"business_route": "other_out", "treatment": "JOURNAL_ENTRY"}, "post")
+    assert posted == []
+
+
+def test_decide_post_requires_submit_permission_before_any_write(api, monkeypatch):
+    monkeypatch.setattr(api.frappe, "has_permission", lambda doctype, permission, *args: permission != "submit")
+    writes = []
+    monkeypatch.setattr(api, "route_movement", lambda *args: writes.append(True))
+    with pytest.raises(PermissionError, match="permission to submit"):
+        api.decide_business_route("M1", "0", {"business_route": "other_out", "treatment": "JOURNAL_ENTRY"}, "post")
+    assert writes == []
+
+
+def test_business_decision_routes_remembers_and_creates_a_draft(api, monkeypatch):
+    movement = Doc(name="M1", modified="v1", direction="DEBIT", kind="UNKNOWN", engine_state="NEEDS_YOU",
+                   decision_type="CHOOSE_TREATMENT", accounting_treatment="", accounting_account="", counterparty="",
+                   route_source="", erp_document="", erp_doctype="", link_method="", signals_json="{}", recognition_json="{}",
+                   payment_reference="", source_json='{"statement_key":"KEY"}')
+    movement.append = lambda *args: None
+    cp = Doc(name="CP1", status="ACTIVE", employee="", is_company=0, confirmed_routes=[], purpose_defaults_json="", expense_account="")
+    cp.save = lambda **kwargs: None
+    def append(field, values):
+        row = Doc(**values)
+        row.update = lambda updates: row.__dict__.update(updates)
+        cp.confirmed_routes.append(row)
+        return row
+    cp.append = append
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True)
+    monkeypatch.setattr(api.frappe, "db", types.SimpleNamespace(sql=lambda *args: None,
+        get_value=lambda *args, **kwargs: {"company": "Co", "is_group": 0, "disabled": 0, "account_type": ""}), raising=False)
+    monkeypatch.setattr(api, "_lock", lambda *args: movement)
+    monkeypatch.setattr(api, "_ensure_counterparty", lambda *args: cp)
+    monkeypatch.setattr(api, "_learn_identifiers", lambda *args: None)
+    monkeypatch.setattr(api, "_retarget_draft", lambda *args: None)
+    monkeypatch.setattr(api, "_check_link", lambda *args: None)
+    monkeypatch.setattr(api, "_bank_gl", lambda *args: "BANK")
+    monkeypatch.setattr(api, "_fees_for", lambda names: {})
+    def run(*args, **kwargs):
+        if kwargs.get("manual_draft"):
+            movement.erp_doctype, movement.erp_document = "Journal Entry", "JV-1"
+            movement.engine_state, movement.decision_type = "DRAFT_READY", ""
+        else:
+            movement.decision_type = "CREATE_DRAFT"
+        return {"errors": 0}
+    api.runtime.run = run
+    monkeypatch.setattr(api, "get_movement", lambda name: {"name": name, "modified": movement.modified,
+        "erp_doctype": movement.erp_doctype, "erp_document": movement.erp_document,
+        "engine_state": movement.engine_state, "decision_type": movement.decision_type,
+        "doc_status": 0 if movement.erp_document else None})
+    target = {"business_route": "other_out", "business_purpose": "OTHER_OUT", "type": "EXPENSE",
+              "treatment": "JOURNAL_ENTRY", "account": "EXPENSE", "remember_default": "1"}
+    result = api.decide_business_route("M1", "v1", target, "draft")
+    assert result["status"] == "draft" and result["movement"]["erp_document"] == "JV-1"
+    assert movement.business_route == "other_out" and movement.business_purpose == "OTHER_OUT"
+    assert cp.confirmed_routes[0].route == "other_out" and cp.confirmed_routes[0].account == "EXPENSE"
+
+
+def test_employee_advance_confirms_employee_without_marking_petty_cash(api, monkeypatch):
+    movement = Doc(name="M1", modified="v1", direction="DEBIT", kind="UNKNOWN", accounting_treatment="",
+                   accounting_account="", counterparty="", route_source="", erp_document="", erp_doctype="",
+                   link_method="", signals_json="{}", recognition_json="{}", payment_reference="")
+    movement.append = lambda *args: None
+    cp = Doc(name="CP1", status="ACTIVE", employee="", is_company=0, confirmed_routes=[], purpose_defaults_json="", expense_account="")
+    cp.save = lambda **kwargs: None
+    def append(field, values):
+        row = Doc(**values)
+        row.update = lambda updates: row.__dict__.update(updates)
+        cp.confirmed_routes.append(row)
+        return row
+    cp.append = append
+    def get_value(doctype, *args, **kwargs):
+        if doctype == "Employee":
+            return types.SimpleNamespace(status="Active", company="Co")
+        return {"company": "Co", "is_group": 0, "disabled": 0, "account_type": ""}
+    monkeypatch.setattr(api.frappe, "db", types.SimpleNamespace(sql=lambda *args: None, get_value=get_value), raising=False)
+    monkeypatch.setattr(api, "_lock", lambda *args: movement)
+    monkeypatch.setattr(api, "_ensure_counterparty", lambda *args: cp)
+    monkeypatch.setattr(api, "_check_link", lambda *args: None)
+    monkeypatch.setattr(api, "_bank_gl", lambda *args: "BANK")
+    monkeypatch.setattr(api, "_learn_identifiers", lambda *args: None)
+    monkeypatch.setattr(api, "_retarget_draft", lambda *args: None)
+    monkeypatch.setattr(api, "get_movement", lambda name: {"name": name})
+    api.runtime.run = lambda *args, **kwargs: {"errors": 0}
+    target = {"business_route": "employee_advance", "business_purpose": "XXHR", "type": "EXPENSE", "employee": "EMP-1",
+              "treatment": "JOURNAL_ENTRY", "account": "1321", "remember_default": "1"}
+    api.route_movement("M1", "v1", target)
+    assert cp.employee == "EMP-1" and cp.confirmed_routes[0].route == "employee_advance"
+    assert cp.confirmed_routes[0].petty_cash == 0
+    assert "finance_petty_cash" not in json.loads(movement.recognition_json)
+
+
+def test_confirmation_candidate_needs_a_mapped_biller(api, monkeypatch):
+    doc = Doc(name="M1", erp_document="", parent_movement="", kind="EXPENSE_PAYMENT", direction="DEBIT", account_scope_hash="scope",
+              source_json='{"parser_family":"SADAD"}', signals_json='{"biller_code":"050"}')
+    monkeypatch.setattr(api, "_check_link", lambda *args: None)
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True)
+    settings = types.SimpleNamespace(scopes={"scope": "BANK"}, billers={"050": "IQAMA"})
+    candidate = api._confirmation_candidate(doc, settings)
+    assert candidate["debit"] == "IQAMA"
+    assert candidate["credit"] == "BANK"
+    settings.billers.clear()
+    assert api._confirmation_candidate(doc, settings) is None
+
+
+@pytest.mark.parametrize("route", ["own_ledger", "bank_service"])
+def test_confirmation_requires_unambiguous_confirmed_memory(api, monkeypatch, route):
+    doc = Doc(name="M1", erp_document="", parent_movement="", kind="UNKNOWN", direction="DEBIT",
+              account_scope_hash="scope", source_json="{}", signals_json="{}", counterparty="CP1",
+              recognition_json="{}", decision_type="CHOOSE_TREATMENT")
+    row = Doc(confirmed_by="finance", purpose=route.upper(), route=route, direction="DEBIT", account="LEDGER",
+              party="", party_type="", petty_cash=0)
+    cp = Doc(status="ACTIVE", confirmed_routes=[row])
+    monkeypatch.setattr(api, "_check_link", lambda *args: None)
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True)
+    monkeypatch.setattr(api.frappe, "get_doc", lambda *args: cp, raising=False)
+    settings = types.SimpleNamespace(scopes={"scope": "BANK"}, billers={})
+    assert api._confirmation_candidate(doc, settings)["debit"] == "LEDGER"
+    row.confirmed_by = ""
+    assert api._confirmation_candidate(doc, settings) is None
+    row.confirmed_by = "finance"
+    doc.decision_type = "PICK_DOCUMENT"
+    assert api._confirmation_candidate(doc, settings) is None
+
+
+def test_bulk_confirmation_holds_changed_fee_account(api, monkeypatch):
+    doc = Doc(name="M1", modified="v1")
+    db = types.SimpleNamespace(savepoint=lambda *args: None, rollback=lambda **kwargs: None, release_savepoint=lambda *args: None)
+    monkeypatch.setattr(api.frappe, "db", db, raising=False)
+    monkeypatch.setattr(api.frappe, "get_doc", lambda *args: doc, raising=False)
+    monkeypatch.setattr(api.runtime, "Settings", lambda: object(), raising=False)
+    monkeypatch.setattr(api, "_confirmation_candidate", lambda *args: {"kind": "bill", "debit": "EXP", "credit": "BANK"})
+    monkeypatch.setattr(api, "_confirmation_fees", lambda *args: [{"account": "NEW"}])
+    result = api.bulk_confirm_routes([{"name": "M1", "modified": "v1", "reviewed_accounts": ["EXP", "BANK"],
+                                       "reviewed_fees": [{"account": "OLD"}]}], "post")
+    assert result["items"][0]["status"] == "held"
+    assert "fees changed" in result["items"][0]["error"]
+
+
+def test_confirmation_pair_is_excluded_from_regular_queues(api, monkeypatch):
+    primary = Doc(name="M1", signals_json='{"paired_transfer":{"name":"M2"}}')
+    monkeypatch.setattr(api, "_confirmation_candidates", lambda *args: [(primary, {"kind": "own_transfer"})])
+    calls = []
+    def get_list(doctype, **kwargs):
+        calls.append(kwargs)
+        return []
+    monkeypatch.setattr(api.frappe, "get_list", get_list, raising=False)
+    monkeypatch.setattr(api, "_fees_for", lambda names: {})
+    monkeypatch.setattr(api, "_doc_status", lambda rows: {})
+    result = api.list_inbox()
+    assert calls[0]["filters"]["name"] == ["not in", ["M1", "M2"]]
+    assert result["counts"]["confirm"] == 1
+
+
+def test_bulk_confirmation_rejects_duplicate_rows(api, monkeypatch):
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True)
+    with pytest.raises(ValueError, match="once"):
+        api.bulk_confirm_routes([{"name": "M1"}, {"name": "M1"}], "draft")
+
+
+def test_bulk_confirmation_holds_one_failure_and_continues(api, monkeypatch):
+    docs = {name: Doc(name=name, modified="v1", signals_json="{}") for name in ("M1", "M2")}
+    rollbacks = []
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True)
+    monkeypatch.setattr(api.frappe, "get_doc", lambda doctype, name: docs[name], raising=False)
+    monkeypatch.setattr(api.frappe, "db", types.SimpleNamespace(savepoint=lambda *args: None,
+                         rollback=lambda **kwargs: rollbacks.append(kwargs), release_savepoint=lambda *args: None), raising=False)
+    monkeypatch.setattr(api.runtime, "Settings", lambda: object(), raising=False)
+    monkeypatch.setattr(api, "_confirmation_candidate", lambda *args: {"kind": "bill", "account": "EXPENSE"})
+    def decide(name, *args):
+        if name == "M1":
+            raise ValueError("changed")
+        return {"status": "draft", "movement": {"erp_document": "JV-2"}}
+    monkeypatch.setattr(api, "decide_business_route", decide)
+    result = api.bulk_confirm_routes([{"name": "M1", "modified": "v1"}, {"name": "M2", "modified": "v1"}], "draft")
+    assert [row["status"] for row in result["items"]] == ["held", "draft"]
+    assert rollbacks == [{"save_point": "bank_router_bulk_0"}]
+
+
+def test_bulk_sadad_reuses_verified_biller_counterparty(api, monkeypatch):
+    doc = Doc(name="M1", modified="v1", signals_json='{"biller_code":"050"}')
+    db = types.SimpleNamespace(savepoint=lambda *args: None, rollback=lambda **kwargs: None,
+                               release_savepoint=lambda *args: None,
+                               get_value=lambda *args, **kwargs: types.SimpleNamespace(counterparty="CP-050", status="ACTIVE"))
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True)
+    monkeypatch.setattr(api.frappe, "get_doc", lambda *args: doc, raising=False)
+    monkeypatch.setattr(api.frappe, "db", db, raising=False)
+    monkeypatch.setattr(api.runtime, "Settings", lambda: object(), raising=False)
+    monkeypatch.setattr(api, "_confirmation_candidate", lambda *args: {"kind": "bill", "account": "EXPENSE"})
+    selected = []
+    def decide(name, modified, target, mode):
+        selected.append(target["counterparty"])
+        return {"status": "draft", "movement": {"erp_document": "JV-1"}}
+    monkeypatch.setattr(api, "decide_business_route", decide)
+    result = api.bulk_confirm_routes([{"name": "M1", "modified": "v1"}], "draft")
+    assert selected == ["CP-050"]
+    assert result["items"][0]["status"] == "draft"
+
+
+def test_legacy_snapshot_is_stable_and_detects_changed_choices(api):
+    cp = Doc(status="ACTIVE", purpose_defaults_json='{"XXMR":{"treatment":"PAYMENT_ENTRY"}}',
+             employee="", custody_account="", supplier="SUP-1", confirmed_routes=[])
+    first = api._legacy_route_snapshot(cp)
+    assert first["proposals"][0]["party"] == "SUP-1"
+    assert first["digest"] == api._legacy_route_snapshot(cp)["digest"]
+    cp.supplier = "SUP-2"
+    assert first["digest"] != api._legacy_route_snapshot(cp)["digest"]
+
+
+def test_legacy_migration_requires_unchanged_preview_and_is_not_replayed(api, monkeypatch):
+    cp = Doc(name="CP1", status="ACTIVE", purpose_defaults_json='{"XXMR":{"treatment":"PAYMENT_ENTRY"}}',
+             employee="", custody_account="", supplier="SUP-1", confirmed_routes=[])
+    def append(field, values):
+        row = Doc(**values)
+        cp.confirmed_routes.append(row)
+        return row
+    cp.append = append
+    cp.save = lambda **kwargs: None
+    monkeypatch.setattr(api, "_integration_only", lambda: None)
+    monkeypatch.setattr(api, "_check_link", lambda *args: None)
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True)
+    monkeypatch.setattr(api.frappe, "get_doc", lambda *args: cp, raising=False)
+    monkeypatch.setattr(api.frappe, "db", types.SimpleNamespace(sql=lambda *args: None, get_value=lambda *args, **kwargs: False), raising=False)
+    digest = api._legacy_route_snapshot(cp)["digest"]
+    result = api.apply_legacy_route_migration([{"counterparty": "CP1", "digest": digest}])
+    assert result["counterparties"][0]["created"] == 1
+    assert cp.confirmed_routes[0].source == "MIGRATED"
+    with pytest.raises(ValueError, match="changed since preview"):
+        api.apply_legacy_route_migration([{"counterparty": "CP1", "digest": digest}])
+    assert len(cp.confirmed_routes) == 1
+
+
 def test_pc_suggestion_requires_exact_mapping_and_permissions(api, monkeypatch):
     doc = Doc(kind="PETTY_CASH")
     cp = {"am_key": "beneficiary-1"}
@@ -495,16 +931,37 @@ def test_petty_cash_confirmation_records_explicit_review_without_drafting(api, m
     monkeypatch.setattr(api, "_ensure_counterparty", lambda *args: cp)
     monkeypatch.setattr(api, "_check_link", lambda *args: None)
     monkeypatch.setattr(api, "_learn_identifiers", lambda *args: None)
-    monkeypatch.setattr(api, "get_movement", lambda name: {"name": name})
+    monkeypatch.setattr(api, "get_movement", lambda name: {"name": name, "kind": "PETTY_CASH"})
     funding = types.ModuleType("sig_warehouse.sig_warehouse.pc_funding")
     funding._active_employee = lambda employee, company: "CUSTODY"
     funding._require_finance = lambda: None
     monkeypatch.setitem(sys.modules, funding.__name__, funding)
     calls = []
     api.runtime.run = lambda *args, **kwargs: calls.append(kwargs) or {"errors": 0}
-    assert api.confirm_petty_cash_employee("R", "t", "EMP-1") == {"name": "R"}
+    assert api.confirm_petty_cash_employee("R", "t", "EMP-1")["name"] == "R"
     assert (cp.employee, cp.custody_account, movement.accounting_treatment) == ("EMP-1", "CUSTODY", "JOURNAL_ENTRY")
     assert calls == [{"names": ["R"], "review_only": True}]
+
+
+def test_untagged_employee_can_be_designated_petty_cash(api, monkeypatch):
+    movement = Doc(name="R", direction="DEBIT", kind="UNKNOWN", erp_document="", recognition_json='{}',
+                   signals_json='{}', source_json='{}', counterparty="", route_source="", accounting_treatment="")
+    movement.append = lambda *args: None
+    cp = Doc(name="CP", employee="", custody_account="")
+    cp.save = lambda **kwargs: None
+    monkeypatch.setattr(api, "_lock", lambda *args: movement)
+    monkeypatch.setattr(api, "_ensure_counterparty", lambda *args: cp)
+    monkeypatch.setattr(api, "_check_link", lambda *args: None)
+    monkeypatch.setattr(api, "_learn_identifiers", lambda *args: None)
+    monkeypatch.setattr(api, "get_movement", lambda name: {"name": name, "kind": "PETTY_CASH"})
+    funding = types.ModuleType("sig_warehouse.sig_warehouse.pc_funding")
+    funding._active_employee = lambda employee, company: "CUSTODY"
+    funding._require_finance = lambda: None
+    monkeypatch.setitem(sys.modules, funding.__name__, funding)
+    api.runtime.run = lambda *args, **kwargs: {"errors": 0}
+    api.confirm_petty_cash_employee("R", "t", "EMP-1")
+    assert json.loads(movement.recognition_json) == {"finance_petty_cash": True}
+    assert cp.employee == "EMP-1"
 
 
 def test_own_transfer_refuses_when_either_leg_already_linked(api):
@@ -580,13 +1037,14 @@ def test_own_transfer_creates_one_draft_and_links_both_legs(api, monkeypatch):
     api.frappe.get_doc = lambda doctype, name=None: (first if name == "A" else second) if doctype == api.DOCTYPE else journal
     bank = types.SimpleNamespace(company=api.runtime.documents.COMPANY, account_type="Bank", disabled=0, is_group=0, account_currency="SAR")
     api.frappe.db = types.SimpleNamespace(sql=lambda *args: None, get_value=lambda *args, **kwargs: bank, exists=lambda *args: False)
-    api.runtime.Settings = lambda: types.SimpleNamespace(scopes={"S1":"BANK-1", "S2":"BANK-2"})
+    api.runtime.Settings = lambda: types.SimpleNamespace(scopes={"S1":"BANK-1", "S2":"BANK-2"}, fee_account="FEE", vat_account="VAT")
     api.runtime.load_index = lambda: ({}, {})
     api.runtime.pair_own_transfers = lambda *args: {"A":{"name":"B"}, "B":{"name":"A"}}
     api.runtime.getdate = lambda x: x
     api.runtime.dt = datetime
     api.runtime.Ledger = lambda *args: types.SimpleNamespace(candidates=lambda *args: [])
     api.runtime.documents.own_transfer_journal = lambda *args: {"doctype":"Journal Entry"}
+    monkeypatch.setattr(api, "_fees_for", lambda names: {})
     monkeypatch.setattr(api, "_check_link", lambda *args: None)
     result = api.create_own_transfer_draft("A", "t")
     assert inserted == [True] and result == {"journal":"JV-1", "movements":["A","B"]}
@@ -705,6 +1163,7 @@ def test_the_payee_label_comes_from_the_matched_line_or_the_payee_record(api):
 
 
 def test_sadad_group_filters_and_counts_statement_family(api, monkeypatch):
+    monkeypatch.setattr(api, "_confirmation_candidates", lambda *args: [])
     rows = [types.SimpleNamespace(engine_state="NEEDS_YOU", kind="UNKNOWN", parent_movement="", source_json='{"parser_family":"SADAD"}'),
             types.SimpleNamespace(engine_state="NEEDS_YOU", kind="EXPENSE_PAYMENT", parent_movement="", source_json='{"parser_family":"SADAD"}'),
             types.SimpleNamespace(engine_state="NEEDS_YOU", kind="UNKNOWN", parent_movement="", source_json='{"parser_family":"LOCAL"}')]

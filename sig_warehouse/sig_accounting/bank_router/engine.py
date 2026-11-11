@@ -27,6 +27,10 @@ PERSON_CATEGORY_POSITION = 1
 
 def mined_category(mined):
     """TX Manager's category for this line, only when its request matched uniquely."""
+    if mined.get("finance_petty_cash") is True:
+        return "XXPC"
+    if mined.get("finance_petty_cash") is False and mined.get("category") == "XXPC":
+        return ""
     return mined.get("category") if mined.get("am_category_status") == "MATCHED" else ""
 
 
@@ -197,7 +201,8 @@ def route(mv, ctx):
     # Stage 4: reconcile
     movement = {"key": mv["key"], "amount": float(mv["amount"]), "date": mv["date"], "reference": signals["reference"], "bank_account": bank_gl,
                 "payee": _payee_evidence(facts, mined) if direction == "DEBIT" else {},
-                "unique_statement_amount": mv.get("unique_statement_amount", False)}
+                "unique_statement_amount": mv.get("unique_statement_amount", False),
+                "unique_statement_payee": mv.get("unique_statement_payee", False)}
     existing = None
     if mv.get("erp_document"):
         existing = ctx.ledger.doc(mv["erp_doctype"], mv["erp_document"], bank_gl)
