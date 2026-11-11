@@ -65,7 +65,7 @@ frappe.pages['dispatch-queue'].on_page_load = function (wrapper) {
         root.html(`<header class="sig-dq-header"><div><div class="sig-dq-eyebrow">${__('SIG Warehouse')}</div>
             <h1>${__('Dispatch Queue')}</h1><p>${__('Material Issue requests by dispatch stage.')}</p></div>
             <nav><button type="button" class="btn btn-default sig-dq-kanban">${__('Kanban view')}</button>
-            <button type="button" class="btn btn-default sig-dq-custody">${__('Tool / asset custody')}</button>
+            <button type="button" class="btn btn-default sig-dq-custody" style="display:none">${__('Tool / asset custody')}</button>
             <button type="button" class="btn btn-default sig-dq-refresh">${__('Refresh')}</button></nav></header>
             <section class="sig-dq-tiles"></section>
             <div class="sig-dq-notices"></div>
@@ -125,6 +125,8 @@ frappe.pages['dispatch-queue'].on_page_load = function (wrapper) {
         root.find('.sig-dq-avail').val(state.availability);
         root.find('.sig-dq-check input').prop('checked', state.includeClosed);
         const access = (state.data && state.data.access) || {};
+        // Custody dispatch is server-gated to the same roles as MIR dispatch; do not offer it to view-only users.
+        root.find('.sig-dq-custody').toggle(!!access.can_dispatch);
         const notes = [];
         if (state.data && !state.data.complete) notes.push(__('The list reached its size limit; narrow the filters or ask for a larger limit.'));
         if (state.data && !access.dn) notes.push(__('Your role cannot read Stock Entries: return state is hidden.'));

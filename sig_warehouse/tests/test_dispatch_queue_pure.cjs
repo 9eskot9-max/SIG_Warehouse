@@ -41,3 +41,24 @@ test('search matches MIR number, MR id, site, project and PO, ignoring case', ()
     for (const q of ['1256', 'mr-26-1256', 'zri439', 'capex', 'po-9', '  1256  ', '']) assert.ok(matches(row, q), q);
     assert.ok(!matches(row, '9999'));
 });
+
+test('Warehouse Workbench opens the Dispatch Queue page by default and keeps the Kanban as a secondary tile', () => {
+    const ws = fs.readFileSync(path.join(__dirname, '../sig_warehouse/page/warehouse_workspace/warehouse_workspace.js'), 'utf8');
+    const card = (title) => {
+        const i = ws.indexOf(`title: __('${title}')`);
+        assert.ok(i > 0, title);
+        return ws.slice(i, ws.indexOf('}', ws.indexOf('route:', i)));
+    };
+    const main = card('Dispatch materials');
+    assert.match(main, /route: \['dispatch-queue'\]/);
+    assert.match(main, /page_roles: \[[^\]]*'Stock User'[^\]]*\]/);
+    assert.doesNotMatch(main, /Kanban/);
+    const board = card('Dispatch Kanban board');
+    assert.match(board, /route: \['List', 'Material Request', 'Kanban', 'SIG Dispatch Queue'\]/);
+    assert.doesNotMatch(ws, /title: __\('Dispatch queue'\)/, 'no duplicate Dispatch queue tile');
+});
+
+test('custody button is hidden until the server says the user can dispatch', () => {
+    assert.match(source, /sig-dq-custody" style="display:none"/);
+    assert.match(source, /\.sig-dq-custody'\)\.toggle\(!!access\.can_dispatch\)/);
+});
