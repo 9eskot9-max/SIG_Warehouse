@@ -1332,7 +1332,7 @@ def confirm_petty_cash_custody(name, modified, account):
 
 
 @frappe.whitelist(methods=["POST"])
-def confirm_petty_cash_employee(name, modified, employee, remember=0):
+def confirm_petty_cash_employee(name, modified, employee, remember=0, counterparty=""):
     """Record a Finance-reviewed Employee and designate this debit for petty cash."""
     _require("write")
     doc = _lock(name, modified)
@@ -1344,7 +1344,7 @@ def confirm_petty_cash_employee(name, modified, employee, remember=0):
     from sig_warehouse.sig_warehouse.pc_funding import _active_employee, _require_finance
     _require_finance()
     custody = _active_employee(employee, runtime.documents.COMPANY)
-    cp = _ensure_counterparty(doc, (_data(doc.signals_json) or {}).get("display_name") or "")
+    cp = _ensure_counterparty(doc, (_data(doc.signals_json) or {}).get("display_name") or "", counterparty)
     if cp.get("is_company"):
         frappe.throw(_("This payee is a company account. Review its ownership before assigning an Employee."))
     if (cp.get("employee") and cp.get("employee") != employee) or (cp.get("custody_account") and cp.get("custody_account") != custody):
@@ -1769,8 +1769,13 @@ def bulk_confirm_routes(items, mode):
                         error = str(exc)
                 outcome = {"name": doc.name, "status": status, "document": result["journal"], "error": error}
             else:
+                biller = str((_data(doc.signals_json) or {}).get("biller_code") or "")
+                identifier = frappe.db.get_value(IDENTIFIER, runtime.identity_key("SADAD_CODE", biller),
+                                                 ["counterparty", "status"], as_dict=True) if biller else None
+                counterparty = identifier.counterparty if identifier and identifier.status == "ACTIVE" else ""
                 result = decide_business_route(doc.name, str(doc.modified), {"business_route": "bill", "business_purpose": "bill",
-                    "type": "EXPENSE", "treatment": "JOURNAL_ENTRY", "account": candidate["account"], "remember_default": "0"}, mode)
+                    "type": "EXPENSE", "treatment": "JOURNAL_ENTRY", "account": candidate["account"],
+                    "counterparty": counterparty, "remember_default": "0"}, mode)
                 outcome = {"name": doc.name, "status": result["status"], "document": result["movement"].get("erp_document"),
                            "error": result.get("post_error", "")}
             outcomes.append(outcome)

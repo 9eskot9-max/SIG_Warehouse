@@ -15,7 +15,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     const kindGroups = {ALL: __('All'), SADAD: __('SADAD'), UNCLASSIFIED: __('Unclassified'), PETTY_CASH: __('Petty cash'), RECEIPTS: __('Receipts'), OWN_TRANSFER: __('Own transfers'),
         SUPPLIER: __('Supplier & expense'), OTHER: __('Other')};
     const state = {tab: 'needs', bank: 'ALL', search: '', items: [], counts: {}, kindCounts: {}, kindGroup: 'ALL', groupByPayee: false, selected: '', status: null,
-        bulkSelected: new Set(), missingSelected: new Set(), confirmSelected: new Set(), hasMore: false, openDocs: {}, supplyChoice: {}, businessChoice: {}};
+        bulkSelected: new Set(), missingSelected: new Set(), confirmSelected: new Set(), businessChanged: new Set(), hasMore: false, openDocs: {}, supplyChoice: {}, businessChoice: {}};
     const businessRoutes = {
         supplier: [__('Supplier payment'), 'PAYMENT_ENTRY'], person_work: [__('Person or subcontractor'), ''],
         employee_salary: [__('Salary'), 'JOURNAL_ENTRY'], employee_advance: [__('Employee advance'), 'JOURNAL_ENTRY'],
@@ -176,8 +176,12 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
                 change: () => { if (doctype === 'Supplier' && x.direction === 'DEBIT') loadOpenDocs(x); }}, render_input: true});
             partyControl.refresh();
             const typeAccount = code => (x.supply_types || []).find(t => t.code === code)?.account || '';
-            const remembered = x.business_route_suggestion?.evidence?.includes('confirmed_memory') ? x.business_route_suggestion : {};
-            const value = doctype === 'Account' ? (x.accounting_account || remembered.account || (x.custody_choice?.company_use ? x.custody_choice.account : '') || x.purpose_account || typeAccount(supplyOf(x)) || x.signals?.suggested_account) : x.request_supplier_conflict ? '' : (x.linked_party || (remembered.party_type === doctype ? remembered.party : '') || (doctype === 'Supplier' ? x.request_supplier : ''));
+            const route = state.businessChoice[x.name] ?? x.business_route ?? '';
+            const hint = x.business_route_suggestion || {};
+            const remembered = hint.route === route && hint.evidence?.includes('confirmed_memory') ? hint : {};
+            const matchingTag = hint.route === route && hint.evidence?.includes('tx_category');
+            const savedAccount = state.businessChanged.has(x.name) ? '' : x.accounting_account;
+            const value = doctype === 'Account' ? (savedAccount || remembered.account || (route === 'own_ledger' && x.custody_choice?.company_use ? x.custody_choice.account : '') || (matchingTag ? x.purpose_account : '') || (route === 'person_work' ? typeAccount(supplyOf(x)) : '') || (matchingTag ? x.signals?.suggested_account : '')) : x.request_supplier_conflict ? '' : ((x.linked_party_type === doctype ? x.linked_party : '') || (remembered.party_type === doctype ? remembered.party : '') || (doctype === 'Supplier' ? x.request_supplier : ''));
             if (value) partyControl.set_value(value);
             const makeReferenceControl = (selector, referenceType, label) => {
                 const referenceHost = q(selector);
@@ -312,7 +316,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
             } catch (e) { frappe.msgprint(__('Could not create the entry. Refresh and review it.')); }
         });
     });
-    root.on('click', '[data-confirm-pc]', () => { const employee = employeeControl?.get_value(); if (!employee) { q('[data-message]').textContent = __('Choose an Employee.'); return; } act('confirm_petty_cash_employee', {employee, remember: q('[data-pc-remember]')?.checked ? 1 : 0}); });
+    root.on('click', '[data-confirm-pc]', () => { const x = selected(), employee = employeeControl?.get_value(); if (!employee) { q('[data-message]').textContent = __('Choose an Employee.'); return; } act('confirm_petty_cash_employee', {employee, counterparty: x.suggested_counterparty?.name || '', remember: q('[data-pc-remember]')?.checked ? 1 : 0}); });
     root.on('click', '[data-clear-pc]', () => act('clear_petty_cash_designation', {}));
     root.on('click', '[data-change-employee]', () => { q('[data-employee-control]').hidden = false; employeeControl?.set_value(''); });
     root.on('click', '[data-confirm-custody]', () => { const account = custodyControl?.get_value(); if (!account) { q('[data-message]').textContent = __('Choose a custody ledger.'); return; } act('confirm_petty_cash_custody', {account}); });
@@ -320,6 +324,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     root.on('change', '[data-treatment]', function () { const x = selected(); if (x) x.accounting_treatment = this.value; renderCard(); });
     root.on('change', '[data-business-route]', function () {
         const x = selected(); if (!x) return;
+        if (this.value !== (state.businessChoice[x.name] ?? x.business_route ?? '')) state.businessChanged.add(x.name);
         state.businessChoice[x.name] = this.value;
         const treatment = businessRoutes[this.value]?.[1] || '';
         x.accounting_treatment = treatment;
@@ -373,6 +378,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
         const run = async () => {
             try {
                 const result = (await frappe.call({method: api + 'decide_business_route', type: 'POST', args: {name: x.name, modified: x.modified, target, mode}})).message;
+                state.businessChanged.delete(x.name);
                 await load();
                 if (result.post_error) frappe.msgprint(__('Draft created. Posting failed: {0}', [esc(result.post_error)]));
                 else frappe.show_alert({message: result.status === 'posted' ? __('Posted') : __('Draft created'), indicator: 'green'});

@@ -375,7 +375,7 @@ def test_bulk_confirmation_rejects_duplicate_rows(api, monkeypatch):
 
 
 def test_bulk_confirmation_holds_one_failure_and_continues(api, monkeypatch):
-    docs = {name: Doc(name=name, modified="v1") for name in ("M1", "M2")}
+    docs = {name: Doc(name=name, modified="v1", signals_json="{}") for name in ("M1", "M2")}
     rollbacks = []
     monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True)
     monkeypatch.setattr(api.frappe, "get_doc", lambda doctype, name: docs[name], raising=False)
@@ -391,6 +391,26 @@ def test_bulk_confirmation_holds_one_failure_and_continues(api, monkeypatch):
     result = api.bulk_confirm_routes([{"name": "M1", "modified": "v1"}, {"name": "M2", "modified": "v1"}], "draft")
     assert [row["status"] for row in result["items"]] == ["held", "draft"]
     assert rollbacks == [{"save_point": "bank_router_bulk_0"}]
+
+
+def test_bulk_sadad_reuses_verified_biller_counterparty(api, monkeypatch):
+    doc = Doc(name="M1", modified="v1", signals_json='{"biller_code":"050"}')
+    db = types.SimpleNamespace(savepoint=lambda *args: None, rollback=lambda **kwargs: None,
+                               release_savepoint=lambda *args: None,
+                               get_value=lambda *args, **kwargs: types.SimpleNamespace(counterparty="CP-050", status="ACTIVE"))
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True)
+    monkeypatch.setattr(api.frappe, "get_doc", lambda *args: doc, raising=False)
+    monkeypatch.setattr(api.frappe, "db", db, raising=False)
+    monkeypatch.setattr(api.runtime, "Settings", lambda: object(), raising=False)
+    monkeypatch.setattr(api, "_confirmation_candidate", lambda *args: {"kind": "bill", "account": "EXPENSE"})
+    selected = []
+    def decide(name, modified, target, mode):
+        selected.append(target["counterparty"])
+        return {"status": "draft", "movement": {"erp_document": "JV-1"}}
+    monkeypatch.setattr(api, "decide_business_route", decide)
+    result = api.bulk_confirm_routes([{"name": "M1", "modified": "v1"}], "draft")
+    assert selected == ["CP-050"]
+    assert result["items"][0]["status"] == "draft"
 
 
 def test_legacy_snapshot_is_stable_and_detects_changed_choices(api):
