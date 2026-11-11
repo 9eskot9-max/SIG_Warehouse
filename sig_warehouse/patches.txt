@@ -68,3 +68,4 @@ sig_warehouse.sig_warehouse.patches.v1_0.add_bank_router_engine
 sig_warehouse.sig_warehouse.patches.v1_0.preserve_payment_entry_admin_delete
 sig_warehouse.sig_warehouse.patches.v1_0.repair_router_legacy_reference_type
 sig_warehouse.sig_warehouse.patches.v1_0.fix_sig_material_issue_print_items
+sig_warehouse.sig_warehouse.patches.v1_0.move_hr_onboarding_daily_refresh_to_app
