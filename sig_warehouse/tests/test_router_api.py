@@ -670,26 +670,38 @@ def test_government_fee_billers_list_accounts_in_the_owners_order_without_choosi
     assert api._account_choices("002") == [] and api._account_choices("") == []
 
 
-def test_a_payment_to_an_employee_may_be_booked_to_that_employees_own_custody_ledger_only(api):
-    expense = {"root_type": "Expense", "is_group": 0, "disabled": 0, "company": "Co"}
-    custody = {"root_type": "Asset", "is_group": 0, "disabled": 0, "company": "Co"}
-    mine = {"account": "132214 - Imran - SIG"}
-    assert api._expense_account_allowed(expense, "5155 - X", None) is True
-    assert api._expense_account_allowed(custody, "132214 - Imran - SIG", mine) is True
-    assert api._expense_account_allowed(custody, "132226 - Other - SIG", mine) is False   # another person's ledger
-    assert api._expense_account_allowed(custody, "132214 - Imran - SIG", None) is False   # no mapped payee
-    assert api._expense_account_allowed({**expense, "is_group": 1}, "5 - Group", None) is False
-    assert api._expense_account_allowed({**expense, "company": "Other"}, "5155 - X", None) is False
+def test_a_journal_entry_may_use_any_suitable_account_of_the_company(api):
+    """Owner decision 11 Nov: do not limit Finance to expense accounts; custody, advances, other banks and liabilities are allowed."""
+    base = {"root_type": "Expense", "account_type": "", "is_group": 0, "disabled": 0, "company": "Co"}
+    for root, account in (("Expense", "5155 - X"), ("Asset", "132247 - Company use - SIG"), ("Asset", "1321 - Advances - SIG"),
+                          ("Liability", "243 - Yanal"), ("Asset", "13122 - Alinma - SIG")):
+        assert api._expense_account_allowed({**base, "root_type": root}, account, bank_gl="13121 - SNB 109 - SIG") is True
+    assert api._expense_account_allowed(base, "13121 - SNB 109 - SIG", bank_gl="13121 - SNB 109 - SIG") is False   # its own bank
+    assert api._expense_account_allowed({**base, "account_type": "Payable"}, "221", bank_gl="") is False            # needs a party
+    assert api._expense_account_allowed({**base, "account_type": "Receivable"}, "1201", bank_gl="") is False
+    assert api._expense_account_allowed({**base, "is_group": 1}, "5 - Group") is False
+    assert api._expense_account_allowed({**base, "company": "Other"}, "5155 - X") is False
+    assert api._is_sadad('{"parser_family":"SADAD"}') and not api._is_sadad('{"parser_family":"LOCAL"}')
 
 
-def test_sadad_allows_company_liability_but_not_party_ledgers_or_other_companies(api):
-    liability = {"root_type": "Liability", "account_type": "", "is_group": 0, "disabled": 0, "company": "Co"}
-    assert api._expense_account_allowed(liability, "243 - Yanal", None, sadad=True)
-    assert not api._expense_account_allowed(liability, "243 - Yanal", None)
-    assert not api._expense_account_allowed({**liability, "account_type": "Payable"}, "243", None, sadad=True)
-    assert not api._expense_account_allowed({**liability, "company": "Other"}, "243", None, sadad=True)
-    assert api._is_sadad('{"parser_family":"SADAD"}')
-    assert not api._is_sadad('{"parser_family":"LOCAL"}')
+def test_a_company_use_ledger_is_offered_when_no_employee_owns_it(api, monkeypatch):
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True, raising=False)
+    def get_list(doctype, **kw):
+        return [{"name": "132247 - Algain Al Rajhi - SIG"}] if doctype == "Account" else []
+    monkeypatch.setattr(api.frappe, "get_list", get_list, raising=False)
+    monkeypatch.setattr(api, "_verified_custody_account", lambda account: account, raising=False)
+    found = api._company_use_ledger("Employee: Mohammed Salah Algain - Al Rajhi | 132247")
+    assert found == {"employee": "", "name": "Mohammed Salah Algain - Al Rajhi", "account": "132247 - Algain Al Rajhi - SIG", "company_use": True}
+    assert api._company_use_ledger("Supplier: X") is None
+
+
+def test_the_payee_label_comes_from_the_matched_line_or_the_payee_record(api):
+    cp = {"am_key": "K1", "am_party": "Employee: Obed | 132244"}
+    matched = {"source": "Sheet Am matched beneficiary", "beneficiary_key": "K1", "erp_party": "Employee: Obed Sharrif | 132244"}
+    assert api._payee_label(matched, cp) == "Employee: Obed Sharrif | 132244"
+    assert api._payee_label({"source": "Sheet Am beneficiary/transfer evidence"}, cp) == "Employee: Obed | 132244"
+    assert api._payee_label({**matched, "beneficiary_key": "K2"}, cp) == "Employee: Obed | 132244"
+    assert api._payee_label({}, None) == ""
 
 
 def test_sadad_group_filters_and_counts_statement_family(api, monkeypatch):

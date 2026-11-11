@@ -422,3 +422,35 @@ def test_without_payee_evidence_the_old_pick_behaviour_stays():
     docs = [doc("JV-16", -1500, "2026-09-16", counter={"132210"}), doc("JV-17", -1500, "2026-09-17", counter={"132228"})]
     out = E.process(mv, Ctx(ledger=Ledger(docs)))
     assert out["decision_type"] == "PICK_DOCUMENT" and len(out["candidates"]["documents"]) == 2
+
+
+def test_a_statement_name_finance_confirmed_identifies_the_payee_next_time():
+    from bank_router.identify import identify
+    confirmed = lambda kind, value: [("CP-OBED", "CONFIRMED")] if kind == "NAME_IPS_LOCAL" else []
+    out = identify([("NAME", "OBED ULLAH"), ("NAME_IPS_LOCAL", "OBED ULLAH")], confirmed)
+    assert (out["status"], out["counterparty"]) == ("IDENTIFIED", "CP-OBED")
+    seeded = lambda kind, value: [("CP-OBED", "ACTIVE")] if kind == "NAME" else []
+    assert identify([("NAME", "OBED ULLAH")], seeded)["status"] == "SUGGESTED"          # an Am name alone still only suggests
+    two = lambda kind, value: [("CP-A", "CONFIRMED"), ("CP-B", "CONFIRMED")] if kind == "NAME_IPS_LOCAL" else []
+    assert identify([("NAME_IPS_LOCAL", "SAME NAME")], lambda k, v: two(k, v))["status"] == "CONFLICT"
+
+
+def test_a_salary_advance_is_not_suggested_as_an_expense():
+    mv = movement(-500, "SAUDI ARABIA ABDULLAH ALQAHTANI", family="IPS_LOCAL")
+    mv["recognition"] = {"category": "XXHR", "am_category_status": "MATCHED"}
+    mv["accounting_treatment"] = "JOURNAL_ENTRY"          # as on the live Qahtani line
+    ctx = Ctx(auto=False)
+    ctx.settings.purpose_accounts = {"XXHR": "1321 - Employee advances"}
+    out = E.process(mv, ctx)
+    assert out["signals"].get("suggested_account") == "1321 - Employee advances"
+    ctx.settings.purpose_accounts = {}
+    assert E.process(mv, ctx)["signals"].get("suggested_account", "") != ctx.settings.default_expense
+
+
+def test_an_untreated_salary_advance_still_gets_the_advance_account_suggested():
+    mv = movement(-500, "SAUDI ARABIA ABDULLAH ALQAHTANI", family="IPS_LOCAL")
+    mv["recognition"] = {"category": "XXHR", "am_category_status": "MATCHED"}
+    ctx = Ctx(auto=False)
+    ctx.settings.purpose_accounts = {"XXHR": "1321 - Employee advances"}
+    out = E.process(mv, ctx)
+    assert out["kind"] == "EMPLOYEE" and out["signals"].get("suggested_account") == "1321 - Employee advances"

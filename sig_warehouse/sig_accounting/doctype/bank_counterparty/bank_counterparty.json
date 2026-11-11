@@ -22,7 +22,8 @@
   "purpose_defaults_json",
   "category",
   "notes",
-  "am_key"
+  "am_key",
+  "am_party"
  ],
  "fields": [
   {
@@ -125,6 +126,13 @@
    "label": "Sheet Am beneficiary key",
    "read_only": 1,
    "search_index": 1
+  },
+  {
+   "fieldname": "am_party",
+   "fieldtype": "Data",
+   "label": "Sheet Am party label",
+   "read_only": 1,
+   "description": "Copied from Sheet Am at each sync, e.g. 'Employee: Name | 132247'. Evidence only; ERP verifies it."
   }
  ],
  "permissions": [

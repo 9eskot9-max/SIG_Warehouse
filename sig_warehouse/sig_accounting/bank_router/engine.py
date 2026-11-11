@@ -46,6 +46,11 @@ def category_account(route, ctx, category=""):
     return ""
 
 
+# Purposes whose money is not an expense: a salary advance is a receivable from the employee, a salary run settles payables.
+PURPOSE_ACCOUNT_NUMBERS = {"XXHR": "1321", "XXSL": "22711"}
+NOT_AN_EXPENSE = {"XXSC", "XXMT", "XXHR", "XXSL"}
+
+
 def remembered_account(facts, category):
     """Keep purpose-specific account choices from leaking to other purposes."""
     if not category:
@@ -74,6 +79,8 @@ def resolve_target(kind, mv, signals, facts, mined, ctx):
         party = facts.get("supplier") or ctx.parties.exact("Supplier", name)
         if party:
             return {"party_type": "Supplier", "party": party, "holding": False, "label": label, "intended": ""}
+        if facts.get("customer"):          # money out to a client (refund or payment on a client's behalf)
+            return {"party_type": "Customer", "party": facts["customer"], "holding": False, "label": label, "intended": ""}
         return None
     if kind == K.CUSTOMER_RECEIPT:
         party = facts.get("customer") or ctx.parties.exact("Customer", name)
@@ -81,8 +88,11 @@ def resolve_target(kind, mv, signals, facts, mined, ctx):
             return {"party_type": "Customer", "party": party, "holding": False, "label": label, "intended": ""}
         return None
     if kind == K.EXPENSE_PAYMENT:
+        purpose = mined_category(mined)
         account = (mv.get("accounting_account") or signals.get("biller_account")
-                   or remembered_account(facts, mined_category(mined)) or category_account(mined_route(mined), ctx, mined_category(mined)) or ctx.settings.default_expense)
+                   or remembered_account(facts, purpose) or category_account(mined_route(mined), ctx, purpose)
+                   or getattr(ctx.settings, "purpose_accounts", {}).get(purpose)
+                   or ("" if purpose in NOT_AN_EXPENSE else ctx.settings.default_expense))
         return {"expense_account": account, "holding": False, "label": label} if account else None
     return None
 
@@ -103,7 +113,7 @@ def _document_fields(doc, method):
 def _payee_evidence(facts, mined):
     """Who the other side of an existing document should be: a custody ledger number and/or a Supplier id."""
     mapping = mined.get("am_beneficiary_mapping") or {}
-    label = str(mapping.get("erp_party") or "") if mapping.get("source") == "Sheet Am matched beneficiary" else ""
+    label = str(mapping.get("erp_party") or "") if mapping.get("source") == "Sheet Am matched beneficiary" else str(facts.get("am_party") or "")
     custody = re.match(r"\s*(\d+)", str(facts.get("custody_account") or ""))
     mapped = re.fullmatch(r"Employee:[^|]*\|\s*(\d+)\s*", label)
     number = custody.group(1) if custody else (mapped.group(1) if mapped else "")
@@ -170,9 +180,10 @@ def route(mv, ctx):
         kind = K.EXPENSE_PAYMENT
     out["accounting_treatment"] = treatment
     out["accounting_account"] = out.get("accounting_account") or mv.get("accounting_account") or ""
-    if kind in (K.EXPENSE_PAYMENT, K.UNKNOWN):
-        suggested_account = out["accounting_account"] or remembered_account(facts, intent) or category_account(mroute, ctx, intent)
-        if not suggested_account and kind == K.EXPENSE_PAYMENT and intent not in {"XXSC", "XXMT"}:
+    if kind in (K.EXPENSE_PAYMENT, K.UNKNOWN, K.EMPLOYEE):
+        suggested_account = (out["accounting_account"] or remembered_account(facts, intent) or category_account(mroute, ctx, intent)
+                             or getattr(s, "purpose_accounts", {}).get(intent))
+        if not suggested_account and kind == K.EXPENSE_PAYMENT and intent not in NOT_AN_EXPENSE:
             suggested_account = ctx.settings.default_expense
         if suggested_account:
             signals["suggested_account"] = suggested_account

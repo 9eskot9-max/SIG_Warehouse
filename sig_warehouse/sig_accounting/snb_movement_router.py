@@ -366,16 +366,67 @@ def _suggest_pc_employee(doc, mapping, cp):
     return _verified_payee_custody(mapping, cp.get("am_key"))
 
 
-def _expense_account_allowed(details, account, custody, sadad=False):
-    """Validate the selected account for this movement and its supported JE route."""
+def _expense_account_allowed(details, account, custody=None, sadad=False, bank_gl=""):
+    """Any enabled, non-group account of this company that a simple Journal Entry can take: expense, custody, advances, other banks,
+    liabilities. Not the movement's own bank account, and not a receivable or payable ledger (those need a party: use a Payment Entry)."""
     if not details or details.get("is_group") or details.get("disabled") or details.get("company") != runtime.documents.COMPANY:
         return False
-    if sadad:
-        # Receivable/payable ledgers need a party, which this simple JE route does not collect.
-        return details.get("account_type") not in ("Receivable", "Payable")
-    if details.get("root_type") == "Expense":
-        return True
-    return bool(custody) and account == custody.get("account") and details.get("root_type") == "Asset"
+    if bank_gl and account == bank_gl:
+        return False
+    return details.get("account_type") not in ("Receivable", "Payable")
+
+
+def _payee_label(mapping, cp):
+    """Sheet Am's party label for this payee: the matched beneficiary on the line, else the label stored on the payee record."""
+    mapping = mapping or {}
+    if (mapping.get("source") == "Sheet Am matched beneficiary" and mapping.get("erp_party") and cp
+            and mapping.get("beneficiary_key") and mapping.get("beneficiary_key") == cp.get("am_key")):
+        return str(mapping["erp_party"])
+    return str((cp or {}).get("am_party") or "")
+
+
+def _company_use_ledger(label):
+    """A custody ledger (under 1322) that Sheet Am names for this payee and that no active Employee owns: a company-use account."""
+    match = re.fullmatch(r"Employee:\s*([^|]+?)\s*\|\s*(\d+)\s*", str(label or ""), re.I)
+    if not match or not frappe.has_permission("Account", "read") or not frappe.has_permission("Employee", "read"):
+        return None
+    rows = frappe.get_list("Account", filters={"account_number": match.group(2), "company": runtime.documents.COMPANY, "disabled": 0,
+                                               "is_group": 0, "root_type": "Asset"}, fields=["name"], page_length=2)
+    if len(rows) != 1:
+        return None
+    if frappe.get_list("Employee", filters={"custom_custody_account": rows[0]["name"], "status": "Active"}, fields=["name"], page_length=1):
+        return None
+    try:
+        _verified_custody_account(rows[0]["name"])
+    except Exception:
+        return None
+    return {"employee": "", "name": match.group(1), "account": rows[0]["name"], "company_use": True}
+
+
+def _label_custody(mapping, cp):
+    """The payee's custody ledger from Sheet Am's label, verified in ERP: an Employee's own ledger, or a company-use ledger."""
+    label = _payee_label(mapping, cp)
+    if not label or not cp:
+        return None
+    synthetic = {"source": "Sheet Am matched beneficiary", "beneficiary_key": cp.get("am_key"), "erp_party": label}
+    return _verified_payee_custody(synthetic, cp.get("am_key")) or _company_use_ledger(label)
+
+
+def _purpose_account(category):
+    """The account a purpose that is not an expense goes to (salary advance, salaries), as a real ERP account name."""
+    number = getattr(getattr(runtime, "engine", None), "PURPOSE_ACCOUNT_NUMBERS", {}).get(str(category or "").upper())
+    if not number or not frappe.has_permission("Account", "read"):
+        return ""
+    rows = frappe.get_list("Account", filters={"account_number": number, "company": runtime.documents.COMPANY, "disabled": 0, "is_group": 0},
+                           fields=["name"], page_length=2)
+    return rows[0]["name"] if len(rows) == 1 else ""
+
+
+def _bank_gl(doc):
+    try:
+        return runtime.Settings().scopes.get(doc.get("account_scope_hash") or "", "")
+    except Exception:
+        return ""
 
 
 def _payload(doc, fees=None, statuses=None):
@@ -384,10 +435,18 @@ def _payload(doc, fees=None, statuses=None):
     signals = _data(doc.signals_json) or {}
     statuses = statuses or {}
     mapping = recognition.get("am_beneficiary_mapping") or {}
-    cp = frappe.db.get_value(COUNTERPARTY, doc.counterparty, ["display_name", "customer", "supplier", "employee", "custody_account", "am_key", "default_treatment", "purpose_defaults_json", "category"], as_dict=True) if doc.counterparty else None
+    cp = frappe.db.get_value(COUNTERPARTY, doc.counterparty, ["name", "status", "display_name", "customer", "supplier", "employee", "custody_account", "am_key", "am_party", "default_treatment", "purpose_defaults_json", "category"], as_dict=True) if doc.counterparty else None
+    # One payee suggested by its name (not yet confirmed): shown, and taken as the payee when Finance routes the line.
+    suggested_cp = None
+    offered = (_data(doc.candidates_json) or {}).get("counterparties", [])
+    if not cp and len(offered) == 1:
+        suggested_cp = frappe.db.get_value(COUNTERPARTY, offered[0], ["name", "status", "display_name", "customer", "supplier", "employee", "custody_account", "am_key", "am_party", "default_treatment", "purpose_defaults_json", "category"], as_dict=True)
+        if suggested_cp and suggested_cp.get("status") != "ACTIVE":
+            suggested_cp = None
+    payee_cp = cp or suggested_cp
     supply_types = _supply_types() if doc.direction == "DEBIT" and doc.kind in ("UNKNOWN", "SUPPLIER_PAYMENT", "EXPENSE_PAYMENT", "EMPLOYEE") else []
-    party_type = "Customer" if doc.direction == "CREDIT" else "Supplier"
-    party = (cp or {}).get(party_type.lower()) or ""
+    party_type = "Customer" if doc.direction == "CREDIT" else ("Customer" if (payee_cp or {}).get("customer") and not (payee_cp or {}).get("supplier") else "Supplier")
+    party = (payee_cp or {}).get(party_type.lower()) or ""
     if party and (not frappe.has_permission(party_type, "read", party) or frappe.db.get_value(party_type, party, "disabled")):
         party = ""
     employee = (cp or {}).get("employee") or ""
@@ -418,7 +477,11 @@ def _payload(doc, fees=None, statuses=None):
         "supply_types": supply_types, "supply_type": doc.get("supply_type") or _suggest_supply(supply_types, category, cp),
         "supply_threshold": SUPPLY_THRESHOLD, "bill_owner": _bill_owner(signals) if signals.get("bill_account") else None,
         "account_choices": _account_choices(signals.get("biller_code")) if doc.direction == "DEBIT" else [],
-        "custody_choice": _verified_payee_custody(mapping, (cp or {}).get("am_key")) if doc.direction == "DEBIT" and doc.kind in ("UNKNOWN", "EXPENSE_PAYMENT", "EMPLOYEE") else None,
+        "custody_choice": _label_custody(mapping, payee_cp) if doc.direction == "DEBIT" and doc.kind in ("UNKNOWN", "EXPENSE_PAYMENT", "EMPLOYEE", "SUPPLIER_PAYMENT") else None,
+        "purpose_account": _purpose_account(category) if doc.direction == "DEBIT" else "",
+        "suggested_counterparty": ({"name": suggested_cp["name"], "display_name": suggested_cp.get("display_name") or "",
+                                    "label": suggested_cp.get("am_party") or ""} if suggested_cp else None),
+        "am_party": (payee_cp or {}).get("am_party") or "",
         "purpose_default_treatment": purpose_default,
         "request_supplier": request_supplier, "request_supplier_conflict": bool(party and request_supplier and party != request_supplier),
         "payment_reference_doctype": doc.get("payment_reference_doctype") or "",
@@ -832,9 +895,9 @@ def route_movement(name, modified, target):
         cp.display_name = typed_label
     if treatment == "PAYMENT_ENTRY" and kind_type in ("PARTY", "NEW_PARTY"):
         party_type = target.get("party_type")
-        expected_party = "Customer" if doc.direction == "CREDIT" else "Supplier"
-        if party_type != expected_party:
-            frappe.throw(_("Incoming receipts take a Customer; outgoing payments take a Supplier."))
+        allowed_types = ("Customer",) if doc.direction == "CREDIT" else ("Supplier", "Customer")
+        if party_type not in allowed_types:
+            frappe.throw(_("Incoming receipts take a Customer; outgoing payments take a Supplier or a Customer."))
         party = _new_party(party_type, target.get("name"), target.get("vat"), target.get("country")) if kind_type == "NEW_PARTY" else str(target.get("party") or "")
         _check_link(party_type, party)
         if frappe.db.get_value(party_type, party, "disabled"):
@@ -842,7 +905,7 @@ def route_movement(name, modified, target):
         reference_name = str(target.get("reference_name") or target.get("sales_invoice") or "").strip()
         reference_type = str(target.get("reference_doctype") or ("Sales Invoice" if target.get("sales_invoice") else "")).strip()
         if reference_name:
-            allowed = ("Sales Invoice",) if party_type == "Customer" else ("Purchase Invoice", "Purchase Order")
+            allowed = ("Purchase Invoice", "Purchase Order") if party_type == "Supplier" else ("Sales Invoice",) if doc.direction == "CREDIT" else ()
             if reference_type not in allowed:
                 frappe.throw(_("Choose a supported reference for this party."))
             reference = frappe.get_doc(reference_type, reference_name)
@@ -868,11 +931,8 @@ def route_movement(name, modified, target):
         account = str(target.get("account") or "")
         _check_link("Account", account)
         details = frappe.db.get_value("Account", account, ["root_type", "account_type", "is_group", "disabled", "company"], as_dict=True)
-        custody = _verified_payee_custody((_data(doc.recognition_json) or {}).get("am_beneficiary_mapping") or {}, cp.get("am_key"))
-        if not _expense_account_allowed(details, account, custody, sadad=_is_sadad(doc.source_json)):
-            if _is_sadad(doc.source_json):
-                frappe.throw(_("Choose an enabled, non-group account for this company. Receivable and payable accounts need a party."))
-            frappe.throw(_("Choose an enabled expense account for this company that is not a group, or this payee's own custody ledger."))
+        if not _expense_account_allowed(details, account, bank_gl=_bank_gl(doc)):
+            frappe.throw(_("Choose an enabled, non-group account of this company other than this bank account. Receivable and payable accounts need a party: use a Payment Entry."))
         doc.accounting_account = account
         doc.payment_reference_doctype = doc.payment_reference = ""
         doc.payment_reference_amount = 0
