@@ -964,6 +964,50 @@ def test_untagged_employee_can_be_designated_petty_cash(api, monkeypatch):
     assert cp.employee == "EMP-1"
 
 
+def test_petty_cash_employee_search_requires_finance_and_scoped_movement(api, monkeypatch):
+    funding = types.ModuleType("sig_warehouse.sig_warehouse.pc_funding")
+    funding._require_finance = lambda: (_ for _ in ()).throw(PermissionError("Finance required"))
+    monkeypatch.setitem(sys.modules, funding.__name__, funding)
+    api.frappe.get_doc = lambda *args: pytest.fail("must reject before reading movement")
+    with pytest.raises(PermissionError, match="Finance required"):
+        api.search_petty_cash_employees("R", "Obed")
+
+    funding._require_finance = lambda: None
+    checks = []
+    movement = Doc(direction="DEBIT", kind="UNKNOWN", erp_document="")
+    movement.check_permission = lambda permission: checks.append(permission)
+    api.frappe.get_doc = lambda *args: movement
+    calls = []
+    api.frappe.get_all = lambda *args, **kwargs: calls.append((args, kwargs)) or [Doc(name="EMP-2", employee_name="Obed")]
+    assert api.search_petty_cash_employees("R", "Obed") == [{"name": "EMP-2", "employee_name": "Obed"}]
+    assert checks == ["read", "write"]
+    assert calls[0][1]["filters"] == {"status": "Active", "company": "Co"}
+    assert calls[0][1]["fields"] == ["name", "employee_name"]
+    assert calls[0][1]["limit_page_length"] == 20
+    movement.direction = "CREDIT"
+    with pytest.raises(ValueError, match="unlinked outgoing"):
+        api.search_petty_cash_employees("R", "Obed")
+    assert len(calls) == 1
+
+
+def test_petty_cash_confirmation_rejects_unauthorized_or_invalid_employee_before_writes(api, monkeypatch):
+    funding = types.ModuleType("sig_warehouse.sig_warehouse.pc_funding")
+    funding._require_finance = lambda: (_ for _ in ()).throw(PermissionError("Finance required"))
+    funding._active_employee = lambda *args: pytest.fail("must check Finance first")
+    monkeypatch.setitem(sys.modules, funding.__name__, funding)
+    monkeypatch.setattr(api, "_lock", lambda *args: pytest.fail("must check Finance first"))
+    with pytest.raises(PermissionError, match="Finance required"):
+        api.confirm_petty_cash_employee("R", "t", "EMP-2")
+
+    funding._require_finance = lambda: None
+    funding._active_employee = lambda *args: (_ for _ in ()).throw(ValueError("invalid custody"))
+    movement = Doc(direction="DEBIT", kind="UNKNOWN", erp_document="", recognition_json="{}")
+    monkeypatch.setattr(api, "_lock", lambda *args: movement)
+    monkeypatch.setattr(api, "_ensure_counterparty", lambda *args: pytest.fail("must validate employee before writes"))
+    with pytest.raises(ValueError, match="invalid custody"):
+        api.confirm_petty_cash_employee("R", "t", "EMP-2")
+
+
 def test_own_transfer_refuses_when_either_leg_already_linked(api):
     first = Doc(name="A", modified="t", kind="OWN_TRANSFER", signals_json='{"paired_transfer":{"name":"B"}}', erp_document="")
     second = Doc(name="B", erp_document="JV-EXISTING")

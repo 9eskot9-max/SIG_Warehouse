@@ -45,6 +45,12 @@ def _require(permission):
         frappe.throw(_("You do not have permission for bank movement review."), frappe.PermissionError)
 
 
+def _is_finance_user():
+    from sig_warehouse.sig_warehouse.pc_funding import FINANCE_ROLES
+
+    return bool(set(frappe.get_roles()).intersection(FINANCE_ROLES))
+
+
 def _integration_only():
     from sig_warehouse.sig_operations.app_connections import TODOIST_OWNER
     if frappe.session.user != TODOIST_OWNER and "System Manager" not in frappe.get_roles():
@@ -484,7 +490,8 @@ def _payload(doc, fees=None, statuses=None):
     if party and (not frappe.has_permission(party_type, "read", party) or frappe.db.get_value(party_type, party, "disabled")):
         party = ""
     employee = (cp or {}).get("employee") or ""
-    if employee and not frappe.has_permission("Employee", "read", employee):
+    if employee and not ((doc.kind == "PETTY_CASH" and _is_finance_user())
+                         or frappe.has_permission("Employee", "read", employee)):
         employee = ""
     employee_name = frappe.db.get_value("Employee", employee, "employee_name") or "" if employee else ""
     custody = (cp or {}).get("custody_account") or "" if employee else ""
@@ -1363,14 +1370,13 @@ def confirm_petty_cash_custody(name, modified, account):
 def confirm_petty_cash_employee(name, modified, employee, remember=0, counterparty=""):
     """Record a Finance-reviewed Employee and designate this debit for petty cash."""
     _require("write")
+    from sig_warehouse.sig_warehouse.pc_funding import _active_employee, _require_finance
+    _require_finance()
     doc = _lock(name, modified)
     recognition = _data(doc.recognition_json) or {}
     if doc.direction != "DEBIT" or doc.kind not in ("PETTY_CASH", "EMPLOYEE", "UNKNOWN", "EXPENSE_PAYMENT", "SUPPLIER_PAYMENT") or doc.erp_document:
         frappe.throw(_("Choose an unlinked outgoing movement to designate for petty cash."))
     employee = str(employee or "").strip()
-    _check_link("Employee", employee)
-    from sig_warehouse.sig_warehouse.pc_funding import _active_employee, _require_finance
-    _require_finance()
     custody = _active_employee(employee, runtime.documents.COMPANY)
     cp = _ensure_counterparty(doc, (_data(doc.signals_json) or {}).get("display_name") or "", counterparty)
     if cp.get("is_company"):
@@ -1405,6 +1411,39 @@ def confirm_petty_cash_employee(name, modified, employee, remember=0, counterpar
     if movement.get("kind") != "PETTY_CASH":
         frappe.throw(_("This movement could not be classified as petty cash; no designation was saved."))
     return movement
+
+
+@frappe.whitelist()
+def search_petty_cash_employees(name, query=""):
+    """Search the active company roster for the Finance petty-cash designation flow only."""
+    _require("read")
+    from sig_warehouse.sig_warehouse.pc_funding import _require_finance
+    _require_finance()
+
+    movement = frappe.get_doc(DOCTYPE, name)
+    movement.check_permission("read")
+    movement.check_permission("write")
+    if (movement.direction != "DEBIT"
+            or movement.kind not in ("PETTY_CASH", "EMPLOYEE", "UNKNOWN", "EXPENSE_PAYMENT", "SUPPLIER_PAYMENT")
+            or movement.erp_document):
+        frappe.throw(_("Choose an unlinked outgoing movement to designate for petty cash."))
+
+    term = str(query or "").strip()[:80]
+    if len(term) < 2:
+        return []
+    # `get_all` deliberately bypasses Employee User Permissions here. The explicit
+    # Finance, movement read/write, active-status and company checks above keep
+    # this narrow projection inside the authorized petty-cash workflow.
+    pattern = f"%{term}%"
+    employees = frappe.get_all(
+        "Employee",
+        filters={"status": "Active", "company": runtime.documents.COMPANY},
+        or_filters=[["Employee", "name", "like", pattern], ["Employee", "employee_name", "like", pattern]],
+        fields=["name", "employee_name"],
+        order_by="employee_name asc, name asc",
+        limit_page_length=20,
+    )
+    return [{"name": row.name, "employee_name": row.employee_name or row.name} for row in employees]
 
 
 @frappe.whitelist(methods=["POST"])
