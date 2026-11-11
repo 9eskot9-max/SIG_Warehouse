@@ -622,46 +622,28 @@ def sig_kanban_availability_status(mrs):
     if not mrs:
         return {}
 
+    # Only MRs the caller may read: a card the user cannot open must not leak its stock status.
+    if not frappe.has_permission("Material Request", "read"):
+        frappe.throw("Not permitted to read Material Requests", frappe.PermissionError)
+    readable = [r["name"] for r in frappe.get_list(
+        "Material Request", filters={"name": ["in", mrs]}, fields=["name"], limit_page_length=0)]
+    if not readable:
+        return {}
     mri_rows = frappe.get_all(
         "Material Request Item",
-        filters={"parent": ["in", mrs]},
+        filters={"parent": ["in", readable]},
         fields=["parent", "item_code", "warehouse", "custom_qty_remaining"],
     )
     open_rows = [r for r in mri_rows if float(r.custom_qty_remaining or 0) > EPS]
     if not open_rows:
         return {}
 
+    from sig_warehouse.sig_warehouse.dispatch_queue import classify_availability
+
     item_codes = list({r.item_code for r in open_rows})
     bins = frappe.get_all(
         "Bin", filters={"item_code": ["in", item_codes]},
         fields=["item_code", "warehouse", "actual_qty"],
     )
-    qty_by_item_wh = {(b.item_code, b.warehouse): float(b.actual_qty or 0) for b in bins}
-    qty_by_item = {}
-    for b in bins:
-        qty_by_item.setdefault(b.item_code, {})[b.warehouse] = float(b.actual_qty or 0)
-
-    by_mr = {}
-    for r in open_rows:
-        by_mr.setdefault(r.parent, []).append(r)
-
-    result = {}
-    for mr, rows in by_mr.items():
-        covered_locally = True
-        covered_elsewhere = True
-        for r in rows:
-            remaining = float(r.custom_qty_remaining or 0)
-            own_qty = qty_by_item_wh.get((r.item_code, r.warehouse), 0.0)
-            if own_qty + EPS >= remaining:
-                continue
-            covered_locally = False
-            best_other = max(
-                (qty for wh, qty in qty_by_item.get(r.item_code, {}).items() if wh != r.warehouse),
-                default=0.0,
-            )
-            if best_other + EPS < remaining:
-                covered_elsewhere = False
-        result[mr] = "green" if covered_locally else ("yellow" if covered_elsewhere else "red")
-
-    return result
+    return classify_availability([dict(r) for r in open_rows], [dict(b) for b in bins])
 

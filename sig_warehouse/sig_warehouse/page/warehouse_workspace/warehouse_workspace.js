@@ -64,11 +64,11 @@ frappe.pages['warehouse-workspace'].on_page_load = function (wrapper) {
 
     const queues = [
         {
-            title: __('Dispatch queue report'), iconSvg: "<svg viewBox=\"0 0 48 48\" fill=\"none\" stroke=\"#386c91\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"9\" y=\"9\" width=\"30\" height=\"34\" rx=\"4\" fill=\"#e4f3f7\"/><path d=\"M18 9V5h12v4\"/><circle cx=\"24\" cy=\"29\" r=\"8\"/><path d=\"M24 24v5l4 2\"/></svg>", variant: 'warn',
-            description: __('Review pending and partial material requests.'),
+            title: __('Dispatch queue'), iconSvg: "<svg viewBox=\"0 0 48 48\" fill=\"none\" stroke=\"#386c91\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"9\" y=\"9\" width=\"30\" height=\"34\" rx=\"4\" fill=\"#e4f3f7\"/><path d=\"M18 9V5h12v4\"/><circle cx=\"24\" cy=\"29\" r=\"8\"/><path d=\"M24 24v5l4 2\"/></svg>", variant: 'warn',
+            description: __('Review pending, partial and dispatched material requests; issue, return or cancel the remainder.'),
             doctype: 'Material Request',
-            report: 'SIG Dispatch Queue',
-            route: ['query-report', 'SIG Dispatch Queue']
+            page_roles: ['System Manager', 'Stock Manager', 'Stock User', 'Warehouse Manager'],
+            route: ['dispatch-queue']
         },
         {
             title: __('Dispatch operations'), iconSvg: "<svg viewBox=\"0 0 48 48\" fill=\"none\" stroke=\"#386c91\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 12h25v20H4zM29 20h8l6 7v5H29z\" fill=\"#e3f2e9\"/><circle cx=\"13\" cy=\"35\" r=\"4\" fill=\"#fff\"/><circle cx=\"36\" cy=\"35\" r=\"4\" fill=\"#fff\"/><path d=\"M9 19h13M9 24h13M30 25h10\"/></svg>", variant: 'navy',
@@ -226,6 +226,7 @@ frappe.pages['warehouse-workspace'].on_page_load = function (wrapper) {
     function allowed(item) {
         if (!frappe.model.can_read(item.doctype)) return false;
         if ((item.linked_doctypes || []).some((doctype) => !frappe.model.can_read(doctype))) return false;
+        if (item.page_roles && !frappe.user.has_role(item.page_roles)) return false;
         if (item.permission === 'write' && !frappe.model.can_write(item.doctype)) return false;
         if (item.permission === 'create' && !frappe.model.can_create(item.doctype)) return false;
         if (item.report) {
