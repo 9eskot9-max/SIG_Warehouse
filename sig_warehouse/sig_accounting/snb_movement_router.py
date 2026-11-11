@@ -686,9 +686,18 @@ def _lock(name, modified):
     return doc
 
 
-def _ensure_counterparty(doc, label):
+def _ensure_counterparty(doc, label, selected_counterparty=""):
+    selected_counterparty = str(selected_counterparty or "").strip()
     if doc.counterparty and frappe.db.exists(COUNTERPARTY, doc.counterparty):
+        if selected_counterparty and selected_counterparty != doc.counterparty:
+            frappe.throw(_("This movement already has a linked counterparty. Review or clear that route before changing it."))
         return frappe.get_doc(COUNTERPARTY, doc.counterparty)
+    if selected_counterparty:
+        cp = frappe.get_doc(COUNTERPARTY, selected_counterparty)
+        cp.check_permission("read")
+        if cp.status != "ACTIVE":
+            frappe.throw(_("Choose an active bank counterparty."))
+        return cp
     cp = frappe.get_doc({"doctype": COUNTERPARTY, "display_name": (label or "Unnamed counterparty")[:140], "status": "ACTIVE"})
     # The movement was permission-checked by the caller. The registry itself is owner-maintained, so it is written
     # as the integration owner and the acting user is recorded in the movement's audit instead.
@@ -818,7 +827,7 @@ def route_movement(name, modified, target):
         doc.save()
         runtime.run("main", 0, 1, names=[doc.name])
         return {"movement": get_movement(name), "rerouted": 0}
-    cp = _ensure_counterparty(doc, label)
+    cp = _ensure_counterparty(doc, label, target.get("counterparty"))
     if typed_label and cp.get("display_name") in ("", None, "Unnamed counterparty"):
         cp.display_name = typed_label
     if treatment == "PAYMENT_ENTRY" and kind_type in ("PARTY", "NEW_PARTY"):

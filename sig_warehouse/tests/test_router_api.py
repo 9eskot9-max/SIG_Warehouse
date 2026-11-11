@@ -203,11 +203,31 @@ def test_routing_requires_a_treatment_and_checks_party_type(api):
     doc.kind = "CUSTOMER_RECEIPT"
     doc.direction = "CREDIT"
     api.frappe.db.exists = lambda *a: False
-    api._ensure_counterparty = lambda d, label: Doc(name="CP")
+    api._ensure_counterparty = lambda *args: Doc(name="CP")
     with pytest.raises(ValueError, match="take a Customer"):
         api.route_movement("n", "t", {"type": "PARTY", "treatment": "PAYMENT_ENTRY", "party_type": "Supplier", "party": "S"})
     with pytest.raises(ValueError, match="changed since"):
         api.route_movement("n", "stale", {"type": "PARTY"})
+
+
+def test_sadad_route_can_reuse_an_existing_active_counterparty(api):
+    selected = Doc(name="YANAL-CP", status="ACTIVE")
+    seen = []
+    selected.check_permission = lambda permission: seen.append(permission)
+    api.frappe.db = types.SimpleNamespace(exists=lambda doctype, name: False)
+    api.frappe.get_doc = lambda doctype, name: selected
+
+    result = api._ensure_counterparty(Doc(counterparty=""), "SaudiOrix", "YANAL-CP")
+
+    assert result is selected
+    assert seen == ["read"]
+
+
+def test_counterparty_route_does_not_silently_switch_an_existing_link(api):
+    api.frappe.db = types.SimpleNamespace(exists=lambda doctype, name: True)
+    doc = Doc(counterparty="OLD-CP")
+    with pytest.raises(ValueError, match="already has a linked counterparty"):
+        api._ensure_counterparty(doc, "Yanal", "OTHER-CP")
 
 
 def test_unlink_remembers_the_wrong_document(api):
