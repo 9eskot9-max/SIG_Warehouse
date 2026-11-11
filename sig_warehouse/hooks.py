@@ -116,6 +116,7 @@ app_include_css = ["/assets/sig_warehouse/css/sig_flat_navigation.css?v=20261102
 scheduler_events = {
     "daily": [
         "sig_warehouse.sig_warehouse.return_closure.close_expired_return_windows",
+        "sig_warehouse.sig_hr.onboarding_refresh.run_daily_refresh",
     ],
     "cron": {
         "*/15 * * * *": ["sig_warehouse.sig_warehouse.field_feed.run_feed"],
