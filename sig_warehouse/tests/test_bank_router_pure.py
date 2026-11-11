@@ -332,3 +332,14 @@ def test_payee_fit_compares_like_with_like():
     assert R.payee_fit(mv, pe) == "ok" and R.payee_fit(mv, {**pe, "party": "SUP-2"}) == "other"
     assert R.payee_fit({}, je) == "unknown" and R.payee_fit(mv, {"doctype": "Journal Entry"}) == "unknown"
     assert R.payee_fit({"payee": {"custody": "132210"}}, je) == "unknown"
+
+
+def test_the_statement_remarks_code_is_not_part_of_a_payee_name():
+    ips = {"parser_family": "IPS_LOCAL", "direction": "DEBIT", "transaction_description": "Local transfer",
+           "detail_description": "شراء بضاعة Delegates 20261110SANCBKNCBK6B82411747294075 Charges: 1.00 REMBK:THE SAUDI NATIONAL BANK "
+                                 "BENBK:AL RAJHI BANK SAUDI ARABIA Mohammed Algain Rahji", "extra_description": "", "remarks": "JM"}
+    parsed = snb.parse(ips)
+    assert parsed["display_name"] == "Mohammed Algain Rahji" and parsed["identifiers"] == [("NAME", "Mohammed Algain Rahji")]
+    other = {"parser_family": "LOCAL_OTBANK", "direction": "DEBIT", "transaction_description": "Local transfer",
+             "detail_description": "SA4745000000042728881001 OTBANK:SABB ZAMIL AIR CONDITIONING", "extra_description": "", "remarks": "JM"}
+    assert not snb.parse(other).get("display_name", "").endswith("JM")

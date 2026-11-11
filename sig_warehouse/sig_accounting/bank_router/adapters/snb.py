@@ -82,8 +82,11 @@ def parse(source, scopes=DEFAULT_COMPANY_SCOPES):
         return out
     party_id = re.search(r"(?P<label>BEN|DEP)\s*ID\s*:\s*(?P<value>\d+)", detail, re.I)
     account = re.search(r"(\d{10,24})\s+(?:BEN|DEP)\s*ID\s*:", detail, re.I)
-    otbank = re.search(r"OTBANK\s*:\s*[A-Z]{4}(.+)$", detail, re.I)
-    ips = re.search(r"SAUDI\s+ARABIA\s+(.+)$", detail, re.I)
+    # A payee name runs to the end of the transfer text. The statement's remarks column (a channel code such as "JM") is not
+    # part of it: reading names from `detail` glued that code onto every name, so no name ever equalled a registered payee.
+    name_text = " ".join(str(source.get(key) or "") for key in ("detail_description", "extra_description")).strip()
+    otbank = re.search(r"OTBANK\s*:\s*[A-Z]{4}(.+)$", name_text, re.I)
+    ips = re.search(r"SAUDI\s+ARABIA\s+(.+)$", name_text, re.I)
     iban = re.search(r"(?<![A-Z0-9])(SA\d{22})(?!\d)", detail, re.I)
     found = []
     if fmt == "INTERNAL_SNB" and party_id:
