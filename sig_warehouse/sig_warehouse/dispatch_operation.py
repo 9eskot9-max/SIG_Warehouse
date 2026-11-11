@@ -622,9 +622,16 @@ def sig_kanban_availability_status(mrs):
     if not mrs:
         return {}
 
+    # Only MRs the caller may read: a card the user cannot open must not leak its stock status.
+    if not frappe.has_permission("Material Request", "read"):
+        frappe.throw("Not permitted to read Material Requests", frappe.PermissionError)
+    readable = [r["name"] for r in frappe.get_list(
+        "Material Request", filters={"name": ["in", mrs]}, fields=["name"], limit_page_length=0)]
+    if not readable:
+        return {}
     mri_rows = frappe.get_all(
         "Material Request Item",
-        filters={"parent": ["in", mrs]},
+        filters={"parent": ["in", readable]},
         fields=["parent", "item_code", "warehouse", "custom_qty_remaining"],
     )
     open_rows = [r for r in mri_rows if float(r.custom_qty_remaining or 0) > EPS]

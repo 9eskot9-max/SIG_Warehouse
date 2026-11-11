@@ -14,7 +14,7 @@ VIEW_ROLES = ("System Manager", "Stock Manager", "Stock User", "Warehouse Manage
 ACT_ROLES = ("System Manager", "Stock Manager")  # same as dispatch_operation.ALLOWED_DISPATCH_ROLES
 MAX_ROWS = 5000
 BATCH = 400
-SORT_MODES = ("newest", "waiting", "attention")
+CLOSED_CANDIDATES = 1000  # CLOSED MIRs inspected for the recently-closed window
 RETURN_RANK = {"NONE": 0, "DECLARED": 1, "PENDING": 2, "PARTIAL": 3}
 
 
@@ -60,7 +60,6 @@ def worst_return_state(dns):
         state = str(dn.get("custom_return_state") or "PENDING").upper()
         if state not in RETURN_RANK:
             state = "PENDING"
-        # PENDING/PARTIAL outrank DECLARED; with no DN the state stays NONE.
         if RETURN_RANK[state] > RETURN_RANK[worst]:
             worst = state
     return worst
@@ -77,7 +76,9 @@ def row_flags(stage, lines, return_state):
     issued = any(float(l.get("custom_qty_issued") or 0) > EPS for l in lines)
     if stage == "PARTIAL" and operator_cancel and issued:
         flags.append("cancelled_partial")
-    if stage == "DISPATCHED" and return_state in ("PENDING", "PARTIAL", "NONE"):
+    # Only a real outbound DN with an undeclared return blocks closure. An MIR with no DN
+    # record (dispatched before cutover) must not be flagged from absence of data.
+    if stage == "DISPATCHED" and return_state in ("PENDING", "PARTIAL"):
         flags.append("return_blocks_close")
     if stage in ("PENDING", "PARTIAL") and lines and not open_lines:
         flags.append("no_open_lines_but_open_stage")
@@ -100,26 +101,15 @@ def summarize(rows):
     return out
 
 
-def sort_rows(rows, mode="newest"):
-    if mode not in SORT_MODES:
-        mode = "newest"
-    if mode == "waiting":
-        waiting = [r for r in rows if r.get("stage") in ("PENDING", "PARTIAL")]
-        rest = [r for r in rows if r.get("stage") not in ("PENDING", "PARTIAL")]
-        waiting.sort(key=lambda r: (str(r.get("required_by") or "9999-12-31"), str(r.get("created") or "")))
-        rest.sort(key=lambda r: str(r.get("created") or ""), reverse=True)
-        return waiting + rest
-    if mode == "attention":
-        def key(r):
-            av = 0 if r.get("availability") == "red" else 1
-            flag = 0 if "return_blocks_close" in (r.get("flags") or []) else 1
-            return (av, flag, -int(r.get("age_days") or 0), str(r.get("name") or ""))
-        return sorted(rows, key=key)
-    return sorted(rows, key=lambda r: (str(r.get("created") or ""), str(r.get("name") or "")), reverse=True)
+def closed_on(header, dns):
+    """When a CLOSED MIR was closed: the latest return-declaration stamp on its outbound DNs.
 
-
-def search_haystack(row):
-    return " ".join(str(row.get(k) or "") for k in ("name", "mir", "site", "project", "po", "work_type")).lower()
+    The rollup writes CLOSED with update_modified=False, so ``modified`` does not move on
+    closure and cannot be used. An MIR cancelled with nothing issued has no DN; fall back
+    to ``modified`` for it.
+    """
+    stamps = [str(d.get("custom_return_closed_on") or "") for d in dns if d.get("custom_return_closed_on")]
+    return max(stamps) if stamps else str(header.get("modified") or "")
 
 
 def _day(value):
@@ -127,12 +117,10 @@ def _day(value):
 
 
 def _age_days(created, today):
+    from datetime import date
     try:
-        from datetime import date
-        y, m, d = (int(x) for x in str(created)[:10].split("-"))
-        ty, tm, td = (int(x) for x in str(today)[:10].split("-"))
-        return max(0, (date(ty, tm, td) - date(y, m, d)).days)
-    except Exception:
+        return max(0, (date.fromisoformat(str(today)[:10]) - date.fromisoformat(str(created)[:10])).days)
+    except ValueError:
         return 0
 
 
@@ -191,10 +179,68 @@ def _batches(names):
         yield names[i:i + BATCH]
 
 
+def _fetch_lines(names):
+    lines_by_mr = {}
+    for batch in _batches(names):
+        for l in frappe.get_list("Material Request Item", parent_doctype="Material Request",
+                                 filters={"parent": ["in", batch]}, limit_page_length=0,
+                                 fields=["parent", "name", "item_code", "qty", "warehouse", "custom_qty_issued",
+                                         "custom_qty_cancelled", "custom_qty_remaining", "custom_cancel_reason"]):
+            lines_by_mr.setdefault(l["parent"], []).append(l)
+    return lines_by_mr
+
+
+def _fetch_dns(names):
+    """Outbound (non-return) Material Issue DNs per MIR, de-duplicated."""
+    dns_by_mr = {}
+    for batch in _batches(names):
+        details = frappe.get_list("Stock Entry Detail", parent_doctype="Stock Entry", limit_page_length=0,
+                                  filters={"material_request": ["in", batch], "docstatus": 1},
+                                  fields=["parent", "material_request"])
+        meta = {}
+        for pb in _batches(sorted({d["parent"] for d in details})):
+            for se in frappe.get_list("Stock Entry", limit_page_length=0,
+                                      filters={"name": ["in", pb], "docstatus": 1, "is_return": 0,
+                                               "purpose": "Material Issue"},
+                                      fields=["name", "posting_date", "custom_return_state",
+                                              "custom_return_closed_on"]):
+                meta[se["name"]] = se
+        seen = set()
+        for d in details:
+            se = meta.get(d["parent"])
+            if se and (d["material_request"], se["name"]) not in seen:
+                seen.add((d["material_request"], se["name"]))
+                dns_by_mr.setdefault(d["material_request"], []).append(se)
+    return dns_by_mr
+
+
+def _fetch_bins(lines):
+    """Stock per item/warehouse for availability.
+
+    Deliberately ``get_all`` (guarded by a Bin read check in the caller): the classification
+    must see stock in *other* warehouses, which a warehouse-scoped user could not otherwise
+    see. This matches ``sig_kanban_availability_status``; only an aggregate colour leaves the
+    server, never a quantity.
+    """
+    bins = []
+    for batch in _batches(sorted({l["item_code"] for l in lines})):
+        bins += frappe.get_all("Bin", filters={"item_code": ["in", batch]},
+                               fields=["item_code", "warehouse", "actual_qty"])
+    return bins
+
+
+def _strip_dn_fields(row):
+    row["return"] = None
+    row["flags"] = [f for f in row["flags"] if f != "return_blocks_close"]
+
+
 # ---------------------------------------------------------------- endpoints
 @frappe.whitelist()
 def get_queue(include_closed=0, closed_days=30):
-    """All open submitted Material Issue MIRs (plus recently closed on request)."""
+    """All open submitted Material Issue MIRs (plus recently closed on request).
+
+    Rows come back newest first; the page owns any other ordering.
+    """
     roles = _require_view()
     include_closed = str(include_closed) in ("1", "true", "True")
     try:
@@ -207,71 +253,47 @@ def get_queue(include_closed=0, closed_days=30):
               "custom_work_type", "transaction_date", "schedule_date", "creation", "modified",
               "custom_dispatch_stage"]
     base = [["docstatus", "=", 1], ["material_request_type", "=", "Material Issue"]]
-    headers = frappe.get_list("Material Request", fields=fields, limit_page_length=MAX_ROWS,
-                              filters=base + [["custom_dispatch_stage", "in", list(OPEN_STAGES)]],
-                              order_by="creation desc")
-    if include_closed:
-        since = frappe.utils.add_days(today, -closed_days)
-        headers += frappe.get_list("Material Request", fields=fields, limit_page_length=MAX_ROWS,
-                                   filters=base + [["custom_dispatch_stage", "=", "CLOSED"], ["modified", ">=", since]],
+    open_headers = frappe.get_list("Material Request", fields=fields, limit_page_length=MAX_ROWS,
+                                   filters=base + [["custom_dispatch_stage", "in", list(OPEN_STAGES)]],
                                    order_by="creation desc")
-    complete = len(headers) < MAX_ROWS
-    if headers and "custom_dispatch_stage" not in headers[0]:
+    closed_headers = []
+    if include_closed:
+        closed_headers = frappe.get_list("Material Request", fields=fields, limit_page_length=CLOSED_CANDIDATES,
+                                         filters=base + [["custom_dispatch_stage", "=", "CLOSED"]],
+                                         order_by="creation desc")
+    complete = len(open_headers) < MAX_ROWS and len(closed_headers) < CLOSED_CANDIDATES
+    if (open_headers or closed_headers) and "custom_dispatch_stage" not in (open_headers or closed_headers)[0]:
         frappe.throw("The dispatch stage is not readable for your role (permission level 1).", frappe.PermissionError)
-    names = [h["name"] for h in headers]
-
-    lines_by_mr = {}
-    for batch in _batches(names):
-        for l in frappe.get_list("Material Request Item", parent_doctype="Material Request",
-                                 filters={"parent": ["in", batch]}, limit_page_length=0,
-                                 fields=["parent", "name", "item_code", "qty", "warehouse", "custom_qty_issued",
-                                         "custom_qty_cancelled", "custom_qty_remaining", "custom_cancel_reason"]):
-            lines_by_mr.setdefault(l["parent"], []).append(l)
 
     dn_access = bool(frappe.has_permission("Stock Entry", "read"))
-    dns_by_mr = {}
-    if dn_access:
-        for batch in _batches(names):
-            details = frappe.get_list("Stock Entry Detail", parent_doctype="Stock Entry", limit_page_length=0,
-                                      filters={"material_request": ["in", batch], "docstatus": 1},
-                                      fields=["parent", "material_request"])
-            parents = sorted({d["parent"] for d in details})
-            meta = {}
-            for pb in _batches(parents):
-                for se in frappe.get_list("Stock Entry", limit_page_length=0,
-                                          filters={"name": ["in", pb], "docstatus": 1, "is_return": 0,
-                                                   "purpose": "Material Issue"},
-                                          fields=["name", "posting_date", "custom_return_state"]):
-                    meta[se["name"]] = se
-            seen = set()
-            for d in details:
-                se = meta.get(d["parent"])
-                if se and (d["material_request"], se["name"]) not in seen:
-                    seen.add((d["material_request"], se["name"]))
-                    dns_by_mr.setdefault(d["material_request"], []).append(se)
+    all_names = [h["name"] for h in open_headers + closed_headers]
+    dns_by_mr = _fetch_dns(all_names) if dn_access else {}
+
+    if closed_headers:
+        since = frappe.utils.add_days(today, -closed_days)
+        closed_headers = [h for h in closed_headers
+                          if closed_on(h, dns_by_mr.get(h["name"], []))[:10] >= str(since)[:10]]
+    headers = open_headers + closed_headers
+    names = [h["name"] for h in headers]
+    lines_by_mr = _fetch_lines(names)
 
     availability_access = bool(frappe.has_permission("Bin", "read"))
     availability = {}
     if availability_access:
-        open_lines = [l for ls in lines_by_mr.values() for l in ls
+        open_lines = [l for h in open_headers for l in lines_by_mr.get(h["name"], [])
                       if float(l.get("custom_qty_remaining") or 0) > EPS]
-        items = sorted({l["item_code"] for l in open_lines})
-        bins = []
-        for batch in _batches(items):
-            bins += frappe.get_list("Bin", filters={"item_code": ["in", batch]}, limit_page_length=0,
-                                    fields=["item_code", "warehouse", "actual_qty"])
-        availability = classify_availability(open_lines, bins)
+        availability = classify_availability(open_lines, _fetch_bins(open_lines))
 
     rows = [build_row(h, lines_by_mr.get(h["name"], []), dns_by_mr.get(h["name"], []),
                       availability.get(h["name"]) if availability_access else None, today)
             for h in headers]
-    for r in rows:
-        if not dn_access:
-            r["return"] = None
-            r["flags"] = [f for f in r["flags"] if f != "return_blocks_close"]
+    if not dn_access:
+        for r in rows:
+            _strip_dn_fields(r)
+    rows.sort(key=lambda r: (r["created"], r["name"]), reverse=True)
     return {"generated_at": frappe.utils.now(), "complete": complete,
             "access": {"dn": dn_access, "availability": availability_access, "can_dispatch": _can_act(roles)},
-            "summary": summarize(rows), "rows": sort_rows(rows, "newest")}
+            "summary": summarize(rows), "rows": rows}
 
 
 @frappe.whitelist()
@@ -317,12 +339,9 @@ def get_mr_detail(mr):
     availability = None
     if availability_access:
         items = sorted({l["item_code"] for l in lines})
-        bins = frappe.get_list("Bin", filters={"item_code": ["in", items]}, limit_page_length=0,
-                               fields=["item_code", "warehouse", "actual_qty"]) if items else []
-        availability = classify_availability(lines, bins).get(mr)
+        availability = classify_availability(lines, _fetch_bins(lines)).get(mr) if items else None
     row = build_row(header, lines, dns, availability, frappe.utils.today())
     if not dn_access:
-        row["return"] = None
-        row["flags"] = [f for f in row["flags"] if f != "return_blocks_close"]
+        _strip_dn_fields(row)
     return {"row": row, "lines": lines, "dns": dns, "returns": returns,
             "access": {"dn": dn_access, "availability": availability_access, "can_dispatch": _can_act(roles)}}

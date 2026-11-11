@@ -1,3 +1,32 @@
+// Pure ordering/search helpers: the single implementation (the server only returns newest first).
+// Exposed on window.sig_dq_pure so tests/test_dispatch_queue_pure.cjs can exercise them.
+(function () {
+    function sortRows(rows, mode) {
+        const created = (r) => String(r.created || '');
+        if (mode === 'waiting') {
+            const open = (r) => r.stage === 'PENDING' || r.stage === 'PARTIAL';
+            const w = rows.filter(open).sort((a, b) =>
+                String(a.required_by || '9999').localeCompare(String(b.required_by || '9999')) || created(a).localeCompare(created(b)));
+            const rest = rows.filter((r) => !open(r)).sort((a, b) => created(b).localeCompare(created(a)));
+            return w.concat(rest);
+        }
+        if (mode === 'attention') {
+            const key = (r) => [r.availability === 'red' ? 0 : 1, (r.flags || []).includes('return_blocks_close') ? 0 : 1, -(r.age_days || 0)];
+            return rows.slice().sort((a, b) => {
+                const x = key(a), y = key(b);
+                for (let i = 0; i < 3; i++) { if (x[i] !== y[i]) return x[i] - y[i]; }
+                return String(a.name).localeCompare(String(b.name));
+            });
+        }
+        return rows.slice().sort((a, b) => created(b).localeCompare(created(a)) || String(b.name).localeCompare(String(a.name)));
+    }
+    function matches(row, query) {
+        const q = String(query || '').trim().toLowerCase();
+        return !q || [row.name, row.mir, row.site, row.project, row.po, row.work_type].join(' ').toLowerCase().includes(q);
+    }
+    (typeof window !== 'undefined' ? window : globalThis).sig_dq_pure = {sortRows, matches};
+})();
+
 frappe.pages['dispatch-queue'].on_page_load = function (wrapper) {
     const page = frappe.ui.make_app_page({parent: wrapper, title: __('Dispatch Queue'), single_column: true});
     const root = $('<main class="sig-dq-page"></main>').appendTo(page.main);
@@ -22,32 +51,14 @@ frappe.pages['dispatch-queue'].on_page_load = function (wrapper) {
     const num = (v) => { const n = Number(v) || 0; return Number.isInteger(n) ? String(n) : n.toFixed(2); };
     const date = (v) => v ? frappe.datetime.str_to_user(String(v).slice(0, 10)) : '—';
 
-    function sortRows(rows) {
-        const s = state.sort;
-        const created = (r) => String(r.created || '');
-        if (s === 'waiting') {
-            const w = rows.filter((r) => r.stage === 'PENDING' || r.stage === 'PARTIAL')
-                .sort((a, b) => String(a.required_by || '9999').localeCompare(String(b.required_by || '9999')) || created(a).localeCompare(created(b)));
-            const rest = rows.filter((r) => r.stage !== 'PENDING' && r.stage !== 'PARTIAL')
-                .sort((a, b) => created(b).localeCompare(created(a)));
-            return w.concat(rest);
-        }
-        if (s === 'attention') {
-            const key = (r) => [r.availability === 'red' ? 0 : 1, (r.flags || []).includes('return_blocks_close') ? 0 : 1, -(r.age_days || 0)];
-            return rows.slice().sort((a, b) => { const x = key(a), y = key(b); for (let i = 0; i < 3; i++) { if (x[i] !== y[i]) return x[i] - y[i]; } return 0; });
-        }
-        return rows.slice().sort((a, b) => created(b).localeCompare(created(a)) || String(b.name).localeCompare(String(a.name)));
-    }
-
     function visibleRows() {
-        const q = state.query.toLowerCase();
         const rows = ((state.data && state.data.rows) || []).filter((r) => {
             if (state.stage ? r.stage !== state.stage : r.stage === 'CLOSED') return false;
             if (state.project && r.project !== state.project) return false;
             if (state.availability && r.availability !== state.availability) return false;
-            return !q || [r.name, r.mir, r.site, r.project, r.po, r.work_type].join(' ').toLowerCase().includes(q);
+            return window.sig_dq_pure.matches(r, state.query);
         });
-        return sortRows(rows);
+        return window.sig_dq_pure.sortRows(rows, state.sort);
     }
 
     function shell() {
@@ -189,10 +200,10 @@ frappe.pages['dispatch-queue'].on_page_load = function (wrapper) {
         state.selected = name; state.detail = null;
         root.find('.sig-dq-table-wrap tbody tr').removeClass('selected').filter(function () { return this.dataset.mr === name; }).addClass('selected');
         renderDetail();
-        frappe.call({method: API + 'get_mr_detail', args: {mr: name}}).then((r) => {
+        frappe.call({method: API + 'get_mr_detail', args: {mr: name}, silent: true}).then((r) => {
             if (state.selected !== name) return;
             state.detail = r.message; renderDetail();
-        }, () => { if (state.selected === name) root.find('.sig-dq-detail').html(`<div class="sig-dq-error">${__('Could not load this request.')}</div>`); });
+        }, (err) => { if (state.selected === name) root.find('.sig-dq-detail').html(`<div class="sig-dq-error">${esc(serverMessage(err))}</div>`); });
     }
 
     function refreshOne(name) {
@@ -216,28 +227,40 @@ frappe.pages['dispatch-queue'].on_page_load = function (wrapper) {
     }
 
     // Actions reuse the single dialog implementations in material_request.js. The server endpoints stay the real gate.
+    let busy = false;
     function act(kind, name) {
+        if (busy) return;
+        const sig = window.sig_wh || {};
+        const fn = {issue: sig.open_mr_dispatch, return: sig.open_mr_return, cancel: sig.open_mr_cancel}[kind];
+        if (!fn) { frappe.msgprint(__('Dispatch module still loading - try again in a moment.')); return; }
+        const done = () => refreshOne(name);
+        if (kind === 'return') { fn(name, done); return; }
+        busy = true;
         frappe.call({method: 'frappe.client.get', args: {doctype: 'Material Request', name}}).then((r) => {
-            const doc = r.message; const sig = window.sig_wh || {};
-            const done = () => refreshOne(name);
-            if (kind === 'issue' && sig.open_mr_dispatch) sig.open_mr_dispatch({doc, reload_doc: done});
-            else if (kind === 'return' && sig.open_mr_return) sig.open_mr_return(name, done);
-            else if (kind === 'cancel' && sig.open_mr_cancel) sig.open_mr_cancel(doc, done);
-            else frappe.msgprint(__('Dispatch module still loading - try again in a moment.'));
-        });
+            busy = false;
+            if (kind === 'issue') fn({doc: r.message, reload_doc: done}); else fn(r.message, done);
+        }, () => { busy = false; });
+    }
+
+    function serverMessage(err) {
+        try {
+            const raw = err && err.responseJSON && err.responseJSON._server_messages;
+            const msgs = raw ? JSON.parse(raw).map((m) => JSON.parse(m).message) : [];
+            if (msgs.length) return frappe.utils.html2text(msgs.join(' '));
+        } catch (e) { /* fall through */ }
+        return __('Could not load the Dispatch Queue.');
     }
 
     function load() {
         const id = ++state.loadId;
         state.status = 'loading'; renderTable();
-        frappe.call({method: API + 'get_queue', args: {include_closed: state.includeClosed ? 1 : 0}}).then((r) => {
+        frappe.call({method: API + 'get_queue', args: {include_closed: state.includeClosed ? 1 : 0}, silent: true}).then((r) => {
             if (id !== state.loadId) return;
             state.data = r.message; state.status = 'ready';
             renderFilters(); renderTiles(); renderTable(); renderDetail();
         }, (err) => {
             if (id !== state.loadId) return;
-            state.status = 'error';
-            state.error = (err && err.responseJSON && err.responseJSON._server_messages) ? __('You do not have access to this queue. Ask for a warehouse role.') : __('Could not load the Dispatch Queue.');
+            state.status = 'error'; state.error = serverMessage(err);
             renderTable();
         });
     }
