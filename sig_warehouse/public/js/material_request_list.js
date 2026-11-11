@@ -249,192 +249,6 @@
         });
     }
 
-    // ---------------------------------------------------------------------
-    // Standalone tool/equipment custody dispatch - deliberately NOT
-    // reachable from a Material Request (owner decision: issuing consumable
-    // material is linked to a site/project/return chain; a tool going out to
-    // a person isn't - it has no site/project, and comes back through
-    // custody return, not the MR-line return flow). Lives on the board's
-    // toolbar, next to the search box.
-    //
-    // Renamed from `sig_open_dispatch_dialog` (2026-09-22): this file used to
-    // declare a function of that exact name twice - once here (2 args,
-    // custody) and once below where the MR-dispatch dialog was duplicated -
-    // the second declaration silently won even within this one file, so this
-    // custody dialog was ALREADY permanently unreachable before
-    // material_request.js's copy ever entered the picture. The toolbar
-    // "Dispatch / Return" button has therefore never actually opened this
-    // dialog on the live board. Fixed by giving each dialog its own name and
-    // deleting the duplicate MR-dispatch copy entirely (see the bottom of
-    // this file, where the Kanban card's Issue action now calls
-    // `window.sig_wh.open_mr_dispatch` in material_request.js instead).
-    // ---------------------------------------------------------------------
-    function sig_gen_operation_id(warehouse) {
-        const now = new Date();
-        const pad = (n) => String(n).padStart(2, '0');
-        const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-        const safeWh = (warehouse || 'WH').replace(/[^A-Za-z0-9]/g, '').slice(0, 12) || 'WH';
-        return `SIG-DISPOP-${safeWh}-${stamp}-${Math.floor(Math.random() * 900 + 100)}`;
-    }
-
-    function sig_open_custody_dialog() {
-        const T = 'doc.kind=="Tool"', A = 'doc.kind=="Asset"';
-        const AD = A + ' && doc.mode=="Dispatch"', AR = A + ' && doc.mode=="Return"';
-        const TE = T + ' && doc.custodian_type=="Employee"', TO = T + ' && doc.custodian_type=="Other"';
-        const d = new frappe.ui.Dialog({
-            title: __('Dispatch / Return'),
-            fields: [
-                { fieldtype: 'Link', fieldname: 'item_code', label: __('Item'), options: 'Item', reqd: 1,
-                  get_query: () => ({ filters: { disabled: 0 } }),
-                  change() {
-                      const code = d.get_value('item_code');
-                      if (!code) return;
-                      frappe.db.get_value('Item', code, 'is_fixed_asset').then(r => {
-                          d.set_value('kind', (r.message && r.message.is_fixed_asset) ? 'Asset' : 'Tool');
-                          d.set_value('asset', '');
-                      });
-                  } },
-                { fieldtype: 'Data', fieldname: 'kind', hidden: 1, default: 'Tool' },
-                { fieldtype: 'Select', fieldname: 'mode', label: __('Action'), options: ['Dispatch', 'Return'], default: 'Dispatch',
-                  depends_on: 'eval:' + A },
-                // --- Tool (stock) ---
-                { fieldtype: 'Link', fieldname: 'from_wh', label: __('From Warehouse'), options: 'Warehouse',
-                  depends_on: 'eval:' + T, mandatory_depends_on: 'eval:' + T,
-                  get_query: () => ({ filters: { is_group: 0, disabled: 0 } }) },
-                { fieldtype: 'Float', fieldname: 'qty', label: __('Qty'), default: 1, depends_on: 'eval:' + T + ' && !doc.as_asset' },
-                { fieldtype: 'Check', fieldname: 'as_asset', label: __('Register this unit as an Asset (capitalize from stock)'),
-                  depends_on: 'eval:' + T },
-                { fieldtype: 'Link', fieldname: 'store_location', label: __('Asset Location (store)'), options: 'Location',
-                  depends_on: 'eval:' + T + ' && doc.as_asset', mandatory_depends_on: 'eval:' + T + ' && doc.as_asset' },
-                { fieldtype: 'Data', fieldname: 'tag', label: __('Asset Tag / Serial'), depends_on: 'eval:' + T + ' && doc.as_asset' },
-                // --- Asset ---
-                { fieldtype: 'Link', fieldname: 'asset', label: __('Asset (tag / serial)'), options: 'Asset',
-                  depends_on: 'eval:' + A, mandatory_depends_on: 'eval:' + A,
-                  get_query: () => ({ filters: { docstatus: 1, item_code: d.get_value('item_code') } }),
-                  change() {
-                      const v = d.get_value('asset');
-                      if (!v) return;
-                      frappe.db.get_value('Asset', v, ['asset_name', 'location', 'custom_custody_status', 'custom_custodian_employee']).then(r => {
-                          const a = r.message || {};
-                          d.set_df_property('info', 'options', `<b>${frappe.utils.escape_html(a.asset_name || '')}</b> - ${__('at')} ${frappe.utils.escape_html(a.location || '-')} - ${__('custody')}: ${frappe.utils.escape_html(a.custom_custody_status || 'In Store')} ${frappe.utils.escape_html(a.custom_custodian_employee || '')}`);
-                          d.refresh();
-                      });
-                  } },
-                { fieldtype: 'HTML', fieldname: 'info', depends_on: 'eval:' + A },
-                { fieldtype: 'Column Break' },
-                // --- Destination ---
-                { fieldtype: 'Select', fieldname: 'custodian_type', label: __('Custodian'), options: ['Employee', 'Other'],
-                  default: 'Employee', depends_on: 'eval:' + T },
-                { fieldtype: 'Select', fieldname: 'dest_type', label: __('To'), options: ['Employee', 'Site', 'Subcontractor'],
-                  default: 'Employee', depends_on: 'eval:' + AD },
-                { fieldtype: 'Link', fieldname: 'custodian', label: __('Employee'), options: 'Employee',
-                  depends_on: 'eval:' + TE, mandatory_depends_on: 'eval:' + TE },
-                { fieldtype: 'Link', fieldname: 'employee', label: __('Employee'), options: 'Employee',
-                  depends_on: 'eval:' + AD + ' && doc.dest_type=="Employee"',
-                  mandatory_depends_on: 'eval:' + AD + ' && doc.dest_type=="Employee"' },
-                { fieldtype: 'Data', fieldname: 'custodian_name', label: __('Name'), depends_on: 'eval:' + TO, mandatory_depends_on: 'eval:' + TO },
-                { fieldtype: 'Data', fieldname: 'custodian_phone', label: __('Phone'), depends_on: 'eval:' + TO },
-                { fieldtype: 'Link', fieldname: 'location', label: __('Destination Location'), options: 'Location',
-                  depends_on: 'eval:' + AD + ' && doc.dest_type!="Employee"',
-                  mandatory_depends_on: 'eval:' + AD + ' && doc.dest_type!="Employee"' },
-                { fieldtype: 'Link', fieldname: 'sig_site', label: __('SIG Site'), options: 'SIG Site',
-                  depends_on: 'eval:' + AD + ' && doc.dest_type=="Site"' },
-                { fieldtype: 'Link', fieldname: 'to_location', label: __('Return to Location'), options: 'Location',
-                  depends_on: 'eval:' + AR, mandatory_depends_on: 'eval:' + AR },
-                { fieldtype: 'Select', fieldname: 'condition', label: __('Condition on Return'),
-                  options: ['Good', 'Needs Repair', 'Damaged', 'Unserviceable'], default: 'Good', depends_on: 'eval:' + AR },
-                { fieldtype: 'Date', fieldname: 'expected_return', label: __('Expected Return'), depends_on: 'eval:' + AD },
-                { fieldtype: 'Data', fieldname: 'handover_ref', label: __('Handover Ref'), depends_on: 'eval:' + A },
-                { fieldtype: 'Section Break' },
-                { fieldtype: 'Small Text', fieldname: 'reason', label: __('Reason / Remarks') },
-            ],
-            primary_action_label: __('Confirm'),
-            primary_action(v) { (v.kind === 'Asset' ? sig_submit_asset_dispatch : sig_submit_tool_dispatch)(d, v); },
-        });
-        d.show();
-    }
-
-    // Stock -> Asset: capitalize one unit of the stock Item (Asset Capitalization,
-    // native). The new Asset is dispatched afterwards by picking its FA- item.
-    function sig_submit_tool_capitalize(d, v) {
-        const opId = sig_gen_operation_id('CAP-' + v.from_wh);
-        frappe.call({
-            method: 'sig_warehouse.sig_warehouse.asset_ops.sig_capitalize_tool',
-            args: { operation_id: opId, stock_item: v.item_code, warehouse: v.from_wh, location: v.store_location,
-                    tag: v.tag, remarks: v.reason },
-            freeze: true, freeze_message: __('Capitalizing...'),
-            callback: (r) => {
-                const res = r.message || {};
-                if (res.result !== 'created' && res.result !== 'duplicate') {
-                    frappe.msgprint({ title: __('Failed'), indicator: 'red', message: frappe.utils.escape_html(JSON.stringify(res)) });
-                    return;
-                }
-                frappe.msgprint({ title: __('Asset created'), indicator: 'green',
-                    message: __('Asset {0} created from stock (Asset Capitalization {1}). Dispatch it by picking its FA- item.',
-                        [`<a href="/app/asset/${res.asset}">${res.asset}</a>`, res.asset_capitalization]) });
-                d.hide();
-            },
-        });
-    }
-
-    function sig_submit_tool_dispatch(d, values) {
-        if (values.as_asset) return sig_submit_tool_capitalize(d, values);
-        frappe.confirm(
-            __('Dispatch {0} x {1} from {2} to {3}?<br><br>This creates and <b>submits</b> a Stock Entry immediately - it cannot be un-submitted from here.',
-                [values.qty, values.item_code, values.from_wh, values.custodian_type === 'Employee' ? values.custodian : values.custodian_name]),
-            () => {
-                frappe.call({
-                    method: 'sig_warehouse.sig_warehouse.custody.sig_dispatch_tool',
-                    args: {
-                        operation_id: sig_gen_operation_id('TOOL-' + values.from_wh),
-                        item_code: values.item_code, qty: values.qty, from_wh: values.from_wh,
-                        custodian_type: values.custodian_type, custodian: values.custodian,
-                        custodian_name: values.custodian_name, custodian_phone: values.custodian_phone,
-                        reason: values.reason,
-                    },
-                    freeze: true, freeze_message: __('Dispatching...'),
-                    callback: (r) => {
-                        const res = r.message || {};
-                        if (res.result === 'created' || res.result === 'duplicate') {
-                            frappe.msgprint({
-                                title: __('Dispatched'), indicator: 'green',
-                                message: __('Stock Entry {0} created and submitted. In custody of {1}.', [
-                                    `<a href="/app/stock-entry/${res.stock_entry}">${res.stock_entry}</a>`, res.custodian_name || '']),
-                            });
-                            d.hide();
-                        } else {
-                            frappe.msgprint({ title: __('Dispatch failed'), indicator: 'red', message: frappe.utils.escape_html(JSON.stringify(res)) });
-                        }
-                    },
-                });
-            }
-        );
-    }
-
-    function sig_submit_asset_dispatch(d, v) {
-        const ret = v.mode === 'Return';
-        frappe.call({
-            method: 'sig_warehouse.sig_warehouse.asset_ops.' + (ret ? 'sig_return_asset' : 'sig_dispatch_asset'),
-            args: ret
-                ? { operation_id: sig_gen_operation_id('ASSET-R-' + v.asset), asset: v.asset, to_location: v.to_location,
-                    condition: v.condition, handover_ref: v.handover_ref, remarks: v.reason }
-                : { operation_id: sig_gen_operation_id('ASSET-D-' + v.asset), asset: v.asset, dest_type: v.dest_type,
-                    employee: v.employee, location: v.location, sig_site: v.sig_site,
-                    expected_return: v.expected_return, handover_ref: v.handover_ref, remarks: v.reason },
-            freeze: true, freeze_message: __('Submitting...'),
-            callback: (r) => {
-                const res = r.message || {};
-                if (res.result === 'created' || res.result === 'duplicate') {
-                    frappe.msgprint({ title: __('Done'), indicator: 'green',
-                        message: __('Asset Movement {0} submitted.', [`<a href="/app/asset-movement/${res.asset_movement}">${res.asset_movement}</a>`]) });
-                    d.hide();
-                } else {
-                    frappe.msgprint({ title: __('Failed'), indicator: 'red', message: frappe.utils.escape_html(JSON.stringify(res)) });
-                }
-            },
-        });
-    }
-
     function ensure_dispatch_tool_button() {
         if (document.getElementById('sig-dispatch-tool-btn')) return;
         const $searchBox = $('.sig-kanban-search');
@@ -443,7 +257,7 @@
             ${__('Dispatch / Return')}
         </button>`);
         $searchBox.after($btn);
-        $btn.on('click', () => sig_open_custody_dialog());
+        $btn.on('click', () => (window.sig_wh && window.sig_wh.open_custody_dialog ? window.sig_wh.open_custody_dialog() : frappe.msgprint(__('Dispatch module still loading - try again in a moment.'))));
     }
 
     // ---------------------------------------------------------------------
@@ -489,11 +303,11 @@
                 const actions = [];
                 if (stage === 'PENDING') {
                     actions.push([__('Issue'), () => sig_kanban_dispatch(doc)]);
-                    actions.push([__('Cancel remaining'), () => sig_kanban_cancel(doc)]);
+                    actions.push([__('Cancel remaining'), () => (window.sig_wh && window.sig_wh.open_mr_cancel ? window.sig_wh.open_mr_cancel(doc) : frappe.msgprint(__('Cancel module still loading - try again in a moment.')))]);
                 } else if (stage === 'PARTIAL') {
                     actions.push([__('Issue'), () => sig_kanban_dispatch(doc)]);
                     actions.push([__('Return'), () => sig_kanban_return(doc)]);
-                    actions.push([__('Cancel remaining'), () => sig_kanban_cancel(doc)]);
+                    actions.push([__('Cancel remaining'), () => (window.sig_wh && window.sig_wh.open_mr_cancel ? window.sig_wh.open_mr_cancel(doc) : frappe.msgprint(__('Cancel module still loading - try again in a moment.')))]);
                 } else if (stage === 'DISPATCHED') {
                     actions.push([__('Return'), () => sig_kanban_return(doc)]);
                 } else {
@@ -532,70 +346,6 @@
         } else {
             frappe.msgprint(__('Dispatch module still loading - try again in a moment.'));
         }
-    }
-
-    function sig_kanban_cancel(doc, onDone) {
-        const openLines = (doc.items || []).filter((it) => (it.custom_qty_remaining || 0) > 0.000001);
-        if (!openLines.length) {
-            frappe.msgprint(__('No open lines to cancel on this request.'));
-            return;
-        }
-        const rowsHtml = openLines.map((it) => `
-            <tr data-mri="${it.name}">
-                <td>${frappe.utils.escape_html(it.item_code)}</td>
-                <td class="text-right">${it.custom_qty_remaining}</td>
-                <td><input type="number" class="form-control input-sm sig-cancel-qty" step="any" min="0"
-                    max="${it.custom_qty_remaining}" value="${it.custom_qty_remaining}"></td>
-            </tr>`).join('');
-        const d = new frappe.ui.Dialog({
-            title: __('Cancel remaining - {0}', [doc.name]),
-            fields: [{
-                fieldtype: 'HTML', fieldname: 'lines_html',
-                options: `<div class="table-responsive"><table class="table table-bordered">
-                    <thead><tr><th>${__('Item')}</th><th class="text-right">${__('Remaining')}</th><th>${__('Qty to Cancel')}</th></tr></thead>
-                    <tbody>${rowsHtml}</tbody></table></div>`,
-            }],
-            primary_action_label: __('Confirm Cancel'),
-            primary_action() {
-                const rows = [...d.$wrapper.find('tbody tr')];
-                const lines = rows.map((row) => {
-                    const $row = $(row);
-                    return { mri: $row.data('mri'), qty: parseFloat($row.find('.sig-cancel-qty').val() || '0') };
-                }).filter((l) => l.qty > 0);
-                if (!lines.length) {
-                    frappe.msgprint(__('No lines selected.'));
-                    return;
-                }
-                frappe.confirm(
-                    __('Cancel remaining demand on {0} line(s) of {1}? This cannot be undone from here.', [lines.length, doc.name]),
-                    () => {
-                        const args = { operation_id: sig_gen_operation_id('CANCEL'), mr: doc.name, line_count: lines.length };
-                        lines.forEach((l, i) => { args[`mri_${i + 1}`] = l.mri; args[`qty_${i + 1}`] = l.qty; });
-                        frappe.call({
-                            method: 'sig_warehouse.sig_warehouse.dispatch_operation.sig_cancel_mr_lines',
-                            args, freeze: true, freeze_message: __('Cancelling...'),
-                            callback: (r) => {
-                                const res = r.message || {};
-                                if (res.result === 'created' || res.result === 'duplicate') {
-                                    frappe.show_alert({ message: __('Cancelled.'), indicator: 'green' });
-                                    invalidate_availability(doc.name);
-                                    d.hide();
-                                    if (onDone) onDone(res);
-                                } else if (res.result === 'exception' && res.reason === 'CAP_EXCEEDED') {
-                                    frappe.msgprint({ title: __('Cannot cancel'), indicator: 'red',
-                                        message: __('Line {0}: requested {1} exceeds remaining {2}.', [res.line, res.requested, res.remaining]) });
-                                } else if (res.result === 'conflict') {
-                                    frappe.msgprint({ title: __('Conflict'), indicator: 'red', message: __('This attempt changed after the operation ID was generated. Retry.') });
-                                } else {
-                                    frappe.msgprint({ title: __('Failed'), indicator: 'red', message: __('{0}', [JSON.stringify(res)]) });
-                                }
-                            },
-                        });
-                    }
-                );
-            },
-        });
-        d.show();
     }
 
     function sig_kanban_return(doc) {
@@ -659,7 +409,7 @@
         refresh_availability($board);
     }
 
-    window.sig_wh = Object.assign(window.sig_wh || {}, { invalidate_availability, open_mr_cancel: sig_kanban_cancel });
+    window.sig_wh = Object.assign(window.sig_wh || {}, { invalidate_availability });
 
     function wait_for_board(attempts = 0) {
         if (!on_our_route()) return;

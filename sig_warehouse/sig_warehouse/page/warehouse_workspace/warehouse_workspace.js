@@ -64,7 +64,7 @@ frappe.pages['warehouse-workspace'].on_page_load = function (wrapper) {
 
     const queues = [
         {
-            title: __('Dispatch queue report'), iconSvg: "<svg viewBox=\"0 0 48 48\" fill=\"none\" stroke=\"#386c91\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"9\" y=\"9\" width=\"30\" height=\"34\" rx=\"4\" fill=\"#e4f3f7\"/><path d=\"M18 9V5h12v4\"/><circle cx=\"24\" cy=\"29\" r=\"8\"/><path d=\"M24 24v5l4 2\"/></svg>", variant: 'warn',
+            title: __('Dispatch queue'), iconSvg: "<svg viewBox=\"0 0 48 48\" fill=\"none\" stroke=\"#386c91\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"9\" y=\"9\" width=\"30\" height=\"34\" rx=\"4\" fill=\"#e4f3f7\"/><path d=\"M18 9V5h12v4\"/><circle cx=\"24\" cy=\"29\" r=\"8\"/><path d=\"M24 24v5l4 2\"/></svg>", variant: 'warn',
             description: __('Review pending and partial material requests.'),
             doctype: 'Material Request',
             report: 'SIG Dispatch Queue',
