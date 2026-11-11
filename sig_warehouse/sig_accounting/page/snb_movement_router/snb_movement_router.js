@@ -9,7 +9,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
         BANK_CHARGE: __('Bank charge'), OTHER: __('Other')};
     const needs = {ROUTE_PARTY: __('Choose who this is'), CREATE_DRAFT: __('No draft yet'), PICK_DOCUMENT: __('Pick the matching document'),
         CONFLICT: __('Two parties claim this payer'), NEEDS_HR_LINK: __('Waiting for the HR custody link'),
-        CHOOSE_TREATMENT: __('Choose PE or JE for this movement'), CONFIRM_TREATMENT: __('Confirm the payee default for this movement'),
+        CHOOSE_TREATMENT: __('Choose PE or JE for this movement'), CHOOSE_PURPOSE: __('Choose the purpose of this employee transfer'), CONFIRM_TREATMENT: __('Confirm the payee default for this movement'),
         TREATMENT_MISMATCH: __('Linked document type differs from the selected treatment')};
     const categories = {XXPC: __('Petty Cash'), XXSL: __('Salary'), XXHR: __('HR'), XXCL: __('Deferred'), XXMT: __('Maintenance'), XXMR: __('Materials'), XXSC: __('Subcontractor'), XXLG: __('Logistics')};
     const kindGroups = {ALL: __('All'), SADAD: __('SADAD'), UNCLASSIFIED: __('Unclassified'), PETTY_CASH: __('Petty cash'), RECEIPTS: __('Receipts'), OWN_TRANSFER: __('Own transfers'),
@@ -18,7 +18,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
         bulkSelected: new Set(), missingSelected: new Set(), confirmSelected: new Set(), businessChanged: new Set(), hasMore: false, openDocs: {}, supplyChoice: {}, businessChoice: {}};
     const businessRoutes = {
         supplier: [__('Supplier payment'), 'PAYMENT_ENTRY'], person_work: [__('Person or subcontractor'), ''],
-        employee_salary: [__('Salary'), 'JOURNAL_ENTRY'], employee_advance: [__('Employee advance'), 'JOURNAL_ENTRY'],
+        custody_topup: [__('Petty cash top-up'), 'JOURNAL_ENTRY'], employee_salary: [__('Salary'), 'JOURNAL_ENTRY'], employee_advance: [__('Employee advance'), 'JOURNAL_ENTRY'],
         employee_expense: [__('Employee expense or clearance'), 'JOURNAL_ENTRY'], own_ledger: [__('Company-use account'), 'JOURNAL_ENTRY'],
         bill: [__('SADAD bill'), 'JOURNAL_ENTRY'], bank_service: [__('Bank service'), 'JOURNAL_ENTRY'],
         client_payout: [__('Client payout'), 'PAYMENT_ENTRY'], other_out: [__('Other payment'), 'JOURNAL_ENTRY'],
@@ -118,7 +118,8 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
         const expense = treatment === 'JOURNAL_ENTRY';
         const partyType = partyTypeOf(x);
         const employeePurpose = chosenRoute.startsWith('employee_');
-        const options = Object.entries(businessRoutes).filter(([code]) => x.direction === 'CREDIT' ? ['client_receipt', 'finance_manual'].includes(code) : code !== 'client_receipt');
+        const options = Object.entries(businessRoutes).filter(([code]) => x.direction === 'CREDIT' ? ['client_receipt', 'finance_manual'].includes(code) : code !== 'client_receipt' && (code !== 'custody_topup' || !x.erp_document));
+        if (chosenRoute === 'custody_topup' && x.direction === 'DEBIT' && !x.erp_document) return `<h4>${__('Purpose')}</h4><select class="form-control" data-business-route><option value="">${__('Choose purpose…')}</option>${options.map(([code, [label]]) => `<option value="${esc(code)}" ${chosenRoute === code ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select><p>${__('Choose the Employee who received the top-up. Confirming marks the movement for petty cash; creating the Journal Entry is a separate step.')}</p><div data-employee-control></div><button class="btn btn-primary" data-confirm-pc>${__('Confirm petty cash')}</button>`;
         return `${x.direction === 'DEBIT' && !x.erp_document && !employeePurpose ? `<details><summary>${__('Designate as employee petty cash')}</summary><div data-employee-control></div><button class="btn btn-default" data-confirm-pc>${__('Confirm petty cash')}</button></details>` : ''}${x.suggested_counterparty ? `<p>${__('Payee (from the bank name)')}: <strong>${esc(x.suggested_counterparty.display_name)}</strong>${x.suggested_counterparty.label ? ' · ' + esc(x.suggested_counterparty.label) : ''}</p>` : ''}<h4>${__('Purpose')}</h4><select class="form-control" data-business-route><option value="">${__('Choose purpose…')}</option>${options.map(([code, [label]]) => `<option value="${esc(code)}" ${chosenRoute === code ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>${employeePurpose ? '<div data-employee-control></div>' : ''}
             ${chosenRoute === 'person_work' ? `<h4>${__('Accounting treatment')}</h4>` : ''}
             <select class="form-control" data-treatment ${chosenRoute !== 'person_work' ? 'hidden' : ''}><option value="">${__('Choose treatment…')}</option>
