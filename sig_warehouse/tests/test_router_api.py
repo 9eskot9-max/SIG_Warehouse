@@ -89,6 +89,18 @@ def test_remember_business_route_requires_matching_party_and_direction(api):
         api._remember_business_route(cp, Doc(direction="CREDIT"), target, "PAYMENT_ENTRY", {"party_type": "Supplier", "party": "S1"})
 
 
+def test_remembering_the_same_route_updates_the_existing_row(api):
+    row = Doc(direction="DEBIT", purpose="SUPPLIER", route="supplier", account="", party_type="Supplier", party="S1")
+    row.update = lambda values: row.__dict__.update(values)
+    cp = Doc(employee="", confirmed_routes=[row])
+    cp.append = lambda *args: pytest.fail("An identical route must not be appended twice")
+    api._remember_business_route(cp, Doc(direction="DEBIT"),
+        {"business_route": "supplier", "business_purpose": "SUPPLIER"},
+        "PAYMENT_ENTRY", {"party_type": "Supplier", "party": "S1"})
+    assert cp.confirmed_routes == [row]
+    assert row.party == "S1"
+
+
 def test_entry_preview_checks_linked_account_access(api, monkeypatch):
     movement = Doc(erp_doctype="Journal Entry", erp_document="JV-1", modified="movement-v1")
     entry = Doc(name="JV-1", modified="entry-v1", docstatus=0, posting_date="2026-11-10", accounts=[
@@ -943,6 +955,29 @@ def test_petty_cash_confirmation_records_explicit_review_without_drafting(api, m
     assert calls == [{"names": ["R"], "review_only": True}]
 
 
+def test_petty_cash_remember_accepts_same_employee_and_existing_route(api, monkeypatch):
+    movement = Doc(name="R", direction="DEBIT", kind="PETTY_CASH", erp_document="", recognition_json="{}",
+                   signals_json="{}", source_json="{}", counterparty="", route_source="", accounting_treatment="")
+    movement.append = lambda *args: None
+    row = Doc(direction="DEBIT", purpose="XXPC", route="custody_topup", account="CUSTODY")
+    row.update = lambda values: row.__dict__.update(values)
+    cp = Doc(name="CP", employee="EMP-1", custody_account="CUSTODY", confirmed_routes=[row])
+    cp.save = lambda **kwargs: None
+    cp.append = lambda *args: pytest.fail("The existing route must be reused")
+    monkeypatch.setattr(api, "_lock", lambda *args: movement)
+    monkeypatch.setattr(api, "_ensure_counterparty", lambda *args: cp)
+    monkeypatch.setattr(api, "_learn_identifiers", lambda *args: None)
+    monkeypatch.setattr(api, "get_movement", lambda name: {"name": name, "kind": "PETTY_CASH"})
+    funding = types.ModuleType("sig_warehouse.sig_warehouse.pc_funding")
+    funding._active_employee = lambda employee, company: "CUSTODY"
+    funding._require_finance = lambda: None
+    monkeypatch.setitem(sys.modules, funding.__name__, funding)
+    api.runtime.run = lambda *args, **kwargs: {"errors": 0}
+    api.confirm_petty_cash_employee("R", "t", "EMP-1", remember=1)
+    assert cp.confirmed_routes == [row]
+    assert row.account == "CUSTODY" and row.petty_cash == 1
+
+
 def test_untagged_employee_can_be_designated_petty_cash(api, monkeypatch):
     movement = Doc(name="R", direction="DEBIT", kind="UNKNOWN", erp_document="", recognition_json='{}',
                    signals_json='{}', source_json='{}', counterparty="", route_source="", accounting_treatment="")
@@ -1261,3 +1296,14 @@ def test_verified_employee_proposals_skip_payees_that_are_already_tied_or_not_pe
            "CP3": {"am_key": "K1", "supplier": "SUP-1"}}                                  # a supplier, not a person
     found = api._verified_employee_proposals(rows, cps.get)
     assert list(found) == ["CP1"] and found["CP1"]["movements"] == ["m1", "m2"] and found["CP1"]["employee"] == "HR-EMP-9"
+def test_router_date_range_validates_both_boundaries(api):
+    from datetime import date
+
+    assert api._router_date_range('', '') is None
+    assert api._router_date_range('2026-10-01', '2026-10-07') == [date(2026, 10, 1), date(2026, 10, 7)]
+    with pytest.raises(ValueError):
+        api._router_date_range('2026-10-07', '2026-10-01')
+    with pytest.raises(ValueError):
+        api._router_date_range('2026-10-01', '')
+    with pytest.raises(ValueError):
+        api._router_date_range('invalid', '2026-10-07')
