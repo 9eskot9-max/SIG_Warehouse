@@ -27,3 +27,24 @@
 .snb-actions [data-open-docs] h5{margin:10px 0 4px;font-size:12px;color:#34504c}.snb-actions [data-open-docs] p{margin:3px 0;font-size:12px}
 .snb-employee-results{display:grid;gap:4px;max-height:220px;overflow:auto;margin-top:5px}.snb-employee-results>small{padding:6px;color:#667b78}.snb-employee-option{display:block;width:100%;padding:8px 10px;border:1px solid #dfe8e6;border-radius:6px;background:#f7faf9;text-align:left}.snb-employee-option:hover{background:#e9f5f1}.snb-employee-option strong,.snb-employee-option small{display:block}.snb-employee-option small{margin-top:3px;color:#667b78}
 .snb-date-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0}.snb-date-controls label{display:inline-flex;align-items:center;gap:6px;color:#607785;font-size:12px;margin:0}.snb-date-controls input{border:1px solid #dbe5e7;border-radius:8px;padding:6px;background:#fff;color:#172a3b}.snb-date-controls [role=alert]{color:#a64239}.snb-bank-summary{display:flex;align-items:center;gap:16px}.snb-bank-summary>span:not(.snb-flow-arrow){flex:1;color:#71838c;font-size:11px}.snb-bank-summary strong{display:block;color:#25475b;font-size:13px;margin-top:5px;overflow-wrap:anywhere}.snb-flow-arrow{font-size:20px;color:#55a399}[dir=rtl] .snb-row{text-align:right}[dir=rtl] .snb-row .snb-row-main,[dir=rtl] .snb-row .snb-row-bottom{direction:rtl}
+
+/* Keep the workspace readable when the available page width is limited. */
+.snb-router .snb-date-controls{padding:10px;background:#f5f8f9;border-radius:9px}
+.snb-router .snb-date-controls label{min-width:0}
+.snb-router .snb-date-controls input{max-width:100%;min-width:0}
+.snb-grid>article,.snb-detail-heading>div,.snb-bank-summary>span{min-width:0}
+.snb-amount{overflow-wrap:anywhere}
+@media(max-width:900px){
+    .snb-router{padding:16px}
+    .snb-controls{flex-wrap:wrap}
+    .snb-controls [data-search]{flex:1 1 180px;min-width:0}
+    .snb-grid{display:flex;flex-direction:column}
+    .snb-grid>aside,.snb-grid>article{width:100%}
+    .snb-grid [data-queue]{max-height:300px}
+    .snb-detail-heading{flex-wrap:wrap}
+}
+@media(max-width:480px){
+    .snb-bank-summary{flex-wrap:wrap}
+    .snb-bank-summary>span:not(.snb-flow-arrow){flex:1 1 100%}
+    .snb-flow-arrow{transform:rotate(90deg)}
+}

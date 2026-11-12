@@ -7,6 +7,7 @@
         'finance-workbench',
         'hr-workbench',
         'warehouse-workspace',
+        'snb-movement-router',
         'pc-invoice-review',
         'pc-transaction-status'
     ];
