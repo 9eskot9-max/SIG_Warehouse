@@ -15,6 +15,9 @@ class Denied(Exception):
 class Doc(dict):
     doctype = "Journal Entry"
 
+    def set(self, field, value):
+        self[field] = value
+
     def get_doc_before_save(self):
         return getattr(self, "before", None)
 
@@ -45,8 +48,16 @@ def funding(monkeypatch):
 @pytest.mark.parametrize("unchecked", [None, 0, "0"])
 def test_reviewer_can_validate_clearance_with_own_employee_default(funding, unchecked):
     doc = Doc(custom_pc_receipt="RECEIPT-1", custom_pc_employee="HR-EMP-00028",
-              custom_pc_top_up=unchecked)
+              custom_pc_top_up=unchecked, docstatus=0)
     funding.validate_journal_entry(doc)
+    assert doc.get("custom_pc_employee") is None
+
+
+def test_finance_clearance_does_not_retain_funded_employee(funding):
+    funding.frappe.get_roles = lambda: ["Accounts User"]
+    doc = Doc(custom_pc_employee="HR-EMP-00028", custom_pc_top_up=0, docstatus=0)
+    funding.validate_journal_entry(doc)
+    assert doc.get("custom_pc_employee") is None
 
 
 @pytest.mark.parametrize("field", [
