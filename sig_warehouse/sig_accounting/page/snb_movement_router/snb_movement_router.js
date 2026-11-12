@@ -15,7 +15,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     const kindGroups = {ALL: __('All'), SADAD: __('SADAD'), UNCLASSIFIED: __('Unclassified'), PETTY_CASH: __('Petty cash'), RECEIPTS: __('Receipts'), OWN_TRANSFER: __('Own transfers'),
         SUPPLIER: __('Supplier & expense'), OTHER: __('Other')};
     const state = {tab: 'needs', bank: 'ALL', search: '', items: [], counts: {}, kindCounts: {}, kindGroup: 'ALL', groupByPayee: false, selected: '', status: null,
-        bulkSelected: new Set(), missingSelected: new Set(), confirmSelected: new Set(), businessChanged: new Set(), hasMore: false, openDocs: {}, supplyChoice: {}, businessChoice: {}};
+        bulkSelected: new Set(), missingSelected: new Set(), confirmSelected: new Set(), businessChanged: new Set(), hasMore: false, openDocs: {}, supplyChoice: {}, businessChoice: {}, fromDate: '', toDate: ''};
     const businessRoutes = {
         supplier: [__('Supplier payment'), 'PAYMENT_ENTRY'], person_work: [__('Person or subcontractor'), ''],
         custody_topup: [__('Petty cash top-up'), 'JOURNAL_ENTRY'], employee_salary: [__('Salary'), 'JOURNAL_ENTRY'], employee_advance: [__('Employee advance'), 'JOURNAL_ENTRY'],
@@ -51,8 +51,8 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     root.html(`<header><h2>${__('Bank movements')}</h2><div class="snb-banner" data-banner></div></header>
         <div class="snb-controls"><select data-bank><option value="ALL">${__('All banks')}</option><option value="SNB">SNB</option><option value="ALINMA">Alinma</option></select>
         <input class="form-control" data-search type="search" placeholder="${__('Search name, reference or document')}"><button class="btn btn-default" data-refresh>${__('Refresh')}</button>
-        <label class="snb-group-toggle"><input type="checkbox" data-group-payee> ${__('Group by payee')}</label></div>
-        <nav data-tabs></nav><nav class="snb-types" data-types></nav><section class="snb-grid"><aside><div class="snb-bulk" data-standard-bulk><button class="btn btn-default" data-bulk>${__('Confirm selected unique matches')}</button><button class="btn btn-default" data-select-missing>${__('Select missing links on this page')}</button><button class="btn btn-default" data-clear-selected>${__('Clear selected missing links')}</button><button class="btn btn-default" data-confirm-employees>${__('Confirm verified employees')}</button></div><div class="snb-bulk" data-confirm-bulk hidden><button class="btn btn-default" data-confirm-drafts>${__('Create selected drafts')}</button><button class="btn btn-default" data-confirm-posts>${__('Post selected')}</button></div><div data-queue></div><button class="btn btn-default" data-more hidden>${__('Load more')}</button></aside><article data-card></article></section>`);
+        <label class="snb-group-toggle"><input type="checkbox" data-group-payee> ${__('Group by payee')}</label></div><div class="snb-date-controls"><button class="btn btn-default btn-sm" data-week-prev aria-label="${__('Previous week')}">‹</button><label>${__('From')} <input type="date" data-date-from></label><label>${__('To')} <input type="date" data-date-to></label><button class="btn btn-default btn-sm" data-week-next aria-label="${__('Next week')}">›</button><button class="btn btn-default btn-sm" data-date-apply>${__('Apply dates')}</button><button class="btn btn-default btn-sm" data-date-clear>${__('All dates')}</button><span data-date-error role="alert"></span></div>
+        <nav data-tabs></nav><nav class="snb-types" data-types></nav><section class="snb-grid"><aside><div class="snb-list-title">${__('Movements')}</div><details class="snb-bulk-menu"><summary>${__('Bulk actions')}</summary><div class="snb-bulk" data-standard-bulk><button class="btn btn-default" data-bulk>${__('Confirm selected unique matches')}</button><button class="btn btn-default" data-select-missing>${__('Select missing links on this page')}</button><button class="btn btn-default" data-clear-selected>${__('Clear selected missing links')}</button><button class="btn btn-default" data-confirm-employees>${__('Confirm verified employees')}</button></div><div class="snb-bulk" data-confirm-bulk hidden><button class="btn btn-default" data-confirm-drafts>${__('Create selected drafts')}</button><button class="btn btn-default" data-confirm-posts>${__('Post selected')}</button></div></details><div data-queue></div><button class="btn btn-default" data-more hidden>${__('Load more')}</button></aside><article data-card></article></section>`);
 
     function renderTabs() {
         q('[data-tabs]').innerHTML = Object.entries(tabs).map(([k, label]) =>
@@ -71,9 +71,14 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
         let rows = visibleItems(), lastGroup = null;
         if (state.groupByPayee) rows = rows.slice().sort((a, b) => payeeName(a).localeCompare(payeeName(b)) || String(b.event_date).localeCompare(String(a.event_date)));
         const groupSize = n => rows.filter(r => payeeName(r) === n).length;
-        q('[data-queue]').innerHTML = rows.map(x => `${state.groupByPayee && payeeName(x) !== lastGroup ? `<h5 class="snb-group-head">${esc(lastGroup = payeeName(x))} · ${groupSize(payeeName(x))}</h5>` : ''}<div class="snb-row-wrap">${x.confirmation ? `<label class="snb-bulk-check"><input type="checkbox" data-confirm-select value="${esc(x.name)}" ${state.confirmSelected.has(x.name) ? 'checked' : ''}></label>` : ''}${x.erp_document && x.doc_status == null ? `<label class="snb-bulk-check"><input type="checkbox" data-missing-select value="${esc(x.name)}" ${state.missingSelected.has(x.name) ? 'checked' : ''}></label>` : ''}${x.decision_type === 'PICK_DOCUMENT' && (x.candidates.documents || []).length === 1 ? `<label class="snb-bulk-check"><input type="checkbox" data-bulk-select value="${esc(x.name)}" ${state.bulkSelected.has(x.name) ? 'checked' : ''}></label>` : ''}<button class="snb-row ${state.selected === x.name ? 'selected' : ''}" data-row="${esc(x.name)}">
-            <strong>${money(x.amount, x.currency)}</strong><span>${esc(x.event_date)} · ••${esc(x.account_tail)} · ${esc(tagLine(x))}</span>
-            <span>${esc(payeeName(x))}</span>${x.confirmation ? `<small>${__('Debit')} ${esc(x.confirmation.debit)} · ${__('Credit')} ${esc(x.confirmation.credit)}</small>${(x.confirmation.fee_accounts || []).map(fee => `<small>${esc(fee.family === 'FEE_VAT' ? __('VAT') : __('Fee'))} · ${esc(fee.account || __('Account not configured'))} · ${money(fee.amount, x.currency)}</small>`).join('')}` : ''}${needs[x.decision_type] ? `<small>${esc(needs[x.decision_type])}</small>` : ''}</button></div>`).join('') || `<p>${__('Nothing here.')}</p>`;
+        q('[data-queue]').innerHTML = rows.map(x => {
+            const group = state.groupByPayee ? payeeName(x) : x.event_date;
+            const heading = group !== lastGroup ? `<h5 class="snb-group-head">${esc(group)}${state.groupByPayee ? ` · ${groupSize(group)}` : ''}</h5>` : '';
+            lastGroup = group;
+            const category = x.is_sadad ? __('SADAD') : (x.category && categories[x.category]) || kinds[x.kind] || __('Other');
+            const action = needs[x.decision_type] || (x.confirmation ? __('Confirm') : x.doc_status === 0 ? __('Draft') : x.doc_status === 1 ? __('Posted') : '');
+            return `${heading}<div class="snb-row-wrap">${x.confirmation ? `<label class="snb-bulk-check"><input type="checkbox" data-confirm-select value="${esc(x.name)}" ${state.confirmSelected.has(x.name) ? 'checked' : ''}></label>` : ''}${x.erp_document && x.doc_status == null ? `<label class="snb-bulk-check"><input type="checkbox" data-missing-select value="${esc(x.name)}" ${state.missingSelected.has(x.name) ? 'checked' : ''}></label>` : ''}${x.decision_type === 'PICK_DOCUMENT' && (x.candidates.documents || []).length === 1 ? `<label class="snb-bulk-check"><input type="checkbox" data-bulk-select value="${esc(x.name)}" ${state.bulkSelected.has(x.name) ? 'checked' : ''}></label>` : ''}<button class="snb-row ${state.selected === x.name ? 'selected' : ''}" data-row="${esc(x.name)}"><span class="snb-row-main"><strong>${esc(payeeName(x))}</strong><b>${money(x.amount, x.currency)}</b></span><span class="snb-row-meta">${esc(x.event_date)} · ••${esc(x.account_tail)}</span><span class="snb-row-bottom"><span class="snb-category">${esc(category)}</span>${action ? `<span class="snb-required ${x.erp_document ? 'snb-ready' : ''}">${esc(action)}</span>` : ''}</span>${x.confirmation ? `<small>${__('Debit')} ${esc(x.confirmation.debit)} · ${__('Credit')} ${esc(x.confirmation.credit)}</small>${(x.confirmation.fee_accounts || []).map(fee => `<small>${esc(fee.family === 'FEE_VAT' ? __('VAT') : __('Fee'))} · ${esc(fee.account || __('Account not configured'))} · ${money(fee.amount, x.currency)}</small>`).join('')}` : ''}</button></div>`;
+        }).join('') || `<p>${__('Nothing here.')}</p>`;
     }
     const supplyOf = x => state.supplyChoice[x.name] ?? x.supply_type ?? '';
     const supplyHtml = x => `<label>${__('Type of supply')}</label><select class="form-control" data-supply><option value="">${__('Choose…')}</option>${x.supply_types.map(t =>
@@ -139,9 +144,8 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
         if (!x) { c.innerHTML = `<p>${__('Select a movement.')}</p>`; return; }
         const feeRows = (x.fees || []), feeTotal = feeRows.reduce((sum, f) => sum + Math.abs(Number(f.amount || 0)), 0);
         const fees = feeRows.length ? `<details class="snb-fees"><summary>${__('Related fees and VAT')} · ${money(feeTotal, x.currency)}</summary>${feeRows.map(f => `<p>${f.family === 'FEE_VAT' ? 'VAT' : __('Fee')} ${money(f.amount, x.currency)} · ${f.erp_document ? (f.doc_status === 1 ? '✓ ' : '○ ') + docLink(f.erp_doctype, f.erp_document, f.doc_status) : '○ ' + __('not posted')}</p>`).join('')}</details>` : '';
-        c.innerHTML = `<div class="snb-amount">${money(x.amount, x.currency)}</div>
-            <p>${esc(x.bank_account || x.bank)} · ${esc(x.event_date)} · ••${esc(x.account_tail)} · ${__('Ref')} ${esc(x.reference || '—')}</p>
-            <p><strong>${esc(payeeName(x))}</strong> · ${esc(tagLine(x))}</p>
+        c.innerHTML = `<div class="snb-detail-heading"><div><h3>${esc(payeeName(x))}</h3><p>${esc(tagLine(x))} · ${esc(x.event_date)} · ${__('Ref')} ${esc(x.reference || '—')}</p></div><div class="snb-amount">${money(x.amount, x.currency)}</div></div>
+            <div class="snb-bank-summary"><span>${x.direction === 'CREDIT' ? __('Destination') : __('From account')}<strong>${esc(x.bank_account || x.bank)} · ••${esc(x.account_tail)}</strong></span><span class="snb-flow-arrow" aria-hidden="true">${x.direction === 'CREDIT' ? '←' : '→'}</span><span>${x.direction === 'CREDIT' ? __('From account') : __('Destination')}<strong>${esc(x.accounting_account || x.linked_party || __('Choose account or party'))}</strong></span></div>
             ${!x.business_route && x.business_route_suggestion?.route && state.businessChoice[x.name] === x.business_route_suggestion.route ? `<p><small>${x.business_route_suggestion.evidence?.includes('confirmed_memory') ? __('Suggested from a confirmed payee default') : x.business_route_suggestion.evidence?.includes('tx_category') ? __('Suggested from the transfer purpose') : x.business_route_suggestion.evidence?.includes('sheet_label') ? __('Suggested from the beneficiary label') : __('Suggested from the payee type')}</small></p>` : ''}
             ${x.confirmation ? `<p>${__('Debit')} · ${esc(x.confirmation.debit)}<br>${__('Credit')} · ${esc(x.confirmation.credit)}</p>` : ''}
             ${x.pc_employee ? `<p>${__('Confirmed Employee:')} ${esc(x.pc_employee_name || x.pc_employee)}${x.pc_custody_account ? ' · ' + esc(x.pc_custody_account) : ''}</p>` : ''}
@@ -246,6 +250,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
         try {
             const confirming = state.tab === 'confirm';
             const args = confirming ? {bank: state.bank, search: state.search, start: append ? state.nextStart || 0 : 0, limit: 100} : {tab: state.tab, bank: state.bank, search: state.search, kind_group: state.kindGroup, start: append ? state.nextStart || 0 : 0, limit: 100};
+            if (state.fromDate && state.toDate) Object.assign(args, {from_date: state.fromDate, to_date: state.toDate});
             const r = (await frappe.call({method: api + (confirming ? 'list_confirmation_queue' : 'list_inbox'), args})).message;
             state.items = append ? state.items.concat(r.items) : r.items;
             if (confirming) state.counts.confirm = r.count; else { state.counts = r.counts; state.kindCounts = r.kind_counts || {}; }
@@ -277,6 +282,21 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
         catch (e) { msg.textContent = __('Could not save. Refresh and try again.'); }
     }
     let timer;
+    function applyDates(from, to) {
+        if (!from || !to || from > to) { q('[data-date-error]').textContent = __('Choose a valid date range.'); return; }
+        q('[data-date-error]').textContent = '';
+        state.fromDate = from; state.toDate = to; state.selected = '';
+        state.bulkSelected.clear(); state.missingSelected.clear(); state.confirmSelected.clear();
+        q('[data-date-from]').value = from; q('[data-date-to]').value = to; load();
+    }
+    root.on('click', '[data-date-apply]', () => applyDates(q('[data-date-from]').value, q('[data-date-to]').value));
+    root.on('click', '[data-date-clear]', () => { state.fromDate = ''; state.toDate = ''; state.selected = ''; state.bulkSelected.clear(); state.missingSelected.clear(); state.confirmSelected.clear(); q('[data-date-from]').value = ''; q('[data-date-to]').value = ''; q('[data-date-error]').textContent = ''; load(); });
+    root.on('click', '[data-week-prev], [data-week-next]', function () {
+        const shift = this.hasAttribute('data-week-prev') ? -7 : 7;
+        const end = state.toDate || frappe.datetime.get_today();
+        const from = state.fromDate || frappe.datetime.add_days(end, -6);
+        applyDates(frappe.datetime.add_days(from, shift), frappe.datetime.add_days(end, shift));
+    });
     root.on('click', '[data-erp-doctype]', function (e) { e.preventDefault(); frappe.set_route('Form', this.dataset.erpDoctype, this.dataset.erpName); });
     root.on('click', '[data-tab]', function () { state.tab = this.dataset.tab; state.selected = ''; state.missingSelected.clear(); state.confirmSelected.clear(); load(); });
     root.on('click', '[data-kind]', function () { state.kindGroup = this.dataset.kind; state.selected = ''; state.missingSelected.clear(); load(); });

@@ -430,3 +430,214 @@ Start Candidate Intake,بدء طلب مرشح
 User access,صلاحيات المستخدم
 Payroll assignments,تعيينات الرواتب
 Field Reporter Maps,خرائط مراسلي المواقع
+Bank movements,حركات البنك
+Bank Router,موجه الحركات البنكية
+Movements,الحركات
+Bulk actions,الإجراءات الجماعية
+Needs you,تحتاج مراجعتك
+Drafts,مسودات
+Posted,مرحّلة
+Deferred,مؤجلة
+All,الكل
+SADAD,سداد
+Unclassified,غير مصنفة
+Receipts,المقبوضات
+Own transfers,التحويلات الذاتية
+Supplier & expense,الموردون والمصروفات
+Other,أخرى
+All banks,جميع البنوك
+"Search name, reference or document",ابحث بالاسم أو المرجع أو المستند
+Group by payee,التجميع حسب المستفيد
+From,من
+To,إلى
+Previous week,الأسبوع السابق
+Next week,الأسبوع التالي
+Apply dates,تطبيق التاريخ
+All dates,جميع التواريخ
+Choose a valid date range.,اختر نطاق تاريخ صحيحاً.
+Choose both dates.,اختر تاريخ البداية والنهاية.
+Choose valid dates.,اختر تاريخاً صحيحاً.
+The start date must be before the end date.,يجب أن يكون تاريخ البداية قبل تاريخ النهاية.
+From account,من حساب
+Destination,الوجهة
+Choose account or party,اختر حساباً أو طرفاً
+Bank account,الحساب البنكي
+Ref,المرجع
+Supplier payment,دفعة مورد
+Customer receipt,مقبوض عميل
+"Expense, no party",مصروف دون طرف
+Unclassified outgoing,دفعة صادرة غير مصنفة
+Employee,الموظف
+Own transfer,تحويل ذاتي
+Specialist workflow,إجراء متخصص
+Bank charge,رسوم بنكية
+Choose who this is,اختر المستفيد
+No draft yet,لا توجد مسودة بعد
+Pick the matching document,اختر المستند المطابق
+Two parties claim this payer,يوجد طرفان مرتبطان بهذا الدافع
+Waiting for the HR custody link,بانتظار ربط عهدة الموظف
+Choose PE or JE for this movement,اختر سند دفع أو قيد يومية للحركة
+Choose the purpose of this employee transfer,اختر غرض تحويل الموظف
+Confirm the payee default for this movement,أكد الإعداد الافتراضي للمستفيد لهذه الحركة
+Linked document type differs from the selected treatment,نوع المستند المرتبط يختلف عن المعالجة المختارة
+Salary,راتب
+HR,الموارد البشرية
+Maintenance,صيانة
+Materials,مواد
+Subcontractor,مقاول باطن
+Logistics,خدمات لوجستية
+Person or subcontractor,شخص أو مقاول باطن
+Petty cash top-up,تغذية عهدة نقدية
+Employee advance,سلفة موظف
+Employee expense or clearance,مصروف موظف أو تسوية عهدة
+Company-use account,حساب مستخدم للشركة
+SADAD bill,فاتورة سداد
+Bank service,خدمة بنكية
+Client payout,دفعة لعميل
+Other payment,دفعة أخرى
+Client receipt,مقبوض عميل
+Finance handles separately,تتولى المالية المعالجة بشكل منفصل
+Review each movement before creating its draft.,راجع كل حركة قبل إنشاء مسودتها.
+Nothing here.,لا توجد حركات.
+Select a movement.,اختر حركة.
+Purpose,الغرض
+Account,الحساب
+Accounting treatment,المعالجة المحاسبية
+Journal Entry,قيد يومية
+Payment Entry,سند دفع
+Choose purpose…,اختر الغرض…
+Choose treatment…,اختر المعالجة…
+Create draft,إنشاء مسودة
+Create and post,إنشاء وترحيل
+Create reviewed draft,إنشاء المسودة بعد المراجعة
+Preview accounts,معاينة الحسابات
+Preview entry,معاينة القيد
+Related fees and VAT,الرسوم وضريبة القيمة المضافة
+Statement,كشف الحساب
+Debit,مدين
+Credit,دائن
+Fee,رسوم
+VAT,ضريبة القيمة المضافة
+Draft,مسودة
+Cancelled,ملغى
+Unknown,غير معروف
+Link,ربط
+Wrong match,مطابقة خاطئة
+Which document is this?,ما المستند المطابق؟
+Remember the default treatment for this payee,تذكر المعالجة الافتراضية لهذا المستفيد
+Remember this petty-cash purpose for tagged transfers,تذكر غرض العهدة للتحويلات المصنفة
+Confirm petty cash,تأكيد العهدة النقدية
+Create and post?,هل تريد الإنشاء والترحيل؟
+Create draft?,هل تريد إنشاء مسودة؟
+Saved,تم الحفظ
+Draft created,تم إنشاء المسودة
+Search active Employees…,ابحث عن موظف نشط…
+Searching…,جارٍ البحث…
+Load more,تحميل المزيد
+Choose…,اختر…
+Choose first.,اختر أولاً.
+Choose a document.,اختر مستنداً.
+Choose a purpose first.,اختر الغرض أولاً.
+Choose an Employee.,اختر موظفاً.
+Could not save. Refresh and try again.,تعذر الحفظ. حدّث الصفحة وحاول مجدداً.
+Could not load bank movements. Check your access.,تعذر تحميل حركات البنك. تحقق من صلاحياتك.
+Could not create the entry. Review the movement and try again.,تعذر إنشاء القيد. راجع الحركة وحاول مجدداً.
+Could not review the proposed accounts. Check the selected party and account.,تعذرت مراجعة الحسابات المقترحة. تحقق من الطرف والحساب المحددين.
+not posted,غير مرحّل
+not on the public SADAD list,غير موجود في قائمة سداد العامة
+same amount,المبلغ نفسه
+Use,استخدام
+Post,ترحيل
+Save decision,حفظ القرار
+Type of supply,نوع التوريد
+SADAD biller,مفوتر سداد
+Proposed accounts,الحسابات المقترحة
+Entry preview,معاينة القيد
+Existing bank counterparty,الطرف البنكي الحالي
+Existing bank counterparty (optional),الطرف البنكي الحالي (اختياري)
+Invoice (optional),الفاتورة (اختياري)
+Purchase Order advance (optional),دفعة مقدمة لأمر شراء (اختياري)
+Open Purchase Invoices,فواتير الشراء المفتوحة
+Open Purchase Orders,أوامر الشراء المفتوحة
+Confirm selected unique matches,تأكيد المطابقات المحددة والفريدة
+Select missing links on this page,تحديد الروابط المفقودة في هذه الصفحة
+Clear selected missing links,مسح الروابط المفقودة المحددة
+Confirm verified employees,تأكيد الموظفين المتحقق منهم
+Create selected drafts,إنشاء المسودات المحددة
+Post selected,ترحيل المحدد
+Choose the Employee who received the top-up. Confirming marks the movement for petty cash; creating the Journal Entry is a separate step.,اختر الموظف الذي استلم تغذية العهدة. يؤكد هذا الإجراء تخصيص الحركة للعهدة؛ إنشاء قيد اليومية خطوة مستقلة.
+Above SAR {0} (VAT included): a Purchase Order is expected for this supplier payment.,للدفعات التي تزيد على {0} ريال (شاملاً الضريبة)، يُتوقع وجود أمر شراء.
+Account not configured,الحساب غير مهيأ
+Bulk linking failed. Refresh and review each row.,فشل الربط الجماعي. حدّث الصفحة وراجع كل حركة.
+Change,تغيير
+Change purpose,تغيير الغرض
+Check and clear missing link,تحقق من الرابط المفقود وامسحه
+Choose a custody ledger.,اختر حساب عهدة.
+Choose an account or party first.,اختر حساباً أو طرفاً أولاً.
+"Choose an invoice or a purchase order, not both.",اختر فاتورة أو أمر شراء، وليس كليهما.
+Choose the Employee who holds this custody.,اختر الموظف صاحب العهدة.
+Choose the treatment first.,اختر المعالجة أولاً.
+Cleared {0} missing links.,تم مسح {0} من الروابط المفقودة.
+Company custody ledger,حساب عهدة الشركة
+Company-use ledger of {0},حساب استخدام الشركة لـ {0}
+Confirm Employee,تأكيد الموظف
+Confirm custody account,تأكيد حساب العهدة
+Confirm these {0} payees as Employees with their custody ledger?,هل تريد تأكيد {0} مستفيدين كموظفين مع حسابات عهدتهم؟
+Confirmation results,نتائج التأكيد
+Confirmed Employee:,الموظف المؤكد:
+Confirmed {0} payees.,تم تأكيد {0} مستفيدين.
+Could not confirm employees. Check your access.,تعذر تأكيد الموظفين. تحقق من صلاحياتك.
+Could not create the entry. Refresh and review it.,تعذر إنشاء القيد. حدّث الصفحة وراجعه.
+Could not preview these accounts. Check the selected party and account access.,تعذرت معاينة الحسابات. تحقق من الطرف وصلاحية الحساب.
+Could not process the selected movements. Refresh and review them.,تعذرت معالجة الحركات المحددة. حدّث الصفحة وراجعها.
+Could not read this entry or its linked accounts.,تعذرت قراءة القيد أو حساباته المرتبطة.
+Country,الدولة
+Country name,اسم الدولة
+Create and post this reviewed entry?,هل تريد إنشاء وترحيل القيد بعد مراجعته؟
+Create and route,إنشاء وتوجيه
+Create one transfer draft,إنشاء مسودة تحويل واحدة
+Customer (money out to a client),عميل (دفعة صادرة لعميل)
+Designate as employee petty cash,تخصيص لعهدة موظف
+Differs from the currently linked supplier; review both.,يختلف عن المورد المرتبط حالياً؛ راجع كليهما.
+Draft created. Posting failed: {0},تم إنشاء المسودة، وفشل الترحيل: {0}
+Employee custody ledger of {0},حساب عهدة الموظف {0}
+Employee search is unavailable. Refresh and try again.,بحث الموظفين غير متاح. حدّث الصفحة وحاول مجدداً.
+Enter the full name.,أدخل الاسم الكامل.
+Fees use a separate Journal Entry.,تُسجل الرسوم في قيد يومية منفصل.
+Finance handles outside this router,تعالج المالية الحركة خارج الموجه
+Full name,الاسم الكامل
+Government fee: choose the account,رسوم حكومية: اختر الحساب
+Iqama of {0},إقامة {0}
+Linked {0}; held {1} for review.,تم ربط {0} وإبقاء {1} للمراجعة.
+Matched TX Manager supplier:,المورد المطابق من مدير التحويلات:
+New {0},{0} جديد
+No active Employees matched this search.,لا يوجد موظفون نشطون يطابقون البحث.
+No links were cleared. Refresh and check that each linked document is absent.,لم تُمسح أي روابط. حدّث الصفحة وتحقق من غياب كل مستند مرتبط.
+No payee has a verified Employee waiting for confirmation.,لا يوجد مستفيد مرتبط بموظف متحقق منه بانتظار التأكيد.
+Not an Employee: use a company custody account,ليس موظفاً: استخدم حساب عهدة الشركة
+Not identified,غير محدد
+Not shown: you cannot read {0}.,غير معروض: ليست لديك صلاحية قراءة {0}.
+Nothing open for this supplier.,لا توجد مستندات مفتوحة لهذا المورد.
+Paired own-account transfer,تحويل مرتبط بين حسابات الشركة
+Payee (from the bank name),المستفيد (من اسم البنك)
+Possible match; confirm before routing:,مطابقة محتملة؛ أكدها قبل التوجيه:
+Post this reviewed entry and its related fee journal?,هل تريد ترحيل هذا القيد بعد المراجعة وقيد الرسوم المرتبط؟
+Receipts waiting to be billed,استلامات بانتظار إصدار فاتورة
+"Review the displayed accounts, then {0} {1} selected movements?",راجع الحسابات المعروضة، ثم هل تريد {0} عدد {1} من الحركات المحددة؟
+Select one or more rows with exactly one offered match.,حدد حركة واحدة أو أكثر لها مطابقة مقترحة واحدة فقط.
+Select up to 100 missing links.,حدد ما لا يزيد على 100 رابط مفقود.
+Select up to 100 movements.,حدد ما لا يزيد على 100 حركة.
+Suggested from a confirmed payee default,مقترح من إعداد مؤكد للمستفيد
+Suggested from the beneficiary label,مقترح من وصف المستفيد
+Suggested from the payee type,مقترح من نوع المستفيد
+Suggested from the transfer purpose,مقترح من غرض التحويل
+The entry could not be posted. Refresh and review it again.,تعذر ترحيل القيد. حدّث الصفحة وراجعه مجدداً.
+The matched transfer request names a different supplier. Review both before routing.,طلب التحويل المطابق يحدد مورداً مختلفاً. راجع كليهما قبل التوجيه.
+This pair moves money between company bank accounts. Review both legs before creating one draft.,يمثل الزوج تحويلاً بين حسابات الشركة. راجع الطرفين قبل إنشاء مسودة واحدة.
+Type at least two characters to search.,أدخل حرفين على الأقل للبحث.
+VAT number (optional),الرقم الضريبي (اختياري)
+Who or what is this for? (optional),لمن أو لأي غرض هذه الحركة؟ (اختياري)
+bill,فاتورة
+create drafts for,إنشاء مسودات لـ
+"make the Purchase Invoice from this receipt first, then pay that invoice",أنشئ فاتورة الشراء من الاستلام أولاً، ثم ادفع الفاتورة
+post,ترحيل

@@ -10,6 +10,7 @@ import re
 import frappe
 from frappe import _
 from frappe.utils import flt, now_datetime
+from datetime import date
 
 from sig_warehouse.sig_accounting.bank_router import business_routes, runtime
 from sig_warehouse.sig_accounting.bank_router.adapters import snb
@@ -639,7 +640,7 @@ def _shown_in_tab(tab, kind, parent_movement):
 
 
 @frappe.whitelist()
-def list_inbox(tab="needs", bank="ALL", search="", start=0, limit=50, kind_group="ALL"):
+def list_inbox(tab="needs", bank="ALL", search="", start=0, limit=50, kind_group="ALL", from_date="", to_date=""):
     _require("read")
     if tab not in TABS:
         frappe.throw(_("Unknown tab."))
@@ -648,7 +649,10 @@ def list_inbox(tab="needs", bank="ALL", search="", start=0, limit=50, kind_group
         frappe.throw(_("Unknown bank."))
     if kind_group not in ("ALL", "SADAD") and kind_group not in KIND_GROUPS:
         frappe.throw(_("Unknown type."))
+    date_range = _router_date_range(from_date, to_date)
     confirmations = _confirmation_candidates(bank, search)
+    if date_range:
+        confirmations = [(doc, candidate) for doc, candidate in confirmations if date_range[0] <= date.fromisoformat(str(doc.event_date)[:10]) <= date_range[1]]
     confirmation_names = set()
     for candidate_doc, candidate in confirmations:
         confirmation_names.add(candidate_doc.name)
@@ -658,6 +662,8 @@ def list_inbox(tab="needs", bank="ALL", search="", start=0, limit=50, kind_group
                 confirmation_names.add(pair["name"])
     confirmation_names = sorted(confirmation_names)
     filters = {"engine_state": ["in", TABS[tab]]}
+    if date_range:
+        filters["event_date"] = ["between", date_range]
     if confirmation_names:
         filters["name"] = ["not in", confirmation_names]
     if bank != "ALL":
@@ -687,6 +693,8 @@ def list_inbox(tab="needs", bank="ALL", search="", start=0, limit=50, kind_group
         if bank == "ALL" or p["bank"].upper() == bank:
             items.append(p)
     count_filters = {}
+    if date_range:
+        count_filters["event_date"] = ["between", date_range]
     if confirmation_names:
         count_filters["name"] = ["not in", confirmation_names]
     if bank != "ALL":
@@ -812,14 +820,31 @@ def _confirmation_candidates(bank, search):
     return candidates
 
 
+def _router_date_range(from_date, to_date):
+    if not from_date and not to_date:
+        return None
+    if not from_date or not to_date:
+        frappe.throw(_("Choose both dates."))
+    try:
+        start, end = date.fromisoformat(str(from_date)), date.fromisoformat(str(to_date))
+    except (TypeError, ValueError):
+        frappe.throw(_("Choose valid dates."))
+    if start > end:
+        frappe.throw(_("The start date must be before the end date."))
+    return [start, end]
+
+
 @frappe.whitelist()
-def list_confirmation_queue(bank="ALL", search="", start=0, limit=50):
+def list_confirmation_queue(bank="ALL", search="", start=0, limit=50, from_date="", to_date=""):
     """List configured bills and uniquely paired transfers for operator review."""
     _require("read")
     if bank not in ("ALL", "SNB", "ALINMA"):
         frappe.throw(_("Unknown bank."))
     start, limit = max(0, int(start)), min(100, max(1, int(limit)))
     candidates = _confirmation_candidates(bank, search)
+    date_range = _router_date_range(from_date, to_date)
+    if date_range:
+        candidates = [(doc, candidate) for doc, candidate in candidates if date_range[0] <= date.fromisoformat(str(doc.event_date)[:10]) <= date_range[1]]
     selected = candidates[start:start + limit]
     fees = _fees_for(list({candidate["fee_parent"] for _, candidate in selected}))
     settings = runtime.Settings()
