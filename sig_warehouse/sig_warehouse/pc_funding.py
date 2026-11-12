@@ -62,6 +62,12 @@ def validate_journal_entry(doc, method=None):
     if _fields_changed(doc, FUNDING_FIELDS):
         _require_finance()
     if not cint(doc.get("custom_pc_top_up")):
+        # This Employee link is meaningful only for a Finance-designated top-up.
+        # Frappe may default it from the creator's Employee User Permission on a
+        # new Journal Entry; retaining that value makes unrelated JEs invisible
+        # to other finance users with their own Employee restriction.
+        if cint(doc.get("docstatus")) == 0 and doc.get("custom_pc_employee"):
+            doc.set("custom_pc_employee", None)
         return
     _require_finance()
     if doc.docstatus == 2:
