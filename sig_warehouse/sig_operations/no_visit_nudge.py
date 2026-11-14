@@ -8,11 +8,12 @@ The hourly scheduler job `run_scheduled` does nothing unless SIG Field Ops Setti
 and only after the configured local hour. One message per person per day and mode (SIG No Visit Nudge).
 Replies are read by the coordinator; nothing here writes a visit, session or any business record.
 """
+import json
 import frappe
 from frappe import _
-from frappe.utils import getdate, now_datetime, today, add_days
+from frappe.utils import getdate, now_datetime, get_datetime_in_timezone
 
-from sig_warehouse.sig_operations.no_visit_logic import compose_message, decide, parse_ids
+from sig_warehouse.sig_operations.no_visit_logic import compose_message, decide, parse_ids, planner_leaders
 
 NUDGE = "SIG No Visit Nudge"
 SETTINGS = "SIG Field Ops Settings"
@@ -28,14 +29,6 @@ def _guard():
 def _setting(fieldname, default=None):
     value = frappe.db.get_single_value(SETTINGS, fieldname)
     return default if value in (None, "") else value
-
-
-def _recently_active(since):
-    ids = set(frappe.get_all("SIG Field Visit", filters={"start_at": [">=", since], "employee": ["is", "set"]},
-                              pluck="employee", limit_page_length=0))
-    ids |= set(frappe.get_all("SIG Field Session", filters={"start_at": [">=", since], "employee": ["is", "set"]},
-                               pluck="employee", limit_page_length=0))
-    return ids
 
 
 def _active_today(day):
@@ -59,11 +52,8 @@ def _on_leave_or_holiday(names, day):
         out |= set(frappe.get_all("Leave Application", filters={
             "employee": ["in", list(names)], "docstatus": 1, "status": "Approved",
             "from_date": ["<=", day], "to_date": [">=", day]}, pluck="employee", limit_page_length=0))
-    try:
-        from erpnext.setup.doctype.employee.employee import is_holiday
-        out |= {n for n in names if is_holiday(n, day)}
-    except Exception:
-        pass
+    from erpnext.setup.doctype.employee.employee import is_holiday
+    out |= {n for n in names if is_holiday(n, day)}
     return out
 
 
@@ -73,18 +63,17 @@ def _already_sent(day, mode):
 
 
 def build(day=None, mode="live"):
-    day = str(getdate(day or today()))
-    lookback = int(_setting("nv_lookback_days", 14))
-    since = f"{add_days(day, -lookback)} 00:00:00"
-    include, exclude = parse_ids(_setting("nv_include")), parse_ids(_setting("nv_exclude"))
+    day = str(getdate(day or get_datetime_in_timezone("Asia/Riyadh").date()))
+    exclude = parse_ids(_setting("nv_exclude"))
+    setup = json.loads(frappe.db.get_single_value("SIG Excel Setup", "configuration_json") or "{}")
+    roster = planner_leaders(setup, day)
     employees = frappe.get_all("Employee", fields=["name", "employee_name", "cell_number", "status"],
                                limit_page_length=0)
-    active = _recently_active(since)
-    candidates = {e.name for e in employees if e.name in active or e.name in include}
+    candidates = {e.name for e in employees if e.name in roster}
     rows, truncated = decide(
-        [dict(e) for e in employees], active, _active_today(day),
+        [dict(e) for e in employees], roster, _active_today(day),
         _on_leave_or_holiday(candidates, day) if candidates else set(),
-        include, exclude, _already_sent(day, mode),
+        exclude, _already_sent(day, mode),
     )
     return day, rows, truncated
 
@@ -125,12 +114,17 @@ def run(mode="preview", day=None):
     if mode not in ("preview", "test", "live"):
         frappe.throw(_("mode must be preview, test or live"))
     day, rows, truncated = build(day, "live" if mode == "preview" else mode)
+    if getdate(day).weekday() in (4, 5):
+        for row in rows:
+            row["decision"], row["reason"] = "skip", "Friday or Saturday"
     senders = [r for r in rows if r["decision"] == "send"]
     summary = {"mode": mode, "day": day, "would_send": len(senders), "truncated": truncated,
                "rows": [{**r, "phone": _mask(r["phone"])} for r in rows],
                "text": compose_message(day)}
     if mode == "preview" or not senders:
         return summary
+    if mode == "live" and str(_setting("nv_mode", "Off")).lower() != "live":
+        frappe.throw(_("No-visit message mode must be Live to send to employees."))
 
     from sig_whatsapp.maytapi import _audit, _settings, normalize_recipient
     settings = _settings()
@@ -167,7 +161,7 @@ def run_scheduled():
     mode = str(_setting("nv_mode", "Off")).lower()
     if mode not in ("test", "live"):
         return {"result": "off"}
-    hour = now_datetime().hour
+    hour = get_datetime_in_timezone("Asia/Riyadh").hour
     if hour < int(_setting("nv_hour", 19)) or hour > LATEST_HOUR:
         return {"result": "outside the send window"}
     return run(mode)
