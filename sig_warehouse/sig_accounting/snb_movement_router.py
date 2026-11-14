@@ -14,6 +14,7 @@ from datetime import date
 
 from sig_warehouse.sig_accounting.bank_router import business_routes, runtime
 from sig_warehouse.sig_accounting.bank_router.adapters import snb
+from sig_warehouse.sig_accounting.bank_router.sadad_billers import biller_name
 from sig_warehouse.sig_accounting.bank_router.classify import CUSTOMER_RECEIPT, DRAFTABLE, EXPENSE_PAYMENT, SUPPLIER_PAYMENT
 from sig_warehouse.sig_accounting.bank_router.text import hint_key, normalize_text
 
@@ -324,11 +325,27 @@ def _purpose_default(cp, category):
 def _bill_owner(signals):
     """The Employee whose iqama number is this SADAD bill's account, when ERP holds it and the user may read it."""
     bill = str((signals or {}).get("bill_account") or "")
-    if not bill or not frappe.has_permission("Employee", "read"):
+    if str((signals or {}).get("biller_code") or "").zfill(3) != "090" or not re.fullmatch(r"\d{10}", bill) or not frappe.has_permission("Employee", "read"):
         return None
     rows = frappe.get_list("Employee", filters={"custom_iqama_number": bill, "status": "Active", "company": runtime.documents.COMPANY},
                            fields=["name", "employee_name"], page_length=2)
     return {"employee": rows[0]["name"], "name": rows[0]["employee_name"]} if len(rows) == 1 else None
+
+
+def _display_signals(source, signals):
+    """Fill display-only SADAD metadata for older rows without rewriting them."""
+    result = dict(signals or {})
+    if not _is_sadad(source):
+        return result
+    parsed = snb.parse(source)
+    if not result.get("biller_code") and parsed.get("biller_code"):
+        result["biller_code"] = parsed["biller_code"]
+    if (not result.get("bill_account") and parsed.get("bill_account")
+            and str(result.get("biller_code") or "").zfill(3) == str(parsed.get("biller_code") or "").zfill(3)):
+        result["bill_account"] = parsed["bill_account"]
+    if result.get("biller_code"):
+        result["biller_name"] = biller_name(result["biller_code"]) or result.get("biller_name") or ""
+    return result
 
 
 def _mapped_custody(mapping):
@@ -473,7 +490,7 @@ def _business_route_suggestion(doc, cp, source, signals, category, statuses, cus
 def _payload(doc, fees=None, statuses=None):
     source = _data(doc.source_json) or {}
     recognition = _data(doc.recognition_json) or {}
-    signals = _data(doc.signals_json) or {}
+    signals = _display_signals(source, _data(doc.signals_json) or {})
     statuses = statuses or {}
     mapping = recognition.get("am_beneficiary_mapping") or {}
     cp = frappe.db.get_value(COUNTERPARTY, doc.counterparty, ["name", "status", "display_name", "customer", "supplier", "employee", "custody_account", "handler", "am_key", "am_party", "default_treatment", "purpose_defaults_json", "category"], as_dict=True) if doc.counterparty else None
