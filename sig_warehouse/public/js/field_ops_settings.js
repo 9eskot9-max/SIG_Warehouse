@@ -1,5 +1,8 @@
 frappe.ui.form.on("SIG Field Ops Settings", {
     refresh(frm) {
+        frm.set_df_property("nv_lookback_days", "hidden", 1);
+        frm.set_df_property("nv_include", "hidden", 1);
+        frm.set_df_property("nv_mode", "description", __("Recipients are current leaders of enabled Field crews in Excel Setup. Friday and Saturday are excluded."));
         const call = (mode) => frappe.call({
             method: "sig_warehouse.sig_operations.no_visit_nudge.run_now", args: {mode}, freeze: true,
             callback(r) {

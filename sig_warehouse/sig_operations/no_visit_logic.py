@@ -1,8 +1,7 @@
 """Pure rules for the daily no-visit WhatsApp message (no Frappe imports, unit-tested).
 
 A person is nudged when ALL of these hold:
-  * they are on the roster: an Active Employee with a phone who had a field visit/session in the last
-    `lookback_days`, or who is listed in the include list;
+  * they are an enabled crew's current leader in published Excel Setup, with an active Employee and phone;
   * they are not in the exclude list and not on approved leave / a holiday today;
   * no field visit, field session or WhatsApp field report was recorded for them today;
   * they were not already messaged for today in the same mode.
@@ -28,12 +27,24 @@ def parse_ids(value):
     return {part.strip() for part in str(value or "").replace(",", " ").split() if part.strip()}
 
 
-def decide(employees, recently_active, active_today, on_leave_or_holiday, include, exclude, already_sent, max_recipients=40):
+def planner_leaders(setup, day):
+    """Return uniquely assigned leaders of enabled crews on the given ISO date."""
+    crews = {str(t.get("id")) for t in setup.get("operational_teams", []) if t.get("id") and t.get("enabled")}
+    leaders = {team: set() for team in crews}
+    for row in setup.get("team_memberships", []):
+        team, start, end = str(row.get("team") or ""), str(row.get("effective_from") or "")[:10], str(row.get("effective_to") or "")[:10]
+        if (team in leaders and row.get("enabled") and row.get("role") == "leader" and row.get("employee")
+                and start and start <= day and (not end or day <= end)):
+            leaders[team].add(str(row["employee"]))
+    return {next(iter(people)) for people in leaders.values() if len(people) == 1}
+
+
+def decide(employees, roster, active_today, on_leave_or_holiday, exclude, already_sent, max_recipients=40):
     """Return (rows, truncated). Each row: {employee, employee_name, phone, decision, reason}.
 
     decision is 'send' or 'skip'. `employees` is a list of dicts with name, employee_name, cell_number, status.
     """
-    roster_ids = set(recently_active) | set(include)
+    roster_ids = set(roster)
     rows, sendable = [], 0
     for emp in sorted(employees, key=lambda e: str(e.get("employee_name") or e["name"])):
         name = emp["name"]
