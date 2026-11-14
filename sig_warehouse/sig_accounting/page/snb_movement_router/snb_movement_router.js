@@ -24,7 +24,16 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
         client_payout: [__('Client payout'), 'PAYMENT_ENTRY'], other_out: [__('Other payment'), 'JOURNAL_ENTRY'],
         client_receipt: [__('Client receipt'), 'PAYMENT_ENTRY'], finance_manual: [__('Finance handles separately'), 'FINANCE_HANDLES']
     };
-    const payeeName = x => (x.counterparty_name && x.counterparty_name !== 'Unnamed counterparty' ? x.counterparty_name : x.linked_party || x.display_name) || __('Not identified');
+    const sadadBiller = x => String(x.signals?.biller_code || '').padStart(3, '0') === '090' ? __('Government') : (x.signals?.biller_name || '');
+    const payeeName = x => {
+        if (x.is_sadad) {
+            const biller = sadadBiller(x);
+            if (biller) return x.bill_owner?.name ? `${biller} · ${x.bill_owner.name}` : biller;
+            if (x.counterparty_name && x.counterparty_name !== 'Unnamed counterparty') return x.counterparty_name;
+            if (x.signals?.biller_code) return `${__('SADAD biller')} ${x.signals.biller_code}`;
+        }
+        return (x.counterparty_name && x.counterparty_name !== 'Unnamed counterparty' ? x.counterparty_name : x.linked_party || x.display_name) || __('Not identified');
+    };
     // Say each thing once: the type, and the purpose only when it adds something.
     const tagLine = x => {
         const seen = new Set(), out = [];
@@ -150,7 +159,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
             ${x.confirmation ? `<p>${__('Debit')} · ${esc(x.confirmation.debit)}<br>${__('Credit')} · ${esc(x.confirmation.credit)}</p>` : ''}
             ${x.pc_employee ? `<p>${__('Confirmed Employee:')} ${esc(x.pc_employee_name || x.pc_employee)}${x.pc_custody_account ? ' · ' + esc(x.pc_custody_account) : ''}</p>` : ''}
             ${x.request_supplier ? `<p>${__('Matched TX Manager supplier:')} <strong>${esc(x.request_supplier)}</strong>${x.request_supplier_conflict ? ' · ' + __('Differs from the currently linked supplier; review both.') : ''}</p>` : ''}
-            ${x.signals && x.signals.biller_code ? `<p>${__('SADAD biller')} ${esc(x.signals.biller_code)}${x.signals.biller_name ? ' · ' + esc(x.signals.biller_name) : ' · ' + __('not on the public SADAD list')}${x.signals.bill_account ? ' · ' + __('bill') + ' ' + esc(x.signals.bill_account) : ''}${x.bill_owner ? ' · ' + __('Iqama of {0}', [esc(x.bill_owner.name)]) : ''}</p>` : ''}
+            ${x.signals && x.signals.biller_code ? `<p>${__('SADAD biller')} ${esc(x.signals.biller_code)}${sadadBiller(x) ? ' · ' + esc(sadadBiller(x)) : ' · ' + __('not on the public SADAD list')}${x.signals.bill_account ? ' · ' + __('bill') + ' ' + esc(x.signals.bill_account) : ''}${x.bill_owner ? ' · ' + __('Iqama of {0}', [esc(x.bill_owner.name)]) : ''}</p>` : ''}
             ${x.signals && x.signals.paired_transfer ? `<p>${__('Paired own-account transfer')} · ${esc(x.signals.paired_transfer.source_key || '')}</p>` : ''}
             ${x.erp_document ? `<p>${x.doc_status === 1 ? '✓ ' : '○ '}${docLink(x.erp_doctype, x.erp_document, x.doc_status)} <small>(${esc(x.link_method)})</small>${x.doc_status != null ? ` <button class="btn btn-xs btn-default" data-preview-entry>${__('Preview entry')}</button>` : ''}${x.doc_status == null ? ` <button class="btn btn-xs btn-default" data-clear-missing>${__('Check and clear missing link')}</button>` : x.link_method !== 'MARKER' ? ` <button class="btn btn-xs btn-default" data-unlink>${__('Wrong match')}</button>` : ''}</p>` : ''}
             ${x.signals && x.signals.error ? `<p class="snb-error">${esc(x.signals.error)}</p>` : ''}${fees}

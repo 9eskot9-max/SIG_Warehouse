@@ -1187,12 +1187,23 @@ def test_supplier_open_documents_report_a_document_type_the_role_cannot_read(api
 def test_a_sadad_bill_account_names_the_employee_only_when_erp_holds_it(api, monkeypatch):
     monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True, raising=False)
     monkeypatch.setattr(api.frappe, "get_list", lambda *a, **k: [{"name": "HR-EMP-9", "employee_name": "Imran"}], raising=False)
-    assert api._bill_owner({"bill_account": "2286958091"}) == {"employee": "HR-EMP-9", "name": "Imran"}
+    assert api._bill_owner({"biller_code": "090", "bill_account": "2286958091"}) == {"employee": "HR-EMP-9", "name": "Imran"}
+    assert api._bill_owner({"biller_code": "002", "bill_account": "2286958091"}) is None
     monkeypatch.setattr(api.frappe, "get_list", lambda *a, **k: [], raising=False)
-    assert api._bill_owner({"bill_account": "2286958091"}) is None
+    assert api._bill_owner({"biller_code": "090", "bill_account": "2286958091"}) is None
     assert api._bill_owner({}) is None
     monkeypatch.setattr(api.frappe, "has_permission", lambda *args: False, raising=False)
-    assert api._bill_owner({"bill_account": "2286958091"}) is None
+    assert api._bill_owner({"biller_code": "090", "bill_account": "2286958091"}) is None
+
+
+def test_old_sadad_rows_get_biller_display_without_changing_stored_signals(api):
+    source = {"parser_family": "SADAD", "detail_description": "002-30074809454 23659568000109 7177291742"}
+    original = {"display_name": "002-30074809454"}
+    enriched = api._display_signals(source, original)
+    assert enriched["biller_code"] == "002"
+    assert enriched["biller_name"] == "Saudi Electric Company"
+    assert enriched["bill_account"] == "30074809454"
+    assert original == {"display_name": "002-30074809454"}
 
 
 def test_government_fee_billers_list_accounts_in_the_owners_order_without_choosing(api, monkeypatch):
