@@ -37,6 +37,18 @@ ACTIVITY_ALIAS = {"HO": "HANDOVER", "INSTALLATION": "INSTALL", "IMPLEMENT": "INS
 _SITE = re.compile(r"(?<![A-Za-z0-9])([A-Za-z0-9]{4,12}|\d{3}-\d{2}-\d{3})(?![A-Za-z0-9])")
 _SITE_TOKEN = re.compile(r"(?<![A-Za-z0-9])([A-Za-z0-9-]{3,32})(?![A-Za-z0-9])")
 _CMD = re.compile(r"(?<![A-Za-z])(start|end)(?![A-Za-z])", re.I)
+# "ZNJ 499 Start": a code typed with a space; joined only when the joined code is a registered site.
+_SPLIT_SITE = re.compile(r"(?<![A-Za-z0-9])([A-Za-z]{2,5})[ \t]+(\d{2,5})(?![A-Za-z0-9])")
+
+
+def near_code(a, b):
+    """True when two site codes differ by one substituted character or one adjacent swap."""
+    a, b = (a or "").upper(), (b or "").upper()
+    if not a or not b or a == b or len(a) != len(b):
+        return False
+    diff = [i for i in range(len(a)) if a[i] != b[i]]
+    return len(diff) == 1 or (len(diff) == 2 and diff[1] == diff[0] + 1
+                              and a[diff[0]] == b[diff[1]] and a[diff[1]] == b[diff[0]])
 
 
 def fmt(dt):
@@ -73,6 +85,12 @@ def classify_text(text, known_sites=None):
         if registered:
             site = registered
             break
+    if site is None:
+        for sm in _SPLIT_SITE.finditer(rest):
+            registered = lookup.get((sm.group(1) + sm.group(2)).upper())
+            if registered:
+                site = registered
+                break
     if site is None:
         for sm in _SITE.finditer(rest):
             candidate = sm.group(1).upper()
@@ -206,9 +224,20 @@ def assemble(messages, now, known_sites=None, reparse_from=None):
                     # If Start lacked a parseable site, a single site-less open
                     # session from this reporter can safely inherit the End's code.
                     unresolved = [s for s in opens if s["reporter"] == msg["reporter"] and not s["site"]]
+                    near = [s for s in opens if s["reporter"] == msg["reporter"] and near_code(s["site"], msg["site"])]
                     if len(unresolved) == 1:
                         target = unresolved[0]
                         target["site"] = msg["site"]
+                    elif len(near) == 1:
+                        # One-character typo between this reporter's Start and End. Keep the
+                        # registered code; when both or neither are registered keep the Start's.
+                        target = near[0]
+                        if msg["site"].upper() in site_lookup and target["site"].upper() not in site_lookup:
+                            target["diagnostics"].append("SITE_TYPED:" + target["site"])
+                            target["site"] = site_lookup[msg["site"].upper()]
+                            diag = "END_SITE_CORRECTED"
+                        else:
+                            diag = "END_SITE_MISMATCH:" + msg["site"]
                 elif len(same) == 1 and not mine:
                     target, diag = same[0], "END_REPORTER_DIFFERENT"
                 elif len(same) > 1:
@@ -230,6 +259,14 @@ def assemble(messages, now, known_sites=None, reparse_from=None):
                 lc = last_closed.get((st, msg["reporter"], msg["site"]))
                 if lc and lc["end_at"] and msg["at"] - lc["end_at"] <= timedelta(minutes=DUP_END_MIN):
                     continue                      # repeated End for the session that just closed
+                if (lc and msg["site"] and lc["status"] == "AUTO_CLOSED" and "START_WITHOUT_END" in lc["diagnostics"]
+                        and msg["at"] - lc["start_at"] <= timedelta(hours=CAP_HOURS)):
+                    # A full field day is longer than the inactivity grace: the End still
+                    # belongs to that session while it is inside the 24 h cap.
+                    lc["end_at"], lc["status"], lc["end_msg"] = msg["at"], "COMPLETED", msg["msg_key"]
+                    lc["hours"] = round((msg["at"] - lc["start_at"]).total_seconds() / 3600.0, 2)
+                    lc["diagnostics"] = [d for d in lc["diagnostics"] if d != "START_WITHOUT_END"] + ["LATE_END"]
+                    continue
                 new_exc(msg, "END_WITHOUT_START", "no open session to close")
                 continue
             if msg["at"] - target["start_at"] > timedelta(hours=CAP_HOURS):

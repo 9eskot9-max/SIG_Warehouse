@@ -114,7 +114,7 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
         diags = [d for d in (r.diagnostics or '').split(',') if d]
         is_review = r.disposition == 'REVIEW' or bool({'AMBIGUOUS_SESSION_OWNER', 'END_REPORTER_DIFFERENT',
                                                         'NO_EMPLOYEE_FOR_PHONE', 'UNRESOLVED_SITE',
-                                                        'CYCLE_ATTRIBUTION_EXCEPTION'} & set(diags))
+                                                        'CYCLE_ATTRIBUTION_EXCEPTION', 'UNALLOCATED'} & set(diags))
         record = {
             'name': r.name, 'stream': r.stream, 'stream_label': STREAM_LABEL.get(r.stream, r.stream),
             'pm': STREAM_PM.get(r.stream, ''), 'group': r.group, 'site': r.site_key, 'site_linked': bool(r.site),
@@ -304,23 +304,10 @@ def _family_key(value):
     return {"Incident": "incident", "Capex": "capex", "Colocation": "5g"}.get(normalize_family(value), "")
 
 
-@frappe.whitelist()
-def post_to_cycle(session_key, cycle_name):
-    """Resolve a completed visit attribution exception to one open cycle, then post once."""
-    _require_pm()
-    doc = _session(text_value(session_key))
-    if doc.status != 'COMPLETED' or doc.disposition != 'REVIEW' or \
-            'CYCLE_ATTRIBUTION_EXCEPTION' not in (doc.diagnostics or ''):
-        return {'result': 'exception', 'reason': 'SESSION_NOT_WAITING_FOR_CYCLE_SELECTION'}
-    allowed_cycles = frappe.get_list('SIG Site Cycle',
-        filters={'name': text_value(cycle_name), 'site_key': doc.site_key, 'terminal': 0},
-        fields=['name', 'site_key', 'project', 'erp_project', 'wo', 'terminal'], limit_page_length=1)
-    cycle = allowed_cycles[0] if allowed_cycles else None
-    if not cycle:
-        return {'result': 'exception', 'reason': 'SELECT_AN_OPEN_CYCLE_FOR_THIS_SITE'}
-    expected = _family_key(field_feed.STREAM_PROJECT.get(doc.stream, doc.stream))
-    actual_value = cycle.project
-    actual = _family_key(actual_value)
+def _cycle_family_error(stream, cycle):
+    """None when the cycle's project family matches the visit group; otherwise the reason."""
+    expected = _family_key(field_feed.STREAM_PROJECT.get(stream, stream))
+    actual = _family_key(cycle.project)
     if cycle.erp_project:
         project_meta = frappe.get_meta('Project')
         family_fields = [field for field in ('custom_project_family', 'custom_family')
@@ -329,14 +316,73 @@ def post_to_cycle(session_key, cycle_name):
             project = frappe.db.get_value('Project', cycle.erp_project, family_fields, as_dict=True)
             resolution = resolve_project_family(project)
             if resolution['conflict']:
-                return {'result': 'exception', 'reason': 'PROJECT_FAMILY_FIELDS_CONFLICT_NEEDS_RECONCILIATION'}
+                return 'PROJECT_FAMILY_FIELDS_CONFLICT_NEEDS_RECONCILIATION'
             # A linked Project with no family is unresolved; do not infer it from
             # the legacy cycle label when a canonical Project exists.
             actual = _family_key(resolution['family'])
     if expected and not actual:
-        return {'result': 'exception', 'reason': 'PROJECT_FAMILY_UNRESOLVED_NEEDS_RECONCILIATION'}
+        return 'PROJECT_FAMILY_UNRESOLVED_NEEDS_RECONCILIATION'
     if expected and actual and expected != actual:
-        return {'result': 'exception', 'reason': 'CYCLE_FAMILY_DOES_NOT_MATCH_VISIT_GROUP'}
+        return 'CYCLE_FAMILY_DOES_NOT_MATCH_VISIT_GROUP'
+    return None
+
+
+ALLOCATE_WINDOW_DAYS = 30   # a cycle opened this long after a visit is a different work episode
+
+
+def allocate_unallocated(limit=50):
+    """Attach visits recorded without a cycle once the site has exactly one compatible open cycle.
+
+    Runs after each feed run. Several open cycles, a family mismatch or a visit older than
+    ALLOCATE_WINDOW_DAYS before the cycle was created leave the visit unallocated.
+    """
+    rows = frappe.get_all('SIG Field Session', filters={'posted': 1, 'diagnostics': ['like', '%UNALLOCATED%']},
+                          fields=['name', 'site_key', 'stream', 'start_at'], order_by='start_at asc',
+                          limit_page_length=limit)
+    allocated = 0
+    for row in rows:
+        cycles = frappe.get_all('SIG Site Cycle', filters={'site_key': row.site_key, 'terminal': 0},
+                                fields=['name', 'project', 'erp_project', 'creation'], limit_page_length=2)
+        if len(cycles) != 1 or _cycle_family_error(row.stream, cycles[0]):
+            continue
+        floor = frappe.utils.add_days(frappe.utils.get_datetime(cycles[0].creation), -ALLOCATE_WINDOW_DAYS)
+        if frappe.utils.get_datetime(row.start_at) < floor:
+            continue
+        try:
+            result = field_feed.post_session(row.name, cycle_hint=cycles[0].name)
+        except Exception:
+            frappe.db.rollback()
+            frappe.log_error(title='SIG visit allocation failed', message='Session: ' + row.name + '\n' + frappe.get_traceback())
+            continue
+        if result.get('result') in ('created', 'duplicate'):
+            frappe.get_doc({'doctype': 'Comment', 'comment_type': 'Comment',
+                            'reference_doctype': 'SIG Field Session', 'reference_name': row.name,
+                            'content': 'Cycle allocated automatically: %s' % cycles[0].name}).insert(ignore_permissions=True)
+            allocated += 1
+    return allocated
+
+
+@frappe.whitelist()
+def post_to_cycle(session_key, cycle_name):
+    """Attach a visit recorded without a cycle (or a legacy held session) to one open cycle."""
+    _require_pm()
+    doc = frappe.get_doc('SIG Field Session', text_value(session_key))
+    diags = (doc.diagnostics or '').split(',')
+    held = (not doc.posted and doc.status == 'COMPLETED' and doc.disposition == 'REVIEW'
+            and 'CYCLE_ATTRIBUTION_EXCEPTION' in diags)
+    unallocated = bool(doc.posted and 'UNALLOCATED' in diags and doc.visit
+                       and not frappe.db.get_value('SIG Field Visit', doc.visit, 'cycle'))
+    if not (held or unallocated):
+        return {'result': 'exception', 'reason': 'SESSION_NOT_WAITING_FOR_CYCLE_SELECTION'}
+    allowed_cycles = frappe.get_list('SIG Site Cycle',
+        filters={'name': text_value(cycle_name), 'site_key': doc.site_key, 'terminal': 0},
+        fields=['name', 'site_key', 'project', 'erp_project', 'wo', 'terminal'], limit_page_length=1)
+    cycle = allowed_cycles[0] if allowed_cycles else None
+    if not cycle:
+        return {'result': 'exception', 'reason': 'SELECT_AN_OPEN_CYCLE_FOR_THIS_SITE'}
+    family_error = _cycle_family_error(doc.stream, cycle)
+    if family_error:
+        return {'result': 'exception', 'reason': family_error}
     result = field_feed.post_session(doc.name, cycle_hint=cycle.name)
     if result.get('result') not in ('created', 'duplicate'):
         return {'result': result.get('result'), 'reason': result.get('detail') or result.get('reason'), 'post': result}

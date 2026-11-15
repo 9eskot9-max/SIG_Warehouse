@@ -104,6 +104,52 @@ def test_same_message_key_processed_once():
     assert len(s) == 1
 
 
+def test_split_site_code_joined_only_when_registered():
+    assert fs.classify_text("ZNJ 499 Start", ["ZNJ499"])[:2] == ("START", "ZNJ499")
+    assert fs.classify_text("ZJZ 480\nStart", ["ZJZ480"])[:2] == ("START", "ZJZ480")
+    assert fs.classify_text("ZNJ 499 Start")[:2] == ("START", None)
+
+
+def test_late_end_inside_cap_completes_auto_closed_session():
+    s, e = fs.assemble([m(1, "2026-09-21 10:16", "ZMC818 Start"), m(2, "2026-09-21 17:32", "ZMC818 End")], NOW)
+    assert len(s) == 1 and s[0]["status"] == "COMPLETED" and not e
+    assert "LATE_END" in s[0]["diagnostics"] and "START_WITHOUT_END" not in s[0]["diagnostics"]
+    assert s[0]["hours"] == 7.27 and s[0]["end_msg"] == "m2"
+
+
+def test_late_end_for_another_site_is_still_an_exception():
+    s, e = fs.assemble([m(1, "2026-09-21 08:00", "ZMC818 Start"), m(2, "2026-09-21 16:00", "ZMC817 End")], NOW)
+    assert s[0]["status"] == "AUTO_CLOSED" and e[0]["code"] == "END_WITHOUT_START"
+
+
+def test_typo_end_moves_session_to_the_registered_code():
+    known = {"ZRS994"}
+    s, e = fs.assemble([m(1, "2026-09-21 16:20", "ZSR994 Start"), m(2, "2026-09-21 18:33", "ZRS994 End")],
+                       NOW, known_sites=known)
+    assert s[0]["status"] == "COMPLETED" and s[0]["site"] == "ZRS994" and not e
+    assert "END_SITE_CORRECTED" in s[0]["diagnostics"] and "SITE_TYPED:ZSR994" in s[0]["diagnostics"]
+    assert "UNRESOLVED_SITE" not in s[0]["diagnostics"]
+
+
+def test_typo_end_between_two_registered_codes_keeps_start_site():
+    s, _ = fs.assemble([m(1, "2026-09-21 00:38", "ZJZ842 Start"), m(2, "2026-09-21 05:08", "ZJZ482 End")],
+                       NOW, known_sites={"ZJZ842", "ZJZ482"})
+    assert s[0]["status"] == "COMPLETED" and s[0]["site"] == "ZJZ842"
+    assert "END_SITE_MISMATCH:ZJZ482" in s[0]["diagnostics"]
+
+
+def test_typo_end_never_matches_another_reporters_session():
+    s, e = fs.assemble([m(1, "2026-09-21 08:00", "ZAB124 Start"), m(2, "2026-09-21 08:05", "ZAB142 Start", "B"),
+                        m(3, "2026-09-21 09:00", "ZAB214 End", "C")], NOW)
+    assert e and e[0]["code"] == "END_WITHOUT_START"
+
+
+def test_near_code_rules():
+    assert fs.near_code("ZSR994", "ZRS994") and fs.near_code("ZMK537", "ZMC537")
+    assert not fs.near_code("ZJZ940", "ZJZ409") and not fs.near_code("ZMK537", "ZMK537")
+    assert not fs.near_code("ZJD0881", "ZJD081")
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

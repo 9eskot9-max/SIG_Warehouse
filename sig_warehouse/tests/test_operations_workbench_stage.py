@@ -677,3 +677,32 @@ def test_saved_pm_invoicing_decision_does_not_reopen_old_preparation_tasks():
                                  {"custom_family": "Incident"}, "2026-10-19")
     assert cycle["stage"] == "4 - Invoicing"
     assert [(w["key"], w["stage"]) for w in cycle["work"]] == [("asbuilt", "4 - Invoicing")]
+
+
+def test_bulk_closure_skips_a_cycle_visited_recently_unless_included():
+    workbench = _workbench()
+    fake = workbench.frappe
+    cycles = {
+        "RECENT": Row(name="RECENT", terminal=0, last_visit_at="2026-11-11 19:30:47", site_id="S1", site_key="S1",
+                      project="5g", po="", wo=""),
+        "IDLE": Row(name="IDLE", terminal=0, last_visit_at="2026-09-01 10:00:00", site_id="S2", site_key="S2",
+                    project="5g", po="", wo=""),
+    }
+    saved, events = [], []
+    for row in cycles.values():
+        row["save"] = lambda row=row: saved.append(row["name"])
+    fake.session = SimpleNamespace(user="pm@example.com")
+    fake.throw = lambda message, *args: (_ for _ in ()).throw(RuntimeError(message))
+    fake.PermissionError = PermissionError
+    fake.has_permission = lambda *args, **kwargs: True
+    fake.db = SimpleNamespace(exists=lambda doctype, name: name in cycles)
+    fake.get_doc = lambda arg, name=None: cycles[name] if isinstance(arg, str) else SimpleNamespace(
+        insert=lambda: events.append(arg))
+    fake.utils = SimpleNamespace(now=lambda: "2026-11-15 12:00:00", nowdate=lambda: "2026-11-15",
+                                 add_days=lambda day, n: "2026-11-01")
+    workbench._can_close_cycles = lambda user, memberships=None: True
+    result = workbench.close_cycles(["RECENT", "IDLE"], "tidy")
+    assert result["closed"] == ["IDLE"] and result["skipped_recent_visit"] == ["RECENT"]
+    assert result["already_closed"] == 0 and saved == ["IDLE"]
+    result = workbench.close_cycles(["RECENT"], "tidy", include_recent=1)
+    assert result["closed"] == ["RECENT"] and result["skipped_recent_visit"] == []

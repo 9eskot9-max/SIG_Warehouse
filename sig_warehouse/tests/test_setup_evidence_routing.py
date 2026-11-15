@@ -38,7 +38,12 @@ def route(monkeypatch):
     update_spec = importlib.util.spec_from_file_location('visit_cycle_patch', update_path)
     update = importlib.util.module_from_spec(update_spec)
     update_spec.loader.exec_module(update)
-    exec(compile(update.rewrite(patch.rewrite(source)), '<reviewed resolver>', 'exec'), namespace)
+    revert_path = path.with_name('record_visit_without_cycle.py')
+    revert_spec = importlib.util.spec_from_file_location('visit_unallocated_patch', revert_path)
+    revert = importlib.util.module_from_spec(revert_spec)
+    revert_spec.loader.exec_module(revert)
+    # Migration order: align -> allow_visit_new_cycle -> record_visit_without_cycle.
+    exec(compile(revert.rewrite(update.rewrite(patch.rewrite(source))), '<reviewed resolver>', 'exec'), namespace)
 
     def run(rows, event='TCN_GENERATED', po='PO1', wo='', project='Capex'):
         cycles = [SimpleNamespace(site_key='SITE', terminal=0, resolution_state='',
@@ -79,9 +84,10 @@ def test_visit_with_multiple_pos_stays_for_review(route):
     assert result is None and error['result'] == 'exception'
 
 
-def test_visit_without_open_cycle_reaches_new_cycle_creation(route):
+def test_visit_without_open_cycle_does_not_create_a_cycle(route):
+    # The feed records this visit without a cycle (field_feed._record_unallocated).
     result, error = route([], event='FIELD_VISIT_COMPLETED', po='', project='5g')
-    assert result['cycle'] is None and error is None
+    assert result is None and 'no compatible' in error['reason']
 
 
 def test_visit_does_not_create_when_an_incompatible_open_cycle_exists(route):

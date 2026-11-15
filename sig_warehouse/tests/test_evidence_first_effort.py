@@ -59,7 +59,7 @@ def test_post_failure_keeps_original_trace_and_continues_next_record():
         return {"result": "created", "site_created": False}
 
     feed.post_session = post
-    assert feed._post_pending() == {"posted": 1, "failed": 1, "sites_created": 0}
+    assert feed._post_pending() == {"posted": 1, "failed": 1, "sites_created": 0, "unallocated": 0, "skipped": 0}
     assert len(rollbacks) == 1
     assert len(log_commits) == 1
     assert len(logs[0]["title"]) <= 140

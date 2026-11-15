@@ -158,8 +158,19 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
         names = Array.from(new Set(names)).filter(Boolean);
         if (!names.length || !data.can_close_cycles) return;
         frappe.prompt([{fieldname:'reason', label:__('Closure reason'), fieldtype:'Small Text', reqd:1}], (values) => {
-            frappe.call({method:'sig_warehouse.sig_warehouse.operations_workbench.close_cycles', args:{cycles:names, reason:values.reason}})
-                .then((r) => { selected.clear(); frappe.show_alert({message: __('Closed {0} site cycles.', [((r.message || {}).closed || []).length]), indicator:'green'}); load(); });
+            const run = (includeRecent) => frappe.call({method:'sig_warehouse.sig_warehouse.operations_workbench.close_cycles',
+                args:{cycles:names, reason:values.reason, include_recent: includeRecent ? 1 : 0}}).then((r) => {
+                const res = r.message || {};
+                const recent = res.skipped_recent_visit || [];
+                selected.clear();
+                frappe.show_alert({message: __('Closed {0} site cycles.', [(res.closed || []).length]), indicator:'green'});
+                load();
+                if (recent.length && !includeRecent) {
+                    frappe.confirm(__('{0} selected cycles were visited in the last 14 days and were not closed. Close them too?', [recent.length]),
+                        () => { names = recent; run(true); });
+                }
+            });
+            run(false);
         }, __('Close selected site cycles'), __('Close cycles'));
     }
 

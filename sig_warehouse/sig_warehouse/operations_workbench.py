@@ -15,6 +15,7 @@ from sig_warehouse.sig_warehouse.people_model_gate import PEOPLE_MODEL_ACTIVE
 
 PAGE_SIZE = 500
 MAX_ROWS = 20000
+RECENT_VISIT_DAYS = 14   # bulk closure skips cycles visited within this many days
 
 # Owner-confirmed Operations routing. Employee.user_id resolves the opener to
 # this allowlisted roster; these names do not grant access to a Site Cycle.
@@ -875,8 +876,12 @@ def export_workbook(filter="open", scope="assigned"):
     frappe.local.response.type = "download"
 
 @frappe.whitelist()
-def close_cycles(cycles, reason):
-    """Write explicit SITE_CLOSED evidence for selected cycles after role and permission checks."""
+def close_cycles(cycles, reason, include_recent=0):
+    """Write explicit SITE_CLOSED evidence for selected cycles after role and permission checks.
+
+    A cycle visited within RECENT_VISIT_DAYS is skipped unless include_recent is set:
+    convenience closure must not close a site that is still being worked.
+    """
     user = frappe.session.user
     if not _can_close_cycles(user):
         frappe.throw("Only Field Ops users may close site cycles.", frappe.PermissionError)
@@ -888,7 +893,8 @@ def close_cycles(cycles, reason):
     reason = str(reason or "").strip().replace("|", "/")
     if not names or len(names) > 50 or not reason or len(reason) > 500:
         frappe.throw("Select 1–50 cycles and enter a closure reason up to 500 characters.")
-    docs = []
+    docs, recent = [], []
+    cutoff = str(frappe.utils.add_days(frappe.utils.nowdate(), -RECENT_VISIT_DAYS))
     for name in names:
         if not frappe.db.exists("SIG Site Cycle", name):
             frappe.throw("A selected site cycle no longer exists. Refresh and review the selection.")
@@ -896,6 +902,9 @@ def close_cycles(cycles, reason):
             frappe.throw("You cannot close every selected cycle. No changes were made.", frappe.PermissionError)
         doc = frappe.get_doc("SIG Site Cycle", name)
         if _flag(doc, "terminal"):
+            continue
+        if not int(include_recent or 0) and str(doc.get("last_visit_at") or "")[:10] >= cutoff:
+            recent.append(name)
             continue
         docs.append(doc)
     now = frappe.utils.now()
@@ -927,6 +936,6 @@ def close_cycles(cycles, reason):
         })
         event.insert()
         closed.append(cycle.name)
-    return {"result": "ok", "closed": closed, "already_closed": len(names) - len(docs),
-            "batch": batch, "operator": user, "reason": reason}
+    return {"result": "ok", "closed": closed, "already_closed": len(names) - len(docs) - len(recent),
+            "skipped_recent_visit": recent, "batch": batch, "operator": user, "reason": reason}
 

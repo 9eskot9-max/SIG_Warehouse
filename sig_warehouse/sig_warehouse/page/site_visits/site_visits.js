@@ -166,14 +166,18 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
 
     function renderActions(row, name, cycleCandidates) {
         const box = root.find('.sig-sv-detail .sig-sv-actions');
-        if (row.posted) { box.html(`<span class="text-muted small">${__('Already posted - corrections go through an amendment on the Field Visit itself.')}</span>`); return; }
         const btn = (label, cls) => `<button type="button" class="btn btn-default btn-xs ${cls}" style="margin:2px">${label}</button>`;
+        const unallocated = row.posted && (row.diagnostics || []).includes('UNALLOCATED');
+        if (row.posted && !unallocated) { box.html(`<span class="text-muted small">${__('Already posted - corrections go through an amendment on the Field Visit itself.')}</span>`); return; }
         const pairBtn = row.status !== 'COMPLETED' ? btn(__('Pair a lonely End'), 'sig-sv-act-pair') : '';
         const attributionReview = (row.diagnostics || []).includes('CYCLE_ATTRIBUTION_EXCEPTION');
         const confirmBtn = row.is_review && !attributionReview ? btn(__('Confirm as-is'), 'sig-sv-act-confirm') : '';
-        const cycleBtn = attributionReview && row.status === 'COMPLETED' ? btn(__('Select cycle and post'), 'sig-sv-act-cycle') : '';
-        box.html(cycleBtn + btn(__('Set type / scope'), 'sig-sv-act-type') + btn(__('Fix site'), 'sig-sv-act-site')
-            + btn(__('Assign person'), 'sig-sv-act-assign') + pairBtn + confirmBtn + btn(__('Void'), 'sig-sv-act-void'));
+        const cycleBtn = unallocated ? btn(__('Attach to a cycle'), 'sig-sv-act-cycle')
+            : (attributionReview && row.status === 'COMPLETED' ? btn(__('Select cycle and post'), 'sig-sv-act-cycle') : '');
+        box.html(unallocated
+            ? `<span class="text-muted small">${__('Visit recorded without a cycle.')}</span><br>` + cycleBtn
+            : cycleBtn + btn(__('Set type / scope'), 'sig-sv-act-type') + btn(__('Fix site'), 'sig-sv-act-site')
+              + btn(__('Assign person'), 'sig-sv-act-assign') + pairBtn + confirmBtn + btn(__('Void'), 'sig-sv-act-void'));
         if (cycleBtn) box.find('.sig-sv-act-cycle').on('click', () => {
             if (!cycleCandidates.length) {
                 frappe.msgprint({title: __('No open cycle'), message: __('This site has no open cycle to attach the visit to.')});

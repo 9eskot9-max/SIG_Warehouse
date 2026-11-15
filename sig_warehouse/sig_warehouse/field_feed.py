@@ -26,6 +26,8 @@ WINDOW_HOURS = 72                       # re-assembly window; results are truste
 RIYADH = timezone(timedelta(hours=3))
 POST_BATCH = 25                          # sessions posted per run
 STALE_HOURS = 24                         # no Inbox row at all for this long raises an alert
+# Owner decision 2026-11-15: a Start without an End is still a visit (end estimated).
+POSTABLE_STATUS = ("COMPLETED", "AUTO_CLOSED")
 # group stream -> the project label the RV80 evidence events used on Site Cycles (5g / Capex-9 / incident)
 STREAM_PROJECT = {"ti5g": "5g", "ticpx": "Capex-9", "ticpx2": "Capex", "tiinc": "incident"}
 
@@ -117,13 +119,7 @@ def _upsert_sessions(sessions, trusted_from, sites, emp_by_phone):
             if existing.posted or existing.corrected_by:
                 continue  # posted or PM-corrected (site_visits.py) sessions are immutable here;
                           # a re-run from raw messages must not silently undo a human fix
-            if "CYCLE_ATTRIBUTION_EXCEPTION" in (existing.diagnostics or ""):
-                if "CYCLE_ATTRIBUTION_EXCEPTION" not in values["diagnostics"]:
-                    values["diagnostics"] = (values["diagnostics"] + ",CYCLE_ATTRIBUTION_EXCEPTION").strip(",")
-                for item in (existing.diagnostics or "").split(","):
-                    if item.startswith("CYCLE_ATTRIBUTION_REASON:"):
-                        values["diagnostics"] += "," + item
-                values["disposition"] = "REVIEW"
+            # A held cycle-attribution session is re-queued: posting now records it without a cycle.
             frappe.db.set_value("SIG Field Session", existing_name, values, update_modified=False)
         else:
             frappe.get_doc(dict(doctype="SIG Field Session", session_key=s["session_key"], **values)).insert(
@@ -167,13 +163,20 @@ def post_session(name, force=False, cycle_hint=None):
     the only caller that ever passes force=True. The live feed itself never does.
     """
     s = frappe.get_doc("SIG Field Session", name)
-    if s.posted:
+    # A recorded visit without a cycle can be allocated later with an explicit cycle.
+    unallocated = bool(s.posted and s.visit and frappe.db.exists("SIG Field Visit", s.visit)
+                       and not frappe.db.get_value("SIG Field Visit", s.visit, "cycle"))
+    if s.posted and not (cycle_hint and unallocated):
         return {"result": "already_posted"}
     if not s.site_key:
         return {"result": "not_eligible", "reason": "UNRESOLVED_SITE"}
+    # The Site master is the authority; a code missing from it is a typo, not a new site.
+    if not force and not frappe.db.exists("SIG Site", s.site_key):
+        return {"result": "not_eligible", "reason": "SITE_NOT_IN_MASTER"}
     attribution_review = bool(cycle_hint and s.disposition == "REVIEW" and
                               "CYCLE_ATTRIBUTION_EXCEPTION" in (s.diagnostics or ""))
-    if not force and (s.status != "COMPLETED" or (s.disposition != "PENDING" and not attribution_review)):
+    if not force and not unallocated and (s.status not in POSTABLE_STATUS or
+                                          (s.disposition != "PENDING" and not attribution_review)):
         return {"result": "not_eligible", "status": s.status, "disposition": s.disposition}
     if s.stream == "ticpx2":
         _check_capex2_scope(s.site_key)
@@ -187,11 +190,15 @@ def post_session(name, force=False, cycle_hint=None):
         "occurred_at": str(end_at)[:19], "recorded_at": now, "project": STREAM_PROJECT.get(s.stream, s.stream),
         "artifact_ref": s.name, "batch_id": _batch_id(s.name), "seq": 1,
         "operator": "field_feed", "machine": "erpnext",
-        "core_version": "F2", "session_key": s.name, "status": "COMPLETED", "start_at": str(s.start_at)[:19],
+        "core_version": "F2", "session_key": s.name,
+        "status": "AUTO_CLOSED" if s.status == "AUTO_CLOSED" else "COMPLETED", "start_at": str(s.start_at)[:19],
         "end_at": str(end_at)[:19], "duration_hours": s.hours or 0, "reporter": s.reporter,
         "reporter_name": who or s.reporter_name, "activity_code": s.activity_code or "UNSPECIFIED",
         "photo_count": s.photo_count or 0, "visit_ordinal": 0, "diagnostic": s.diagnostics or "",
     }
+    if unallocated:
+        payload["diagnostic"] = ",".join(item for item in (s.diagnostics or "").split(",")
+                                         if item and item != "UNALLOCATED" and not item.startswith("CYCLE_ATTRIBUTION_REASON:"))
     if cycle_hint:
         payload["cycle_hint"] = str(cycle_hint)
     res = _call_evidence(payload)
@@ -200,13 +207,9 @@ def post_session(name, force=False, cycle_hint=None):
     if not ok:
         reason = str(res.get("reason") or "")
         if res.get("result") == "exception" and reason.startswith("CYCLE_ATTRIBUTION:"):
-            diagnostics = [item for item in (s.diagnostics or "").split(",") if item and item != "CYCLE_ATTRIBUTION_EXCEPTION" and not item.startswith("CYCLE_ATTRIBUTION_REASON:")]
-            diagnostics.append("CYCLE_ATTRIBUTION_EXCEPTION")
-            diagnostics.append("CYCLE_ATTRIBUTION_REASON:" + reason.partition(":")[2].replace(",", ";")[:180])
-            frappe.db.set_value("SIG Field Session", s.name, {
-                "diagnostics": ",".join(diagnostics), "disposition": "REVIEW"}, update_modified=False)
-            frappe.db.commit()
-            return {"result": "review", "detail": res}
+            if unallocated:
+                return {"result": "failed", "detail": res}
+            return _record_unallocated(s, who, payload, reason.partition(":")[2])
         note = "POST_FAILED:" + str(res.get("reason") or res)[:80]
         frappe.db.set_value("SIG Field Session", s.name, "diagnostics",
                             ((s.diagnostics or "") + "," + note).strip(","), update_modified=False)
@@ -215,11 +218,40 @@ def post_session(name, force=False, cycle_hint=None):
     for dt, dn in (("SIG Field Visit", s.name), ("SIG Evidence Event", event_id), ("SIG Site Cycle", cycle)):
         if dn and frappe.db.exists(dt, dn):
             frappe.db.set_value(dt, dn, "site", s.site_key, update_modified=False)
-    frappe.db.set_value("SIG Field Session", s.name, {
-        "posted": 1, "disposition": "POSTED",
-        "visit": s.name if frappe.db.exists("SIG Field Visit", s.name) else None}, update_modified=False)
+    values = {"posted": 1, "disposition": "POSTED",
+              "visit": s.name if frappe.db.exists("SIG Field Visit", s.name) else None}
+    if unallocated:
+        values["diagnostics"] = payload["diagnostic"]
+    frappe.db.set_value("SIG Field Session", s.name, values, update_modified=False)
     frappe.db.commit()
     return {"result": res.get("result") or "created", "site_created": created_site, "cycle": cycle}
+
+
+def _record_unallocated(s, who, payload, reason):
+    """Record the visit without a cycle when no single compatible open cycle exists.
+
+    No evidence event and no cycle counters: allocation is a later, explicit step
+    (post_session with cycle_hint), which lets the evidence writer update this visit.
+    """
+    diagnostics = [item for item in (s.diagnostics or "").split(",")
+                   if item and item != "CYCLE_ATTRIBUTION_EXCEPTION" and not item.startswith("CYCLE_ATTRIBUTION_REASON:")]
+    diagnostics.append("UNALLOCATED")
+    diagnostics.append("CYCLE_ATTRIBUTION_REASON:" + reason.replace(",", ";")[:180])
+    visit = frappe.get_doc({
+        "doctype": "SIG Field Visit", "session_key": s.name, "project": payload["project"],
+        "site_key": s.site_key, "site": s.site_key, "reporter": s.reporter,
+        "reporter_name": who or s.reporter_name, "employee": s.employee,
+        "start_at": payload["start_at"], "end_at": payload["end_at"], "status": payload["status"],
+        "duration_hours": payload["duration_hours"], "activity_code": payload["activity_code"],
+        "scope": s.scope or "", "photo_count": payload["photo_count"], "visit_ordinal": 0,
+        "cycle": None, "diagnostic": ",".join(diagnostics),
+    })
+    visit.insert(ignore_permissions=True)
+    frappe.db.set_value("SIG Field Session", s.name, {
+        "diagnostics": ",".join(diagnostics), "posted": 1, "disposition": "POSTED", "visit": visit.name},
+        update_modified=False)
+    frappe.db.commit()
+    return {"result": "unallocated", "visit": visit.name, "reason": reason}
 
 
 def _check_capex2_scope(site):
@@ -244,9 +276,10 @@ def _check_capex2_scope(site):
 
 
 def _post_pending(limit=POST_BATCH):
-    names = frappe.get_all("SIG Field Session", filters={"disposition": "PENDING", "status": "COMPLETED", "posted": 0},
+    names = frappe.get_all("SIG Field Session", filters={"disposition": "PENDING", "status": ["in", list(POSTABLE_STATUS)],
+                                                         "posted": 0},
                            order_by="start_at asc", pluck="name", limit_page_length=limit)
-    done = failed = new_sites = review = 0
+    done = failed = new_sites = unallocated = skipped = 0
     for name in names:
         try:
             r = post_session(name)
@@ -264,11 +297,14 @@ def _post_pending(limit=POST_BATCH):
         if r.get("result") in ("created", "duplicate"):
             done += 1
             new_sites += 1 if r.get("site_created") else 0
-        elif r.get("result") == "review":
-            review += 1
+        elif r.get("result") == "unallocated":
+            unallocated += 1
+        elif r.get("result") == "not_eligible":
+            skipped += 1      # e.g. a code missing from the Site master; stays visible in Site Visits
         else:
             failed += 1
-    return {"posted": done, "failed": failed, "sites_created": new_sites, "review": review}
+    return {"posted": done, "failed": failed, "sites_created": new_sites, "unallocated": unallocated,
+            "skipped": skipped}
 
 
 # ------------------------------------------------------------------ health
@@ -295,6 +331,28 @@ def _alert(st, key, text):
 def _close_alert(key):
     for n in frappe.get_all("ToDo", filters={"description": ["like", "[%s]%%" % key], "status": "Open"}, pluck="name"):
         frappe.db.set_value("ToDo", n, "status", "Closed")
+
+
+BACKLOG_REVIEW_DAYS = 3        # a session needing a person this long raises the backlog alert
+BACKLOG_UNALLOCATED_DAYS = 14  # a visit still without a cycle after this long raises it too
+
+
+def _backlog_alert(st, now):
+    """One deduplicated ToDo while sessions or visits are stuck; closes itself when clear."""
+    review = frappe.db.count("SIG Field Session", {
+        "posted": 0, "disposition": "REVIEW",
+        "start_at": ["<", fs.fmt(now - timedelta(days=BACKLOG_REVIEW_DAYS))]})
+    unallocated = frappe.db.count("SIG Field Session", {
+        "posted": 1, "diagnostics": ["like", "%UNALLOCATED%"],
+        "start_at": ["<", fs.fmt(now - timedelta(days=BACKLOG_UNALLOCATED_DAYS))]})
+    if review or unallocated:
+        _alert(st, "SIG-FEED-BACKLOG",
+               "%d field session(s) have waited over %d days for a person (unknown site or similar) and %d visit(s) "
+               "have had no cycle for over %d days. Open Site Visits, view Needs review."
+               % (review, BACKLOG_REVIEW_DAYS, unallocated, BACKLOG_UNALLOCATED_DAYS))
+    else:
+        _close_alert("SIG-FEED-BACKLOG")
+    return review, unallocated
 
 
 def run_feed(rebuild=False):
@@ -338,21 +396,25 @@ def run_feed(rebuild=False):
             if e["at"] >= trusted_from and frappe.db.exists("SIG Field Message", e["msg_key"]):
                 frappe.db.set_value("SIG Field Message", e["msg_key"], "diagnostic", e["code"], update_modified=False)
 
-        posted = {"posted": 0, "failed": 0, "sites_created": 0, "review": 0}
+        posted = {"posted": 0, "failed": 0, "sites_created": 0, "unallocated": 0, "skipped": 0}
         if mode == "Live" and caught_up:
             frappe.db.commit()
             posted = _post_pending()
             if posted["failed"]:
                 raise RuntimeError("Field evidence posting failed for %d session(s); see SIG field feed post failed logs." %
                                    posted["failed"])
+            from sig_warehouse.sig_warehouse import site_visits
+            posted["allocated"] = site_visits.allocate_unallocated()
+            _backlog_alert(st, now)
 
         newest = frappe.db.sql("select max(occurred_at) from `tabSIG Field Message`")[0][0]
         inbox_at = last_row_at or st.get("feed_last_inbox_at")
         stale_h = (now - fs.parse_ts(str(inbox_at))).total_seconds() / 3600.0 if inbox_at else 0
         status = "OK (%s)%s: +%d messages, %d sessions" % (mode, "" if caught_up else " backfilling", stored, touched)
         if mode == "Live":
-            status += ", posted %d (%d need cycle review, %d failed, %d sites created)" % (
-                posted["posted"], posted["review"], posted["failed"], posted["sites_created"])
+            status += ", posted %d (%d without a cycle, %d allocated later, %d not eligible, %d failed, %d sites created)" % (
+                posted["posted"], posted["unallocated"], posted.get("allocated", 0), posted["skipped"],
+                posted["failed"], posted["sites_created"])
         if stale_h > STALE_HOURS:
             status = "STALE: no Inbox rows for %d h" % stale_h
             _alert(st, "SIG-FEED-STALE", "The WhatsApp group feed has had no new sheet rows for %d hours (last row %s). "
