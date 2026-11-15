@@ -2237,4 +2237,3 @@ def get_supplier_payment_references(name, supplier, company):
                                fields=["name", "posting_date", "currency", "grand_total", "outstanding_amount", "status"],
                                order_by="posting_date desc", page_length=100)
     return {"purchase_orders": orders, "purchase_invoices": invoices}
-
