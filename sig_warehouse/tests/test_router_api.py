@@ -617,6 +617,56 @@ def test_ingest_hint_conflict_and_scope_rules(api):
         api.ingest([{**item, "account_scope_hash": "nothex"}])
 
 
+@pytest.mark.parametrize(("doctype", "marker_field"), [
+    ("Journal Entry", "custom_pc_statement_key"),
+    ("Payment Entry", "custom_snb_idempotency_key"),
+])
+def test_ingest_reconciles_a_stale_hint_only_to_the_verified_current_document(api, doctype, marker_field):
+    source = {"event_date": "2026-11-09", "direction": "DEBIT", "statement_key": "SNB-STATEMENT-KEY"}
+    old_hint = {"linked_doc": "ACC-OLD-MISSING", "readback_status": "MISSING"}
+    movement = Doc(source_key="SNB-row", source_json=api._json(source), recognition_json="{}",
+                   erp_hint_json=api._json(old_hint), account_scope_hash="", erp_doctype=doctype,
+                   erp_document="ACC-CURRENT", audit=[])
+    movement.append = lambda field, values: movement.audit.append(Doc(**values))
+    api.frappe.db = types.SimpleNamespace(exists=lambda *a: True, sql=lambda *a: None,
+        get_value=lambda kind, name, fields, as_dict: {"docstatus": 0, marker_field: source["statement_key"]})
+    api.frappe.get_doc = lambda *a: movement
+    item = {"id": "SNB-row", "source": source, "erp": {"linked_doc": "ACC-CURRENT"}}
+
+    result = api.ingest([item])
+
+    assert result[0]["status"] == "HINT_RECONCILED"
+    assert json.loads(movement.erp_hint_json) == {
+        "linked_doc": "ACC-CURRENT", "readback_status": "NEEDS_LIVE_READBACK"}
+    audit = movement.audit[0]
+    assert json.loads(audit.previous_json) == {"erp_hint": old_hint}
+    assert json.loads(audit.decision_json)["statement_key"] == source["statement_key"]
+    assert movement.saved and movement.flags.snb_router_write
+
+
+@pytest.mark.parametrize(("docstatus", "marker", "current_document"), [
+    (0, "OTHER-STATEMENT", "ACC-CURRENT"),
+    (2, "SNB-STATEMENT-KEY", "ACC-CURRENT"),
+    (1, "SNB-STATEMENT-KEY", "ACC-ANOTHER"),
+])
+def test_ingest_keeps_unverified_stale_hint_as_conflict(api, docstatus, marker, current_document):
+    source = {"event_date": "2026-11-09", "direction": "DEBIT", "statement_key": "SNB-STATEMENT-KEY"}
+    old_hint = {"linked_doc": "ACC-OLD-MISSING"}
+    movement = Doc(source_key="SNB-row", source_json=api._json(source), recognition_json="{}",
+                   erp_hint_json=api._json(old_hint), account_scope_hash="", erp_doctype="Journal Entry",
+                   erp_document=current_document, audit=[])
+    api.frappe.db = types.SimpleNamespace(exists=lambda *a: True, sql=lambda *a: None,
+        get_value=lambda *a, **k: {"docstatus": docstatus, "custom_pc_statement_key": marker})
+    api.frappe.get_doc = lambda *a: movement
+    item = {"id": "SNB-row", "source": source, "erp": {"linked_doc": "ACC-CURRENT"}}
+
+    result = api.ingest([item])
+
+    assert result[0]["status"] == "HINT_CONFLICT"
+    assert movement.erp_hint_json == api._json(old_hint)
+    assert not getattr(movement, "saved", False)
+
+
 def test_new_party_refuses_an_existing_exact_name_and_applies_defaults(api):
     row = types.SimpleNamespace(name="CUST-1", customer_name="Khutut Co")
     row.get = lambda key: row.customer_name
