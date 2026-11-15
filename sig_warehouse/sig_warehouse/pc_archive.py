@@ -182,7 +182,26 @@ def _set_state(doc, status, *, locator=None, sha256=None, error=None, attempts=N
         doc.set(field, value)
 
 
-def ensure_archived(doc, employee, *, commit_state=True):
+def _download_capture(message_id, sender):
+    if not re.fullmatch(r'[A-Za-z0-9@._:-]{1,240}', str(message_id or '')):
+        frappe.throw('Invalid captured message ID.')
+    token = str(frappe.conf.get('sig_pc_capture_token') or '')
+    if not token:
+        frappe.throw('Receipt capture service is not configured.')
+    if not re.fullmatch(r'\d{8,15}', str(sender or '')):
+        frappe.throw('Employee must have a valid phone number for captured media.')
+    response = _request('GET', 'https://sigtele.com/pc-capture/media', token,
+                        params={'message_id': message_id, 'sender': sender}, timeout=(8, 35))
+    try:
+        if response.status_code != 200:
+            frappe.throw('Captured photo could not be read from the VPS.')
+        raw = _bounded_response_bytes(response, MAX_MEDIA_BYTES)
+    finally:
+        response.close()
+    return raw, _media_type(raw)
+
+
+def ensure_archived(doc, employee, *, commit_state=True, recovery_source_url=None, capture_message_id=None, capture_sender=None):
     """Fetch, encrypt, upload, and read back before a receipt is confirmed."""
     if doc.sync_archive_locator and doc.archive_sha256:
         try:
@@ -203,9 +222,14 @@ def ensure_archived(doc, employee, *, commit_state=True):
         frappe.db.commit()
     try:
         base, token, cipher = _archive_config()
-        if not doc.source_media_url:
-            frappe.throw("Receipt has no source media URL to archive.")
-        raw, mime = _download_source(doc.source_media_url)
+        if capture_message_id:
+            from .pc_review_routing import phone_key
+            raw, mime = _download_capture(capture_message_id, capture_sender or phone_key(employee.cell_number))
+        else:
+            source_url = recovery_source_url or doc.source_media_url
+            if not source_url:
+                frappe.throw("Receipt has no source media URL to archive.")
+            raw, mime = _download_source(source_url)
         content_sha256 = hashlib.sha256(raw).hexdigest()
         encrypted = cipher.encrypt(raw)
         source_id, filename = _safe_source_id(doc)

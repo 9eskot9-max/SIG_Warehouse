@@ -320,6 +320,45 @@ def archive_existing_receipt(transaction_id):
 
 
 @frappe.whitelist(methods=["POST"])
+def archive_recovered_receipt(transaction_id, recovery_evidence, recovery_url=None, capture_message_id=None, capture_sender=None):
+    """Archive an identified replacement while preserving the original source link."""
+    from .pc_archive import _allowed_source_url
+    from frappe.utils import escape_html
+    context = _context()
+    doc = frappe.get_doc(TRANSACTION, transaction_id)
+    employee = _authorize(doc, context)
+    evidence = str(recovery_evidence or '').strip()
+    if not evidence or len(evidence) > 500:
+        frappe.throw("Describe how the forwarded image was matched to this receipt.")
+    if bool(recovery_url) == bool(capture_message_id):
+        frappe.throw("Choose exactly one recovered photo link or captured message ID.")
+    if recovery_url and not _allowed_source_url(recovery_url):
+        frappe.throw("Recovered image must use an HTTPS cdnydm.com link.")
+    if capture_message_id:
+        import re
+        if not re.fullmatch(r'[A-Za-z0-9@._:-]{1,240}', str(capture_message_id)):
+            frappe.throw('Invalid captured message ID.')
+        employee_phone = phone_key(employee.cell_number)
+        requested_sender = phone_key(capture_sender) if capture_sender else employee_phone
+        if not requested_sender:
+            frappe.throw('A captured message sender is required.')
+        if requested_sender != employee_phone:
+            allowed = {phone_key(value) for value in (frappe.conf.get('sig_pc_capture_forwarders') or [])}
+            if not context['roles'].intersection(FINANCE) or requested_sender not in allowed:
+                _deny('Only Finance may match a configured forwarding number to another Employee.')
+        capture_sender = requested_sender
+    if doc.sync_archive_locator or doc.archive_sha256 or doc.archive_status == 'Archived':
+        frappe.throw("This receipt already has an archive object; do not replace it.")
+    # The original URL remains unchanged. Record evidence before transfer because
+    # the archive operation commits its own failure/success state.
+    doc.add_comment('Comment', text='Receipt recovery requested by %s. Evidence: %s. Capture message: %s. Sender: %s' % (
+        escape_html(context['user']), escape_html(evidence), escape_html(str(capture_message_id or 'forwarded link')),
+        escape_html(str(capture_sender or 'not supplied'))))
+    ensure_archived(doc, employee, recovery_source_url=recovery_url, capture_message_id=capture_message_id, capture_sender=capture_sender)
+    return {"ok": True, "archive_status": doc.archive_status}
+
+
+@frappe.whitelist(methods=["POST"])
 def archived_receipt_media(transaction_id):
     """Serve a private archived receipt only to an authorized PC reviewer."""
     context = _context()
