@@ -130,9 +130,37 @@ def ingest(items):
             incoming = str(((item.get("erp") or {}).get("linked_doc")) or "").strip()
             current = str(hint.get("linked_doc") or "").strip()
             if current and incoming and current != incoming:
-                results.append({"id": key, "status": "HINT_CONFLICT", "name": name})
-                continue
-            if incoming and not current:
+                # Am can retain an older link hint after the router already
+                # recorded a different ERP link. Reconcile only when Am's
+                # incoming document is exactly the movement's current ERP link
+                # and that live, non-cancelled JE/PE carries this row's
+                # immutable statement key. Anything less remains a conflict.
+                erp_doctype = str(doc.get("erp_doctype") or "").strip()
+                erp_document = str(doc.get("erp_document") or "").strip()
+                statement_key = str(source.get("statement_key") or "").strip()
+                marker_field = {"Journal Entry": "custom_pc_statement_key",
+                                "Payment Entry": "custom_snb_idempotency_key"}.get(erp_doctype)
+                linked = None
+                if marker_field and incoming == erp_document and statement_key:
+                    linked = frappe.db.get_value(erp_doctype, incoming,
+                                                 ["docstatus", marker_field], as_dict=True)
+                if (linked and int(linked.get("docstatus", 2)) in (0, 1)
+                        and str(linked.get(marker_field) or "") == statement_key):
+                    old_hint = dict(hint)
+                    hint.update({"linked_doc": incoming, "readback_status": "NEEDS_LIVE_READBACK"})
+                    doc.erp_hint_json = _json(hint)
+                    doc.append("audit", {
+                        "reviewer": frappe.session.user,
+                        "reviewed_at": now_datetime(),
+                        "previous_json": _json({"erp_hint": old_hint}),
+                        "decision_json": _json({"erp_hint": hint, "statement_key": statement_key,
+                                                 "reason": "verified current ERP link and statement marker"}),
+                    })
+                    status = "HINT_RECONCILED"
+                else:
+                    results.append({"id": key, "status": "HINT_CONFLICT", "name": name})
+                    continue
+            elif incoming and not current:
                 hint.update({"linked_doc": incoming, "readback_status": "NEEDS_LIVE_READBACK"})
                 doc.erp_hint_json = _json(hint)
                 status = "HINT_UPDATED"
@@ -2209,3 +2237,4 @@ def get_supplier_payment_references(name, supplier, company):
                                fields=["name", "posting_date", "currency", "grand_total", "outstanding_amount", "status"],
                                order_by="posting_date desc", page_length=100)
     return {"purchase_orders": orders, "purchase_invoices": invoices}
+
