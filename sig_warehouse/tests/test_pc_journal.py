@@ -113,13 +113,32 @@ def app(monkeypatch):
     monkeypatch.setattr(module, "ensure_archived", lambda *args, **kwargs: None)
     monkeypatch.setattr(module, "_context", lambda user=None: context)
     monkeypatch.setattr(module, "_cycles", lambda employee, context: [])
-    monkeypatch.setattr(module, "_accounts", lambda *args: ("SIG", "EXPENSE", "CUSTODY", "Main"))
+    monkeypatch.setattr(module, "_accounts", lambda *args: ("SIG", "EXPENSE", "CUSTODY", "Main", "VAT" if args[-1] else None))
     return module, fake, receipt, context
 
 
 def confirm(app, **kwargs):
     module, fake, receipt, _ = app
     return module.confirm_receipt(receipt.name, expected_modified=STAMP, **kwargs)
+
+
+def test_vat_split_uses_inclusive_amount_and_balances():
+    vat = rules.inclusive_vat('115.00')
+    lines = rules.journal_lines('115.00', 'EXPENSE', 'CUSTODY', 'Main', 'VAT', vat)
+    assert [line['account'] for line in lines] == ['EXPENSE', 'VAT', 'CUSTODY']
+    assert [lines[0]['debit_in_account_currency'], lines[1]['debit_in_account_currency'],
+            lines[2]['credit_in_account_currency']] == [100.0, 15.0, 115.0]
+
+
+def test_no_vat_keeps_gross_expense():
+    lines = rules.journal_lines('115.00', 'EXPENSE', 'CUSTODY', 'Main')
+    assert len(lines) == 2
+    assert lines[0]['debit_in_account_currency'] == lines[1]['credit_in_account_currency'] == 115.0
+
+
+def test_vat_rounding_is_decimal_half_up():
+    assert str(rules.inclusive_vat('0.23')) == '0.03'
+    assert str(rules.inclusive_vat('250.00')) == '32.61'
 
 
 def test_confirm_creates_one_unsubmitted_native_journal_and_links_original(app):
@@ -129,10 +148,12 @@ def test_confirm_creates_one_unsubmitted_native_journal_and_links_original(app):
     assert journal.docstatus == 0
     assert journal.custom_pc_receipt == receipt.name
     assert journal.custom_pc_source_key == rules.source_key(receipt.source_id)
-    assert len(journal.accounts) == 2
-    assert journal.accounts[0]["debit_in_account_currency"] == 250
-    assert journal.accounts[1]["credit_in_account_currency"] == 250
-    assert "Gross expense" in journal.user_remark
+    assert len(journal.accounts) == 3
+    assert journal.accounts[0]["debit_in_account_currency"] == 217.39
+    assert journal.accounts[1]["account"] == "VAT"
+    assert journal.accounts[1]["debit_in_account_currency"] == 32.61
+    assert journal.accounts[2]["credit_in_account_currency"] == 250
+    assert "Input VAT is separated" in journal.user_remark
     assert receipt.source_media_url.endswith("original.jpeg")
     assert receipt.journal_status == "Draft" and receipt.closure_status == "Closed"
     assert not receipt.purchase_invoice and not receipt.payment_entry and not receipt.supplier
@@ -224,10 +245,10 @@ def test_status_report_reads_only_docstatus_of_the_matching_linked_journal(app, 
                 journal_entry="JE-1")
     seen = []
     monkeypatch.setattr(fake, "get_list", lambda doctype, **kwargs: (seen.append((doctype, kwargs)) or [tx]), raising=False)
-    monkeypatch.setattr(module, "load_matrix", lambda: {
+    fake.context["matrix"] = {
         "employees": [{"employee": "HR-EMP-00019", "pc_review_group": "colocation"}],
         "review_groups": {"colocation": {"label": "Colocation", "lead": "PM lead"}},
-    })
+    }
     fake.db.get_value = lambda doctype, filters, fields, **kwargs: (
         Record(docstatus=1) if doctype == "Journal Entry" and filters == {
             "name": "JE-1", "custom_pc_receipt": "RECEIPT-1"} else "Manager Name"
