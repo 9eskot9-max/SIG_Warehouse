@@ -1,6 +1,6 @@
 """Accounting rules for receipt clearance. No posting, account lookup or permissions."""
 
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import hashlib
 import json
 import re
@@ -59,19 +59,30 @@ def legacy_cycle_period(remark):
     return start.isoformat(), end.isoformat()
 
 
-def journal_lines(amount, expense_account, custody_account, cost_center):
-    """Gross expense policy: VAT remains receipt evidence for Finance assessment."""
+def inclusive_vat(amount):
+    return (money(amount) * Decimal('15') / Decimal('115')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+
+def journal_lines(amount, expense_account, custody_account, cost_center,
+                  vat_account=None, vat_amount=0):
+    """Split evidenced recoverable VAT from the gross receipt amount."""
     total = money(amount)
     if not expense_account or not custody_account or expense_account == custody_account:
         raise ValueError("Expense and employee custody accounts must be configured separately.")
     if not cost_center:
         raise ValueError("A company cost center is required for the expense line.")
-    return [
-        {"account": expense_account, "debit_in_account_currency": float(total),
+    tax = money(vat_amount) if vat_amount else Decimal("0.00")
+    if tax and (not vat_account or tax >= total or vat_account in (expense_account, custody_account)):
+        raise ValueError("A valid input VAT account and an amount below the receipt total are required.")
+    lines = [{"account": expense_account, "debit_in_account_currency": float(total - tax),
          "credit_in_account_currency": 0, "cost_center": cost_center},
-        {"account": custody_account, "debit_in_account_currency": 0,
-         "credit_in_account_currency": float(total)},
     ]
+    if tax:
+        lines.append({"account": vat_account, "debit_in_account_currency": float(tax),
+                      "credit_in_account_currency": 0, "cost_center": cost_center})
+    lines.append({"account": custody_account, "debit_in_account_currency": 0,
+                  "credit_in_account_currency": float(total)})
+    return lines
 
 
 def compile_scopes(matrix):

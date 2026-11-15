@@ -7,7 +7,7 @@ is constructed. Frappe's normal Journal Entry create/validation path is retained
 import frappe
 from frappe.utils import get_datetime, now_datetime
 
-from .pc_clearance_rules import CATEGORY_ACCOUNTS, journal_lines, legacy_cycle_period, money, request_digest, source_key
+from .pc_clearance_rules import CATEGORY_ACCOUNTS, inclusive_vat, journal_lines, legacy_cycle_period, money, request_digest, source_key
 from .pc_archive import archived_media, ensure_archived
 from .pc_review_routing import effective_scopes, load_matrix, phone_index, phone_key
 from .pc_funding import _cycles, _employee_for_report, cycle_membership
@@ -361,7 +361,7 @@ def _values(doc, category, provided):
     return values
 
 
-def _accounts(employee, category):
+def _accounts(employee, category, has_vat=False):
     company = employee.company
     if not company or not employee.custom_custody_account:
         frappe.throw("Set Company and Custody Account on the ERP Employee before confirmation.")
@@ -375,6 +375,15 @@ def _accounts(employee, category):
     if len(expenses) != 1:
         frappe.throw("The category must resolve to exactly one active expense account in the Company.")
     expense = frappe.get_doc("Account", expenses[0])
+    vat_account = None
+    if has_vat:
+        vat_accounts = frappe.get_all("Account", filters={"company": company, "is_group": 0,
+                                    "disabled": 0, "account_number": "2281",
+                                    "account_type": "Tax", "root_type": "Liability"},
+                                     pluck="name", limit_page_length=2)
+        if len(vat_accounts) != 1:
+            frappe.throw("The Company must have exactly one active input VAT account 2281.")
+        vat_account = vat_accounts[0]
     custody = frappe.get_doc("Account", employee.custom_custody_account)
     if (custody.company != company or custody.disabled or custody.is_group
             or custody.account_type in ("Receivable", "Payable") or custody.root_type != "Asset"):
@@ -392,7 +401,7 @@ def _accounts(employee, category):
         frappe.throw("Expense and custody accounts must use the Company's SAR currency and correct classification.")
     if not cost_center or frappe.db.get_value("Cost Center", cost_center, "company") != company:
         frappe.throw("Set a valid Company cost center before confirmation.")
-    return company, expense.name, custody.name, cost_center
+    return company, expense.name, custody.name, cost_center, vat_account
 
 
 @frappe.whitelist(methods=["POST"])
@@ -432,7 +441,9 @@ def confirm_receipt(transaction_id, expected_modified=None, transaction_category
         frappe.throw("The original receipt evidence must be linked before confirmation.")
     if frappe.db.exists("Journal Entry", {"custom_pc_source_key": key}):
         frappe.throw("A journal already owns this receipt source. Finance must resolve the duplicate.")
-    company, expense, custody, cost_center = _accounts(employee, values["transaction_category"])
+    vat_amount = inclusive_vat(values["amount"]) if values["has_vat"] else 0
+    company, expense, custody, cost_center, vat_account = _accounts(
+        employee, values["transaction_category"], values["has_vat"])
     frappe.db.sql("select name from `tabAccount` where name=%s for update", (custody,))
     # A legacy cycle export has no receipt IDs. Hold for reconciliation rather than guess overlap.
     legacy = frappe.db.sql("""select distinct je.name, je.user_remark from `tabJournal Entry` je
@@ -457,8 +468,10 @@ def confirm_receipt(transaction_id, expected_modified=None, transaction_category
                         + values["transaction_category"] + "\nMerchant: " + values["merchant"]
                         + "\nInvoice: " + values["invoice_number"] + "\nVAT evidence: "
                         + ("Yes" if values["has_vat"] else "No") + " / " + values["supplier_vat_number"]
-                        + "\nGross expense; Finance assesses VAT before submission.\n" + values["details"]),
-        "accounts": journal_lines(values["amount"], expense, custody, cost_center),
+                        + "\nInput VAT is separated to account 2281; Finance verifies invoice evidence before submission.\n"
+                        + values["details"]),
+        "accounts": journal_lines(values["amount"], expense, custody, cost_center,
+                                  vat_account, vat_amount),
     })
     # The scoped has_permission hook allows this one native create after all
     # receipt, employee and accounting checks above. Keep the ordinary insert
@@ -478,7 +491,7 @@ def confirm_receipt(transaction_id, expected_modified=None, transaction_category
             flags.sig_pc_journal_create_receipt = previous_receipt
     for field, value in values.items():
         doc.set(field, float(value) if field == "amount" else value)
-    doc.vat_amount = round(float(values["amount"]) * 15 / 115, 2) if values["has_vat"] else 0
+    doc.vat_amount = float(vat_amount)
     doc.journal_entry, doc.journal_status = journal.name, "Draft"
     doc.closure_status, doc.reviewed_by, doc.reviewed_at = "Closed", context["user"], now_datetime()
     # This read-only review record is written only after the scope/version checks;
