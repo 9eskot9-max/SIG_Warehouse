@@ -195,12 +195,15 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
             '<div class="sig-pc-status-side"><h3>' + __('Transaction status') + '</h3>' + detail(row) +
             (row.source_media_url ? '<a data-open-receipt href="' + esc(row.source_media_url) + '" target="_blank" rel="noopener">' + __('Open receipt') + '</a>' : '') +
             (row.archive_status === 'Archived' ? '' : (row.source_media_url ? '<p><button type="button" class="btn btn-default btn-sm" data-archive>' + __('Archive receipt') + '</button></p>' : '')) +
+            (row.archive_status === 'Archived' ? '' : '<p><button type="button" class="btn btn-default btn-sm" data-recover>' + __('Archive recovered photo') + '</button></p>') +
             '<div class="sig-pc-status-message" data-archive-message role="status"></div></div>' :
             '<div class="sig-pc-status-empty">' + __('No transactions match this selection.') + '</div>';
         Object.assign(view, {s: 1, x: 0, y: 0, r: 0, mode: 'page'});
         wireViewer(q('.sig-pc-status-selected'));
         const archiveButton = q('[data-archive]');
         if (archiveButton) archiveButton.addEventListener('click', () => archiveReceipt(row, archiveButton));
+        const recoveryButton = q('[data-recover]');
+        if (recoveryButton) recoveryButton.addEventListener('click', () => recoverReceipt(row));
         if (row && row.archive_status === 'Archived') loadArchivedMedia(row, state.archiveRequest);
         el.querySelectorAll('[data-select]').forEach((button) => button.setAttribute('aria-selected', String(button.dataset.select === state.selected)));
         el.querySelectorAll('[data-row]').forEach((tr) => tr.classList.toggle('is-selected', tr.dataset.row === state.selected));
@@ -239,6 +242,23 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
             button.disabled = false; button.textContent = __('Archive receipt');
             if (message) message.textContent = error.message || __('Could not archive receipt.');
         }
+    }
+    function recoverReceipt(row) {
+        frappe.prompt([
+            {fieldname: 'recovery_url', fieldtype: 'Data', label: __('Forwarded photo link')},
+            {fieldname: 'capture_message_id', fieldtype: 'Data', label: __('Or captured message ID')},
+            {fieldname: 'recovery_evidence', fieldtype: 'Small Text', label: __('How does this photo match the receipt?'), reqd: 1}
+        ], async (values) => {
+            try {
+                await frappe.call({method: 'sig_warehouse.sig_warehouse.pc_journal.archive_recovered_receipt',
+                    type: 'POST', args: {transaction_id: row.name, ...values}});
+                row.archive_status = 'Archived';
+                renderSelected();
+            } catch (error) {
+                const message = q('[data-archive-message]');
+                if (message) message.textContent = error.message || __('Could not archive recovered photo.');
+            }
+        }, __('Archive recovered photo'), __('Archive'));
     }
     function select(name, scroll) {
         state.selected = name; renderSelected();
