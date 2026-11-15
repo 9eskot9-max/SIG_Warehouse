@@ -96,7 +96,9 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
 
     def cycle_context(site_key):
         cs = cycles.get(site_key) or []
-        if not cs:
+        # A site may have several scopes. Never imply an arbitrary one is the
+        # session's cycle; the detail view uses the actual posted visit link.
+        if len(cs) != 1:
             return None
         c = cs[0]
         return {'project': text_value(c.erp_project) or text_value(c.project) or 'Basic / unallocated work',
@@ -185,7 +187,7 @@ def get_my_visit_schedule():
 def get_visit(session_key):
     session_key = text_value(session_key)
     s = frappe.db.get_value('SIG Field Session', session_key,
-                            ['stream', 'group', 'site_key', 'site', 'start_msg', 'end_msg'], as_dict=True)
+                            ['stream', 'group', 'site_key', 'site', 'start_msg', 'end_msg', 'visit'], as_dict=True)
     if not s:
         return {'result': 'not_found'}
     lo_hi = frappe.db.sql(
@@ -199,9 +201,10 @@ def get_visit(session_key):
             "SELECT msg_key, occurred_at, reporter_name, kind, text FROM `tabSIG Field Message` "
             "WHERE `group` = %s AND occurred_at BETWEEN %s AND %s ORDER BY occurred_at ASC LIMIT 300",
             (s.group, lo, hi), as_dict=True)
-    cycle = frappe.db.get_value('SIG Site Cycle', {'site_key': s.site_key},
+    cycle_name = frappe.db.get_value('SIG Field Visit', s.visit, 'cycle') if s.visit else None
+    cycle = frappe.db.get_value('SIG Site Cycle', cycle_name,
                                 ['name', 'project', 'erp_project', 'wo', 'stage', 'first_visit_at', 'last_visit_at',
-                                 'sessions_completed'], as_dict=True, order_by='modified desc')
+                                 'sessions_completed'], as_dict=True) if cycle_name else None
     cycle_candidates = []
     if ({'System Manager', 'Projects Manager'} & set(frappe.get_roles()) and
             frappe.has_permission('SIG Site Cycle', 'read')):

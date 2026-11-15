@@ -100,7 +100,7 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
 
     function rowHtml(row) {
         const cyc = row.cycle;
-        const projectLine = cyc ? (cyc.is_temporary ? '—' : `${esc(cyc.project)}${cyc.wo ? ' · ' + esc(cyc.wo) : ''}`) : `<span class="text-muted">${__('no cycle yet')}</span>`;
+        const projectLine = cyc ? (cyc.is_temporary ? __('Site context: temporary scope') : `${__('Site context')}: ${esc(cyc.project)}${cyc.wo ? ' · ' + esc(cyc.wo) : ''}`) : `<span class="text-muted">${__('Cycle not identified')}</span>`;
         const when = `${dt(row.start_at)}${row.end_at ? '–' + timeOnly(row.end_at) : ''}`;
         const siteLabel = row.site_linked ? row.site : (row.site ? `${row.site} (${__('Unresolved')})` : __('Unresolved site'));
         return `<tr class="sig-sv-row" data-name="${esc(row.name)}">
@@ -140,12 +140,12 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
             if (d.result !== 'ok') { panel.html(`<div class="text-muted">${__('Not found.')}</div>`); return; }
             const cyc = d.cycle;
             const cycleHtml = cyc ? `<b>${esc(cyc.project || '')}</b> · ${esc(cyc.stage || '')}${cyc.wo ? ' · ' + esc(cyc.wo) : ''}<br>
-                <span class="text-muted small">${__('Visits so far')}: ${cyc.sessions_completed || 0}, ${__('first')} ${dt(cyc.first_visit_at)}, ${__('last')} ${dt(cyc.last_visit_at)}</span>` : `<span class="text-muted">${__('No cycle yet for this site.')}</span>`;
+                <span class="text-muted small">${__('Visits so far')}: ${cyc.sessions_completed || 0}, ${__('first')} ${dt(cyc.first_visit_at)}, ${__('last')} ${dt(cyc.last_visit_at)}</span>` : `<span class="text-muted">${__('No posted cycle link for this session.')}</span>`;
             const timelineHtml = (d.timeline || []).map((m) => `<div class="sig-sv-msg"><span class="text-muted small">${timeOnly(m.at)}</span> <b>${esc(m.who)}</b> <span class="indicator-pill ${m.kind === 'START' ? 'blue' : m.kind === 'END' ? 'green' : 'grey'}" style="font-size:10px">${m.kind}</span>${m.text ? ' — ' + esc(m.text) : ''}</div>`).join('') || `<div class="text-muted small">${__('No stored messages.')}</div>`;
             const priorHtml = (d.prior_visits || []).map((p) => `<div class="small">${dt(p.start_at)} · ${esc(p.reporter_name)} · ${esc(p.status)}</div>`).join('') || `<div class="text-muted small">${__('None.')}</div>`;
             const commentsHtml = (d.comments || []).map((c) => `<div class="small" style="margin-bottom:4px"><b>${esc(c.by)}</b> <span class="text-muted">${dt(c.at)}</span><br>${esc(c.content)}</div>`).join('') || `<div class="text-muted small">${__('No notes yet.')}</div>`;
             const row = (lastPayload.rows || []).find((r) => r.name === name) || {};
-            panel.html(`<h5>${__('Site context')}</h5><div class="sig-sv-block">${cycleHtml}</div>
+            panel.html(`<h5>${__('Linked cycle')}</h5><div class="sig-sv-block">${cycleHtml}</div>
                 <h5>${__('WhatsApp timeline')}</h5><div class="sig-sv-block sig-sv-timeline">${timelineHtml}</div>
                 <h5>${__('Other visits at this site')}</h5><div class="sig-sv-block">${priorHtml}</div>
                 <h5>${__('Actions')}</h5><div class="sig-sv-actions"></div>
