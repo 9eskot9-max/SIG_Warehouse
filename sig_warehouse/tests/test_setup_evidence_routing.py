@@ -34,7 +34,11 @@ def route(monkeypatch):
     return {'cycle': cyc, 'resolution': resolution}
 '''
     namespace = {'frappe': fake}
-    exec(compile(patch.rewrite(source), '<reviewed resolver>', 'exec'), namespace)
+    update_path = path.with_name('allow_visit_new_cycle.py')
+    update_spec = importlib.util.spec_from_file_location('visit_cycle_patch', update_path)
+    update = importlib.util.module_from_spec(update_spec)
+    update_spec.loader.exec_module(update)
+    exec(compile(update.rewrite(patch.rewrite(source)), '<reviewed resolver>', 'exec'), namespace)
 
     def run(rows, event='TCN_GENERATED', po='PO1', wo='', project='Capex'):
         cycles = [SimpleNamespace(site_key='SITE', terminal=0, resolution_state='',
@@ -73,6 +77,35 @@ def test_visit_with_multiple_pos_stays_for_review(route):
                            dict(name='two', po='PO2', wo='WO-B')],
                           event='FIELD_VISIT_COMPLETED', po='')
     assert result is None and error['result'] == 'exception'
+
+
+def test_visit_without_open_cycle_reaches_new_cycle_creation(route):
+    result, error = route([], event='FIELD_VISIT_COMPLETED', po='', project='5g')
+    assert result['cycle'] is None and error is None
+
+
+def test_visit_does_not_create_when_an_incompatible_open_cycle_exists(route):
+    result, error = route([dict(name='other', po='PO1', wo='WO-A')],
+                          event='FIELD_VISIT_COMPLETED', po='', project='5g')
+    assert result is None and 'no compatible' in error['reason']
+
+
+def test_non_visit_without_open_cycle_remains_review(route):
+    result, error = route([], event='TCN_GENERATED', po='', project='5g')
+    assert result is None and 'no compatible' in error['reason']
+
+
+def test_visit_cycle_patch_is_repeatable_and_rejects_unknown_source(monkeypatch):
+    fake = ModuleType('frappe')
+    monkeypatch.setitem(sys.modules, 'frappe', fake)
+    path = Path(__file__).resolve().parents[1] / 'sig_warehouse/patches/v1_0/allow_visit_new_cycle.py'
+    spec = importlib.util.spec_from_file_location('cycle_patch_test', path)
+    patch = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(patch)
+    changed = patch.rewrite('before\n' + patch.OLD + ' after')
+    assert patch.rewrite(changed) == changed
+    with pytest.raises(ValueError):
+        patch.rewrite('unexpected writer')
 
 
 def test_shared_preparation_accepts_one_same_po_target(route):

@@ -120,6 +120,9 @@ def _upsert_sessions(sessions, trusted_from, sites, emp_by_phone):
             if "CYCLE_ATTRIBUTION_EXCEPTION" in (existing.diagnostics or ""):
                 if "CYCLE_ATTRIBUTION_EXCEPTION" not in values["diagnostics"]:
                     values["diagnostics"] = (values["diagnostics"] + ",CYCLE_ATTRIBUTION_EXCEPTION").strip(",")
+                for item in (existing.diagnostics or "").split(","):
+                    if item.startswith("CYCLE_ATTRIBUTION_REASON:"):
+                        values["diagnostics"] += "," + item
                 values["disposition"] = "REVIEW"
             frappe.db.set_value("SIG Field Session", existing_name, values, update_modified=False)
         else:
@@ -197,8 +200,9 @@ def post_session(name, force=False, cycle_hint=None):
     if not ok:
         reason = str(res.get("reason") or "")
         if res.get("result") == "exception" and reason.startswith("CYCLE_ATTRIBUTION:"):
-            diagnostics = [item for item in (s.diagnostics or "").split(",") if item and item != "CYCLE_ATTRIBUTION_EXCEPTION"]
+            diagnostics = [item for item in (s.diagnostics or "").split(",") if item and item != "CYCLE_ATTRIBUTION_EXCEPTION" and not item.startswith("CYCLE_ATTRIBUTION_REASON:")]
             diagnostics.append("CYCLE_ATTRIBUTION_EXCEPTION")
+            diagnostics.append("CYCLE_ATTRIBUTION_REASON:" + reason.partition(":")[2].replace(",", ";")[:180])
             frappe.db.set_value("SIG Field Session", s.name, {
                 "diagnostics": ",".join(diagnostics), "disposition": "REVIEW"}, update_modified=False)
             frappe.db.commit()
