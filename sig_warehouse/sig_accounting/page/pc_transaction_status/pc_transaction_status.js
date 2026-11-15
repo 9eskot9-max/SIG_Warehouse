@@ -247,6 +247,7 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
         frappe.prompt([
             {fieldname: 'recovery_url', fieldtype: 'Data', label: __('Forwarded photo link')},
             {fieldname: 'capture_message_id', fieldtype: 'Data', label: __('Or captured message ID')},
+            {fieldname: 'capture_sender', fieldtype: 'Data', label: __('Captured sender phone (if different)')},
             {fieldname: 'recovery_evidence', fieldtype: 'Small Text', label: __('How does this photo match the receipt?'), reqd: 1}
         ], async (values) => {
             try {

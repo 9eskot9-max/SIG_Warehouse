@@ -201,7 +201,7 @@ def _download_capture(message_id, sender):
     return raw, _media_type(raw)
 
 
-def ensure_archived(doc, employee, *, commit_state=True, recovery_source_url=None, capture_message_id=None):
+def ensure_archived(doc, employee, *, commit_state=True, recovery_source_url=None, capture_message_id=None, capture_sender=None):
     """Fetch, encrypt, upload, and read back before a receipt is confirmed."""
     if doc.sync_archive_locator and doc.archive_sha256:
         try:
@@ -224,7 +224,7 @@ def ensure_archived(doc, employee, *, commit_state=True, recovery_source_url=Non
         base, token, cipher = _archive_config()
         if capture_message_id:
             from .pc_review_routing import phone_key
-            raw, mime = _download_capture(capture_message_id, phone_key(employee.cell_number))
+            raw, mime = _download_capture(capture_message_id, capture_sender or phone_key(employee.cell_number))
         else:
             source_url = recovery_source_url or doc.source_media_url
             if not source_url:

@@ -152,7 +152,7 @@ def test_recovered_archive_keeps_original_and_records_match_evidence(app, monkey
     result = module.archive_recovered_receipt(receipt.name, 'Amount and date match', recovery_url='https://cdnydm.com/forwarded.jpeg')
     assert result['ok'] is True
     assert receipt.source_media_url.endswith('original.jpeg')
-    assert seen == [{'recovery_source_url': 'https://cdnydm.com/forwarded.jpeg', 'capture_message_id': None}]
+    assert seen == [{'recovery_source_url': 'https://cdnydm.com/forwarded.jpeg', 'capture_message_id': None, 'capture_sender': None}]
     assert any(t[0] == 'comment' and 'Amount and date match' in t[2] for t in fake.trace)
 
 
@@ -174,7 +174,21 @@ def test_recovered_archive_accepts_only_one_capture_selector(app, monkeypatch):
     with pytest.raises(RuntimeError, match='exactly one'):
         module.archive_recovered_receipt(receipt.name, 'matched', recovery_url='https://cdnydm.com/a', capture_message_id='m1')
     module.archive_recovered_receipt(receipt.name, 'matched', capture_message_id='false_123@lid')
-    assert seen == [{'recovery_source_url': None, 'capture_message_id': 'false_123@lid'}]
+    assert seen == [{'recovery_source_url': None, 'capture_message_id': 'false_123@lid', 'capture_sender': '966598366060'}]
+
+
+def test_cross_sender_recovery_requires_finance_and_configured_forwarder(app, monkeypatch):
+    module, fake, receipt, context = app
+    fake.conf = {'sig_pc_capture_forwarders': ['966562360067']}
+    seen = []
+    monkeypatch.setattr(module, 'ensure_archived', lambda doc, employee, **kw: seen.append(kw))
+    with pytest.raises(Denied):
+        module.archive_recovered_receipt(receipt.name, 'matched', capture_message_id='m1', capture_sender='966562360067')
+    context['roles'] = {'Accounts User'}
+    with pytest.raises(Denied):
+        module.archive_recovered_receipt(receipt.name, 'matched', capture_message_id='m1', capture_sender='966511111111')
+    module.archive_recovered_receipt(receipt.name, 'matched', capture_message_id='m1', capture_sender='966562360067')
+    assert seen[0]['capture_sender'] == '966562360067'
 
 
 def test_confirm_creates_one_unsubmitted_native_journal_and_links_original(app):
