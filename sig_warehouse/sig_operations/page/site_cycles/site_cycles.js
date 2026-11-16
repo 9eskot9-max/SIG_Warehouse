@@ -1,5 +1,6 @@
 frappe.pages['site-cycles'].on_page_load = function (wrapper) {
     const page = frappe.ui.make_app_page({parent: wrapper, title: __('Site Cycles'), single_column: true});
+    $(wrapper).find('.page-head').hide();
     const root = $('<main class="sig-cycles-page"></main>').appendTo(page.main);
     const state = {data: {}, family: '', project: '', periodDays: 10, stage: '', query: '', includeClosed: false, page: 1, selected: '', events: [], eventStatus: 'idle', loadId: 0};
     const pageSize = 50;
