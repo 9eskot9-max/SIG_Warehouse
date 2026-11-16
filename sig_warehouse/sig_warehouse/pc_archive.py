@@ -147,13 +147,16 @@ def _read_archive(doc, employee, base, token, cipher):
     try:
         if response.status_code != 200:
             frappe.throw("Archived receipt could not be read back from the VPS.")
-        encrypted = _bounded_response_bytes(response, 15 * 1024 * 1024)
+        stored = _bounded_response_bytes(response, 15 * 1024 * 1024)
     finally:
         response.close()
-    try:
-        raw = cipher.decrypt(encrypted)
-    except InvalidToken:
-        frappe.throw("Archived receipt failed its encryption integrity check.")
+    if locator.endswith('.plain.enc'):
+        raw = stored
+    else:
+        try:
+            raw = cipher.decrypt(stored)
+        except InvalidToken:
+            frappe.throw("Archived receipt failed its encryption integrity check.")
     digest = hashlib.sha256(raw).hexdigest()
     if not hmac_compare(digest, str(doc.archive_sha256)):
         frappe.throw("Archived receipt checksum does not match its saved verification value.")
@@ -202,7 +205,7 @@ def _download_capture(message_id, sender):
 
 
 def ensure_archived(doc, employee, *, commit_state=True, recovery_source_url=None, capture_message_id=None, capture_sender=None):
-    """Fetch, encrypt, upload, and read back before a receipt is confirmed."""
+    """Fetch, upload, and read back the original receipt before confirmation."""
     if doc.sync_archive_locator and doc.archive_sha256:
         try:
             base, token, cipher = _archive_config()
@@ -231,7 +234,6 @@ def ensure_archived(doc, employee, *, commit_state=True, recovery_source_url=Non
                 frappe.throw("Receipt has no source media URL to archive.")
             raw, mime = _download_source(source_url)
         content_sha256 = hashlib.sha256(raw).hexdigest()
-        encrypted = cipher.encrypt(raw)
         source_id, filename = _safe_source_id(doc)
         tx_date = str(doc.transaction_date or "")[:10]
         try:
@@ -241,9 +243,9 @@ def ensure_archived(doc, employee, *, commit_state=True, recovery_source_url=Non
         except ValueError:
             frappe.throw("Receipt date is invalid for the archive path.")
         params = {"employee": employee.name, "year": year, "month": month,
-                  "source_id": source_id, "filename": filename + ".enc",
+                  "source_id": source_id, "filename": filename + ".plain.enc",
                   "content_sha256": content_sha256, "mime_type": mime}
-        response = _request("POST", base + "/upload", token, params=params, data=encrypted,
+        response = _request("POST", base + "/upload", token, params=params, data=raw,
                             timeout=(8, 60))
         try:
             if response.status_code not in (200, 201):
@@ -263,13 +265,9 @@ def ensure_archived(doc, employee, *, commit_state=True, recovery_source_url=Non
         try:
             if readback.status_code != 200:
                 frappe.throw("VPS archive upload was not readable on verification.")
-            stored_encrypted = _bounded_response_bytes(readback, 15 * 1024 * 1024)
+            verified = _bounded_response_bytes(readback, 15 * 1024 * 1024)
         finally:
             readback.close()
-        try:
-            verified = cipher.decrypt(stored_encrypted)
-        except InvalidToken:
-            frappe.throw("VPS archive read-back failed its encryption integrity check.")
         if hashlib.sha256(verified).hexdigest() != content_sha256 or _media_type(verified) != mime:
             frappe.throw("VPS archive read-back does not match the receipt source.")
         _set_state(doc, "Archived", locator=locator, sha256=content_sha256, error="")
@@ -285,6 +283,6 @@ def ensure_archived(doc, employee, *, commit_state=True, recovery_source_url=Non
 
 
 def archived_media(doc, employee):
-    """Return an authorized receipt image from the private encrypted archive."""
+    """Return an authorized receipt image from the private archive."""
     base, token, cipher = _archive_config()
     return _read_archive(doc, employee, base, token, cipher)
