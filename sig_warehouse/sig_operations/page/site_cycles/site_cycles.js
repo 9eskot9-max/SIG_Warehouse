@@ -71,9 +71,11 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
 
     function shell() {
         root.html(`<header class="sig-cycles-header"><div><div class="sig-cycles-eyebrow">${__('SIG Operations')}</div>
-            <h1>${__('Site Cycles')}</h1><p class="sig-cycles-scope-caption">${__('Open site cycles across all project scopes.')}</p></div>
-            <nav><button type="button" class="btn btn-default sig-cycles-workbench">${__('Operations Workbench')}</button>
-                <button type="button" class="btn btn-default sig-cycles-visits">${__('Site Visits')}</button>
+            <h1>${__('Site Cycles')}</h1></div>
+            <nav class="sig-ops-nav"><button type="button" data-route="operations-workbench">${__('Projects')}</button>
+                <button type="button" class="active" aria-current="page">${__('Site Cycles')}</button>
+                <button type="button" data-route="site-visits">${__('Site Visits')}</button>
+                <button type="button" data-route="field-planner">${__('Field Planner')}</button>
                 <button type="button" class="btn btn-default sig-cycles-export" style="display:none">${__('Export Excel')}</button>
                 <button type="button" class="btn btn-default sig-cycles-refresh">${__('Refresh')}</button></nav></header>
             <div class="sig-cycles-pending-total"><strong class="sig-cycles-pending-number">—</strong><span>${__('Pending cycles')}</span><small class="sig-cycles-period"></small></div>
@@ -89,8 +91,11 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
                 <span class="sig-cycles-count"></span></div>
             <div class="sig-cycles-layout"><section class="sig-cycles-table-wrap"></section><aside class="sig-cycles-detail"></aside></div>
             <div class="sig-cycles-footnote">${__('Open items close when matching evidence is recorded. Review due flags existing pending work; age alone does not create a task. Historical KPI timing is reconstructed from recorded evidence; averages exclude unknown starts.')}</div>`);
-        root.find('.sig-cycles-workbench').on('click', () => frappe.set_route('operations-workbench'));
-        root.find('.sig-cycles-visits').on('click', () => frappe.set_route('site-visits'));
+        root.find('.sig-ops-nav [data-route]').on('click', function () {
+            const route = $(this).data('route');
+            if (route === 'projects') frappe.set_route('List', 'Project');
+            else frappe.set_route(route);
+        });
         root.find('.sig-cycles-export').on('click', () => window.open(
             '/api/method/sig_warehouse.sig_warehouse.operations_workbench.export_workbook?filter=cycles&scope=all', '_blank'));
         root.find('.sig-cycles-refresh').on('click', load);

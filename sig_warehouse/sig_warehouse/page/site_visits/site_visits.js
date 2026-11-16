@@ -3,7 +3,14 @@
 // row click opens a side panel with the original WhatsApp timeline + cycle context.
 frappe.pages['site-visits'].on_page_load = function (wrapper) {
     const page = frappe.ui.make_app_page({parent: wrapper, title: __('Site Visits'), single_column: true});
+    $(wrapper).find('.page-head').hide();
     const root = $('<div class="sig-sv-page"></div>').appendTo(page.main);
+    const nav = $('<header class="sig-ops-header"><div class="sig-ops-brand"><span>SIG OPERATIONS</span><h1>Site Visits</h1></div><nav class="sig-ops-nav" aria-label="Operations"><button type="button" data-route="projects">Projects</button><button type="button" data-route="cycles">Site Cycles</button><button type="button" class="active" aria-current="page">Site Visits</button><button type="button" data-route="planner">Field Planner</button></nav><button type="button" class="sig-ops-refresh">' + __('Refresh') + '</button></header>');
+    page.main.prepend(nav);
+    nav.find('[data-route="projects"]').on('click', () => frappe.set_route('List', 'Project'));
+    nav.find('[data-route="cycles"]').on('click', () => frappe.set_route('site-cycles'));
+    nav.find('[data-route="planner"]').on('click', () => frappe.set_route('field-planner'));
+    nav.find('.sig-ops-refresh').on('click', () => load());
     const state = {stream: '', site: '', person: '', status: '', view: 'current', search: '', selected: null};
     const esc = (v) => frappe.utils.escape_html(String(v || ''));
     const dt = (v) => {
