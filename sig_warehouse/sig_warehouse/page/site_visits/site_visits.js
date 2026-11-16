@@ -30,7 +30,7 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
                 <option value="history">${__('History')}</option>
             </select></label>
             <label class="sig-sv-field">${__('Stream')}<select class="sig-sv-stream form-control"><option value="">${__('All')}</option></select></label>
-            <label class="sig-sv-field" style="min-width:200px">${__('Site or person')}<input class="sig-sv-search form-control" placeholder="${__('Search site or reporter')}"></label>
+            <label class="sig-sv-field" style="min-width:200px">${__('Site or employee')}<input class="sig-sv-search form-control" placeholder="${__('Search site or ERP employee name')}"></label>
             <button type="button" class="btn btn-default btn-sm sig-sv-log-missing" style="align-self:flex-end">${__('Log missing visit')}</button>
         </div>
         <div class="sig-sv-summary"></div>
@@ -93,8 +93,7 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
     function summaryHtml(s) {
         const tile = (label, n, view) => `<div class="sig-sv-tile" data-view="${view}"><div class="sig-sv-tile-n">${n}</div><div class="sig-sv-tile-l">${__(label)}</div></div>`;
         return tile('Open now', s.open_now, 'open') + tile('Visits today', s.visits_today, 'today')
-            + tile('Needs review', s.needs_review, 'review') + tile('Unclassified', s.unclassified, 'unclassified')
-            + tile('Sites this week', s.sites_this_week, 'thisweek');
+            + tile('Needs review', s.needs_review, 'review') + tile('Sites this week', s.sites_this_week, 'thisweek');
     }
 
     function statusBadge(row) {
@@ -106,16 +105,15 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
     }
 
     function rowHtml(row) {
-        const cyc = row.cycle;
-        const projectLine = cyc ? (cyc.is_temporary ? __('Site context: temporary scope') : `${__('Site context')}: ${esc(cyc.project)}${cyc.wo ? ' · ' + esc(cyc.wo) : ''}`) : `<span class="text-muted">${__('Cycle not identified')}</span>`;
         const when = `${dt(row.start_at)}${row.end_at ? '–' + timeOnly(row.end_at) : ''}`;
-        const siteLabel = row.site_linked ? row.site : (row.site ? `${row.site} (${__('Unresolved')})` : __('Unresolved site'));
-        return `<tr class="sig-sv-row" data-name="${esc(row.name)}">
-            <td><b>${esc(siteLabel)}</b><br><span class="text-muted small">${projectLine}</span></td>
+        const siteLabel = row.site_linked ? row.site : (row.site || __('Unresolved site'));
+        const description = row.activity_code && row.activity_code !== 'UNSPECIFIED' ? row.activity_code : '—';
+        const minutes = row.hours != null ? Math.round(Number(row.hours) * 60) + ' ' + __('min') : '—';
+        return `<tr class="sig-sv-row" tabindex="0" data-name="${esc(row.name)}">
+            <td><b class="sig-sv-site">${esc(siteLabel)}</b><br><span class="text-muted small">${esc(description)}</span></td>
             <td>${esc(row.reporter_name)}<br><span class="text-muted small">${when}</span></td>
-            <td>${row.hours != null ? row.hours + 'h' : '—'}<br><span class="text-muted small">${row.photo_count} ${__('photos')}</span></td>
-            <td>${esc(row.activity_code || 'UNSPECIFIED')}<br><span class="text-muted small">${esc(row.stream_label)}</span></td>
-            <td>${statusBadge(row)}${row.diagnostics.length ? '<br><span class="text-muted small">' + esc(row.diagnostics.join(', ')) + '</span>' : ''}</td>
+            <td>${minutes}<br><span class="text-muted small">${row.photo_count} ${__('Pics')}</span></td>
+            <td>${statusBadge(row)}</td>
         </tr>`;
     }
 
@@ -133,16 +131,16 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
             return;
         }
         wrap.html(`<table class="table table-bordered sig-sv-table">
-            <thead><tr><th>${__('Site / Project')}</th><th>${__('Who · When')}</th><th>${__('Duration · Photos')}</th>
-            <th>${__('Type / Stream')}</th><th>${__('Status')}</th></tr></thead>
+            <thead><tr><th>${__('Site / Description')}</th><th>${__('Person · When')}</th><th>${__('Duration · Pics')}</th><th>${__('Status')}</th></tr></thead>
             <tbody>${payload.rows.map(rowHtml).join('')}</tbody></table>`);
-        wrap.find('.sig-sv-row').on('click', function () { state.selected = $(this).data('name'); showDetail(state.selected); });
+        wrap.find('.sig-sv-row').on('click keydown', function (e) { if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return; e.preventDefault(); state.selected = $(this).data('name'); wrap.find('.sig-sv-row').removeClass('selected'); $(this).addClass('selected'); root.find('.sig-sv-detail').removeClass('is-closed').addClass('is-open'); showDetail(state.selected); });
     }
 
     function showDetail(name) {
         const panel = root.find('.sig-sv-detail');
         panel.html(`<div class="text-muted text-center" style="padding:30px">${__('Loading...')}</div>`);
         frappe.call({method: 'sig_warehouse.sig_warehouse.site_visits.get_visit', args: {session_key: name}, callback: (r) => {
+            if (state.selected !== name) return;
             const d = r.message || {};
             if (d.result !== 'ok') { panel.html(`<div class="text-muted">${__('Not found.')}</div>`); return; }
             const cyc = d.cycle;
@@ -152,13 +150,14 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
             const priorHtml = (d.prior_visits || []).map((p) => `<div class="small">${dt(p.start_at)} · ${esc(p.reporter_name)} · ${esc(p.status)}</div>`).join('') || `<div class="text-muted small">${__('None.')}</div>`;
             const commentsHtml = (d.comments || []).map((c) => `<div class="small" style="margin-bottom:4px"><b>${esc(c.by)}</b> <span class="text-muted">${dt(c.at)}</span><br>${esc(c.content)}</div>`).join('') || `<div class="text-muted small">${__('No notes yet.')}</div>`;
             const row = (lastPayload.rows || []).find((r) => r.name === name) || {};
-            panel.html(`<h5>${__('Linked cycle')}</h5><div class="sig-sv-block">${cycleHtml}</div>
+            panel.html(`<div class="sig-sv-detail-head"><div><small>${__('Visit details')}</small><h3>${esc(row.site || __('Unresolved site'))}</h3>${statusBadge(row)}</div><button type="button" class="sig-sv-detail-close" aria-label="${__('Close details')}">×</button></div><div class="sig-sv-detail-summary"><div><small>${__('Person')}</small><b>${esc(row.reporter_name)}</b></div><div><small>${__('When')}</small><b>${dt(row.start_at)}${row.end_at ? '–' + timeOnly(row.end_at) : ''}</b></div><div><small>${__('Pics')}</small><b>${row.photo_count || 0}</b></div></div><h5>${__('Description')}</h5><div class="sig-sv-block">${esc(row.activity_code && row.activity_code !== 'UNSPECIFIED' ? row.activity_code : '—')}</div><h5>${__('Cycle and status')}</h5><div class="sig-sv-block">${cycleHtml}${(row.diagnostics || []).length ? '<br>' + esc(row.diagnostics.join(', ')) : ''}</div>
                 <h5>${__('WhatsApp timeline')}</h5><div class="sig-sv-block sig-sv-timeline">${timelineHtml}</div>
-                <h5>${__('Other visits at this site')}</h5><div class="sig-sv-block">${priorHtml}</div>
+                <details><summary>${__('Other visits at this site')}</summary><div class="sig-sv-block">${priorHtml}</div></details>
                 <h5>${__('Actions')}</h5><div class="sig-sv-actions"></div>
                 <h5>${__('Notes')}</h5><div class="sig-sv-block">${commentsHtml}</div>
                 <textarea class="form-control sig-sv-note-text" rows="2" placeholder="${__('Add a note...')}"></textarea>
                 <button type="button" class="btn btn-default btn-sm sig-sv-add-note" style="margin-top:6px">${__('Add note')}</button>`);
+            panel.find('.sig-sv-detail-close').on('click', () => panel.removeClass('is-open').addClass('is-closed'));
             renderActions(row, name, d.cycle_candidates || []);
             panel.find('.sig-sv-add-note').on('click', async () => {
                 const content = panel.find('.sig-sv-note-text').val().trim();
@@ -274,11 +273,13 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
         });
     }
 
+    let latestLoad = 0;
     function load() {
+        const requestId = ++latestLoad;
         frappe.call({method: 'sig_warehouse.sig_warehouse.site_visits.get_visits',
             args: {stream: state.stream, site: state.site, person: state.person, status: state.status,
                    view: state.view, search: state.search},
-            callback: (r) => { if (r.message) renderTable(r.message); }});
+            callback: (r) => { if (requestId === latestLoad && r.message) renderTable(r.message); }});
     }
 
     shell();
