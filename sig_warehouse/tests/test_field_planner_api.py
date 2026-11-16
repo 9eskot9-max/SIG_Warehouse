@@ -101,6 +101,22 @@ class FieldPlannerApiTests(unittest.TestCase):
         self.assertEqual({"needs_tcn": False, "tcn_due_at": "", "tcn_due_for": ""}, api._tcn_status(stop, {}))
         self.assertTrue(api._tcn_status({"provisional_days": [date(2026, 10, 28)]}, {})["needs_tcn"])
 
+    def test_parked_cycle_is_excluded_from_normal_planning(self):
+        api, _ = load_api(["SIG Field Ops"])
+        get_list = api.frappe.get_list
+
+        def parked(doctype, **kwargs):
+            rows = get_list(doctype, **kwargs)
+            if doctype == "SIG Site Cycle":
+                self.assertIn("sig_lifecycle", kwargs["fields"])
+                return [Row(row, sig_lifecycle="Parked") for row in rows]
+            return rows
+
+        api.frappe.get_list = parked
+        result = api.get_field_plan(week_start="2026-10-25", teams="4")
+        self.assertEqual(0, result["summary"]["committed_sites"])
+        self.assertEqual([], result["trips"])
+
     def test_roles_outside_the_page_audience_are_refused(self):
         api, _ = load_api(["Employee"])
         with self.assertRaises(PermissionError):

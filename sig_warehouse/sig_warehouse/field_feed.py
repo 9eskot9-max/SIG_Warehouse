@@ -81,7 +81,7 @@ def _load_window(since):
     return out
 
 
-def _upsert_sessions(sessions, trusted_from, sites, emp_by_phone):
+def _upsert_sessions(sessions, trusted_from, sites, emp_by_phone, *, correct_posted=False):
     n = 0
     for s in sessions:
         if fs.fmt(s["start_at"]) < trusted_from:
@@ -116,9 +116,12 @@ def _upsert_sessions(sessions, trusted_from, sites, emp_by_phone):
         if existing_name:
             existing = frappe.db.get_value("SIG Field Session", existing_name,
                                            ["posted", "corrected_by", "diagnostics"], as_dict=True)
-            if existing.posted or existing.corrected_by:
-                continue  # posted or PM-corrected (site_visits.py) sessions are immutable here;
-                          # a re-run from raw messages must not silently undo a human fix
+            if existing.corrected_by:
+                continue
+            if existing.posted:
+                if correct_posted and disposition == "PENDING" and values["status"] == "COMPLETED":
+                    n += int(_correct_estimated_visit(existing_name, values))
+                continue
             # A held cycle-attribution session is re-queued: posting now records it without a cycle.
             frappe.db.set_value("SIG Field Session", existing_name, values, update_modified=False)
         else:
@@ -126,6 +129,59 @@ def _upsert_sessions(sessions, trusted_from, sites, emp_by_phone):
                 ignore_permissions=True)
         n += 1
     return n
+
+
+def _correct_estimated_visit(session_name, values):
+    """Apply a trusted End to a posted estimate without creating another event."""
+    session = frappe.get_doc("SIG Field Session", session_name, for_update=True)
+    if (session.corrected_by or not session.posted or session.status != "AUTO_CLOSED"
+            or not session.visit or not values["end_msg"] or not values["end_at"]
+            or str(session.start_at)[:19] != values["start_at"]
+            or session.site_key != values["site_key"] or session.reporter != values["reporter"]):
+        return False
+    if not frappe.db.exists("SIG Field Visit", session.visit):
+        return False
+    visit = frappe.get_doc("SIG Field Visit", session.visit, for_update=True)
+    if visit.status != "AUTO_CLOSED" or visit.site_key != session.site_key or str(visit.start_at)[:19] != values["start_at"]:
+        return False
+    elapsed = fs.parse_ts(values["end_at"]) - fs.parse_ts(values["start_at"])
+    if not timedelta(0) < elapsed <= timedelta(hours=fs.CAP_HOURS):
+        return False
+    hours = round(elapsed.total_seconds() / 3600, 2)
+    resolved = ("START_WITHOUT_END", "HARD_CAP_24H", "LATE_END")
+    session_diagnostics = [code for code in (session.diagnostics or "").split(",") if code and code not in resolved]
+    visit_diagnostics = [code for code in (visit.diagnostic or "").split(",") if code and code not in resolved]
+    frappe.db.set_value("SIG Field Visit", visit.name, {
+        "status": "COMPLETED", "end_at": values["end_at"], "duration_hours": hours,
+        "diagnostic": ",".join(visit_diagnostics + ["LATE_END"]),
+    })
+    if visit.cycle:
+        cycle = frappe.get_doc("SIG Site Cycle", visit.cycle, for_update=True)
+        started = values["start_at"]
+        first_visit = str(cycle.first_visit_at or "")[:19]
+        last_visit = str(cycle.last_visit_at or "")[:19]
+        mir = str(cycle.mir_at or "")[:19]
+        checkpoint = "unclassified_visits" if not mir else ("impl_visits" if started >= mir else "survey_visits")
+        changes = {
+            "sessions_auto_closed": max(0, int(cycle.sessions_auto_closed or 0) - 1),
+            "sessions_completed": int(cycle.sessions_completed or 0) + 1,
+            "on_site_hours": float(cycle.on_site_hours or 0) + hours,
+            "first_visit_at": min(first_visit, started) if first_visit else started,
+            "last_visit_at": max(last_visit, started),
+            checkpoint: int(cycle.get(checkpoint) or 0) + 1,
+        }
+        if checkpoint == "impl_visits":
+            first_impl = str(cycle.first_impl_visit_at or "")[:19]
+            changes["first_impl_visit_at"] = min(first_impl, started) if first_impl else started
+        visit_dates = frappe.get_all("SIG Field Visit", filters={"cycle": cycle.name, "status": "COMPLETED"},
+                                     pluck="start_at", limit_page_length=0)
+        changes["visit_days"] = len({str(at)[:10] for at in visit_dates if at})
+        frappe.db.set_value("SIG Site Cycle", cycle.name, changes)
+    frappe.db.set_value("SIG Field Session", session.name, {
+        "status": "COMPLETED", "end_at": values["end_at"], "hours": hours, "end_msg": values["end_msg"],
+        "diagnostics": ",".join(session_diagnostics + ["LATE_END"]),
+    })
+    return True
 
 
 # ------------------------------------------------------------------ F2: posting
@@ -391,7 +447,8 @@ def run_feed(rebuild=False):
         sessions, exceptions = fs.assemble(
             window, ref, known_sites=sites,
             reparse_from=fs.fmt(ref - timedelta(hours=WINDOW_HOURS)))
-        touched = _upsert_sessions(sessions, trusted_from, sites, _employee_by_phone())
+        touched = _upsert_sessions(sessions, trusted_from, sites, _employee_by_phone(),
+                                    correct_posted=mode == "Live" and caught_up)
         for e in exceptions:
             if e["at"] >= trusted_from and frappe.db.exists("SIG Field Message", e["msg_key"]):
                 frappe.db.set_value("SIG Field Message", e["msg_key"], "diagnostic", e["code"], update_modified=False)

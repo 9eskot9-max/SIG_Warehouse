@@ -72,3 +72,6 @@ sig_warehouse.sig_warehouse.patches.v1_0.move_hr_onboarding_daily_refresh_to_app
 sig_warehouse.sig_warehouse.patches.v1_0.fix_pc_funded_employee_user_permission_scope
 sig_warehouse.sig_warehouse.patches.v1_0.allow_visit_new_cycle
 sig_warehouse.sig_warehouse.patches.v1_0.record_visit_without_cycle
+sig_warehouse.sig_warehouse.patches.v1_0.add_cycle_lifecycle_fields
+sig_warehouse.sig_warehouse.patches.v1_0.update_cycle_stage_rule
+sig_warehouse.sig_warehouse.patches.v1_0.reopen_parked_cycle

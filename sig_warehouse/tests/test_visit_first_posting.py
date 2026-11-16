@@ -160,10 +160,15 @@ def _site_visits(sessions, cycles, post):
 
     def get_all(doctype, filters=None, **kwargs):
         if doctype == "SIG Field Session":
-            return sessions
+            cursor = (filters.get("name") or [None, ""])[1]
+            return sorted((s for s in sessions if s.name > cursor), key=lambda s: s.name)[:kwargs.get("limit_page_length", 100)]
         return [c for c in cycles if c.site_key == filters["site_key"]][:kwargs.get("limit_page_length", 100)]
 
     fake.get_all = get_all
+    cache_values = {}
+    fake.cache = lambda: SimpleNamespace(get_value=lambda k: cache_values.get(k),
+        set_value=lambda k, v: cache_values.__setitem__(k, v),
+        delete_value=lambda k: cache_values.pop(k, None))
     fake.get_doc = lambda arg: SimpleNamespace(insert=lambda ignore_permissions=False: comments.append(arg))
     fake.log_error = lambda **kw: errors.append(kw)
     fake.get_traceback = lambda: "trace"
@@ -228,6 +233,28 @@ def test_allocation_failure_is_logged_and_does_not_stop_the_rest():
     assert sv.allocate_unallocated() == 0 and errors and errors[0]["title"] == "SIG visit allocation failed"
 
 
+def test_ineligible_early_pages_do_not_starve_later_eligible_visit():
+    from datetime import datetime
+    sessions = [SimpleNamespace(name=f"S{i:03d}", site_key="OTHER", stream="ti5g",
+                                start_at=datetime(2026, 11, 15)) for i in range(51)]
+    sessions.append(SimpleNamespace(name="S999", site_key="ZRW957", stream="ti5g",
+                                    start_at=datetime(2026, 11, 15)))
+    posts = []
+    sv, _comments, _errors = _site_visits(sessions, [_cycle("C1")],
+        lambda name, cycle_hint=None: posts.append(name) or {"result": "created"})
+    assert sv.allocate_unallocated() == 0
+    assert sv.allocate_unallocated() == 1
+    assert posts == ["S999"]
+
+
+def test_scan_cursor_wraps_after_last_page_to_recheck_older_rows():
+    old = _unallocated()
+    sv, _comments, _errors = _site_visits([old], [_cycle("C1")], lambda *a, **k: {"result": "created"})
+    assert sv.allocate_unallocated(limit=1) == 1
+    assert sv.allocate_unallocated(limit=1) == 0
+    assert sv.allocate_unallocated(limit=1) == 1
+
+
 def test_backlog_alert_raises_and_clears():
     from datetime import datetime
     s = session()
@@ -242,3 +269,28 @@ def test_backlog_alert_raises_and_clears():
     counts["review"] = 0
     assert feed._backlog_alert({}, datetime(2026, 11, 15, 12, 0)) == (0, 0)
     assert cleared == ["SIG-FEED-BACKLOG"]
+
+
+def test_late_end_updates_the_existing_visit_and_cycle_once():
+    posted = session(posted=1, status="AUTO_CLOSED", visit="VISIT-1", corrected_by=None,
+                     diagnostics="START_WITHOUT_END")
+    feed, _writes, _inserted, event_calls, _visits = feed_with(posted)
+    visit = Doc(name="VISIT-1", cycle="C-1", status="AUTO_CLOSED", site_key=posted.site_key,
+                start_at=posted.start_at, diagnostic="START_WITHOUT_END")
+    cycle = Doc(name="C-1", sessions_completed=0, sessions_auto_closed=1, on_site_hours=0,
+                first_visit_at=None, last_visit_at=None, mir_at="2026-11-10", first_impl_visit_at=None)
+    docs = {"SIG Field Session": posted, "SIG Field Visit": visit, "SIG Site Cycle": cycle}
+    feed.frappe.get_doc = lambda doctype, name, for_update: docs[doctype]
+    feed.frappe.get_all = lambda *args, **kwargs: [posted.start_at]
+    feed.frappe.db.exists = lambda doctype, name: docs[doctype].name == name
+    feed.frappe.db.set_value = lambda doctype, name, values: vars(docs[doctype]).update(values)
+    late_end = dict(start_at=posted.start_at, end_at="2026-11-11 20:30:47", end_msg="M2",
+                    reporter=posted.reporter, site_key=posted.site_key)
+    assert feed._correct_estimated_visit(posted.name, late_end)
+    assert not feed._correct_estimated_visit(posted.name, late_end)
+    assert posted.status == visit.status == "COMPLETED"
+    assert posted.end_msg == "M2" and visit.duration_hours == 1.0
+    assert visit.diagnostic == posted.diagnostics == "LATE_END"
+    assert cycle.sessions_auto_closed == 0 and cycle.sessions_completed == cycle.visit_days == cycle.impl_visits == 1
+    assert cycle.first_impl_visit_at == posted.start_at
+    assert not event_calls

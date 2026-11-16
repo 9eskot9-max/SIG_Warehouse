@@ -315,7 +315,10 @@ def get_field_plan(week_start=None, teams=None, scope_hours=None, diameter_km=No
 
     filters = {"terminal": 0, "stage": ["in", ["2 - Plan", "3 - Handover"]]}
     fields = CYCLE_FIELDS + (["plan_hold"] if _has_field("SIG Site Cycle", "plan_hold") else [])
-    cycles = [dict(c) for c in frappe.get_list("SIG Site Cycle", filters=filters, fields=fields, limit_page_length=0)]
+    if _has_field("SIG Site Cycle", "sig_lifecycle"):
+        fields.append("sig_lifecycle")
+    cycles = [dict(c) for c in frappe.get_list("SIG Site Cycle", filters=filters, fields=fields, limit_page_length=0)
+              if c.get("sig_lifecycle") != "Parked"]
     if project:
         # Project is selected from ERP Project's Link search. Match the stable
         # ERP link first, with agreement/PO compatibility for older cycles.
