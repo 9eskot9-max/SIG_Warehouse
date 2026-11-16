@@ -1,4 +1,5 @@
 .sig-planner-page{container:sig-planner / inline-size;width:100%;max-width:none;padding:10px 0 24px;color:#183247;font-size:14px;line-height:1.45}
+body:has(.sig-planner-topbar) .body-sidebar-container,body:has(.sig-ops-header) .body-sidebar-container,body:has(.sig-cycles-header) .body-sidebar-container{display:none!important}
 .sig-planner-page *{box-sizing:border-box}
 .sig-planner-topbar{display:flex;align-items:center;gap:18px;width:100%;min-height:76px;margin:0 0 12px;padding:11px 16px;background:#173b59;border-radius:10px;color:#fff}
 .sig-planner-brand{display:flex;flex:1 0 210px;flex-direction:column;min-width:175px;line-height:1.1}
