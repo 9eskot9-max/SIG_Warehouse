@@ -72,7 +72,7 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
     function shell() {
         root.html(`<header class="sig-cycles-header"><div><div class="sig-cycles-eyebrow">${__('SIG Operations')}</div>
             <h1>${__('Site Cycles')}</h1></div>
-            <nav class="sig-ops-nav"><button type="button" data-route="operations-workbench">${__('Projects')}</button>
+            <nav class="sig-ops-nav"><button type="button" data-route="projects">${__('Projects')}</button>
                 <button type="button" class="active" aria-current="page">${__('Site Cycles')}</button>
                 <button type="button" data-route="site-visits">${__('Site Visits')}</button>
                 <button type="button" data-route="field-planner">${__('Field Planner')}</button>
@@ -94,7 +94,8 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
         root.find('.sig-ops-nav [data-route]').on('click', function () {
             const route = $(this).data('route');
             if (route === 'projects') frappe.set_route('List', 'Project');
-            else frappe.set_route(route);
+            else if (route === 'site-visits') frappe.set_route('site-visits');
+            else if (route === 'field-planner') frappe.set_route('field-planner');
         });
         root.find('.sig-cycles-export').on('click', () => window.open(
             '/api/method/sig_warehouse.sig_warehouse.operations_workbench.export_workbook?filter=cycles&scope=all', '_blank'));
