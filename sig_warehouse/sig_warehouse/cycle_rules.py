@@ -11,12 +11,10 @@ def derive_cycle_state(row):
     sig_visit = str(row.get("first_visit_at") or "")[:19]
     sig_tags = str(row.get("tags_at") or "")[:19]
     sig_handover = []
-    if sig_tcn and sig_mir and sig_visits >= 1 and sig_tags:
-        sig_handover.append(max(sig_tcn, sig_mir, sig_visit, sig_tags))
-    if sig_tcn and sig_mir and sig_visits >= 2:
-        sig_second = str(row.get("second_visit_at") or row.get("last_visit_at") or sig_visit)[:19]
-        if sig_second:
-            sig_handover.append(max(sig_tcn, sig_mir, sig_second))
+    # One visit is sufficient for the normal installation preparation path.
+    # Tags remain independent work and a second visit is not a prerequisite.
+    if sig_tcn and sig_mir and sig_visits >= 1 and sig_visit:
+        sig_handover.append(max(sig_tcn, sig_mir, sig_visit))
     # Direct downstream evidence remains valid even for legacy cycles with
     # missing predecessors. Photos are historical evidence, never a pending task.
     for sig_field in ("photos_at", "warranty_at", "asbuilt_at"):

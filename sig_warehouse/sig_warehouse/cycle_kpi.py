@@ -6,6 +6,7 @@ module replays the immutable evidence stream through that same projection.
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
+from sig_warehouse.sig_warehouse.cycle_lifecycle import effective_lifecycle
 from sig_warehouse.sig_warehouse.cycle_rules import derive_cycle_state
 
 STAGES = ("1 - Initial", "2 - Plan", "3 - Handover", "4 - Invoicing")
@@ -33,8 +34,11 @@ def _datetime(value):
 
 def closure_disposition(event):
     """Only the exact owner-approved business outcome counts as completion."""
-    reason = (event.get("artifact_ref") or "").split("|", 3)[-1]
     if event.get("source_sub") == "operations_workbench":
+        outcome = str(event.get("sig_close_outcome") or "").lower()
+        if outcome in ("completed", "cancelled", "invalid"):
+            return outcome
+        reason = (event.get("artifact_ref") or "").split("|", 3)[-1]
         if reason == "PM confirms invoice submitted":
             return "completed"
         if reason in ("PM cancellation: budget issue", "PM note: cancelled", "PM note: site cancelled"):
@@ -71,13 +75,18 @@ def replay_cycles(cycles, events, as_of=None, period_days=10):
         state = {"stage": STAGES[0], "sessions_completed": 0, "sessions_auto_closed": 0}
         entries, exits, seen = {}, {}, set()
         previous_rank = 1
+        lifecycle = effective_lifecycle(cycle.get("sig_lifecycle"), cycle.get("terminal"))
+        stored_closed = lifecycle == "Closed"
+        closure = next((event for _, event in reversed(history) if event.get("event_code") == "SITE_CLOSED"), None) if stored_closed else None
         closed_event = None
         for at, event in history:
+            code = event.get("event_code")
+            if code == "SITE_CLOSED" and event is not closure:
+                continue
             event_key = event.get("event_id") or event.get("name")
             if event_key in seen:
                 continue
             seen.add(event_key)
-            code = event.get("event_code")
             if code in ("MAPPING_GENERATED", "MAPPING_SHEET_EXPORTED", "BOQ_GENERATED"):
                 if previous_rank == 1 and 1 not in entries:
                     entries[1] = at
@@ -102,25 +111,25 @@ def replay_cycles(cycles, events, as_of=None, period_days=10):
                 continue
             rank = int(stage[0]) if stage[:1].isdigit() else previous_rank
             if rank > previous_rank:
-                if previous_rank in entries and (code != "SITE_CLOSED" or closure_disposition(event) == "completed"):
+                if previous_rank in entries:
                     exits.setdefault(previous_rank, at)
                 entries.setdefault(rank, at)
                 previous_rank = rank
             state["stage"] = stage
 
-        stored_closed = cycle.get("terminal") in (1, True, "1", "Yes", "yes")
         closure_at = _datetime((closed_event or {}).get("occurred_at")) or _datetime(cycle.get("closed_on"))
         current_stage, _ = derive_cycle_state({**cycle, "terminal": int(stored_closed)})
         current_rank = int(current_stage[0]) if current_stage[:1].isdigit() else 1
         initial = entries.get(1)
         disposition = closure_disposition(closed_event) if closed_event else "unclassified"
-        total_days = _days(initial, closure_at if stored_closed else as_of)
+        elapsed_until = {"Closed": closure_at, "Parked": _datetime(cycle.get("sig_parked_at")), "Open": as_of}[lifecycle]
+        total_days = _days(initial, elapsed_until)
         stage_rows = []
         for rank, label in enumerate(STAGES, start=1):
             start_at = entries.get(rank)
             end_at = exits.get(rank)
             elapsed = _days(start_at, end_at) if end_at else None
-            running = not stored_closed and rank == current_rank and bool(start_at)
+            running = lifecycle == "Open" and rank == current_rank and bool(start_at)
             stage_rows.append({
                 "stage": label,
                 "entry_at": _iso(start_at),

@@ -1,6 +1,9 @@
 """Evidence-stage regressions for the Operations Workbench read model."""
 import importlib.util
+from datetime import datetime
 from io import BytesIO
+
+import pytest
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -8,7 +11,10 @@ from types import ModuleType, SimpleNamespace
 
 def _workbench():
     frappe = ModuleType("frappe")
-    frappe.whitelist = lambda: lambda function: function
+    frappe.whitelist = lambda **kwargs: lambda function: function
+    frappe.DoesNotExistError = type("DoesNotExistError", (Exception,), {})
+    frappe.db = SimpleNamespace(get_single_value=lambda *args: "{}")
+    frappe.utils = SimpleNamespace(nowdate=lambda: "2026-11-16")
     sys.modules["frappe"] = frappe
     source = Path(__file__).resolve().parents[1] / "sig_warehouse" / "operations_workbench.py"
     spec = importlib.util.spec_from_file_location("operations_workbench_under_test", source)
@@ -158,7 +164,7 @@ def test_handover_keeps_only_handover_work_when_preparation_is_evidenced():
         {"name": "10001134", "custom_family": "Incident"}, "2026-10-13",
         {"applicable": True, "closed": False, "source_dns": ["DN-1"]})
     assert {(item["key"], item["owner_role"]) for item in cycle["work"]} == {
-        ("tags", "co"), ("asbuilt_operational", "warehouse")}
+        ("tags", "co"), ("asbuilt_operational", "warehouse"), ("handover_documents", "either")}
     operational = next(item for item in cycle["work"] if item["key"] == "asbuilt_operational")
     assert operational["stage"] == "3 - Handover"
     assert operational["source_dns"] == ["DN-1"]
@@ -287,6 +293,9 @@ def test_site_cycles_dashboard_endpoint_returns_all_project_scopes_for_page_role
                 "complete": {"cycles": True}, "can_export": True}
 
     workbench._get_overview = overview
+    workbench._all_visible = lambda *args, **kwargs: (source_cycles, True)
+    frappe.db.sql = lambda *args, **kwargs: []
+    frappe.utils.now_datetime = lambda: datetime(2026, 11, 16)
     result = workbench.get_cycle_dashboard()
 
     assert captured["all_project_cycles"] is True
@@ -335,8 +344,9 @@ def test_site_cycles_dashboard_unrouted_user_gets_no_cycle_rows():
     assert rows == []
 
 
-def test_site_cycles_uses_short_names_for_the_confirmed_shared_owner_roster():
+def test_site_cycles_uses_short_names_for_legacy_roster():
     workbench = _workbench()
+    workbench.PEOPLE_MODEL_ACTIVE = False
 
     assert workbench._owner_names("Capex", "pm") == ["Sohil"]
     assert workbench._owner_names("Capex", "co") == ["Gulzar", "Sultan"]
@@ -542,6 +552,11 @@ def test_cycle_closure_is_limited_to_field_ops_pm_or_co():
         "co@example.com": ["Projects User", "SIG Field Ops"],
         "warehouse@example.com": ["Projects User", "Stock Manager"],
     }[user]
+    fake_frappe.get_list = lambda doctype, filters, **kwargs: [
+        Row(employee_name={"pm@example.com": "Mohammed Sohail Mohammed Ilyas",
+                           "co@example.com": "Arshad ahmed abdulhameed",
+                           "warehouse@example.com": "Ramzan"}[filters["user_id"]])
+    ]
     assert workbench._can_close_cycles("pm@example.com", [{"scope": "Incident", "role": "pm"}])
     assert workbench._can_close_cycles("co@example.com", [{"scope": "Incident", "role": "co"}])
     assert not workbench._can_close_cycles("warehouse@example.com", [{"scope": "Incident", "role": "warehouse"}])
@@ -651,16 +666,13 @@ def test_warehouse_status_query_is_limited_to_open_cycles_in_the_callers_scope()
     assert [row.name for row in all_project] == ["INC-1", "CAP-1"]
 
 
-def test_handover_stage_waits_for_tags_without_an_invoicing_task():
+def test_one_visit_moves_cycle_to_handover_with_tags_still_pending():
     workbench = _workbench()
-    row = _cycle(ho_at=None, stage="2 - Plan", tcn_at="2026-10-01", mir_at="2026-10-02", first_visit_at="2026-10-03")
-    cycle = workbench._cycle_view(row, {"custom_family": "Incident"}, "2026-10-19")
-    assert cycle["stage"] == "2 - Plan"
-    assert [(w["key"], w["stage"]) for w in cycle["work"]] == [("tags", "2 - Plan")]
-    row.update(sessions_completed=2, last_visit_at="2026-10-04")
+    row = _cycle(ho_at=None, stage="2 - Plan", tcn_at="2026-10-01", mir_at="2026-10-02",
+                 first_visit_at="2026-10-03", sessions_auto_closed=1)
     cycle = workbench._cycle_view(row, {"custom_family": "Incident"}, "2026-10-19")
     assert cycle["stage"] == "3 - Handover"
-    assert {w["key"] for w in cycle["work"]} == {"tags"}
+    assert {w["key"] for w in cycle["work"]} == {"tags", "handover_documents"}
     assert all(w["stage"] == "3 - Handover" for w in cycle["work"])
 
 
@@ -701,8 +713,59 @@ def test_bulk_closure_skips_a_cycle_visited_recently_unless_included():
     fake.utils = SimpleNamespace(now=lambda: "2026-11-15 12:00:00", nowdate=lambda: "2026-11-15",
                                  add_days=lambda day, n: "2026-11-01")
     workbench._can_close_cycles = lambda user, memberships=None: True
-    result = workbench.close_cycles(["RECENT", "IDLE"], "tidy")
+    result = workbench.close_cycles(["RECENT", "IDLE"], "tidy", outcome="Completed")
     assert result["closed"] == ["IDLE"] and result["skipped_recent_visit"] == ["RECENT"]
     assert result["already_closed"] == 0 and saved == ["IDLE"]
-    result = workbench.close_cycles(["RECENT"], "tidy", include_recent=1)
+    result = workbench.close_cycles(["RECENT"], "tidy", include_recent=1, outcome="Cancelled")
     assert result["closed"] == ["RECENT"] and result["skipped_recent_visit"] == []
+
+    assert events[0]["sig_close_outcome"] == "Completed"
+    assert events[1]["sig_close_outcome"] == "Cancelled"
+    assert events[1]["sig_close_reason"] == "tidy"
+    assert cycles["RECENT"].sig_lifecycle == "Closed"
+
+
+def test_park_and_reopen_use_existing_write_scope_and_keep_an_audit():
+    workbench = _workbench()
+    fake = workbench.frappe
+    comments = []
+
+    class Cycle(Row):
+        def set(self, key, value):
+            self[key] = value
+
+        def save(self):
+            pass
+
+        def add_comment(self, kind, message):
+            comments.append((kind, message))
+
+    cycle = Cycle(name="OPEN", terminal=0)
+    terminal = Cycle(name="CLOSED", terminal=1, sig_lifecycle="Parked")
+    cycles = {"OPEN": cycle, "CLOSED": terminal, "DENIED": Cycle(name="DENIED", terminal=0)}
+    fake.session = SimpleNamespace(user="pm@example.com")
+    fake.throw = lambda message, exc=ValueError: (_ for _ in ()).throw(exc(message))
+    fake.PermissionError = PermissionError
+    fake.has_permission = lambda doctype, kind, name: name != "DENIED"
+    fake.db = SimpleNamespace(exists=lambda doctype, name: name in cycles)
+    fake.get_doc = lambda doctype, name: cycles[name]
+    fake.utils = SimpleNamespace(now=lambda: "2026-11-16 12:00:00", get_datetime=datetime.fromisoformat)
+    workbench._can_close_cycles = lambda user: True
+
+    with pytest.raises(PermissionError):
+        workbench.park_cycles(["OPEN", "DENIED"], "waiting")
+    assert "sig_lifecycle" not in cycle
+    assert comments == []
+
+    assert workbench.park_cycles(["OPEN", "OPEN"], "<vendor>")["parked"] == ["OPEN"]
+    assert cycle["sig_lifecycle"] == "Parked"
+    assert comments[-1] == ("Info", "Parked Closed: &lt;vendor&gt;")
+    with pytest.raises(ValueError):
+        workbench.park_cycles(["OPEN"], "different reason")
+    assert cycle["sig_park_reason"] == "<vendor>"
+
+    assert workbench.reopen_parked_cycle("OPEN")["result"] == "reopened"
+    assert cycle["sig_lifecycle"] == "Open"
+    assert comments[-1][0] == "Info" and "Reopened" in comments[-1][1]
+    with pytest.raises(ValueError):
+        workbench.reopen_parked_cycle("CLOSED")

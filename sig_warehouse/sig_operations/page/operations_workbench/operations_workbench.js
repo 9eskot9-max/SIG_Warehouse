@@ -35,6 +35,7 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
     const tasks = () => data.stage_tasks || [];
 
     function visibleRows() {
+        if (filter === 'parked') return (data.parked_cycles || []).map((cycle) => ({kind:'parked', cycle}));
         if (filter === 'cycles') return cycles().filter((r) => !r.terminal).map((cycle) => ({kind:'cycle', cycle}));
         let rows = tasks();
         if (filter === 'review') rows = rows.filter((task) => task.kind === 'stage' && task.needs_review);
@@ -73,17 +74,19 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
             visibleCycleRows.add(cycle.name);
             const selectable = firstCycleRow && (row.kind === 'cycle' || row.kind === 'stage');
             const checked = selected.has(cycle.name);
-            const label = row.kind === 'cycle' ? ((cycle.work || []).filter((item) => item.key !== 'asbuilt_operational').map((item) => item.label).join(' · ') || __('Open site cycle'))
+            const label = row.kind === 'parked' ? __('Parked Closed') : row.kind === 'cycle' ? ((cycle.work || []).filter((item) => item.key !== 'asbuilt_operational').map((item) => item.label).join(' · ') || __('Open site cycle'))
                 : task.label || __('Open cycle');
-            const stage = row.kind === 'cycle' ? cycle.stage : task.stage;
-            const status = row.kind === 'cycle'
+            const stage = row.kind === 'cycle' || row.kind === 'parked' ? cycle.stage : task.stage;
+            const status = row.kind === 'parked' ? __('Parked Closed') : row.kind === 'cycle'
                 ? (cycle.needs_review ? __('Review due') : __('Open cycle'))
                 : task.status;
-            const reason = row.kind === 'cycle'
+            const reason = row.kind === 'parked'
+                ? [cycle.parked_at, cycle.park_reason].filter(Boolean).join(' · ')
+                : row.kind === 'cycle'
                 ? (cycle.delay_reason || cycle.delay_note || '')
                 : (task.review_reason || '');
             const closeButton = firstCycleRow && data.can_close_cycles
-                ? '<button class="btn btn-default sig-ops-close-one" data-cycle-name="' + esc(cycle.name) + '">' + __('Close cycle') + '</button>' : '';
+                ? (row.kind === 'parked' ? '<button class="btn btn-default sig-ops-reopen" data-cycle-name="' + esc(cycle.name) + '">' + __('Reopen') + '</button>' : '<button class="btn btn-default sig-ops-close-one" data-cycle-name="' + esc(cycle.name) + '">' + __('Parked Closed') + '</button>') + ' <button class="btn btn-default sig-ops-finish" data-cycle-name="' + esc(cycle.name) + '">' + __('Close with outcome') + '</button>' : '';
             const projectLabel = cycle.alias || cycle.family_label || cycle.family || '—';
             const familyWarning = cycle.family_conflict
                 ? '<small class="text-warning">' + __('Project family fields conflict; family routing is paused pending reconciliation.') + '</small>' : '';
@@ -93,15 +96,15 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
         }).join('');
         const pager = pageCount > 1 ? '<div class="sig-ops-pagination"><button class="btn btn-default sig-ops-prev" ' + (pageNumber <= 1 ? 'disabled' : '') + '>' + __('Previous') + '</button><span>' + __('Page {0} of {1}', [pageNumber, pageCount]) + '</span><button class="btn btn-default sig-ops-next" ' + (pageNumber >= pageCount ? 'disabled' : '') + '>' + __('Next') + '</button></div>' : '';
         const routeMessage = route.ready ? '' : '<div class="sig-ops-empty">' + __('Stage task routing needs review: ') + esc(route.issue || __('Your Employee link could not be verified.')) + '</div>';
-        const title = filter === 'cycles' ? __('Open site cycles') : filter === 'review' ? __('Review due') : filter.startsWith('stage:') ? esc(filter.slice(6)) : __('My stage tasks');
+        const title = filter === 'parked' ? __('Parked Closed') : filter === 'cycles' ? __('Open site cycles') : filter === 'review' ? __('Review due') : filter.startsWith('stage:') ? esc(filter.slice(6)) : __('My stage tasks');
         root.html('<header class="sig-ops-header"><div><div class="sig-ops-eyebrow">' + __('SIG Operations') + '</div><h1>' + __('Operations Workbench') + '</h1></div><nav class="sig-ops-header-actions" aria-label="' + __('Operations links') + '"><button class="btn btn-default sig-ops-projects">' + __('Projects') + '</button><button class="btn btn-default sig-ops-cycles">' + __('Site Cycles') + '</button><button class="btn btn-default sig-ops-visits">' + __('Site Visits') + '</button>' + '<button class="btn btn-default sig-ops-planner">' + __('Field Planner') + '</button>' + excelSetupLink + '<button class="btn btn-default sig-ops-refresh">' + __('Refresh') + '</button></nav></header>' +
             '<section class="sig-ops-panel sig-ops-my-todos"><div class="sig-ops-panel-head"><div><h2>' + __('My ToDos') + ' <span class="sig-ops-count">' + esc(data.todo_access ? (summary.todos || 0) : '—') + ((data.todos_has_more || (data.complete && !data.complete.todos)) ? '+' : '') + '</span></h2><p>' + __('Personal follow-ups allocated to your signed-in ERP account.') + '</p></div>' + (data.todo_create ? '<button class="btn btn-default sig-ops-new-todo">' + __('Create a follow-up') + '</button>' : '') + (data.todo_access ? '<button class="btn btn-primary sig-ops-all-todos">' + __('Open My ToDos') + '</button>' : '') + '</div>' + todoRows + ((data.todos_has_more || (data.complete && !data.complete.todos)) ? '<div class="sig-ops-footnote">' + __('Showing the first 50. Open My ToDos to view the complete list.') + '</div>' : '') + '</section>' +
             stats + '<section class="sig-ops-stage"><div class="sig-ops-stage-title"><h2>' + __('Delivery stages') + '</h2></div><div class="sig-ops-stage-flow">' + stages + '</div></section>' +
-            '<section class="sig-ops-panel sig-ops-main"><div class="sig-ops-panel-head"><div><h2>' + title + '</h2></div><div class="sig-ops-actions"><button class="btn btn-default sig-ops-export">' + __('Export Excel') + '</button><button class="btn btn-primary sig-ops-close" ' + (data.can_close_cycles && selected.size ? '' : 'disabled') + '>' + __('Close selected cycles') + '</button></div></div>' +
-            '<div class="sig-ops-toolbar"><nav>' + [['tasks', __('My stage tasks')], ['review', __('Review due')], ['cycles', __('Open cycles')]].map(([key, label]) => '<button data-filter="' + key + '" class="' + (filter === key ? 'active' : '') + '">' + label + '</button>').join('') + '</nav><span class="sig-ops-filter-count">' + allRows.length + ' ' + __('items') + '</span></div>' + routeMessage +
+            '<section class="sig-ops-panel sig-ops-main"><div class="sig-ops-panel-head"><div><h2>' + title + '</h2></div><div class="sig-ops-actions"><button class="btn btn-default sig-ops-export">' + __('Export Excel') + '</button><button class="btn btn-primary sig-ops-close" ' + (data.can_close_cycles && selected.size ? '' : 'disabled') + '>' + __('Park selected cycles') + '</button></div></div>' +
+            '<div class="sig-ops-toolbar"><nav>' + [['tasks', __('My stage tasks')], ['review', __('Review due')], ['cycles', __('Open cycles')], ['parked', __('Parked Closed')]].map(([key, label]) => '<button data-filter="' + key + '" class="' + (filter === key ? 'active' : '') + '">' + label + '</button>').join('') + '</nav><span class="sig-ops-filter-count">' + allRows.length + ' ' + __('items') + '</span></div>' + routeMessage +
             '<div class="sig-ops-selection"><label><input type="checkbox" class="sig-ops-select-visible"> ' + __('Select cycles on this page') + '</label><span class="sig-ops-selected-count">' + selected.size + ' ' + __('cycles selected') + '</span><small>' + (allRows.length ? (pageNumber - 1) * pageSize + 1 : 0) + '–' + Math.min(pageNumber * pageSize, allRows.length) + ' ' + __('of') + ' ' + allRows.length + '</small></div>' +
             (rows.length ? '<div class="sig-ops-table-wrap"><table class="sig-ops-table"><thead><tr><th></th><th>' + __('Site / WO') + '</th><th>' + __('Project') + '</th><th>' + __('Stage') + '</th><th>' + __('Task / pending work') + '</th><th>' + __('Status / action') + '</th></tr></thead><tbody>' + tableRows + '</tbody></table></div>' + pager : '<div class="sig-ops-empty">' + __('No work in this view.') + '</div>') +
-            '<div class="sig-ops-footnote">' + __('Matching evidence closes stage tasks. Delay flags the same task. Cycle closure records a reason and actor/time; unrelated personal ToDos remain open.') + '</div></section>');
+            '<div class="sig-ops-footnote">' + __('Parked cycles are listed under Parked Closed. Use Close with outcome for a final decision.') + '</div></section>');
         root.find('button[data-filter]').on('click', function () { filter = $(this).data('filter'); pageNumber = 1; selected.clear(); render(); });
         root.find('[data-stage]').on('click', function () { filter = 'stage:' + $(this).data('stage'); pageNumber = 1; selected.clear(); render(); });
         root.find('.sig-ops-excel-setup').on('click', () => frappe.set_route('excel-setup'));
@@ -111,7 +114,7 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
         root.find('.sig-ops-visits').on('click', () => frappe.set_route('site-visits'));
         root.find('.sig-ops-planner').on('click', () => frappe.set_route('field-planner'));
         root.find('.sig-ops-cycle-check').on('change', function () {
-            if (this.checked && !selected.has(this.value) && selected.size >= 50) { this.checked = false; return frappe.msgprint(__('Select up to 50 cycles per bulk closure.')); }
+            if (this.checked && !selected.has(this.value) && selected.size >= 50) { this.checked = false; return frappe.msgprint(__('Select up to 50 cycles to park.')); }
             this.checked ? selected.add(this.value) : selected.delete(this.value);
             updateSelection(rows);
         });
@@ -130,12 +133,37 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
         root.find('.sig-ops-prev').on('click', () => { pageNumber = Math.max(1, pageNumber - 1); render(); });
         root.find('.sig-ops-next').on('click', () => { pageNumber += 1; render(); });
         root.find('a[data-doctype]').on('click', function (e) { e.preventDefault(); frappe.set_route('Form', $(this).data('doctype'), $(this).data('name')); });
-        root.find('.sig-ops-close').on('click', closeSelected);
-        root.find('.sig-ops-close-one').on('click', function () { closeCycles([$(this).data('cycle-name')]); });
+        root.find('.sig-ops-close').on('click', parkSelected);
+        root.find('.sig-ops-close-one').on('click', function () { parkCycles([$(this).data('cycle-name')]); });
+        root.find('.sig-ops-finish').on('click', function () {
+            const name = $(this).data('cycle-name');
+            frappe.prompt([{fieldname:'outcome', label:__('Outcome'), fieldtype:'Select', options:'\nCompleted\nCancelled\nInvalid', reqd:1},
+                {fieldname:'reason', label:__('Reason'), fieldtype:'Small Text', reqd:1}], values => {
+                finishCycle(name, values);
+            }, __('Close cycle'), __('Close'));
+        });
+        root.find('.sig-ops-reopen').on('click', function () {
+            frappe.call({method:'sig_warehouse.sig_warehouse.operations_workbench.reopen_parked_cycle',
+                args:{cycle:$(this).data('cycle-name')}}).then(() => load());
+        });
         root.find('.sig-ops-export').on('click', exportExcel);
         root.find('.sig-ops-all-todos').on('click', () => { frappe.route_options = {allocated_to: frappe.session.user, status: ['not in', ['Closed', 'Cancelled']]}; frappe.set_route('List', 'ToDo'); });
         root.find('.sig-ops-new-todo').on('click', () => frappe.new_doc('ToDo', {allocated_to: frappe.session.user, status: 'Open'}));
         updateSelection(rows);
+    }
+
+    function finishCycle(name, values, includeRecent = false) {
+        frappe.call({
+            method:'sig_warehouse.sig_warehouse.operations_workbench.close_cycles',
+            args:{cycles:[name], reason:values.reason, outcome:values.outcome, include_recent:Number(includeRecent)},
+        }).then(r => {
+            if ((r.message?.skipped_recent_visit || []).length) {
+                frappe.confirm(__('This cycle had a recent site visit. Close it anyway?'),
+                    () => finishCycle(name, values, true));
+                return;
+            }
+            load();
+        });
     }
 
     function updateSelection(rows) {
@@ -154,29 +182,23 @@ frappe.pages['operations-workbench'].on_page_load = function (wrapper) {
             .prop('indeterminate', checked > 0 && checked < available.length);
     }
 
-    function closeCycles(names) {
+    function parkCycles(names) {
         names = Array.from(new Set(names)).filter(Boolean);
         if (!names.length || !data.can_close_cycles) return;
-        frappe.prompt([{fieldname:'reason', label:__('Closure reason'), fieldtype:'Small Text', reqd:1}], (values) => {
-            const run = (includeRecent) => frappe.call({method:'sig_warehouse.sig_warehouse.operations_workbench.close_cycles',
-                args:{cycles:names, reason:values.reason, include_recent: includeRecent ? 1 : 0}}).then((r) => {
+        frappe.prompt([{fieldname:'reason', label:__('Parking reason'), fieldtype:'Small Text', reqd:1}], (values) => {
+            frappe.call({method:'sig_warehouse.sig_warehouse.operations_workbench.park_cycles',
+                args:{cycles:names, reason:values.reason}}).then((r) => {
                 const res = r.message || {};
-                const recent = res.skipped_recent_visit || [];
                 selected.clear();
-                frappe.show_alert({message: __('Closed {0} site cycles.', [(res.closed || []).length]), indicator:'green'});
+                frappe.show_alert({message: __('Parked {0} site cycles.', [(res.parked || []).length]), indicator:'green'});
                 load();
-                if (recent.length && !includeRecent) {
-                    frappe.confirm(__('{0} selected cycles were visited in the last 14 days and were not closed. Close them too?', [recent.length]),
-                        () => { names = recent; run(true); });
-                }
             });
-            run(false);
-        }, __('Close selected site cycles'), __('Close cycles'));
+        }, __('Parked Closed'), __('Park cycles'));
     }
 
-    function closeSelected() {
+    function parkSelected() {
         if (!selected.size) return frappe.msgprint(__('Select one or more cycles first.'));
-        closeCycles(Array.from(selected));
+        parkCycles(Array.from(selected));
     }
 
     function exportExcel() {

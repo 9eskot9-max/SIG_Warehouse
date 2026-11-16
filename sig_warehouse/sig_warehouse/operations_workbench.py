@@ -1,7 +1,8 @@
 """Permission-respecting operations dashboard read model and cycle close action."""
 import json
+from uuid import uuid4
 from io import BytesIO
-from html import unescape
+from html import escape, unescape
 from html.parser import HTMLParser
 
 from openpyxl import Workbook
@@ -10,6 +11,7 @@ from openpyxl.styles import Font, PatternFill
 import frappe
 from sig_warehouse.sig_warehouse.cycle_rules import derive_cycle_state
 from sig_warehouse.sig_warehouse import cycle_kpi
+from sig_warehouse.sig_warehouse.cycle_lifecycle import effective_lifecycle, parking_transition
 from sig_warehouse.sig_warehouse.project_family import normalize_family, resolve_project_family
 from sig_warehouse.sig_warehouse.people_model_gate import PEOPLE_MODEL_ACTIVE
 
@@ -305,7 +307,8 @@ def _warehouse_operational_lines(cycles):
 
 def _warehouse_cycles_in_scope(rows, projects_by_name, memberships, can_see_all):
     """Limit the derived Warehouse status read to open cycles this caller may see."""
-    open_rows = [row for row in rows if not _flag(row, "terminal")]
+    open_rows = [row for row in rows
+                 if effective_lifecycle(row.get("sig_lifecycle"), row.get("terminal")) == "Open"]
     if can_see_all:
         return open_rows
     visible_scopes = {str(m.get("scope") or "") for m in memberships}
@@ -511,7 +514,11 @@ def _cycle_view(row, project, today, operational=None):
         "family_conflict": bool((resolution or {}).get("conflict")),
         "family_values": (resolution or {}).get("values", []),
         "stage": stage, "legacy_stage": str(row.get("stage") or ""),
-        "terminal": closed, "closed_on": str(row.get("closed_on") or ""),
+        "terminal": closed,
+        "lifecycle": effective_lifecycle(row.get("sig_lifecycle"), row.get("terminal")),
+        "parked_at": str(row.get("sig_parked_at") or ""),
+        "park_reason": str(row.get("sig_park_reason") or ""),
+        "closed_on": str(row.get("closed_on") or ""),
         "closed_by": str(row.get("closed_by") or ""),
         "delay_reason": str(row.get("delay_reason") or ""),
         "delay_note": str(row.get("delay_note") or ""),
@@ -562,7 +569,7 @@ def _get_overview(all_project_cycles=False):
               "closed_on", "closed_by", "is_delayed", "is_aged", "delay_reason", "delay_note", "last_event_at",
               "mapping_at", "boq_at", "pimp_at", "tcn_at", "mir_at", "first_visit_at", "last_visit_at",
               "sessions_completed", "sessions_auto_closed", "tags_at", "photos_at",
-              "asbuilt_at", "warranty_at", "ho_at", "invoice_at"]
+              "asbuilt_at", "warranty_at", "ho_at", "invoice_at", "sig_lifecycle", "sig_parked_at", "sig_park_reason"]
     rows, result["complete"]["cycles"] = _all_visible(
         "SIG Site Cycle", fields, order_by="terminal asc, stage_due_on asc, last_event_at desc")
     projects_by_name = {}
@@ -595,7 +602,12 @@ def _get_overview(all_project_cycles=False):
         else "restricted" if warehouse_complete is None
         else "unavailable"
     )
+    parked_rows = []
     for row in rows:
+        if row.get("sig_lifecycle") == "Parked" and not _flag(row, "terminal"):
+            project = projects_by_name.get(str(row.get("erp_project") or ""))
+            parked_rows.append(_cycle_view(row, project, today))
+            continue
         project_key = str(row.get("erp_project") or "")
         project = projects_by_name.get(project_key)
         row["project_alias"] = aliases_by_stream.get(str(row.get("project_stream") or ""), "")
@@ -614,6 +626,8 @@ def _get_overview(all_project_cycles=False):
     result["scope"] = "all" if can_see_all_cycles else "assigned"
     result["can_export"] = bool(frappe.has_permission("SIG Site Cycle", "export"))
     result["cycles"] = _cycles_for_user(result["cycles"], route_memberships, can_see_all_cycles)
+    result["parked_cycles"] = _cycles_for_user(parked_rows, route_memberships, can_see_all_cycles)
+    result["parked_cycles"].sort(key=lambda row: row["parked_at"], reverse=True)
     result["cycles"].sort(key=lambda r: (not r["needs_review"], r["stage_due_on"] or "9999-12-31", r["site"].lower()))
 
     # The client receives only the open, in-scope cycle pool. Recompute these
@@ -675,7 +689,7 @@ def get_cycle_dashboard(period_days=10):
               "stage_due_on", "terminal", "closed_on", "closed_by", "is_delayed", "is_aged", "delay_reason",
               "delay_note", "last_event_at", "mapping_at", "boq_at", "pimp_at", "tcn_at", "mir_at",
               "first_visit_at", "last_visit_at", "sessions_completed", "sessions_auto_closed", "tags_at",
-              "photos_at", "asbuilt_at", "warranty_at", "ho_at", "invoice_at", "stage_anchor_at"]
+              "photos_at", "asbuilt_at", "warranty_at", "ho_at", "invoice_at", "stage_anchor_at", "sig_lifecycle", "sig_parked_at"]
     all_rows, complete = _all_visible("SIG Site Cycle", fields, order_by="terminal asc, closed_on desc")
     project_names = sorted({str(row.get("erp_project")) for row in all_rows if row.get("erp_project")})
     project_map = {}
@@ -701,7 +715,7 @@ def get_cycle_dashboard(period_days=10):
             continue
         marks = ",".join(["%s"] * len(batch))
         events.extend(frappe.db.sql(
-            "SELECT name, event_id, cycle, event_code, occurred_at, recorded_at, source_sub, artifact_ref "
+            "SELECT name, event_id, cycle, event_code, occurred_at, recorded_at, source_sub, artifact_ref, sig_close_outcome "
             "FROM `tabSIG Evidence Event` WHERE cycle IN (" + marks + ") "
             "ORDER BY occurred_at ASC, recorded_at ASC, name ASC", tuple(batch), as_dict=True))
     replay = cycle_kpi.replay_cycles(all_rows, events, frappe.utils.now_datetime(), period_days)
@@ -766,7 +780,10 @@ def export_workbook(filter="open", scope="assigned"):
     operational_complete = data.get("complete", {}).get("asbuilt_operational") is True
     operational_access = data.get("operational_access") or "unavailable"
     all_cycles = list(data.get("cycles") or [])
-    if filter == "cycles" or filter == "open":
+    if filter == "parked":
+        cycles = list(data.get("parked_cycles") or [])
+        tasks = []
+    elif filter == "cycles" or filter == "open":
         cycles = [c for c in all_cycles if not c.get("terminal")]
         tasks = [t for t in data.get("stage_tasks") or [] if t.get("cycle") in {c.get("name") for c in cycles}]
     else:
@@ -791,6 +808,8 @@ def export_workbook(filter="open", scope="assigned"):
                "Tags at", "Photos at", "As-Built BOQ at", "As-Built Operational status",
                "As-Built DN source(s) (if accessible)", "Warranty at", "Handover at", "Invoice at",
                "WO value (SAR)", "Visits"]
+    if filter == "parked":
+        headers.extend(["Parked at", "Parking reason"])
     ws.append(headers)
     stage_ws = wb.create_sheet("Stage tasks")
     stage_ws.append(["Task ID", "Cycle ID", "Site", "WO", "BA", "Project alias",
@@ -799,9 +818,10 @@ def export_workbook(filter="open", scope="assigned"):
     cycle_by_name = {c.get("name"): c for c in all_cycles}
     for cycle in cycles:
         events = cycle.get("events") or {}
+        status = "Parked Closed" if filter == "parked" else ("Closed" if cycle.get("terminal") else "Open")
         ws.append([cycle.get("name"), cycle.get("site"), cycle.get("wo"), cycle.get("ba"),
                    cycle.get("alias"), cycle.get("project_id"), cycle.get("family"),
-                   cycle.get("stage"), "Closed" if cycle.get("terminal") else "Open",
+                   cycle.get("stage"), status,
                    "; ".join(w.get("label", "") for w in cycle.get("work") or []),
                    "; ".join(
                        f"{w.get('label', 'Work')}: {' / '.join(w.get('owner_names') or [])}"
@@ -838,6 +858,10 @@ def export_workbook(filter="open", scope="assigned"):
         ws.cell(ws.max_row, 33, cycle.get("gross_value"))
         ws.cell(ws.max_row, 33).number_format = '#,##0.00'
         ws.cell(ws.max_row, 34, cycle.get("visit_count"))
+        if filter == "parked":
+            ws.cell(ws.max_row, 35, cycle.get("parked_at"))
+            reason_cell = ws.cell(ws.max_row, 36, cycle.get("park_reason") or "")
+            reason_cell.data_type = "s"
     for task in tasks:
         cycle = cycle_by_name.get(task.get("cycle"))
         if not cycle:
@@ -875,8 +899,64 @@ def export_workbook(filter="open", scope="assigned"):
     frappe.local.response.filecontent = output.getvalue()
     frappe.local.response.type = "download"
 
-@frappe.whitelist()
-def close_cycles(cycles, reason, include_recent=0):
+def _selected_cycle_names(cycles, reason):
+    try:
+        selected = cycles if isinstance(cycles, list) else json.loads(cycles or "[]")
+    except (TypeError, ValueError):
+        frappe.throw("Invalid cycle selection.")
+    if not isinstance(selected, list) or any(not isinstance(name, str) for name in selected):
+        frappe.throw("Invalid cycle selection.")
+    names = list(dict.fromkeys(name.strip() for name in selected if name.strip()))
+    reason = str(reason or "").strip()
+    if not names or len(names) > 50 or not reason or len(reason) > 500:
+        frappe.throw("Select 1–50 cycles and enter a reason up to 500 characters.")
+    return names
+
+
+@frappe.whitelist(methods=["POST"])
+def reopen_parked_cycle(cycle):
+    user = frappe.session.user
+    if not _can_close_cycles(user):
+        frappe.throw("Only Field Ops users may reopen site cycles.", frappe.PermissionError)
+    name = str(cycle or "").strip()
+    if not name or not frappe.db.exists("SIG Site Cycle", name) or not frappe.has_permission("SIG Site Cycle", "write", name):
+        frappe.throw("Cycle unavailable or cannot be changed.", frappe.PermissionError)
+    doc = frappe.get_doc("SIG Site Cycle", name)
+    if effective_lifecycle(doc.get("sig_lifecycle"), doc.get("terminal")) != "Parked":
+        frappe.throw("This cycle is not an active parked cycle.")
+    doc.set("sig_lifecycle", "Open")
+    doc.save()
+    doc.add_comment("Info", "Reopened manually from Parked Closed.")
+    return {"result": "reopened", "cycle": name}
+
+
+@frappe.whitelist(methods=["POST"])
+def park_cycles(cycles, reason):
+    """Park selected open cycles while preserving evidence and closure history."""
+    user = frappe.session.user
+    if not _can_close_cycles(user):
+        frappe.throw("Only Field Ops users may park site cycles.", frappe.PermissionError)
+    names = _selected_cycle_names(cycles, reason)
+    docs = []
+    for name in names:
+        if not frappe.db.exists("SIG Site Cycle", name) or not frappe.has_permission("SIG Site Cycle", "write", name):
+            frappe.throw("A selected cycle is unavailable or cannot be changed.", frappe.PermissionError)
+        doc = frappe.get_doc("SIG Site Cycle", name)
+        try:
+            values = parking_transition(doc, actor=user, parked_at=frappe.utils.get_datetime(frappe.utils.now()), reason=reason)
+        except ValueError as exc:
+            frappe.throw(str(exc))
+        docs.append((doc, values))
+    for doc, values in docs:
+        for key, value in values.items():
+            doc.set(key, value)
+        doc.save()
+        doc.add_comment("Info", "Parked Closed: " + escape(values["sig_park_reason"]))
+    return {"result": "parked", "parked": names}
+
+
+@frappe.whitelist(methods=["POST"])
+def close_cycles(cycles, reason, include_recent=0, outcome=None):
     """Write explicit SITE_CLOSED evidence for selected cycles after role and permission checks.
 
     A cycle visited within RECENT_VISIT_DAYS is skipped unless include_recent is set:
@@ -885,14 +965,10 @@ def close_cycles(cycles, reason, include_recent=0):
     user = frappe.session.user
     if not _can_close_cycles(user):
         frappe.throw("Only Field Ops users may close site cycles.", frappe.PermissionError)
-    try:
-        names = cycles if isinstance(cycles, list) else json.loads(cycles or "[]")
-    except Exception:
-        frappe.throw("Invalid cycle selection.")
-    names = list(dict.fromkeys(str(n).strip() for n in names if str(n).strip()))
-    reason = str(reason or "").strip().replace("|", "/")
-    if not names or len(names) > 50 or not reason or len(reason) > 500:
-        frappe.throw("Select 1–50 cycles and enter a closure reason up to 500 characters.")
+    if outcome not in ("Completed", "Cancelled", "Invalid"):
+        frappe.throw("Select a closure outcome: Completed, Cancelled or Invalid.")
+    names = _selected_cycle_names(cycles, reason)
+    reason = str(reason).strip()
     docs, recent = [], []
     cutoff = str(frappe.utils.add_days(frappe.utils.nowdate(), -RECENT_VISIT_DAYS))
     for name in names:
@@ -908,12 +984,12 @@ def close_cycles(cycles, reason, include_recent=0):
             continue
         docs.append(doc)
     now = frappe.utils.now()
-    stamp = now.replace("-", "").replace(" ", "").replace(":", "")
-    safe_user = user.replace("@", "_").replace(".", "_")
-    batch = "MANUAL-" + safe_user + "-" + stamp
+    batch = "MANUAL-" + uuid4().hex
     closed = []
     for seq, cycle in enumerate(docs, start=1):
         cycle.terminal = 1
+        cycle.sig_lifecycle = "Closed"
+        cycle.sig_close_outcome = outcome
         cycle.closed_on = now[:10]
         cycle.closed_by = user
         cycle.stage = "5 - Closed"
@@ -929,7 +1005,8 @@ def close_cycles(cycles, reason, include_recent=0):
             "schema_version": "EV1", "event_code": "SITE_CLOSED",
             "occurred_at": now, "recorded_at": now, "site_id": cycle.site_id,
             "site_key": cycle.site_key, "project": cycle.project, "po": cycle.po,
-            "wo": cycle.wo, "artifact_ref": "MANUAL_CLOSE|" + user + "|" + now + "|" + reason,
+            "wo": cycle.wo, "artifact_ref": "MANUAL_CLOSE",
+            "sig_close_outcome": outcome, "sig_close_reason": reason,
             "batch_id": batch, "seq": seq, "source_sub": "operations_workbench",
             "source_workbook": "ERP", "operator": user, "machine": "neosys",
             "core_version": "erp", "cycle": cycle.name,

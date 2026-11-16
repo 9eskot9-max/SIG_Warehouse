@@ -10,6 +10,23 @@ from sig_warehouse.sig_warehouse.cycle_kpi import replay_cycles, summarize
 
 
 class CycleKpiReplayTests(unittest.TestCase):
+    def test_structured_outcome_counts_completion_even_with_freeform_reason(self):
+        cycle = {"name": "C-1", "terminal": 1, "sig_lifecycle": "Parked"}
+        events = [self.event("e1", "MAPPING_GENERATED", "2026-10-12 08:00:00"),
+                  self.event("e2", "SITE_CLOSED", "2026-10-20 08:00:00", "close|free text", "operations_workbench")]
+        events[-1]["sig_close_outcome"] = "Completed"
+        metric = replay_cycles([cycle], events, "2026-10-21 12:00:00")["cycles"]["C-1"]
+        self.assertTrue(metric["business_completed"])
+        self.assertEqual("1 - Initial", metric["stage_exits_in_period"][0]["stage"])
+        self.assertTrue(metric["completion_in_period"])
+    def test_restored_nonterminal_cycle_does_not_replay_old_closure_as_terminal(self):
+        cycle = {"name": "C-1", "terminal": 0, "stage": "2 - Plan"}
+        events = [self.event("e1", "TCN_GENERATED", "2026-10-12 08:00:00"),
+                  self.event("e2", "SITE_CLOSED", "2026-10-13 08:00:00"),
+                  self.event("e3", "GCL_GENERATED", "2026-10-14 08:00:00")]
+        metric = replay_cycles([cycle], events, "2026-10-21 12:00:00")["cycles"]["C-1"]
+        self.assertTrue(any(row["stage"] == "4 - Invoicing" and not row["unknown"] for row in metric["stage_timings"]))
+        self.assertFalse(metric["business_completed"])
     def event(self, name, code, at, artifact_ref="", source_sub="field_feed", event_id=None):
         return {"name": name, "event_id": event_id or name, "cycle": "C-1", "event_code": code,
                 "occurred_at": at, "recorded_at": at, "artifact_ref": artifact_ref, "source_sub": source_sub}

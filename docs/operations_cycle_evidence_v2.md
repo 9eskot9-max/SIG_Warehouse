@@ -1,5 +1,17 @@
 # Operations cycle evidence rules — 19 October 2026
 
+## Parked Closed release configuration
+
+Operations Workbench offers **Parked Closed** for work on hold and **Close with outcome** for a final decision. Final outcomes are Completed, Cancelled and Invalid. The recent-visit confirmation applies to final closure. The Parked Closed view has its own export, shows when and why a cycle was parked, and offers Reopen. Parking and reopening leave an entry in the cycle timeline.
+
+A parked cycle remains eligible for evidence under the same Site, PO and WO attribution rules. An accepted TCN or visit reopens it immediately. Other accepted evidence reopens it after more than 30 days from the most recent parking action. Duplicate evidence has no lifecycle effect. Workbench and Field Planner omit parked cycles from active work. PM Weekly obtains its planned rows from Field Planner. Site Cycles keeps final closures in history and pauses the running KPI for parked cycles.
+
+TCN, MIR and one dated accepted visit qualify for Handover. An estimated-end visit qualifies from its start time. Tags remain an independent Handover task. The migration fills dates on open estimated-visit cycles when a linked dated visit is available. A matched late End corrects an estimated visit in place and preserves its evidence event. Site Visits displays CO1, INC1, CPX1 and CPX2.
+
+The three post-model-sync patches add lifecycle and outcome fields and update the existing EV1 writer. The existing Workbench mutation role checks, document permissions, Page audiences and Site/PO/WO scope are used. The 142 legacy parking candidates require a separate reviewed migration with current scope and modification checks. Project Progress, the daily delay job, historical TCN timestamp repair and evidence retention are follow-up work. Keep compact visit summaries and corrections in ERP when the local archive has been restore-tested.
+
+## Historical release notes
+
 ## Approved behavior
 
 - Site heading: `ZDU004 - 8,640.80 SAR`, with the WO underneath. Omit the separator and amount when no positive evidence-derived gross value exists. Both Operations Workbench and Site Cycles use this layout.

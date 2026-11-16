@@ -10,9 +10,9 @@ from sig_warehouse.sig_warehouse.cycle_rules import derive_cycle_state
 
 
 @pytest.mark.parametrize("extra,expected", [
-    ({}, "2 - Plan"),
+    ({}, "3 - Handover"),
     ({"tags_at": "2026-10-04"}, "3 - Handover"),
-    ({"tags_at": "2026-10-04", "first_visit_at": None, "sessions_auto_closed": 1}, "3 - Handover"),
+    ({"sessions_auto_closed": 1}, "3 - Handover"),
     ({"sessions_completed": 2, "last_visit_at": "2026-10-04"}, "3 - Handover"),
     ({"sessions_completed": 1, "sessions_auto_closed": 1, "last_visit_at": "2026-10-04"}, "3 - Handover"),
     ({"mir_at": None, "tags_at": "2026-10-04", "sessions_completed": 2}, "2 - Plan"),
@@ -21,16 +21,16 @@ from sig_warehouse.sig_warehouse.cycle_rules import derive_cycle_state
     ({"ho_at": "2026-10-05"}, "4 - Invoicing"),
     ({"terminal": 1}, "5 - Closed"),
 ])
-def test_handover_requires_four_milestones_or_two_visits(extra, expected):
+def test_handover_requires_tcn_mir_and_one_dated_visit(extra, expected):
     row = dict(stage="2 - Plan", tcn_at="2026-10-01", mir_at="2026-10-02", first_visit_at="2026-10-03")
     row.update(extra)
     assert derive_cycle_state(row)[0] == expected
 
 
-def test_second_visit_anchor_does_not_reset_on_third_visit():
+def test_first_visit_anchor_does_not_reset_on_later_visits():
     row = dict(tcn_at="2026-10-01", mir_at="2026-10-02", first_visit_at="2026-10-03",
                sessions_completed=3, second_visit_at="2026-10-05", last_visit_at="2026-10-18")
-    assert derive_cycle_state(row) == ("3 - Handover", "2026-10-05")
+    assert derive_cycle_state(row) == ("3 - Handover", "2026-10-03")
 
 
 def test_invoicing_decision_is_preserved_but_handover_requires_current_evidence():
@@ -80,7 +80,7 @@ def test_patch_embeds_canonical_rule_and_is_idempotent_without_replacing_other_w
     visits = [SimpleNamespace(start_at="2026-10-03"), SimpleNamespace(start_at="2026-10-05")]
     result = scope["handle"](Doc(row), "2026-10-18", "CYCLE", SimpleNamespace(get_all=lambda *a, **k: visits))
     assert result == derive_cycle_state({**row, "second_visit_at": "2026-10-05"})
-    assert result == ("3 - Handover", "2026-10-05")
+    assert result == ("3 - Handover", "2026-10-03")
     with pytest.raises(RuntimeError):
         patch.rewrite_evidence_writer("unrecognized writer")
 

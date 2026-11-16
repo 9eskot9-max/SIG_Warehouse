@@ -27,7 +27,7 @@ STREAM_PM = {
     'ticpx2': 'Mohammed Sohail Mohammed Ilyas',  # Live load transfer/SIG (Capex2)
     'ti5g': 'Mohammed Imran Ansary',             # SIG_5G_Collocation
 }
-STREAM_LABEL = {'tiinc': 'Incident', 'ticpx': 'Capex', 'ticpx2': 'Capex2', 'ti5g': '5G Collocation'}
+STREAM_LABEL = {'ti5g': 'CO1', 'tiinc': 'INC1', 'ticpx': 'CPX1', 'ticpx2': 'CPX2'}
 SITE_VISIT_ROLES = {"System Manager", "Operations Manager", "Operations User", "Projects Manager", "Projects User", "SIG Field Ops"}
 
 
@@ -70,7 +70,7 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
         where.append("s.disposition NOT IN ('IN_ERP_WINDOW', 'VOID')")
 
     rows = frappe.db.sql(
-        "SELECT s.name, s.stream, s.group, s.site_key, s.site, s.reporter, s.reporter_name, s.employee, "
+        "SELECT s.name, s.stream, s.site_key, s.site, s.reporter, s.reporter_name, s.employee, "
         "s.start_at, s.end_at, s.status, s.hours, s.activity_code, s.photo_count, s.diagnostics, "
         "s.disposition, s.posted, s.visit "
         "FROM `tabSIG Field Session` s WHERE " + ' AND '.join(where) +
@@ -117,7 +117,7 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
                                                         'CYCLE_ATTRIBUTION_EXCEPTION', 'UNALLOCATED'} & set(diags))
         record = {
             'name': r.name, 'stream': r.stream, 'stream_label': STREAM_LABEL.get(r.stream, r.stream),
-            'pm': STREAM_PM.get(r.stream, ''), 'group': r.group, 'site': r.site_key, 'site_linked': bool(r.site),
+            'pm': STREAM_PM.get(r.stream, ''), 'site': r.site_key, 'site_linked': bool(r.site),
             'reporter': r.reporter, 'reporter_name': display_name(r), 'whatsapp_name': r.reporter_name, 'employee': r.employee,
             'start_at': str(r.start_at or ''), 'end_at': str(r.end_at or ''), 'status': r.status,
             'hours': r.hours, 'activity_code': r.activity_code, 'photo_count': r.photo_count or 0,
@@ -336,30 +336,48 @@ def allocate_unallocated(limit=50):
     Runs after each feed run. Several open cycles, a family mismatch or a visit older than
     ALLOCATE_WINDOW_DAYS before the cycle was created leave the visit unallocated.
     """
-    rows = frappe.get_all('SIG Field Session', filters={'posted': 1, 'diagnostics': ['like', '%UNALLOCATED%']},
-                          fields=['name', 'site_key', 'stream', 'start_at'], order_by='start_at asc',
+    # Bounded keyset pages prevent old ineligible rows from starving later rows.
+    # The cache cursor is only a scheduling hint; losing it restarts safely.
+    if limit <= 0:
+        return 0
+    cache = frappe.cache()
+    cache_key = 'sig_field_unallocated_scan_cursor'
+    cursor = cache.get_value(cache_key)
+    filters = {'posted': 1, 'diagnostics': ['like', '%UNALLOCATED%']}
+    if cursor:
+        filters['name'] = ['>', cursor]
+    rows = frappe.get_all('SIG Field Session', filters=filters,
+                          fields=['name', 'site_key', 'stream', 'start_at'], order_by='name asc',
                           limit_page_length=limit)
-    allocated = 0
-    for row in rows:
-        cycles = frappe.get_all('SIG Site Cycle', filters={'site_key': row.site_key, 'terminal': 0},
-                                fields=['name', 'project', 'erp_project', 'creation'], limit_page_length=2)
-        if len(cycles) != 1 or _cycle_family_error(row.stream, cycles[0]):
-            continue
-        floor = frappe.utils.add_days(frappe.utils.get_datetime(cycles[0].creation), -ALLOCATE_WINDOW_DAYS)
-        if frappe.utils.get_datetime(row.start_at) < floor:
-            continue
-        try:
-            result = field_feed.post_session(row.name, cycle_hint=cycles[0].name)
-        except Exception:
-            frappe.db.rollback()
-            frappe.log_error(title='SIG visit allocation failed', message='Session: ' + row.name + '\n' + frappe.get_traceback())
-            continue
-        if result.get('result') in ('created', 'duplicate'):
-            frappe.get_doc({'doctype': 'Comment', 'comment_type': 'Comment',
-                            'reference_doctype': 'SIG Field Session', 'reference_name': row.name,
-                            'content': 'Cycle allocated automatically: %s' % cycles[0].name}).insert(ignore_permissions=True)
-            allocated += 1
+    allocated = sum(1 for row in rows if _allocate_unallocated_row(row))
+    if len(rows) < limit:
+        cache.delete_value(cache_key)
+    else:
+        cache.set_value(cache_key, rows[-1].name)
     return allocated
+
+
+def _allocate_unallocated_row(row):
+    """Try one already-posted session without inventing a cycle."""
+    cycles = frappe.get_all('SIG Site Cycle', filters={'site_key': row.site_key, 'terminal': 0},
+                            fields=['name', 'project', 'erp_project', 'creation'], limit_page_length=2)
+    if len(cycles) != 1 or _cycle_family_error(row.stream, cycles[0]):
+        return False
+    floor = frappe.utils.add_days(frappe.utils.get_datetime(cycles[0].creation), -ALLOCATE_WINDOW_DAYS)
+    if frappe.utils.get_datetime(row.start_at) < floor:
+        return False
+    try:
+        result = field_feed.post_session(row.name, cycle_hint=cycles[0].name)
+    except Exception:
+        frappe.db.rollback()
+        frappe.log_error(title='SIG visit allocation failed', message='Session: ' + row.name + '\n' + frappe.get_traceback())
+        return False
+    if result.get('result') in ('created', 'duplicate'):
+        frappe.get_doc({'doctype': 'Comment', 'comment_type': 'Comment',
+                        'reference_doctype': 'SIG Field Session', 'reference_name': row.name,
+                        'content': 'Cycle allocated automatically: %s' % cycles[0].name}).insert(ignore_permissions=True)
+        return True
+    return False
 
 
 @frappe.whitelist()
