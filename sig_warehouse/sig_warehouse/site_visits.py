@@ -46,7 +46,7 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
     person = text_value(person)
     status = text_value(status)
     view = text_value(view) or 'current'
-    search = text_value(search).lower()
+    search = text_value(search).strip().lower()
 
     where = ['1 = 1']
     values = []
@@ -64,7 +64,9 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
         values.append(status)
     if search:
         like = '%' + search + '%'
-        where.append("(LOWER(IFNULL(s.site_key,'')) LIKE %s OR LOWER(IFNULL(s.reporter_name,'')) LIKE %s)")
+        where.append("(LOWER(IFNULL(s.site_key,'')) LIKE %s OR EXISTS "
+                     "(SELECT 1 FROM `tabEmployee` e WHERE e.name = s.employee "
+                     "AND LOWER(IFNULL(e.employee_name,'')) LIKE %s))")
         values.extend([like, like])
     if view != 'history':
         where.append("s.disposition NOT IN ('IN_ERP_WINDOW', 'VOID')")
