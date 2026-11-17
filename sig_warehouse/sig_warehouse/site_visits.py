@@ -36,7 +36,47 @@ def text_value(value):
 
 
 @frappe.whitelist()
-def get_visits(stream='', site='', person='', status='', view='current', search=''):
+def get_movement_map(period='week', anchor=None):
+    """Return dated visit points and the Planner roster for a week or month."""
+    from datetime import timedelta
+    from sig_warehouse.sig_warehouse.field_planner_api import _team_setup
+
+    if not set(frappe.get_roles()).intersection(SITE_VISIT_ROLES):
+        frappe.throw('You need an Operations role to view field visits.', frappe.PermissionError)
+    if period not in ('week', 'month'):
+        frappe.throw('Choose week or month.')
+    day = frappe.utils.getdate(anchor or frappe.utils.nowdate())
+    start = day - timedelta(days=day.weekday()) if period == 'week' else day.replace(day=1)
+    end = start + timedelta(days=7) if period == 'week' else frappe.utils.add_months(start, 1)
+    rows = frappe.db.sql(
+        "SELECT name, site_key, employee, start_at, status, posted FROM `tabSIG Field Session` "
+        "WHERE start_at >= %s AND start_at < %s AND disposition NOT IN ('IN_ERP_WINDOW','VOID') "
+        "ORDER BY start_at ASC, name ASC LIMIT 10001", (start, end), as_dict=True)
+    truncated = len(rows) > 10000
+    rows = rows[:10000]
+    codes = list({r.site_key for r in rows if r.site_key})
+    employees = list({r.employee for r in rows if r.employee})
+    sites = frappe.get_list('SIG Site', filters={'name': ['in', codes]}, fields=['name', 'site_latitude', 'site_longitude'], limit_page_length=0) if codes else []
+    coordinates = {s.name: (s.site_latitude, s.site_longitude) for s in sites if s.site_latitude and s.site_longitude}
+    names = frappe.db.get_values('Employee', {'name': ['in', employees]}, ['name', 'employee_name'], as_dict=True) if employees else []
+    names = {e.name: e.employee_name for e in names}
+    roster = _team_setup()
+    teams = [{'id': str(t['team_id']), 'leader': t['leader'], 'label': t.get('team') or names.get(t['leader']) or t['leader'],
+              'periods': t.get('leader_periods') or [{'employee': t['leader'], 'from': '', 'to': ''}]} for t in roster]
+    points = []
+    for r in rows:
+        date = str(r.start_at)[:10]
+        matches = [t for t in teams if any(p.get('employee') == r.employee and (not p.get('from') or p['from'] <= date)
+                   and (not p.get('to') or date <= p['to']) for p in t['periods'])]
+        xy = coordinates.get(r.site_key)
+        points.append({'name': r.name, 'site': r.site_key, 'employee': r.employee, 'person': names.get(r.employee) or r.employee or '',
+                       'team': matches[0]['id'] if len(matches) == 1 else '', 'at': str(r.start_at), 'status': r.status,
+                       'lat': float(xy[0]) if xy else None, 'lon': float(xy[1]) if xy else None})
+    return {'start': str(start), 'end': str(end - timedelta(days=1)), 'teams': teams, 'visits': points, 'truncated': truncated}
+
+
+@frappe.whitelist()
+def get_visits(stream='', site='', person='', status='', view='current', search='', date_from='', date_to=''):
     user = frappe.session.user
     roles = set(frappe.get_roles(user)) if user != "Guest" else set()
     if not roles.intersection(SITE_VISIT_ROLES):
@@ -62,6 +102,12 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
     if status:
         where.append('s.status = %s')
         values.append(status)
+    if date_from:
+        where.append('s.start_at >= %s')
+        values.append(frappe.utils.getdate(date_from))
+    if date_to:
+        where.append('s.start_at < %s')
+        values.append(frappe.utils.add_days(frappe.utils.getdate(date_to), 1))
     if search:
         like = '%' + search + '%'
         where.append("(LOWER(IFNULL(s.site_key,'')) LIKE %s OR EXISTS "
@@ -76,8 +122,10 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
         "s.start_at, s.end_at, s.status, s.hours, s.activity_code, s.photo_count, s.diagnostics, "
         "s.disposition, s.posted, s.visit "
         "FROM `tabSIG Field Session` s WHERE " + ' AND '.join(where) +
-        " ORDER BY s.start_at DESC LIMIT 500", tuple(values), as_dict=True,
+        " ORDER BY s.start_at DESC LIMIT 501", tuple(values), as_dict=True,
     )
+    truncated = len(rows) > 500
+    rows = rows[:500]
     emp_ids = list({r.employee for r in rows if r.employee})
     emp_names = frappe.db.get_values('Employee', {'name': ['in', emp_ids]}, ['name', 'employee_name'], as_dict=True) if emp_ids else []
     emp_name_by_id = {e.name: e.employee_name for e in emp_names}
@@ -155,7 +203,7 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
         result.append(record)
 
     return {
-        'result': 'ok', 'rows': result,
+        'result': 'ok', 'rows': result, 'truncated': truncated,
         'streams': [{'value': k, 'label': v, 'pm': STREAM_PM.get(k, '')} for k, v in STREAM_LABEL.items()],
         'summary': {'open_now': now_open_count, 'visits_today': today_count, 'needs_review': review_count,
                     'unclassified': unclassified_count, 'sites_this_week': len(sites_this_week)},

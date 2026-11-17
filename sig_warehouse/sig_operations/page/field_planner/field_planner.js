@@ -1,4 +1,5 @@
-frappe.pages['field-planner'].on_page_load = function (wrapper) {
+frappe.pages['field-planner'].on_page_load = async function (wrapper) {
+    await frappe.require('/assets/sig_warehouse/js/sig_movement_map_assets.js');
     const page = frappe.ui.make_app_page({parent: wrapper, title: __('Field Planner'), single_column: true});
     $(wrapper).find('.page-head').hide();
     const root = $('<main class="sig-planner-page"></main>').appendTo(page.main);
@@ -253,9 +254,9 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
     }
 
     // Saudi Arabia outline (lon, lat): Natural Earth 1:110m countries (public domain, via world-atlas); simplified, not a survey boundary.
-    const KSA = [[34.95,29.36],[36.07,29.2],[36.5,29.51],[36.74,29.87],[37.5,30.0],[37.67,30.34],[38.0,30.51],[37.0,31.51],[39.0,32.01],[39.2,32.16],[40.4,31.89],[41.89,31.19],[44.71,29.18],[46.57,29.1],[47.46,29.0],[47.71,28.53],[48.42,28.55],[48.81,27.69],[49.3,27.46],[49.47,27.11],[50.15,26.69],[50.21,26.28],[50.11,25.94],[50.24,25.61],[50.53,25.33],[50.66,25.0],[50.81,24.75],[51.11,24.56],[51.39,24.63],[51.58,24.24],[51.62,24.01],[52.0,23.0],[55.01,22.5],[55.21,22.71],[55.67,22.0],[55.0,20.0],[52.0,19.0],[49.12,18.62],[48.18,18.17],[47.47,17.12],[47.0,16.95],[46.75,17.28],[46.37,17.23],[45.4,17.33],[45.22,17.43],[44.06,17.41],[43.79,17.32],[43.38,17.58],[43.12,17.09],[43.22,16.67],[42.78,16.35],[42.65,16.77],[42.35,17.08],[42.27,17.47],[41.76,17.83],[41.22,18.67],[40.94,19.49],[40.25,20.17],[39.8,20.34],[39.14,21.29],[39.02,21.99],[39.07,22.58],[38.49,23.69],[38.03,24.08],[37.49,24.29],[37.15,24.86],[37.21,25.08],[36.93,25.6],[36.64,25.83],[36.25,26.57],[35.64,27.38],[35.13,28.06],[34.63,28.06],[34.79,28.61],[34.83,28.96],[34.95,29.36]];
-    const TRIP_COLORS = ['#1e7fff', '#e8590c', '#2b9348', '#9c36b5', '#d6336c', '#0b7285', '#a67c00', '#495057'];
-    const TEAM_COLORS = ['#1e7fff', '#e8590c', '#2b9348', '#9c36b5', '#d6336c'];
+    const KSA = window.sigMovementMapAssets.outline;
+    const TRIP_COLORS = window.sigMovementMapAssets.colors;
+    const TEAM_COLORS = TRIP_COLORS.slice(0, 5);
     const positionPlace = (p) => p && (p.city || String(p.site || '').replace(/^CITY::/i, '')) || '';
     const PLANNER_CITY_OPTIONS = ['Riyadh', 'Jeddah', 'Makkah', 'Jizan', 'Abha', 'Madinah', 'Dammam', 'Unizah', 'Hail'];
     const DARK = '#2f3640';
@@ -274,7 +275,7 @@ frappe.pages['field-planner'].on_page_load = function (wrapper) {
     const view = {mode: 'team', base: 'drawing', extent: 'all', showUnplanned: false, selectedTeam: 1, selected: null, activeTab: 'team', reviewKind: 'all',
         zones: true, towns: true, box: null, leaflet: null, leafletView: null, townList: null, zoneCells: null, teamNames: {}, teamPositions: [], markers: {}};
 
-    function project(lon, lat) { return [(lon - 33) * 0.91 * 40, (34 - lat) * 40]; }
+    function project(lon, lat) { return window.sigMovementMapAssets.project(lon, lat); }
 
     function km(a, b) {
         const r = Math.PI / 180, h = Math.sin((b[0] - a[0]) * r / 2) ** 2 +

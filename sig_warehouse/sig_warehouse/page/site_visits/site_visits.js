@@ -11,7 +11,8 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
     nav.find('[data-route="cycles"]').on('click', () => frappe.set_route('site-cycles'));
     nav.find('[data-route="planner"]').on('click', () => frappe.set_route('field-planner'));
     nav.find('.sig-ops-refresh').on('click', () => load());
-    const state = {stream: '', site: '', person: '', status: '', view: 'current', search: '', selected: null};
+    const state = {stream: '', site: '', person: '', status: '', view: 'current', search: '', selected: null, period: 'week', anchor: frappe.datetime.get_today(), dateFrom: '', dateTo: ''};
+    let movement = null, movementRequest = 0;
     const esc = (v) => frappe.utils.escape_html(String(v || ''));
     const dt = (v) => {
         if (!v) return '—';
@@ -34,11 +35,16 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
             <button type="button" class="btn btn-default btn-sm sig-sv-log-missing" style="align-self:flex-end">${__('Log missing visit')}</button>
         </div>
         <div class="sig-sv-summary"></div>
-        <div class="sig-sv-main"><div class="sig-sv-table-wrap"></div><aside class="sig-sv-detail"><div class="text-muted text-center" style="padding:40px 10px">${__('Select a visit to see its WhatsApp timeline and site context.')}</div></aside></div>`);
+        <section class="sig-movement"><div class="sig-movement-head"><div><h3>${__('Team movement')}</h3><span class="text-muted small">${__('Recorded visits in order; lines do not show actual roads.')}</span></div><div class="sig-movement-controls"><select class="form-control sig-movement-period" aria-label="${__('Period')}"><option value="week">${__('Week')}</option><option value="month">${__('Month')}</option></select><input type="date" class="form-control sig-movement-anchor" aria-label="${__('Date in period')}"><button type="button" class="btn btn-default sig-movement-all">${__('All people')}</button></div></div><div class="sig-movement-leaders"></div><div class="sig-movement-map"></div><div class="sig-movement-note"></div></section>
+        <div class="sig-sv-list-limit text-muted small" hidden></div><div class="sig-sv-main"><div class="sig-sv-table-wrap"></div><aside class="sig-sv-detail"><div class="text-muted text-center" style="padding:40px 10px">${__('Select a visit to see its WhatsApp timeline and site context.')}</div></aside></div>`);
         root.find('.sig-sv-view').on('change', function () { state.view = this.value; load(); });
         root.find('.sig-sv-stream').on('change', function () { state.stream = this.value; load(); });
         root.find('.sig-sv-search').on('input', frappe.utils.debounce(function () { state.search = this.value; load(); }, 250));
         root.find('.sig-sv-log-missing').on('click', openLogMissingDialog);
+        root.find('.sig-movement-anchor').val(state.anchor).on('change', function () { if (this.value) { state.anchor = this.value; loadMovement(); } });
+        root.find('.sig-movement-period').on('change', function () { state.period = this.value; loadMovement(); });
+        root.find('.sig-movement-all').on('click', () => { state.person = ''; drawMovement(); load(); });
+        root.find('.sig-movement-leaders').on('click', 'button[data-person]', function () { state.person = $(this).attr('data-person'); drawMovement(); load(); });
         // Delegated: the tiles are re-rendered on every load(), so bind once on the
         // static parent rather than re-binding (and leaking listeners) after each render.
         root.find('.sig-sv-summary').on('click', '.sig-sv-tile', function () {
@@ -119,6 +125,7 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
 
     function renderTable(payload) {
         lastPayload = payload;
+        root.find('.sig-sv-list-limit').prop('hidden', !payload.truncated).text(payload.truncated ? __('Visit list is limited to the 500 most recent matches; narrow the filters to see earlier visits.') : '');
         const sel = root.find('.sig-sv-stream').empty().append(`<option value="">${__('All')}</option>`);
         (payload.streams || []).forEach((s) => sel.append($('<option></option>').val(s.value).text(s.label)));
         sel.val(state.stream);
@@ -273,15 +280,64 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
         });
     }
 
+    async function loadMovement() {
+        const id = ++movementRequest;
+        root.find('.sig-movement-map').text(__('Loading movement…'));
+        try {
+            await frappe.require('/assets/sig_warehouse/js/sig_movement_map_assets.js');
+            const response = await frappe.call({method: 'sig_warehouse.sig_warehouse.site_visits.get_movement_map', args: {period: state.period, anchor: state.anchor}});
+            if (id !== movementRequest) return;
+            movement = response.message;
+            if (!movement) throw new Error('No movement data');
+            state.dateFrom = movement.start; state.dateTo = movement.end;
+            drawMovement(); load();
+        } catch (error) {
+            if (id === movementRequest) root.find('.sig-movement-map').text(__('Movement map could not be loaded.'));
+        }
+    }
+
+    function drawMovement() {
+        if (!movement) return;
+        const asset = window.sigMovementMapAssets, colors = asset.colors;
+        const teams = movement.teams || [], visits = movement.visits || [];
+        const labels = new Map(teams.map((t, i) => [t.id, {label: t.label, color: colors[i % colors.length], leader: t.leader}]));
+        const people = new Map();
+        teams.forEach((t, i) => people.set(t.leader, {name: t.label, color: colors[i % colors.length]}));
+        visits.forEach(v => { if (v.employee && !people.has(v.employee)) people.set(v.employee, {name: v.person || v.employee, color: '#748594'}); });
+        root.find('.sig-movement-leaders').html([...people].map(([id, p]) => `<button type="button" data-person="${esc(id)}" class="sig-movement-person ${state.person === id ? 'active' : ''}"><span style="background:${p.color}"></span>${esc(p.name)}</button>`).join(''));
+        const shown = visits.filter(v => !state.person || v.employee === state.person);
+        const outline = asset.outline.map(([lon, lat]) => asset.project(lon, lat).join(',')).join(' ');
+        const runs = new Map();
+        shown.forEach(v => { const key = (v.employee || v.name) + '|' + v.at.slice(0, 10); if (!runs.has(key)) runs.set(key, []); runs.get(key).push(v); });
+        let lines = '', dots = '';
+        runs.forEach(group => {
+            for (let i = 1; i < group.length; i++) {
+                const a = group[i - 1], b = group[i];
+                if (a.lat == null || b.lat == null || a.lon == null || b.lon == null) continue;
+                const color = (labels.get(b.team) || {}).color || '#748594';
+                const [x1,y1] = asset.project(a.lon,a.lat), [x2,y2] = asset.project(b.lon,b.lat);
+                lines += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="2" opacity=".8"/>`;
+            }
+            group.forEach((v, index) => {
+                if (v.lat == null || v.lon == null) return;
+                const [x,y] = asset.project(v.lon,v.lat), color = (labels.get(v.team) || {}).color || '#748594';
+                dots += `<g><circle cx="${x}" cy="${y}" r="6" fill="${color}" stroke="white" stroke-width="1.5"/><text x="${x}" y="${y+2}" font-size="6" text-anchor="middle" fill="white">${index+1}</text><title>${esc(v.site)} · ${esc(v.person)} · ${esc(v.at.slice(0,16))}</title></g>`;
+            });
+        });
+        root.find('.sig-movement-map').html(`<svg viewBox="20 35 830 760" role="img" aria-label="${__('Recorded visit movement')}"><rect x="20" y="35" width="830" height="760" fill="#e9f1f7"/><polygon points="${outline}" fill="#f8faf9" stroke="#9db4c9" stroke-width="1.5"/>${lines}${dots}</svg>`);
+        const missing = shown.filter(v => v.lat == null || v.lon == null).length;
+        root.find('.sig-movement-note').text(`${movement.start} – ${movement.end} · ${shown.length} ${__('visits')} · ${missing} ${__('without map coordinates')}${movement.truncated ? ' · ' + __('Results limited to 10,000 visits') : ''}`);
+    }
+
     let latestLoad = 0;
     function load() {
         const requestId = ++latestLoad;
         frappe.call({method: 'sig_warehouse.sig_warehouse.site_visits.get_visits',
             args: {stream: state.stream, site: state.site, person: state.person, status: state.status,
-                   view: state.view, search: state.search},
+                   view: state.view, search: state.search, date_from: state.dateFrom, date_to: state.dateTo},
             callback: (r) => { if (requestId === latestLoad && r.message) renderTable(r.message); }});
     }
 
     shell();
-    load();
+    loadMovement();
 };
