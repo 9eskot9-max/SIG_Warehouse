@@ -61,7 +61,10 @@ def get_movement_map(period='week', anchor=None):
     names = frappe.db.get_values('Employee', {'name': ['in', employees]}, ['name', 'employee_name'], as_dict=True) if employees else []
     names = {e.name: e.employee_name for e in names}
     roster = _team_setup()
-    teams = [{'id': str(t['team_id']), 'leader': t['leader'], 'label': t.get('team') or names.get(t['leader']) or t['leader'],
+    leader_ids = list({t['leader'] for t in roster if t.get('leader')})
+    leader_rows = frappe.db.get_values('Employee', {'name': ['in', leader_ids]}, ['name', 'employee_name'], as_dict=True) if leader_ids else []
+    leader_names = {e.name: e.employee_name for e in leader_rows}
+    teams = [{'id': str(t['team_id']), 'leader': t['leader'], 'label': leader_names.get(t['leader']) or t['leader'],
               'periods': t.get('leader_periods') or [{'employee': t['leader'], 'from': '', 'to': ''}]} for t in roster]
     points = []
     for r in rows:
@@ -237,7 +240,7 @@ def get_my_visit_schedule():
 def get_visit(session_key):
     session_key = text_value(session_key)
     s = frappe.db.get_value('SIG Field Session', session_key,
-                            ['stream', 'group', 'site_key', 'site', 'start_msg', 'end_msg', 'visit'], as_dict=True)
+                            ['stream', 'group', 'site_key', 'site', 'start_msg', 'end_msg', 'visit', 'start_at'], as_dict=True)
     if not s:
         return {'result': 'not_found'}
     lo_hi = frappe.db.sql(
@@ -270,6 +273,7 @@ def get_visit(session_key):
         'Employee', {'name': ['in', prior_emp_ids]}, ['name', 'employee_name'], as_dict=True)} if prior_emp_ids else {}
     for p in prior:
         p['reporter_name'] = prior_emp_names.get(p.employee) or p.reporter_name
+    previous_count = frappe.db.count('SIG Field Visit', filters={'site_key': s.site_key, 'start_at': ['<', s.start_at]}) if s.site_key and s.start_at else None
     comments = frappe.get_all('Comment', filters={'reference_doctype': 'SIG Field Session', 'reference_name': session_key,
                                                    'comment_type': 'Comment'},
                               fields=['content', 'owner', 'creation'], order_by='creation desc', limit_page_length=20)
@@ -277,7 +281,7 @@ def get_visit(session_key):
     # it shows exactly what the sender's phone displayed, not an ERP-resolved identity.
     return {'result': 'ok', 'timeline': [{'at': str(m.occurred_at), 'who': m.reporter_name, 'kind': m.kind,
                                           'text': m.text} for m in timeline],
-            'cycle': cycle, 'cycle_candidates': cycle_candidates, 'prior_visits': prior,
+            'cycle': cycle, 'cycle_candidates': cycle_candidates, 'prior_visits': prior, 'previous_visit_count': previous_count,
             'comments': [{'content': c.content, 'by': c.owner, 'at': str(c.creation)} for c in comments]}
 
 

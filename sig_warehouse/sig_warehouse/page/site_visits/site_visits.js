@@ -1,6 +1,6 @@
 // Site Visits (V0, read-only). See docs/site_visits_page_design.md.
 // Same client pattern as project-progress: one shell, server does the filtering,
-// row click opens a side panel with the original WhatsApp timeline + cycle context.
+// Row click opens a concise detail panel with the linked cycle and actions.
 frappe.pages['site-visits'].on_page_load = function (wrapper) {
     const page = frappe.ui.make_app_page({parent: wrapper, title: __('Site Visits'), single_column: true});
     $(wrapper).find('.page-head').hide();
@@ -35,8 +35,8 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
             <button type="button" class="btn btn-default btn-sm sig-sv-log-missing" style="align-self:flex-end">${__('Log missing visit')}</button>
         </div>
         <div class="sig-sv-summary"></div>
-        <section class="sig-movement"><div class="sig-movement-head"><div><h3>${__('Team movement')}</h3><span class="text-muted small">${__('Recorded visits in order; lines do not show actual roads.')}</span></div><div class="sig-movement-controls"><select class="form-control sig-movement-period" aria-label="${__('Period')}"><option value="week">${__('Week')}</option><option value="month">${__('Month')}</option></select><input type="date" class="form-control sig-movement-anchor" aria-label="${__('Date in period')}"><button type="button" class="btn btn-default sig-movement-all">${__('All people')}</button></div></div><div class="sig-movement-leaders"></div><div class="sig-movement-map"></div><div class="sig-movement-note"></div></section>
-        <div class="sig-sv-list-limit text-muted small" hidden></div><div class="sig-sv-main"><div class="sig-sv-table-wrap"></div><aside class="sig-sv-detail"><div class="text-muted text-center" style="padding:40px 10px">${__('Select a visit to see its WhatsApp timeline and site context.')}</div></aside></div>`);
+        <section class="sig-movement"><div class="sig-movement-head"><div><h3>${__('Team movement')}</h3></div><div class="sig-movement-controls"><select class="form-control sig-movement-period" aria-label="${__('Period')}"><option value="week">${__('Week')}</option><option value="month">${__('Month')}</option></select><input type="date" class="form-control sig-movement-anchor" aria-label="${__('Date in period')}"><button type="button" class="btn btn-default sig-movement-all">${__('All people')}</button></div></div><div class="sig-movement-leaders"></div><div class="sig-movement-map"></div><div class="sig-movement-note"></div></section>
+        <div class="sig-sv-list-limit text-muted small" hidden></div><div class="sig-sv-main"><div class="sig-sv-table-wrap"></div><aside class="sig-sv-detail"><div class="text-muted text-center" style="padding:40px 10px">${__('Select a visit to see its details.')}</div></aside></div>`);
         root.find('.sig-sv-view').on('change', function () { state.view = this.value; load(); });
         root.find('.sig-sv-stream').on('change', function () { state.stream = this.value; load(); });
         root.find('.sig-sv-search').on('input', frappe.utils.debounce(function () { state.search = this.value; load(); }, 250));
@@ -151,19 +151,20 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
             const d = r.message || {};
             if (d.result !== 'ok') { panel.html(`<div class="text-muted">${__('Not found.')}</div>`); return; }
             const cyc = d.cycle;
-            const cycleHtml = cyc ? `<b>${esc(cyc.project || '')}</b> · ${esc(cyc.stage || '')}${cyc.wo ? ' · ' + esc(cyc.wo) : ''}<br>
-                <span class="text-muted small">${__('Visits so far')}: ${cyc.sessions_completed || 0}, ${__('first')} ${dt(cyc.first_visit_at)}, ${__('last')} ${dt(cyc.last_visit_at)}</span>` : `<span class="text-muted">${__('No posted cycle link for this session.')}</span>`;
-            const timelineHtml = (d.timeline || []).map((m) => `<div class="sig-sv-msg"><span class="text-muted small">${timeOnly(m.at)}</span> <b>${esc(m.who)}</b> <span class="indicator-pill ${m.kind === 'START' ? 'blue' : m.kind === 'END' ? 'green' : 'grey'}" style="font-size:10px">${m.kind}</span>${m.text ? ' — ' + esc(m.text) : ''}</div>`).join('') || `<div class="text-muted small">${__('No stored messages.')}</div>`;
-            const priorHtml = (d.prior_visits || []).map((p) => `<div class="small">${dt(p.start_at)} · ${esc(p.reporter_name)} · ${esc(p.status)}</div>`).join('') || `<div class="text-muted small">${__('None.')}</div>`;
+            const cycleHtml = cyc ? `<button type="button" class="sig-sv-cycle-link">${esc(cyc.project || cyc.name)}</button>${cyc.stage ? ' · ' + esc(cyc.stage) : ''}` : `<span class="text-muted">—</span>`;
             const commentsHtml = (d.comments || []).map((c) => `<div class="small" style="margin-bottom:4px"><b>${esc(c.by)}</b> <span class="text-muted">${dt(c.at)}</span><br>${esc(c.content)}</div>`).join('') || `<div class="text-muted small">${__('No notes yet.')}</div>`;
             const row = (lastPayload.rows || []).find((r) => r.name === name) || {};
-            panel.html(`<div class="sig-sv-detail-head"><div><small>${__('Visit details')}</small><h3>${esc(row.site || __('Unresolved site'))}</h3>${statusBadge(row)}</div><button type="button" class="sig-sv-detail-close" aria-label="${__('Close details')}">×</button></div><div class="sig-sv-detail-summary"><div><small>${__('Person')}</small><b>${esc(row.reporter_name)}</b></div><div><small>${__('When')}</small><b>${dt(row.start_at)}${row.end_at ? '–' + timeOnly(row.end_at) : ''}</b></div><div><small>${__('Pics')}</small><b>${row.photo_count || 0}</b></div></div><h5>${__('Description')}</h5><div class="sig-sv-block">${esc(row.activity_code && row.activity_code !== 'UNSPECIFIED' ? row.activity_code : '—')}</div><h5>${__('Cycle and status')}</h5><div class="sig-sv-block">${cycleHtml}${(row.diagnostics || []).length ? '<br>' + esc(row.diagnostics.join(', ')) : ''}</div>
-                <h5>${__('WhatsApp timeline')}</h5><div class="sig-sv-block sig-sv-timeline">${timelineHtml}</div>
-                <details><summary>${__('Other visits at this site')}</summary><div class="sig-sv-block">${priorHtml}</div></details>
-                <h5>${__('Actions')}</h5><div class="sig-sv-actions"></div>
-                <h5>${__('Notes')}</h5><div class="sig-sv-block">${commentsHtml}</div>
-                <textarea class="form-control sig-sv-note-text" rows="2" placeholder="${__('Add a note...')}"></textarea>
-                <button type="button" class="btn btn-default btn-sm sig-sv-add-note" style="margin-top:6px">${__('Add note')}</button>`);
+            const endText = row.status === 'AUTO_CLOSED' ? __('Auto-closed; End not received') : (row.end_at ? dt(row.end_at) : '—');
+            const previous = d.previous_visit_count == null ? '—' : Number(d.previous_visit_count);
+            panel.html(`<div class="sig-sv-detail-head"><div><small>${__('Visit details')}</small><h3>${esc(row.site || __('Unresolved site'))}</h3>${statusBadge(row)}</div><button type="button" class="sig-sv-detail-close" aria-label="${__('Close details')}">×</button></div>
+                <div class="sig-sv-detail-summary"><div><small>${__('Person')}</small><b>${esc(row.reporter_name)}</b></div><div><small>${__('Pics')}</small><b>${row.photo_count || 0}</b></div><div><small>${__('Start')}</small><b>${dt(row.start_at)}</b></div><div><small>${__('End')}</small><b>${esc(endText)}</b></div></div>
+                <h5>${__('Description')}</h5><div class="sig-sv-block">${esc(row.activity_code && row.activity_code !== 'UNSPECIFIED' ? row.activity_code : '—')}</div>
+                <h5>${__('Cycle')}</h5><div class="sig-sv-block">${cycleHtml}</div>
+                <h5>${__('Earlier visits at this site')}</h5><div class="sig-sv-prior-count">${previous}</div>
+                ${(row.is_review && (row.diagnostics || []).length) ? `<details><summary>${__('Review details')}</summary><div class="sig-sv-block">${esc(row.diagnostics.join(', '))}</div></details>` : ''}
+                <div class="sig-sv-actions"></div>
+                <details><summary>${__('Notes')}</summary><div class="sig-sv-block">${commentsHtml}</div><textarea class="form-control sig-sv-note-text" rows="2" placeholder="${__('Add a note...')}"></textarea><button type="button" class="btn btn-default btn-sm sig-sv-add-note" style="margin-top:6px">${__('Add note')}</button></details>`);
+            if (cyc) panel.find('.sig-sv-cycle-link').on('click', () => frappe.set_route('Form', 'SIG Site Cycle', cyc.name));
             panel.find('.sig-sv-detail-close').on('click', () => panel.removeClass('is-open').addClass('is-closed'));
             renderActions(row, name, d.cycle_candidates || []);
             panel.find('.sig-sv-add-note').on('click', async () => {
@@ -181,7 +182,7 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
         const box = root.find('.sig-sv-detail .sig-sv-actions');
         const btn = (label, cls) => `<button type="button" class="btn btn-default btn-xs ${cls}" style="margin:2px">${label}</button>`;
         const unallocated = row.posted && (row.diagnostics || []).includes('UNALLOCATED');
-        if (row.posted && !unallocated) { box.html(`<span class="text-muted small">${__('Already posted - corrections go through an amendment on the Field Visit itself.')}</span>`); return; }
+        if (row.posted && !unallocated) { box.empty(); return; }
         const pairBtn = row.status !== 'COMPLETED' ? btn(__('Pair a lonely End'), 'sig-sv-act-pair') : '';
         const attributionReview = (row.diagnostics || []).includes('CYCLE_ATTRIBUTION_EXCEPTION');
         const confirmBtn = row.is_review && !attributionReview ? btn(__('Confirm as-is'), 'sig-sv-act-confirm') : '';
@@ -301,10 +302,11 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
         const asset = window.sigMovementMapAssets, colors = asset.colors;
         const teams = movement.teams || [], visits = movement.visits || [];
         const labels = new Map(teams.map((t, i) => [t.id, {label: t.label, color: colors[i % colors.length], leader: t.leader}]));
+        const shortName = name => { const parts = String(name || '').trim().split(/\s+/).filter(Boolean); return parts.length > 1 ? parts[0] + ' ' + parts[parts.length - 1] : (parts[0] || ''); };
         const people = new Map();
         teams.forEach((t, i) => people.set(t.leader, {name: t.label, color: colors[i % colors.length]}));
         visits.forEach(v => { if (v.employee && !people.has(v.employee)) people.set(v.employee, {name: v.person || v.employee, color: '#748594'}); });
-        root.find('.sig-movement-leaders').html([...people].map(([id, p]) => `<button type="button" data-person="${esc(id)}" class="sig-movement-person ${state.person === id ? 'active' : ''}"><span style="background:${p.color}"></span>${esc(p.name)}</button>`).join(''));
+        root.find('.sig-movement-leaders').html([...people].map(([id, p]) => `<button type="button" data-person="${esc(id)}" class="sig-movement-person ${state.person === id ? 'active' : ''}"><span style="background:${p.color}"></span>${esc(shortName(p.name))}</button>`).join(''));
         const shown = visits.filter(v => !state.person || v.employee === state.person);
         const outline = asset.outline.map(([lon, lat]) => asset.project(lon, lat).join(',')).join(' ');
         const runs = new Map();
@@ -326,7 +328,7 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
         });
         root.find('.sig-movement-map').html(`<svg viewBox="20 35 830 760" role="img" aria-label="${__('Recorded visit movement')}"><rect x="20" y="35" width="830" height="760" fill="#e9f1f7"/><polygon points="${outline}" fill="#f8faf9" stroke="#9db4c9" stroke-width="1.5"/>${lines}${dots}</svg>`);
         const missing = shown.filter(v => v.lat == null || v.lon == null).length;
-        root.find('.sig-movement-note').text(`${movement.start} – ${movement.end} · ${shown.length} ${__('visits')} · ${missing} ${__('without map coordinates')}${movement.truncated ? ' · ' + __('Results limited to 10,000 visits') : ''}`);
+        root.find('.sig-movement-note').text(`${movement.start} – ${movement.end} · ${shown.length} ${__('visits')} · ${missing} ${__('unmapped')}${movement.truncated ? ' · ' + __('Results limited to 10,000 visits') : ''}`);
     }
 
     let latestLoad = 0;
