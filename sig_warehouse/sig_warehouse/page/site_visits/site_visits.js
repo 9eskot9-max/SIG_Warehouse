@@ -22,6 +22,23 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
         return `${parts[2]}-${parts[1]}-${parts[0].slice(-2)} ${parts[3]}:${parts[4]}`;
     };
     const timeOnly = (v) => v ? String(v).slice(11, 16) : '';
+    const WEEKDAYS = [__('Mon'), __('Tue'), __('Wed'), __('Thu'), __('Fri'), __('Sat'), __('Sun')];
+    const MONTHS = [__('Jan'), __('Feb'), __('Mar'), __('Apr'), __('May'), __('Jun'), __('Jul'), __('Aug'), __('Sep'), __('Oct'), __('Nov'), __('Dec')];
+    function visitDateTime(start, end) {
+        const date = String(start || '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!date) return `<span class="sig-sv-visit-time">${esc(dt(start))}${end ? ' – ' + esc(timeOnly(end)) : ''}</span>`;
+        const weekday = (new Date(Date.UTC(Number(date[1]), Number(date[2]) - 1, Number(date[3]))).getUTCDay() + 6) % 7;
+        const dateLabel = `${date[3]} ${MONTHS[Number(date[2]) - 1]} ${date[1]}`;
+        const timeLabel = `${timeOnly(start)}${end ? ' – ' + timeOnly(end) : ''}`;
+        return `<span class="sig-sv-day sig-sv-day-${weekday}" data-weekday="${weekday}">${WEEKDAYS[weekday]} · ${esc(dateLabel)}</span><span class="sig-sv-visit-time">${esc(timeLabel)}</span>`;
+    }
+    function familyLabel(value) {
+        const raw = String(value || '').toLowerCase();
+        if (raw.includes('capex')) return __('Capex');
+        if (raw.includes('incident')) return __('Incident');
+        if (raw.includes('colo') || raw.includes('5g')) return __('Colocation');
+        return '';
+    }
 
     function shell() {
         root.html(`<div class="sig-sv-toolbar">
@@ -118,13 +135,13 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
     }
 
     function rowHtml(row) {
-        const when = `${dt(row.start_at)}${row.end_at ? '–' + timeOnly(row.end_at) : ''}`;
+        const when = visitDateTime(row.start_at, row.end_at);
         const siteLabel = row.site_linked ? row.site : (row.site || __('Unresolved site'));
-        const description = row.activity_code && row.activity_code !== 'UNSPECIFIED' ? row.activity_code : '—';
+        const description = [familyLabel(row.project_family), row.activity_code && row.activity_code !== 'UNSPECIFIED' ? row.activity_code : ''].filter(Boolean).join(' · ') || '—';
         const minutes = row.hours != null ? Math.round(Number(row.hours) * 60) + ' ' + __('min') : '—';
         return `<tr class="sig-sv-row" tabindex="0" data-name="${esc(row.name)}">
             <td><b class="sig-sv-site">${esc(siteLabel)}</b><br><span class="text-muted small">${esc(description)}</span></td>
-            <td>${esc(row.reporter_name)}<br><span class="text-muted small">${when}</span></td>
+            <td>${esc(row.reporter_name)}<br><div class="sig-sv-when">${when}</div></td>
             <td>${minutes}<br><span class="text-muted small">${row.photo_count} ${__('Pics')}</span></td>
             <td>${statusBadge(row)}</td>
         </tr>`;
@@ -166,17 +183,16 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
             if (state.selected !== name) return;
             const d = r.message || {};
             if (d.result !== 'ok') { panel.html(`<div class="text-muted">${__('Not found.')}</div>`); return; }
+            const row = (lastPayload.rows || []).find((r) => r.name === name) || {};
             const cyc = d.cycle;
             const cycleHtml = cyc ? `<button type="button" class="sig-sv-cycle-link">${esc(cyc.project || cyc.name)}</button>${cyc.stage ? ' · ' + esc(cyc.stage) : ''}` : `<span class="text-muted">—</span>`;
+            const project = familyLabel(d.project_family || row.project_family) || '—';
             const commentsHtml = (d.comments || []).map((c) => `<div class="small" style="margin-bottom:4px"><b>${esc(c.by)}</b> <span class="text-muted">${dt(c.at)}</span><br>${esc(c.content)}</div>`).join('') || `<div class="text-muted small">${__('No notes yet.')}</div>`;
-            const row = (lastPayload.rows || []).find((r) => r.name === name) || {};
             const endText = row.status === 'AUTO_CLOSED' ? __('Auto-closed; End not received') : (row.end_at ? dt(row.end_at) : '—');
-            const previous = d.previous_visit_count == null ? '—' : Number(d.previous_visit_count);
             panel.html(`<div class="sig-sv-detail-head"><div><small>${__('Visit details')}</small><h3>${esc(row.site || __('Unresolved site'))}</h3>${statusBadge(row)}</div><button type="button" class="sig-sv-detail-close" aria-label="${__('Close details')}">×</button></div>
-                <div class="sig-sv-detail-summary"><div><small>${__('Person')}</small><b>${esc(row.reporter_name)}</b></div><div><small>${__('Pics')}</small><b>${row.photo_count || 0}</b></div><div><small>${__('Start')}</small><b>${dt(row.start_at)}</b></div><div><small>${__('End')}</small><b>${esc(endText)}</b></div></div>
+                <div class="sig-sv-detail-summary"><div><small>${__('Project')}</small><b>${esc(project)}</b></div><div><small>${__('Person')}</small><b>${esc(row.reporter_name)}</b></div><div><small>${__('Pics')}</small><b>${row.photo_count || 0}</b></div><div><small>${__('Start')}</small><b>${dt(row.start_at)}</b></div><div><small>${__('End')}</small><b>${esc(endText)}</b></div></div>
                 <h5>${__('Description')}</h5><div class="sig-sv-block">${esc(row.activity_code && row.activity_code !== 'UNSPECIFIED' ? row.activity_code : '—')}</div>
                 <h5>${__('Cycle')}</h5><div class="sig-sv-block">${cycleHtml}</div>
-                <h5>${__('Earlier visits at this site')}</h5><div class="sig-sv-prior-count">${previous}</div>
                 ${(row.is_review && (row.diagnostics || []).length) ? `<details><summary>${__('Review details')}</summary><div class="sig-sv-block">${esc(row.diagnostics.join(', '))}</div></details>` : ''}
                 <div class="sig-sv-actions"></div>
                 <details><summary>${__('Notes')}</summary><div class="sig-sv-block">${commentsHtml}</div><textarea class="form-control sig-sv-note-text" rows="2" placeholder="${__('Add a note...')}"></textarea><button type="button" class="btn btn-default btn-sm sig-sv-add-note" style="margin-top:6px">${__('Add note')}</button></details>`);
@@ -390,7 +406,9 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
 
     function showMovementSite(visit, color) {
         const box = root.find('.sig-movement-sitebox');
-        box.html(`<div class="sig-movement-sitecard" style="--site-color:${esc(color)}"><button type="button" class="sig-movement-site-close" aria-label="${__('Close')}">×</button><b>${esc(visit.site || '—')}</b><div>${esc(visit.person || '—')}</div><small>${dt(visit.at)}</small><details><summary>${__('Details')}</summary><div class="sig-movement-site-extra">${__('Loading...')}</div></details>${(lastPayload.rows || []).some(row => row.name === visit.name) ? `<button type="button" class="btn btn-default btn-xs sig-movement-visit-detail">${__('Visit details')}</button>` : ''}</div>`);
+        const visitRow = (lastPayload.rows || []).find(row => row.name === visit.name) || {};
+        const initialProject = familyLabel(visitRow.project_family) || '—';
+        box.html(`<div class="sig-movement-sitecard" style="--site-color:${esc(color)}"><button type="button" class="sig-movement-site-close" aria-label="${__('Close')}">×</button><b>${esc(visit.site || '—')}</b><div>${esc(visit.person || '—')}</div><small>${esc(dt(visit.at))}</small><div class="sig-movement-project"><span>${__('Project')}</span><b class="sig-movement-project-value">${esc(initialProject)}</b></div><div class="sig-movement-cycle-slot"></div>${(lastPayload.rows || []).some(row => row.name === visit.name) ? `<button type="button" class="btn btn-default btn-xs sig-movement-visit-detail">${__('Visit details')}</button>` : ''}</div>`);
         box.find('.sig-movement-site-close').on('click', () => box.empty());
         box.find('.sig-movement-visit-detail').on('click', () => {
             if (!(lastPayload.rows || []).some(row => row.name === visit.name)) { frappe.show_alert({message: __('Select this visit in the list to see full details.'), indicator: 'orange'}); return; }
@@ -398,10 +416,11 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
         });
         box.data('session', visit.name);
         frappe.call({method: 'sig_warehouse.sig_warehouse.site_visits.get_visit', args: {session_key: visit.name}, callback: r => {
-            if (!box.find('.sig-movement-site-extra').length || box.data('session') !== visit.name) return;
-            const d = r.message || {}, cycle = d.cycle || {}, raw = String(d.project_family || '').toLowerCase();
-            const category = raw.includes('capex') ? __('Capex') : raw.includes('colo') || raw.includes('5g') ? __('Colocation') : raw.includes('incident') ? __('Incident') : '—';
-            box.find('.sig-movement-site-extra').html(`<div>${__('Project')}: ${esc(category)}</div><div>${__('Earlier visits')}: ${d.previous_visit_count == null ? '—' : Number(d.previous_visit_count)}</div>${cycle.name ? `<button type="button" class="sig-movement-cycle btn btn-link btn-xs">${__('Open cycle')}</button>` : ''}`);
+            if (!box.find('.sig-movement-project-value').length || box.data('session') !== visit.name) return;
+            const d = r.message || {}, cycle = d.cycle || {};
+            const category = familyLabel(d.project_family) || initialProject;
+            box.find('.sig-movement-project-value').text(category);
+            box.find('.sig-movement-cycle-slot').html(cycle.name ? `<button type="button" class="sig-movement-cycle btn btn-link btn-xs">${__('Open cycle')}</button>` : '');
             box.find('.sig-movement-cycle').on('click', () => frappe.set_route('Form', 'SIG Site Cycle', cycle.name));
         }});
     }
@@ -414,7 +433,7 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
         L.tileLayer(config.url, config.options).addTo(map);
         runs.forEach(group => {
             for (let i = 1; i < group.length; i++) { const a = group[i-1], b = group[i]; if (a.lat == null || a.lon == null || b.lat == null || b.lon == null) continue; L.polyline([[a.lat,a.lon],[b.lat,b.lon]], {color:personColor(b),weight:3}).addTo(map); }
-            group.forEach((v,i) => { if (v.lat == null || v.lon == null) return; const color = personColor(v); const marker = L.circleMarker([v.lat,v.lon], {radius:highlightedVisit === v.name ? 11 : 7,color:highlightedVisit === v.name ? '#102f4c' : '#fff',weight:highlightedVisit === v.name ? 4 : 2,fillColor:color,fillOpacity:1}).bindTooltip(`${esc(v.site)} · ${esc(v.person)} · ${esc(v.at.slice(0,16))} · ${i+1}`); marker.on('click', () => showMovementSite(v, personColor(v))); marker.addTo(map); });
+            group.forEach((v,i) => { if (v.lat == null || v.lon == null) return; const color = personColor(v); const active = highlightedVisit === v.name; const icon = L.divIcon({className:'sig-movement-road-icon',html:`<span class="sig-movement-road-point ${active ? 'is-highlighted' : ''}" style="--point-color:${color}">${i+1}</span>`,iconSize:active?[32,32]:[26,26],iconAnchor:active?[16,16]:[13,13]}); const marker = L.marker([v.lat,v.lon], {icon,zIndexOffset:active ? 1000 : i}).bindTooltip(`${esc(v.site)} · ${esc(v.person)} · ${esc(v.at.slice(0,16))} · ${i+1}`); marker.on('click', () => showMovementSite(v, personColor(v))); marker.addTo(map); });
         });
         if (mapView.roadView) map.setView(mapView.roadView.center,mapView.roadView.zoom); else map.setView([24.5,45],6);
         root.find('[data-movement=drawing]').attr('aria-pressed','false'); root.find('[data-movement=road]').attr('aria-pressed','true');

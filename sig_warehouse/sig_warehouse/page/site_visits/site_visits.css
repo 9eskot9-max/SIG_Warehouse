@@ -38,3 +38,25 @@
 .sig-sv-history-date[hidden]{display:none}
 
 .sig-movement-map-wrap{position:relative}.sig-movement-sitebox{position:absolute;top:12px;right:12px;width:260px;max-width:calc(100% - 24px);z-index:400}.sig-movement-sitebox:empty{display:none}.sig-movement-sitecard{position:relative;padding:14px;background:#fff;border:1px solid #cbd9e4;border-inline-start:5px solid var(--site-color,#3784db);border-radius:10px;box-shadow:0 8px 24px rgba(18,48,68,.2);color:#183247}.sig-movement-sitecard>b{display:block;padding-right:24px;font-size:16px}.sig-movement-sitecard small{display:block;color:#61798b;margin:3px 0 8px}.sig-movement-site-close{position:absolute;top:4px;right:8px;background:none;border:0;font-size:22px;color:#61798b}.sig-movement-sitecard details{margin:8px 0}.sig-movement-sitecard summary{cursor:pointer;color:#176da4}.sig-movement-site-extra{font-size:12px;line-height:1.8;margin-top:5px}@media(max-width:700px){.sig-movement-sitebox{top:auto;bottom:10px;left:10px;right:10px;width:auto;max-width:none}}
+
+/* Stable weekday colours make date scanning consistent between visits. */
+.sig-sv-when{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px}
+.sig-sv-day{display:inline-flex;align-items:center;gap:4px;border:1px solid transparent;border-radius:999px;padding:2px 8px;font-size:11px;font-weight:650;line-height:1.5;white-space:nowrap}
+.sig-sv-visit-time{color:#536b7c;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap;letter-spacing:.02em}
+.sig-sv-day-0{background:#e7f1ff;border-color:#c5dcff;color:#2459a6}
+.sig-sv-day-1{background:#e6f5ed;border-color:#c2e7d1;color:#187444}
+.sig-sv-day-2{background:#fff0df;border-color:#f5d8b5;color:#a45412}
+.sig-sv-day-3{background:#f2eaff;border-color:#ddcdf6;color:#6943a2}
+.sig-sv-day-4{background:#ffe9ec;border-color:#f4c9d0;color:#ad3f52}
+.sig-sv-day-5{background:#e2f5f5;border-color:#bfe3e4;color:#137779}
+.sig-sv-day-6{background:#f7efd9;border-color:#e9dbb2;color:#826415}
+.sig-sv-project{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;margin:8px 0 3px;padding:7px 9px;background:#f4f8fb;border-radius:7px;font-size:12px}
+.sig-sv-project span{color:#718596}.sig-sv-project b{color:#173b59}
+.sig-movement-project{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:8px;color:#718596;font-size:12px}
+.sig-movement-project-value{color:#173b59;font-weight:700}
+.sig-movement-cycle-slot{min-height:0}.sig-movement-cycle-slot:empty{display:none}
+.sig-movement-sitecard .sig-movement-cycle{padding:2px 0;font-weight:650}
+.sig-movement-road-icon{background:transparent;border:0}
+.sig-movement-road-point{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border:3px solid #fff;border-radius:50%;background:var(--point-color);box-shadow:0 1px 5px #102f4c88;color:#fff;font-size:10px;font-weight:800;font-variant-numeric:tabular-nums}
+.sig-movement-road-point.is-highlighted{width:32px;height:32px;border:4px solid #102f4c;box-shadow:0 0 0 3px #fff,0 2px 9px #102f4c99;font-size:11px}
+@media(max-width:600px){.sig-sv-when{gap:5px}.sig-sv-day{font-size:10px;padding:2px 6px}.sig-sv-visit-time{font-size:11px}}

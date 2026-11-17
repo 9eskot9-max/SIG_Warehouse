@@ -129,6 +129,13 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
     )
     truncated = len(rows) > 500
     rows = rows[:500]
+    visit_ids = list({r.visit for r in rows if r.visit})
+    visit_cycles = {}
+    if visit_ids:
+        for link in frappe.db.sql(
+                "SELECT name, cycle FROM `tabSIG Field Visit` WHERE name IN %s",
+                (tuple(visit_ids),), as_dict=True):
+            visit_cycles[link.name] = link.cycle
     emp_ids = list({r.employee for r in rows if r.employee})
     emp_names = frappe.db.get_values('Employee', {'name': ['in', emp_ids]}, ['name', 'employee_name'], as_dict=True) if emp_ids else []
     emp_name_by_id = {e.name: e.employee_name for e in emp_names}
@@ -141,11 +148,32 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
 
     site_keys = list({r.site_key for r in rows if r.site_key})
     cycles = {}
+    cycles_by_name = {}
     if site_keys:
         for c in frappe.db.sql(
                 "SELECT name, site_key, project, erp_project, wo, po, stage, is_temporary "
                 "FROM `tabSIG Site Cycle` WHERE site_key IN %s", (tuple(site_keys),), as_dict=True):
             cycles.setdefault(c.site_key, []).append(c)
+            cycles_by_name[c.name] = c
+
+    family_cache = {}
+
+    def project_family(cycle):
+        if not cycle:
+            return ''
+        fallback = {'capex': 'Capex', 'incident': 'Incident', '5g': 'Colocation'}.get(
+            _family_key(cycle.project), '')
+        if not cycle.erp_project or not frappe.has_permission('Project', 'read', cycle.erp_project):
+            return fallback
+        if cycle.erp_project not in family_cache:
+            fields = [field for field in ('custom_project_family', 'custom_family')
+                      if frappe.get_meta('Project').has_field(field)]
+            project = frappe.db.get_value('Project', cycle.erp_project, fields, as_dict=True) if fields else None
+            resolution = resolve_project_family(project)
+            family_cache[cycle.erp_project] = {
+                'family': resolution['family'], 'conflict': resolution['conflict']}
+        resolution = family_cache[cycle.erp_project]
+        return '' if resolution['conflict'] else resolution['family'] or fallback
 
     def cycle_context(site_key):
         cs = cycles.get(site_key) or []
@@ -155,6 +183,8 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
             return None
         c = cs[0]
         return {'project': text_value(c.erp_project) or text_value(c.project) or 'Basic / unallocated work',
+                'project_family': project_family(c),
+                'name': c.name,
                 'stage': text_value(c.stage), 'wo': text_value(c.wo), 'po': text_value(c.po),
                 'is_temporary': int(c.is_temporary or 0)}
 
@@ -169,6 +199,19 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
         is_review = r.disposition == 'REVIEW' or bool({'AMBIGUOUS_SESSION_OWNER', 'END_REPORTER_DIFFERENT',
                                                         'NO_EMPLOYEE_FOR_PHONE', 'UNRESOLVED_SITE',
                                                         'CYCLE_ATTRIBUTION_EXCEPTION', 'UNALLOCATED'} & set(diags))
+        linked_cycle = cycles_by_name.get(visit_cycles.get(r.visit)) if r.visit else None
+        context = cycle_context(r.site_key)
+        if linked_cycle:
+            cycle_data = {'project': text_value(linked_cycle.erp_project) or text_value(linked_cycle.project),
+                          'project_family': project_family(linked_cycle), 'name': linked_cycle.name,
+                          'stage': text_value(linked_cycle.stage), 'wo': text_value(linked_cycle.wo),
+                          'po': text_value(linked_cycle.po), 'is_temporary': int(linked_cycle.is_temporary or 0)}
+        elif r.visit:
+            # A posted visit with a missing/unreadable cycle link is unknown; never
+            # substitute a different cycle that happens to belong to the same site.
+            cycle_data = None
+        else:
+            cycle_data = context
         record = {
             'name': r.name, 'stream': r.stream, 'stream_label': STREAM_LABEL.get(r.stream, r.stream),
             'pm': STREAM_PM.get(r.stream, ''), 'site': r.site_key, 'site_linked': bool(r.site),
@@ -176,7 +219,8 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
             'start_at': str(r.start_at or ''), 'end_at': str(r.end_at or ''), 'status': r.status,
             'hours': r.hours, 'activity_code': r.activity_code, 'photo_count': r.photo_count or 0,
             'diagnostics': diags, 'is_review': is_review, 'disposition': r.disposition,
-            'posted': int(r.posted or 0), 'visit': r.visit, 'cycle': cycle_context(r.site_key),
+            'posted': int(r.posted or 0), 'visit': r.visit, 'cycle': cycle_data,
+            'project_family': cycle_data.get('project_family', '') if cycle_data else '',
         }
         # Summary tile counts reflect every row that passed the base/search/stream/etc.
         # filters above, independent of which view is currently selected - otherwise
@@ -287,7 +331,6 @@ def get_visit(session_key):
         'Employee', {'name': ['in', prior_emp_ids]}, ['name', 'employee_name'], as_dict=True)} if prior_emp_ids else {}
     for p in prior:
         p['reporter_name'] = prior_emp_names.get(p.employee) or p.reporter_name
-    previous_count = frappe.db.count('SIG Field Visit', filters={'site_key': s.site_key, 'start_at': ['<', s.start_at]}) if s.site_key and s.start_at else None
     comments = frappe.get_all('Comment', filters={'reference_doctype': 'SIG Field Session', 'reference_name': session_key,
                                                    'comment_type': 'Comment'},
                               fields=['content', 'owner', 'creation'], order_by='creation desc', limit_page_length=20)
@@ -295,7 +338,7 @@ def get_visit(session_key):
     # it shows exactly what the sender's phone displayed, not an ERP-resolved identity.
     return {'result': 'ok', 'timeline': [{'at': str(m.occurred_at), 'who': m.reporter_name, 'kind': m.kind,
                                           'text': m.text} for m in timeline],
-            'cycle': cycle, 'project_family': family, 'cycle_candidates': cycle_candidates, 'prior_visits': prior, 'previous_visit_count': previous_count,
+            'cycle': cycle, 'project_family': family, 'cycle_candidates': cycle_candidates, 'prior_visits': prior,
             'comments': [{'content': c.content, 'by': c.owner, 'at': str(c.creation)} for c in comments]}
 
 
