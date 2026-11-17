@@ -273,6 +273,34 @@ def set_type(session_key, activity_code, scope=''):
 
 
 @frappe.whitelist()
+def reconcile_posted_session_site(session_key, expected_modified):
+    """Restore a missing session site only when its posted visit already agrees."""
+    if frappe.session.user != 'Administrator':
+        frappe.throw(frappe._('Administrator is required.'), frappe.PermissionError)
+    session_key = text_value(session_key).strip()
+    if not session_key or not expected_modified:
+        frappe.throw(frappe._('Session and expected modification time are required.'))
+    frappe.db.sql('SELECT name FROM `tabSIG Field Session` WHERE name = %s FOR UPDATE', (session_key,))
+    session = frappe.get_doc('SIG Field Session', session_key)
+    if str(session.modified) != str(expected_modified):
+        frappe.throw(frappe._('Session changed; reload before reconciling.'))
+    diagnostics = [d for d in (session.diagnostics or '').split(',') if d]
+    site = text_value(session.site_key).strip()
+    if (not session.posted or not session.visit or session.site or not site
+            or 'UNRESOLVED_SITE' not in diagnostics or not frappe.db.exists('SIG Site', site)):
+        frappe.throw(frappe._('Session is not eligible for site reconciliation.'))
+    visit = frappe.db.get_value('SIG Field Visit', session.visit, ['site', 'site_key', 'employee'], as_dict=True)
+    if not visit or visit.site != site or visit.site_key != site or visit.employee != session.employee:
+        frappe.throw(frappe._('Posted visit does not match the session site and employee.'))
+    session.site = site
+    session.diagnostics = ','.join(d for d in diagnostics if d != 'UNRESOLVED_SITE')
+    session.corrected_by = frappe.session.user
+    session.save(ignore_permissions=True)
+    session.add_comment('Comment', text=frappe._('Reconciled session site with existing posted visit {0}.').format(session.visit))
+    return {'result': 'ok', 'site': site, 'visit': session.visit}
+
+
+@frappe.whitelist()
 def fix_site(session_key, site, create=0):
     """Map an unresolved/typo'd site code to an existing SIG Site, or create it."""
     _require_pm()
