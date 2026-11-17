@@ -262,6 +262,16 @@ def get_visit(session_key):
     cycle = frappe.db.get_value('SIG Site Cycle', cycle_name,
                                 ['name', 'project', 'erp_project', 'wo', 'stage', 'first_visit_at', 'last_visit_at',
                                  'sessions_completed'], as_dict=True) if cycle_name else None
+    family = normalize_family(cycle.project) if cycle else ''
+    if cycle and cycle.erp_project and frappe.has_permission('Project', 'read', cycle.erp_project):
+        fields = [field for field in ('custom_project_family', 'custom_family')
+                  if frappe.get_meta('Project').has_field(field)]
+        project = frappe.db.get_value('Project', cycle.erp_project, fields, as_dict=True) if fields else None
+        resolution = resolve_project_family(project)
+        if resolution['conflict']:
+            family = ''
+        elif resolution['family']:
+            family = resolution['family']
     cycle_candidates = []
     if ({'System Manager', 'Projects Manager'} & set(frappe.get_roles()) and
             frappe.has_permission('SIG Site Cycle', 'read')):
@@ -285,7 +295,7 @@ def get_visit(session_key):
     # it shows exactly what the sender's phone displayed, not an ERP-resolved identity.
     return {'result': 'ok', 'timeline': [{'at': str(m.occurred_at), 'who': m.reporter_name, 'kind': m.kind,
                                           'text': m.text} for m in timeline],
-            'cycle': cycle, 'cycle_candidates': cycle_candidates, 'prior_visits': prior, 'previous_visit_count': previous_count,
+            'cycle': cycle, 'project_family': family, 'cycle_candidates': cycle_candidates, 'prior_visits': prior, 'previous_visit_count': previous_count,
             'comments': [{'content': c.content, 'by': c.owner, 'at': str(c.creation)} for c in comments]}
 
 
