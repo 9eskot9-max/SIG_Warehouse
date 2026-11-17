@@ -36,7 +36,7 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
         </div>
         <div class="sig-sv-summary"></div>
         <section class="sig-movement"><div class="sig-movement-head"><div><h3>${__('Team movement')}</h3></div><div class="sig-movement-controls"><select class="form-control sig-movement-period" aria-label="${__('Period')}"><option value="week">${__('Week')}</option><option value="month">${__('Month')}</option></select><input type="date" class="form-control sig-movement-anchor" aria-label="${__('Date in period')}"><button type="button" class="btn btn-default sig-movement-all">${__('All people')}</button></div></div><div class="sig-movement-leaders"></div><div class="sig-movement-map"></div><div class="sig-movement-note"></div></section>
-        <div class="sig-sv-list-limit text-muted small" hidden></div><div class="sig-sv-main"><div class="sig-sv-table-wrap"></div><aside class="sig-sv-detail"><div class="text-muted text-center" style="padding:40px 10px">${__('Select a visit to see its details.')}</div></aside></div>`);
+        <div class="sig-sv-active-filter"></div><div class="sig-sv-list-limit text-muted small" hidden></div><div class="sig-sv-main"><div class="sig-sv-table-wrap"></div><aside class="sig-sv-detail"><div class="text-muted text-center" style="padding:40px 10px">${__('Select a visit to see its details.')}</div></aside></div>`);
         root.find('.sig-sv-view').on('change', function () { state.view = this.value; load(); });
         root.find('.sig-sv-stream').on('change', function () { state.stream = this.value; load(); });
         root.find('.sig-sv-search').on('input', frappe.utils.debounce(function () { state.search = this.value; load(); }, 250));
@@ -99,7 +99,7 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
     function summaryHtml(s) {
         const tile = (label, n, view) => `<div class="sig-sv-tile" data-view="${view}"><div class="sig-sv-tile-n">${n}</div><div class="sig-sv-tile-l">${__(label)}</div></div>`;
         return tile('Open now', s.open_now, 'open') + tile('Visits today', s.visits_today, 'today')
-            + tile('Needs review', s.needs_review, 'review') + tile('Sites this week', s.sites_this_week, 'thisweek');
+            + tile('Needs review', s.needs_review, 'review') + tile('Sites in period', s.sites_in_period, 'current');
     }
 
     function statusBadge(row) {
@@ -125,6 +125,11 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
 
     function renderTable(payload) {
         lastPayload = payload;
+        const activePerson = movement && (movement.visits || []).find(v => v.employee === state.person);
+        const activeTeam = movement && (movement.teams || []).find(t => t.leader === state.person);
+        const personLabel = state.person ? ((activePerson && activePerson.person) || (activeTeam && activeTeam.label) || state.person) : __('All people');
+        const viewLabel = root.find('.sig-sv-view option').filter(function () { return this.value === state.view; }).text() || __('Current');
+        root.find('.sig-sv-active-filter').text(`${__('Visits')} · ${state.dateFrom} – ${state.dateTo} · ${personLabel} · ${viewLabel}`);
         root.find('.sig-sv-list-limit').prop('hidden', !payload.truncated).text(payload.truncated ? __('Visit list is limited to the 500 most recent matches; narrow the filters to see earlier visits.') : '');
         const sel = root.find('.sig-sv-stream').empty().append(`<option value="">${__('All')}</option>`);
         (payload.streams || []).forEach((s) => sel.append($('<option></option>').val(s.value).text(s.label)));

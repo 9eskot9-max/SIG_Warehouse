@@ -162,6 +162,7 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
     now_open_count = today_count = review_count = unclassified_count = 0
     today = frappe.utils.nowdate()
     sites_this_week = set()
+    sites_in_period = set()
     week_ago = frappe.utils.add_days(today, -7)
     for r in rows:
         diags = [d for d in (r.diagnostics or '').split(',') if d]
@@ -192,6 +193,8 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
             unclassified_count += 1
         if str(r.start_at or '')[:10] >= week_ago:
             sites_this_week.add(r.site_key)
+        if r.site_key:
+            sites_in_period.add(r.site_key)
 
         if view == 'open' and r.status != 'OPEN':
             continue
@@ -209,7 +212,8 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
         'result': 'ok', 'rows': result, 'truncated': truncated,
         'streams': [{'value': k, 'label': v, 'pm': STREAM_PM.get(k, '')} for k, v in STREAM_LABEL.items()],
         'summary': {'open_now': now_open_count, 'visits_today': today_count, 'needs_review': review_count,
-                    'unclassified': unclassified_count, 'sites_this_week': len(sites_this_week)},
+                    'unclassified': unclassified_count, 'sites_this_week': len(sites_this_week),
+                    'sites_in_period': len(sites_in_period)},
     }
 
 
