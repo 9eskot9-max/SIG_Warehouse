@@ -399,7 +399,7 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
         box.data('session', visit.name);
         frappe.call({method: 'sig_warehouse.sig_warehouse.site_visits.get_visit', args: {session_key: visit.name}, callback: r => {
             if (!box.find('.sig-movement-site-extra').length || box.data('session') !== visit.name) return;
-            const d = r.message || {}, cycle = d.cycle || {}, raw = String(cycle.project || '').toLowerCase();
+            const d = r.message || {}, cycle = d.cycle || {}, raw = String(d.project_family || '').toLowerCase();
             const category = raw.includes('capex') ? __('Capex') : raw.includes('colo') || raw.includes('5g') ? __('Colocation') : raw.includes('incident') ? __('Incident') : '—';
             box.find('.sig-movement-site-extra').html(`<div>${__('Project')}: ${esc(category)}</div><div>${__('Earlier visits')}: ${d.previous_visit_count == null ? '—' : Number(d.previous_visit_count)}</div>${cycle.name ? `<button type="button" class="sig-movement-cycle btn btn-link btn-xs">${__('Open cycle')}</button>` : ''}`);
             box.find('.sig-movement-cycle').on('click', () => frappe.set_route('Form', 'SIG Site Cycle', cycle.name));
