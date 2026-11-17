@@ -1,0 +1,119 @@
+{
+ "doctype": "DocType",
+ "name": "SIG Tawal Invoice",
+ "module": "SIG Accounting",
+ "autoname": "field:row_key",
+ "track_changes": 0,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "field_order": [
+  "row_key",
+  "invoice_number",
+  "canonical",
+  "invoice_date",
+  "invoice_type",
+  "amount",
+  "invoice_status",
+  "paid_status",
+  "payment_number",
+  "last_seen_at",
+  "capture_run"
+ ],
+ "fields": [
+  {
+   "fieldname": "row_key",
+   "fieldtype": "Data",
+   "label": "Row Key",
+   "reqd": 1,
+   "unique": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "invoice_number",
+   "fieldtype": "Data",
+   "label": "Invoice Number (portal)",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "canonical",
+   "fieldtype": "Data",
+   "label": "Canonical Invoice",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "invoice_date",
+   "fieldtype": "Date",
+   "label": "Invoice Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "invoice_type",
+   "fieldtype": "Data",
+   "label": "Type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Amount",
+   "options": "SAR",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "invoice_status",
+   "fieldtype": "Data",
+   "label": "Invoice Status",
+   "read_only": 1
+  },
+  {
+   "fieldname": "paid_status",
+   "fieldtype": "Data",
+   "label": "Paid Status",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payment_number",
+   "fieldtype": "Data",
+   "label": "Payment Number",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_seen_at",
+   "fieldtype": "Datetime",
+   "label": "Last Seen",
+   "read_only": 1
+  },
+  {
+   "fieldname": "capture_run",
+   "fieldtype": "Data",
+   "label": "Capture Run",
+   "read_only": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "Accounts User",
+   "read": 1,
+   "report": 1
+  },
+  {
+   "role": "Accounts Manager",
+   "read": 1,
+   "report": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "report": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  }
+ ],
+ "title_field": "invoice_number",
+ "search_fields": "invoice_number,canonical,payment_number"
+}

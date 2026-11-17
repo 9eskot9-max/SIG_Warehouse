@@ -3,7 +3,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     const root = $('<main class="snb-router"></main>').appendTo(page.main), el = root[0];
     const esc = v => frappe.utils.escape_html(String(v == null ? '' : v));
     const api = 'sig_warehouse.sig_accounting.snb_movement_router.';
-    const tabs = {needs: __('Needs you'), confirm: __('Confirm'), drafts: __('Drafts'), posted: __('Posted'), deferred: __('Deferred')};
+    const tabs = {needs: __('Needs you'), confirm: __('Confirm'), drafts: __('Drafts'), posted: __('Posted'), deferred: __('Deferred'), tawal: __('Tawal')};
     const kinds = {SUPPLIER_PAYMENT: __('Supplier payment'), CUSTOMER_RECEIPT: __('Customer receipt'), EXPENSE_PAYMENT: __('Expense, no party'), UNKNOWN: __('Unclassified outgoing'),
         PETTY_CASH: __('Petty Cash'), EMPLOYEE: __('Employee'), OWN_TRANSFER: __('Own transfer'), SPECIALIST: __('Specialist workflow'),
         BANK_CHARGE: __('Bank charge'), OTHER: __('Other')};
@@ -14,7 +14,8 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     const categories = {XXPC: __('Petty Cash'), XXSL: __('Salary'), XXHR: __('HR'), XXCL: __('Deferred'), XXMT: __('Maintenance'), XXMR: __('Materials'), XXSC: __('Subcontractor'), XXLG: __('Logistics')};
     const kindGroups = {ALL: __('All'), SADAD: __('SADAD'), UNCLASSIFIED: __('Unclassified'), PETTY_CASH: __('Petty cash'), RECEIPTS: __('Receipts'), OWN_TRANSFER: __('Own transfers'),
         SUPPLIER: __('Supplier & expense'), OTHER: __('Other')};
-    const state = {tab: 'needs', bank: 'ALL', search: '', items: [], counts: {}, kindCounts: {}, kindGroup: 'ALL', groupByPayee: false, selected: '', status: null,
+    const tawalApi = 'sig_warehouse.sig_accounting.tawal_router.';
+    const state = {tawal: {rows: [], counts: {}, group: 'action', settings: {}, fresh: {}, hasMore: false, next: 0}, tab: 'needs', bank: 'ALL', search: '', items: [], counts: {}, kindCounts: {}, kindGroup: 'ALL', groupByPayee: false, selected: '', status: null,
         bulkSelected: new Set(), missingSelected: new Set(), confirmSelected: new Set(), businessChanged: new Set(), hasMore: false, openDocs: {}, supplyChoice: {}, businessChoice: {}, fromDate: '', toDate: ''};
     const businessRoutes = {
         supplier: [__('Supplier payment'), 'PAYMENT_ENTRY'], person_work: [__('Person or subcontractor'), ''],
@@ -61,11 +62,11 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
         <div class="snb-controls"><select data-bank><option value="ALL">${__('All banks')}</option><option value="SNB">SNB</option><option value="ALINMA">Alinma</option></select>
         <input class="form-control" data-search type="search" placeholder="${__('Search name, reference or document')}"><button class="btn btn-default" data-refresh>${__('Refresh')}</button>
         <label class="snb-group-toggle"><input type="checkbox" data-group-payee> ${__('Group by payee')}</label></div>
-        <nav data-tabs></nav><nav class="snb-types" data-types></nav><section class="snb-grid"><aside><div class="snb-list-title">${__('Movements')}</div><div class="snb-date-controls"><button class="btn btn-default btn-sm" data-week-prev aria-label="${__('Previous week')}">‹</button><label>${__('From')} <input type="date" data-date-from></label><label>${__('To')} <input type="date" data-date-to></label><button class="btn btn-default btn-sm" data-week-next aria-label="${__('Next week')}">›</button><button class="btn btn-default btn-sm" data-date-apply>${__('Apply dates')}</button><button class="btn btn-default btn-sm" data-date-clear>${__('All dates')}</button><span data-date-error role="alert"></span></div><details class="snb-bulk-menu"><summary>${__('Bulk actions')}</summary><div class="snb-bulk" data-standard-bulk><button class="btn btn-default" data-bulk>${__('Confirm selected unique matches')}</button><button class="btn btn-default" data-select-missing>${__('Select missing links on this page')}</button><button class="btn btn-default" data-clear-selected>${__('Clear selected missing links')}</button><button class="btn btn-default" data-confirm-employees>${__('Confirm verified employees')}</button></div><div class="snb-bulk" data-confirm-bulk hidden><button class="btn btn-default" data-confirm-drafts>${__('Create selected drafts')}</button><button class="btn btn-default" data-confirm-posts>${__('Post selected')}</button></div></details><div data-queue></div><button class="btn btn-default" data-more hidden>${__('Load more')}</button></aside><article data-card></article></section>`);
+        <nav data-tabs></nav><nav class="snb-types" data-types></nav><section class="snb-tawal" data-tawal hidden></section><section class="snb-grid"><aside><div class="snb-list-title">${__('Movements')}</div><div class="snb-date-controls"><button class="btn btn-default btn-sm" data-week-prev aria-label="${__('Previous week')}">‹</button><label>${__('From')} <input type="date" data-date-from></label><label>${__('To')} <input type="date" data-date-to></label><button class="btn btn-default btn-sm" data-week-next aria-label="${__('Next week')}">›</button><button class="btn btn-default btn-sm" data-date-apply>${__('Apply dates')}</button><button class="btn btn-default btn-sm" data-date-clear>${__('All dates')}</button><span data-date-error role="alert"></span></div><details class="snb-bulk-menu"><summary>${__('Bulk actions')}</summary><div class="snb-bulk" data-standard-bulk><button class="btn btn-default" data-bulk>${__('Confirm selected unique matches')}</button><button class="btn btn-default" data-select-missing>${__('Select missing links on this page')}</button><button class="btn btn-default" data-clear-selected>${__('Clear selected missing links')}</button><button class="btn btn-default" data-confirm-employees>${__('Confirm verified employees')}</button></div><div class="snb-bulk" data-confirm-bulk hidden><button class="btn btn-default" data-confirm-drafts>${__('Create selected drafts')}</button><button class="btn btn-default" data-confirm-posts>${__('Post selected')}</button></div></details><div data-queue></div><button class="btn btn-default" data-more hidden>${__('Load more')}</button></aside><article data-card></article></section>`);
 
     function renderTabs() {
         q('[data-tabs]').innerHTML = Object.entries(tabs).map(([k, label]) =>
-            `<button class="btn ${state.tab === k ? 'btn-primary' : 'btn-default'}" data-tab="${k}">${label} · ${state.counts[k] ?? 0}</button>`).join('');
+            `<button class="btn ${state.tab === k ? 'btn-primary' : 'btn-default'}" data-tab="${k}">${label} · ${k === 'tawal' ? (state.tawal.counts.action ?? '–') : (state.counts[k] ?? 0)}</button>`).join('');
         q('[data-types]').innerHTML = Object.entries(kindGroups).map(([k, label]) =>
             `<button class="btn btn-sm ${state.kindGroup === k ? 'btn-primary' : 'btn-default'}" data-kind="${k}">${label} · ${state.kindCounts[k] ?? 0}</button>`).join('');
         q('[data-types]').hidden = state.tab === 'confirm';
@@ -254,8 +255,54 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
             if (x.counterparty) counterpartyControl.set_value(x.counterparty);
         }
     }
-    const render = () => { renderTabs(); renderList(); renderCard(); };
+    const tawalStates = {READY: __('Ready to draft'), UNLINKED_READY: __('Draft without invoice link'), BANK_RECEIVED: __('Bank received, portal pending'), HOLD_REVIEW: __('Needs review'),
+        POSSIBLE_EXISTING: __('Similar receipt exists'), UNALLOCATED: __('Receipt posted, not allocated to invoices'), WAITING_BANK: __('Waiting for the bank'), DRAFT: __('Draft'), POSTED: __('Posted'), LEGACY: __('Before forward date'), VOID: __('Voided')};
+    const tawalGroups = {action: __('Needs you'), drafts: __('Drafts'), waiting: __('Waiting for bank'), posted: __('Posted'), legacy: __('Legacy')};
+    const tawalReasons = {PORTAL_NOT_CLEARED: __('Portal not cleared yet; the bank already has it'), PORTAL_NOT_RECONCILED: __('Portal reconcile still pending'), PENALTY_CREDIT_NOTE_REVIEW: __('Contains an unlabelled credit note'),
+        RETENTION_ASSOCIATION_REVIEW: __('Retention without its invoice'), INVOICE_ALREADY_SETTLED: __('Invoice already has no balance'), ALLOCATION_TOTAL_MISMATCH: __('Invoices do not add up to the payment'),
+        BANK_CREDIT_AMBIGUOUS: __('Two bank credits fit'), BANK_GL_UNMAPPED: __('Bank account not mapped'), UNALLOCATED: __('Entry exists but money is not allocated'), POSSIBLE_EXISTING_RECEIPT: __('Check the similar receipt first'),
+        MIXED_RECEIVABLE_ACCOUNTS: __('Invoices use different receivable accounts'), INVOICE_AMBIGUOUS: __('Two ERP invoices share this number'), INVOICE_NOT_SUBMITTED_TAWAL: __('Invoice is not a submitted Tawal invoice')};
+    const showTawal = on => { q('[data-tawal]').hidden = !on; q('.snb-grid').hidden = on; q('[data-types]').hidden = on || state.tab === 'confirm'; };
+    function renderTawal() {
+        const t = state.tawal, f = t.fresh || {};
+        const bar = `<div class="snb-tawal-bar">${Object.entries(tawalGroups).map(([k, label]) =>
+            `<button class="btn btn-sm ${t.group === k ? 'btn-primary' : 'btn-default'}" data-tawal-group="${k}">${label} · ${t.counts[k] ?? 0}</button>`).join(' ')}
+            <button class="btn btn-sm btn-default" data-tawal-bulk>${__('Create all ready drafts')}</button></div>
+            <p class="${f.stale ? 'text-danger' : 'text-muted'} small">${f.last_capture_at ? __('Portal export last staged {0} ({1} h ago).', [esc(f.last_capture_at.slice(0, 16)), esc(f.hours)]) : __('No portal export has been staged yet.')}
+            ${__('Forward from {0}. Drafts are created automatically: {1}.', [esc(t.settings.forward_from || ''), t.settings.auto_draft ? esc(__('on from') + ' ' + (t.settings.auto_draft_from || '')) : __('off')])}</p>`;
+        const rows = t.rows.map(r => {
+            const entry = r.entry ? docLink('Payment Entry', r.entry, ['POSTED', 'UNALLOCATED'].includes(r.state) ? 1 : 0) : '';
+            const credit = r.credit ? `${esc(r.credit_date)}${r.by_reference ? ' · ' + esc(__('named in bank text')) : ''}` : '';
+            const act = [];
+            if (r.can_draft) act.push(`<button class="btn btn-xs btn-primary" data-tawal-draft="${esc(r.payment_number)}">${__('Create draft')}</button>`);
+            if (r.state === 'POSSIBLE_EXISTING') act.push(`<button class="btn btn-xs btn-default" data-tawal-draft="${esc(r.payment_number)}" data-confirm-possible="1">${__('Create anyway')}</button>`);
+            if (r.credit_to_link) act.push(`<button class="btn btn-xs btn-default" data-tawal-link="${esc(r.payment_number)}">${__('Link bank credit')}</button>`);
+            const why = tawalReasons[r.reason] || r.reason || '';
+            const inv = r.missing_invoices.length ? `<div class="text-muted small">${__('Invoice not in ERP')}: ${esc(r.missing_invoices.join(', '))}</div>` : '';
+            const poss = r.possible_entries.length ? `<div class="text-muted small">${r.possible_entries.map(n => docLink('Payment Entry', n, 0)).join(', ')}</div>` : '';
+            return `<tr><td>${esc(r.payment_date)}<div class="text-muted small">${esc(r.payment_number)}</div></td><td class="text-right">${frappe.format(r.amount, {fieldtype: 'Currency'})}</td>
+                <td>${esc(r.portal_status)}<div class="text-muted small">${esc(r.invoice)}</div></td><td>${credit}</td><td>${entry}${poss}</td>
+                <td><span class="indicator-pill ${['POSTED', 'DRAFT'].includes(r.state) ? 'green' : r.state === 'READY' || r.state === 'UNLINKED_READY' ? 'blue' : 'orange'}">${esc(tawalStates[r.state] || r.state)}</span>
+                <div class="text-muted small">${esc(why)}</div>${inv}</td><td>${act.join(' ')}</td></tr>`;
+        }).join('');
+        q('[data-tawal]').innerHTML = bar + `<div class="table-responsive"><table class="table table-bordered table-sm"><thead><tr><th>${__('Payment')}</th><th>${__('Amount')}</th><th>${__('Portal')}</th>
+            <th>${__('Bank credit')}</th><th>${__('Payment Entry')}</th><th>${__('State')}</th><th></th></tr></thead><tbody>${rows || `<tr><td colspan="7" class="text-muted text-center">${__('Nothing here.')}</td></tr>`}</tbody></table></div>
+            ${t.hasMore ? `<button class="btn btn-default btn-sm" data-tawal-more>${__('Show more')}</button>` : ''}`;
+    }
+    async function loadTawal(append = false) {
+        try {
+            const t = state.tawal;
+            const r = (await frappe.call({method: tawalApi + 'list_tawal', args: {group: t.group, search: state.search, start: append ? t.next : 0, limit: 100}})).message;
+            t.rows = append ? t.rows.concat(r.rows) : r.rows; t.counts = r.counts; t.settings = r.settings; t.fresh = r.freshness; t.hasMore = r.has_more; t.next = r.next_start;
+        } catch (e) { frappe.msgprint(__('Could not load Tawal receipts. You need access to bank movements, Payment Entries and Sales Invoices.')); }
+        render();
+    }
+    const render = () => {
+        renderTabs();
+        if (state.tab === 'tawal') { showTawal(true); renderTawal(); } else { showTawal(false); renderList(); renderCard(); }
+    };
     async function load(append = false) {
+        if (state.tab === 'tawal') return loadTawal(append);
         try {
             const confirming = state.tab === 'confirm';
             const args = confirming ? {bank: state.bank, search: state.search, start: append ? state.nextStart || 0 : 0, limit: 100} : {tab: state.tab, bank: state.bank, search: state.search, kind_group: state.kindGroup, start: append ? state.nextStart || 0 : 0, limit: 100};
@@ -308,6 +355,32 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     });
     root.on('click', '[data-erp-doctype]', function (e) { e.preventDefault(); frappe.set_route('Form', this.dataset.erpDoctype, this.dataset.erpName); });
     root.on('click', '[data-tab]', function () { state.tab = this.dataset.tab; state.selected = ''; state.missingSelected.clear(); state.confirmSelected.clear(); load(); });
+    root.on('click', '[data-tawal-group]', function () { state.tawal.group = this.dataset.tawalGroup; loadTawal(); });
+    root.on('click', '[data-tawal-more]', () => loadTawal(true));
+    async function tawalCall(method, args) {
+        try { return (await frappe.call({method: tawalApi + method, type: 'POST', args})).message; }
+        catch (e) { frappe.msgprint(__('Could not complete this. Refresh and check the payment state.')); return null; }
+    }
+    root.on('click', '[data-tawal-draft]', function () {
+        const number = this.dataset.tawalDraft, confirmPossible = this.dataset.confirmPossible ? 1 : 0;
+        frappe.confirm(__('Create a draft receipt for Tawal payment {0}? You review and post it from the Payment Entry.', [number]), async () => {
+            const r = await tawalCall('create_draft', {payment_number: number, confirm_possible: confirmPossible});
+            if (r) { frappe.show_alert({message: __('Draft {0} created', [r.entry]), indicator: 'green'}); loadTawal(); }
+        });
+    });
+    root.on('click', '[data-tawal-link]', async function () {
+        const r = await tawalCall('link_entry', {payment_number: this.dataset.tawalLink});
+        if (r) { frappe.show_alert({message: __('Linked {0}', [r.entry]), indicator: 'green'}); loadTawal(); }
+    });
+    root.on('click', '[data-tawal-bulk]', function () {
+        const ready = state.tawal.rows.filter(r => r.can_draft).slice(0, 25);
+        if (!ready.length) return frappe.msgprint(__('No ready payments on this page.'));
+        frappe.confirm(__('Create {0} draft receipts? Nothing is posted.', [ready.length]), async () => {
+            let ok = 0, failed = [];
+            for (const r of ready) { const res = await tawalCall('create_draft', {payment_number: r.payment_number}); if (res) ok++; else failed.push(r.payment_number); }
+            frappe.show_alert({message: __('{0} drafts created, {1} skipped', [ok, failed.length]), indicator: failed.length ? 'orange' : 'green'}); loadTawal();
+        });
+    });
     root.on('click', '[data-kind]', function () { state.kindGroup = this.dataset.kind; state.selected = ''; state.missingSelected.clear(); load(); });
     root.on('change', '[data-group-payee]', function () { state.groupByPayee = this.checked; renderList(); });
     root.on('change', '[data-supply]', function () {

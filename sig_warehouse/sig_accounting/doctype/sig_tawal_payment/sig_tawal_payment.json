@@ -1,0 +1,149 @@
+{
+ "doctype": "DocType",
+ "name": "SIG Tawal Payment",
+ "module": "SIG Accounting",
+ "autoname": "field:payment_number",
+ "track_changes": 0,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "field_order": [
+  "payment_number",
+  "payment_date",
+  "amount",
+  "portal_status",
+  "invoice_raw",
+  "remit_account",
+  "payment_type",
+  "first_seen_at",
+  "last_seen_at",
+  "status_changed_at",
+  "capture_run",
+  "reconcile_json",
+  "bank_movement",
+  "payment_entry",
+  "raw_json"
+ ],
+ "fields": [
+  {
+   "fieldname": "payment_number",
+   "fieldtype": "Data",
+   "label": "Payment Number",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "payment_date",
+   "fieldtype": "Date",
+   "label": "Payment Date",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Amount",
+   "options": "SAR",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "portal_status",
+   "fieldtype": "Data",
+   "label": "Portal Status",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "invoice_raw",
+   "fieldtype": "Data",
+   "label": "Invoice (portal)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "remit_account",
+   "fieldtype": "Data",
+   "label": "Remit-to Account",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payment_type",
+   "fieldtype": "Data",
+   "label": "Payment Type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "first_seen_at",
+   "fieldtype": "Datetime",
+   "label": "First Seen",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_seen_at",
+   "fieldtype": "Datetime",
+   "label": "Last Seen",
+   "read_only": 1
+  },
+  {
+   "fieldname": "status_changed_at",
+   "fieldtype": "Datetime",
+   "label": "Status Changed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "capture_run",
+   "fieldtype": "Data",
+   "label": "Capture Run",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reconcile_json",
+   "fieldtype": "Long Text",
+   "label": "Portal Reconcile (JSON)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "bank_movement",
+   "fieldtype": "Link",
+   "label": "Bank Movement",
+   "options": "SNB Movement Review",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payment_entry",
+   "fieldtype": "Link",
+   "label": "Payment Entry",
+   "options": "Payment Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "raw_json",
+   "fieldtype": "Long Text",
+   "label": "Portal Row (JSON)",
+   "read_only": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "Accounts User",
+   "read": 1,
+   "report": 1
+  },
+  {
+   "role": "Accounts Manager",
+   "read": 1,
+   "report": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "report": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  }
+ ],
+ "title_field": "payment_number",
+ "search_fields": "payment_number,invoice_raw"
+}

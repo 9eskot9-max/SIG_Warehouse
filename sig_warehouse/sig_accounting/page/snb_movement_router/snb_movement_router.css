@@ -48,3 +48,5 @@
     .snb-bank-summary>span:not(.snb-flow-arrow){flex:1 1 100%}
     .snb-flow-arrow{transform:rotate(90deg)}
 }
+
+.snb-tawal-bar{margin:8px 0;display:flex;flex-wrap:wrap;gap:6px}

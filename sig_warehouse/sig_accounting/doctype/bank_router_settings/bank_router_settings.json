@@ -18,7 +18,13 @@
   "section_tables",
   "bank_accounts",
   "categories",
-  "billers"
+  "billers",
+  "section_tawal",
+  "tawal_legacy_before",
+  "tawal_allow_bank_reference",
+  "tawal_last_capture_at",
+  "tawal_last_run_status",
+  "tawal_last_run_error"
  ],
  "fields": [
   {
@@ -105,6 +111,43 @@
    "fieldtype": "Small Text",
    "label": "Our own names (one per line)",
    "description": "Names under which our own company appears in a bank beneficiary list. Lines to them are own transfers."
+  },
+  {
+   "fieldname": "section_tawal",
+   "fieldtype": "Section Break",
+   "label": "Tawal"
+  },
+  {
+   "fieldname": "tawal_legacy_before",
+   "fieldtype": "Date",
+   "label": "Tawal forward date",
+   "default": "2026-01-01",
+   "description": "Portal payments dated before this are retrospective and are never drafted from the Tawal tab."
+  },
+  {
+   "fieldname": "tawal_allow_bank_reference",
+   "fieldtype": "Check",
+   "label": "Accept bank reference as proof",
+   "default": "1",
+   "description": "A bank credit that names the Tawal payment number may be drafted even while the portal still says Negotiable."
+  },
+  {
+   "fieldname": "tawal_last_capture_at",
+   "fieldtype": "Datetime",
+   "label": "Last portal export staged",
+   "read_only": 1
+  },
+  {
+   "fieldname": "tawal_last_run_status",
+   "fieldtype": "Data",
+   "label": "Last Tawal run",
+   "read_only": 1
+  },
+  {
+   "fieldname": "tawal_last_run_error",
+   "fieldtype": "Small Text",
+   "label": "Last Tawal error",
+   "read_only": 1
   }
  ],
  "permissions": [

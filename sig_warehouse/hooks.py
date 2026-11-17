@@ -119,7 +119,8 @@ scheduler_events = {
         "sig_warehouse.sig_hr.onboarding_refresh.run_daily_refresh",
     ],
     "cron": {
-        "*/15 * * * *": ["sig_warehouse.sig_warehouse.field_feed.run_feed"],
+        "*/15 * * * *": ["sig_warehouse.sig_warehouse.field_feed.run_feed",
+                         "sig_warehouse.sig_accounting.tawal_router.run_scheduled"],
         "*/5 * * * *": ["sig_warehouse.sig_operations.app_connections.dispatch_pending"],
     },
     # HR email request replies (WhatsApp Inbox -> SIG Employee Onboarding.proposed_email, for HR review only).
