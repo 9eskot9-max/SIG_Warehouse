@@ -1,6 +1,6 @@
 // Site Visits (V0, read-only). See docs/site_visits_page_design.md.
 // Same client pattern as project-progress: one shell, server does the filtering,
-// row click opens a side panel with the original WhatsApp timeline + cycle context.
+// Row click opens a concise detail panel with the linked cycle and actions.
 frappe.pages['site-visits'].on_page_load = function (wrapper) {
     const page = frappe.ui.make_app_page({parent: wrapper, title: __('Site Visits'), single_column: true});
     $(wrapper).find('.page-head').hide();
@@ -11,7 +11,9 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
     nav.find('[data-route="cycles"]').on('click', () => frappe.set_route('site-cycles'));
     nav.find('[data-route="planner"]').on('click', () => frappe.set_route('field-planner'));
     nav.find('.sig-ops-refresh').on('click', () => load());
-    const state = {stream: '', site: '', person: '', status: '', view: 'current', search: '', selected: null};
+    const state = {stream: '', site: '', person: '', status: '', view: 'current', search: '', selected: null, period: 'week', anchor: frappe.datetime.get_today(), dateFrom: '', dateTo: ''};
+    let movement = null, movementRequest = 0;
+    const mapView = {box: [20, 35, 830, 760], towns: true, zones: true, zoneCells: null, base: 'drawing', leaflet: null, roadView: null};
     const esc = (v) => frappe.utils.escape_html(String(v || ''));
     const dt = (v) => {
         if (!v) return '—';
@@ -34,11 +36,19 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
             <button type="button" class="btn btn-default btn-sm sig-sv-log-missing" style="align-self:flex-end">${__('Log missing visit')}</button>
         </div>
         <div class="sig-sv-summary"></div>
-        <div class="sig-sv-main"><div class="sig-sv-table-wrap"></div><aside class="sig-sv-detail"><div class="text-muted text-center" style="padding:40px 10px">${__('Select a visit to see its WhatsApp timeline and site context.')}</div></aside></div>`);
+        <section class="sig-movement"><div class="sig-movement-head"><div><h3>${__('Team movement')}</h3></div><div class="sig-movement-controls"><select class="form-control sig-movement-period" aria-label="${__('Period')}"><option value="week">${__('Week')}</option><option value="month">${__('Month')}</option></select><input type="date" class="form-control sig-movement-anchor" aria-label="${__('Date in period')}"><button type="button" class="btn btn-default sig-movement-all">${__('All people')}</button></div></div><div class="sig-movement-leaders"></div><div class="sig-movement-tools"><button type="button" class="btn btn-default btn-xs" data-movement="drawing" aria-pressed="true">${__('Drawing')}</button><button type="button" class="btn btn-default btn-xs" data-movement="road" aria-pressed="false">${__('Road map')}</button><button type="button" class="btn btn-default btn-xs" data-movement="towns" aria-pressed="true">${__('Town references')}</button><button type="button" class="btn btn-default btn-xs" data-movement="zones" aria-pressed="true">${__('Planning zones')}</button><button type="button" class="btn btn-default btn-xs" data-movement="in" aria-label="${__('Zoom in')}">+</button><button type="button" class="btn btn-default btn-xs" data-movement="out" aria-label="${__('Zoom out')}">−</button><button type="button" class="btn btn-default btn-xs" data-movement="reset">${__('Reset map')}</button><button type="button" class="btn btn-default btn-xs" data-movement="fit">${__('Focus selection')}</button><input class="form-control sig-movement-search" placeholder="${__('Find site')}" aria-label="${__('Find site on map')}"><button type="button" class="btn btn-default btn-xs" data-movement="find">${__('Find')}</button><button type="button" class="btn btn-default btn-xs" data-movement="expand">${__('Expand map')}</button></div><div class="sig-movement-map"></div><div class="sig-movement-note"></div></section>
+        <div class="sig-sv-active-filter"></div><div class="sig-sv-list-limit text-muted small" hidden></div><div class="sig-sv-main"><div class="sig-sv-table-wrap"></div><aside class="sig-sv-detail"><div class="text-muted text-center" style="padding:40px 10px">${__('Select a visit to see its details.')}</div></aside></div>`);
         root.find('.sig-sv-view').on('change', function () { state.view = this.value; load(); });
         root.find('.sig-sv-stream').on('change', function () { state.stream = this.value; load(); });
         root.find('.sig-sv-search').on('input', frappe.utils.debounce(function () { state.search = this.value; load(); }, 250));
         root.find('.sig-sv-log-missing').on('click', openLogMissingDialog);
+        root.find('.sig-movement-anchor').val(state.anchor).on('change', function () { if (this.value) { state.anchor = this.value; loadMovement(); } });
+        root.find('.sig-movement-period').on('change', function () { state.period = this.value; loadMovement(); });
+        root.find('.sig-movement-all').on('click', () => { state.person = ''; mapView.box = [20,35,830,760]; drawMovement(); load(); });
+        root.find('.sig-movement-tools').on('click', '[data-movement]', function () { movementControl($(this).attr('data-movement')); });
+        root.find('.sig-movement-search').on('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); movementControl('find'); } });
+        root.find('.sig-movement').on('keydown', function (e) { if (e.key === 'Escape' && $(this).hasClass('is-expanded')) movementControl('expand'); });
+        root.find('.sig-movement-leaders').on('click', 'button[data-person]', function () { state.person = $(this).attr('data-person'); mapView.box = [20,35,830,760]; drawMovement(); load(); });
         // Delegated: the tiles are re-rendered on every load(), so bind once on the
         // static parent rather than re-binding (and leaking listeners) after each render.
         root.find('.sig-sv-summary').on('click', '.sig-sv-tile', function () {
@@ -93,7 +103,7 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
     function summaryHtml(s) {
         const tile = (label, n, view) => `<div class="sig-sv-tile" data-view="${view}"><div class="sig-sv-tile-n">${n}</div><div class="sig-sv-tile-l">${__(label)}</div></div>`;
         return tile('Open now', s.open_now, 'open') + tile('Visits today', s.visits_today, 'today')
-            + tile('Needs review', s.needs_review, 'review') + tile('Sites this week', s.sites_this_week, 'thisweek');
+            + tile('Needs review', s.needs_review, 'review') + tile('Sites in period', s.sites_in_period, 'current');
     }
 
     function statusBadge(row) {
@@ -119,6 +129,12 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
 
     function renderTable(payload) {
         lastPayload = payload;
+        const activePerson = movement && (movement.visits || []).find(v => v.employee === state.person);
+        const activeTeam = movement && (movement.teams || []).find(t => t.leader === state.person);
+        const personLabel = state.person ? ((activePerson && activePerson.person) || (activeTeam && activeTeam.label) || state.person) : __('All people');
+        const viewLabel = root.find('.sig-sv-view option').filter(function () { return this.value === state.view; }).text() || __('Current');
+        root.find('.sig-sv-active-filter').text(`${__('Visits')} · ${state.dateFrom} – ${state.dateTo} · ${personLabel} · ${viewLabel}`);
+        root.find('.sig-sv-list-limit').prop('hidden', !payload.truncated).text(payload.truncated ? __('Visit list is limited to the 500 most recent matches; narrow the filters to see earlier visits.') : '');
         const sel = root.find('.sig-sv-stream').empty().append(`<option value="">${__('All')}</option>`);
         (payload.streams || []).forEach((s) => sel.append($('<option></option>').val(s.value).text(s.label)));
         sel.val(state.stream);
@@ -144,19 +160,20 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
             const d = r.message || {};
             if (d.result !== 'ok') { panel.html(`<div class="text-muted">${__('Not found.')}</div>`); return; }
             const cyc = d.cycle;
-            const cycleHtml = cyc ? `<b>${esc(cyc.project || '')}</b> · ${esc(cyc.stage || '')}${cyc.wo ? ' · ' + esc(cyc.wo) : ''}<br>
-                <span class="text-muted small">${__('Visits so far')}: ${cyc.sessions_completed || 0}, ${__('first')} ${dt(cyc.first_visit_at)}, ${__('last')} ${dt(cyc.last_visit_at)}</span>` : `<span class="text-muted">${__('No posted cycle link for this session.')}</span>`;
-            const timelineHtml = (d.timeline || []).map((m) => `<div class="sig-sv-msg"><span class="text-muted small">${timeOnly(m.at)}</span> <b>${esc(m.who)}</b> <span class="indicator-pill ${m.kind === 'START' ? 'blue' : m.kind === 'END' ? 'green' : 'grey'}" style="font-size:10px">${m.kind}</span>${m.text ? ' — ' + esc(m.text) : ''}</div>`).join('') || `<div class="text-muted small">${__('No stored messages.')}</div>`;
-            const priorHtml = (d.prior_visits || []).map((p) => `<div class="small">${dt(p.start_at)} · ${esc(p.reporter_name)} · ${esc(p.status)}</div>`).join('') || `<div class="text-muted small">${__('None.')}</div>`;
+            const cycleHtml = cyc ? `<button type="button" class="sig-sv-cycle-link">${esc(cyc.project || cyc.name)}</button>${cyc.stage ? ' · ' + esc(cyc.stage) : ''}` : `<span class="text-muted">—</span>`;
             const commentsHtml = (d.comments || []).map((c) => `<div class="small" style="margin-bottom:4px"><b>${esc(c.by)}</b> <span class="text-muted">${dt(c.at)}</span><br>${esc(c.content)}</div>`).join('') || `<div class="text-muted small">${__('No notes yet.')}</div>`;
             const row = (lastPayload.rows || []).find((r) => r.name === name) || {};
-            panel.html(`<div class="sig-sv-detail-head"><div><small>${__('Visit details')}</small><h3>${esc(row.site || __('Unresolved site'))}</h3>${statusBadge(row)}</div><button type="button" class="sig-sv-detail-close" aria-label="${__('Close details')}">×</button></div><div class="sig-sv-detail-summary"><div><small>${__('Person')}</small><b>${esc(row.reporter_name)}</b></div><div><small>${__('When')}</small><b>${dt(row.start_at)}${row.end_at ? '–' + timeOnly(row.end_at) : ''}</b></div><div><small>${__('Pics')}</small><b>${row.photo_count || 0}</b></div></div><h5>${__('Description')}</h5><div class="sig-sv-block">${esc(row.activity_code && row.activity_code !== 'UNSPECIFIED' ? row.activity_code : '—')}</div><h5>${__('Cycle and status')}</h5><div class="sig-sv-block">${cycleHtml}${(row.diagnostics || []).length ? '<br>' + esc(row.diagnostics.join(', ')) : ''}</div>
-                <h5>${__('WhatsApp timeline')}</h5><div class="sig-sv-block sig-sv-timeline">${timelineHtml}</div>
-                <details><summary>${__('Other visits at this site')}</summary><div class="sig-sv-block">${priorHtml}</div></details>
-                <h5>${__('Actions')}</h5><div class="sig-sv-actions"></div>
-                <h5>${__('Notes')}</h5><div class="sig-sv-block">${commentsHtml}</div>
-                <textarea class="form-control sig-sv-note-text" rows="2" placeholder="${__('Add a note...')}"></textarea>
-                <button type="button" class="btn btn-default btn-sm sig-sv-add-note" style="margin-top:6px">${__('Add note')}</button>`);
+            const endText = row.status === 'AUTO_CLOSED' ? __('Auto-closed; End not received') : (row.end_at ? dt(row.end_at) : '—');
+            const previous = d.previous_visit_count == null ? '—' : Number(d.previous_visit_count);
+            panel.html(`<div class="sig-sv-detail-head"><div><small>${__('Visit details')}</small><h3>${esc(row.site || __('Unresolved site'))}</h3>${statusBadge(row)}</div><button type="button" class="sig-sv-detail-close" aria-label="${__('Close details')}">×</button></div>
+                <div class="sig-sv-detail-summary"><div><small>${__('Person')}</small><b>${esc(row.reporter_name)}</b></div><div><small>${__('Pics')}</small><b>${row.photo_count || 0}</b></div><div><small>${__('Start')}</small><b>${dt(row.start_at)}</b></div><div><small>${__('End')}</small><b>${esc(endText)}</b></div></div>
+                <h5>${__('Description')}</h5><div class="sig-sv-block">${esc(row.activity_code && row.activity_code !== 'UNSPECIFIED' ? row.activity_code : '—')}</div>
+                <h5>${__('Cycle')}</h5><div class="sig-sv-block">${cycleHtml}</div>
+                <h5>${__('Earlier visits at this site')}</h5><div class="sig-sv-prior-count">${previous}</div>
+                ${(row.is_review && (row.diagnostics || []).length) ? `<details><summary>${__('Review details')}</summary><div class="sig-sv-block">${esc(row.diagnostics.join(', '))}</div></details>` : ''}
+                <div class="sig-sv-actions"></div>
+                <details><summary>${__('Notes')}</summary><div class="sig-sv-block">${commentsHtml}</div><textarea class="form-control sig-sv-note-text" rows="2" placeholder="${__('Add a note...')}"></textarea><button type="button" class="btn btn-default btn-sm sig-sv-add-note" style="margin-top:6px">${__('Add note')}</button></details>`);
+            if (cyc) panel.find('.sig-sv-cycle-link').on('click', () => frappe.set_route('Form', 'SIG Site Cycle', cyc.name));
             panel.find('.sig-sv-detail-close').on('click', () => panel.removeClass('is-open').addClass('is-closed'));
             renderActions(row, name, d.cycle_candidates || []);
             panel.find('.sig-sv-add-note').on('click', async () => {
@@ -174,7 +191,7 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
         const box = root.find('.sig-sv-detail .sig-sv-actions');
         const btn = (label, cls) => `<button type="button" class="btn btn-default btn-xs ${cls}" style="margin:2px">${label}</button>`;
         const unallocated = row.posted && (row.diagnostics || []).includes('UNALLOCATED');
-        if (row.posted && !unallocated) { box.html(`<span class="text-muted small">${__('Already posted - corrections go through an amendment on the Field Visit itself.')}</span>`); return; }
+        if (row.posted && !unallocated) { box.empty(); return; }
         const pairBtn = row.status !== 'COMPLETED' ? btn(__('Pair a lonely End'), 'sig-sv-act-pair') : '';
         const attributionReview = (row.diagnostics || []).includes('CYCLE_ATTRIBUTION_EXCEPTION');
         const confirmBtn = row.is_review && !attributionReview ? btn(__('Confirm as-is'), 'sig-sv-act-confirm') : '';
@@ -273,15 +290,161 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
         });
     }
 
+    async function loadMovement() {
+        const id = ++movementRequest;
+        root.find('.sig-movement-map').text(__('Loading movement…'));
+        try {
+            await frappe.require('/assets/sig_warehouse/js/sig_movement_map_assets.js');
+            const response = await frappe.call({method: 'sig_warehouse.sig_warehouse.site_visits.get_movement_map', args: {period: state.period, anchor: state.anchor}});
+            if (id !== movementRequest) return;
+            movement = response.message;
+            if (!movement) throw new Error('No movement data');
+            state.dateFrom = movement.start; state.dateTo = movement.end;
+            drawMovement(); load();
+        } catch (error) {
+            if (id === movementRequest) root.find('.sig-movement-map').text(__('Movement map could not be loaded.'));
+        }
+    }
+
+    function drawMovement() {
+        if (!movement) return;
+        const asset = window.sigMovementMapAssets, colors = asset.colors;
+        if (mapView.leaflet) { const c = mapView.leaflet.getCenter(); mapView.roadView = {center: [c.lat,c.lng], zoom: mapView.leaflet.getZoom()}; mapView.leaflet.remove(); mapView.leaflet = null; }
+        const teams = movement.teams || [], visits = movement.visits || [];
+        const labels = new Map(teams.map((t, i) => [t.id, {label: t.label, color: colors[i % colors.length], leader: t.leader}]));
+        const shortName = name => { const parts = String(name || '').trim().split(/\s+/).filter(Boolean); return parts.length > 1 ? parts[0] + ' ' + parts[parts.length - 1] : (parts[0] || ''); };
+        const people = new Map();
+        teams.forEach((t, i) => people.set(t.leader, {name: t.label, color: colors[i % colors.length]}));
+        visits.forEach(v => { if (v.employee && !people.has(v.employee)) people.set(v.employee, {name: v.person || v.employee, color: '#748594'}); });
+        root.find('.sig-movement-leaders').html([...people].map(([id, p]) => `<button type="button" data-person="${esc(id)}" class="sig-movement-person ${state.person === id ? 'active' : ''}"><span style="background:${p.color}"></span>${esc(shortName(p.name))}</button>`).join(''));
+        const shown = visits.filter(v => !state.person || v.employee === state.person);
+        const outline = asset.outline.map(([lon, lat]) => asset.project(lon, lat).join(',')).join(' ');
+        const runs = new Map();
+        shown.forEach(v => { const key = (v.employee || v.name) + '|' + v.at.slice(0, 10); if (!runs.has(key)) runs.set(key, []); runs.get(key).push(v); });
+        let lines = '', dots = '';
+        const towns = asset.towns || [], zoneColors = asset.zoneColors || {};
+        if (!mapView.zoneCells && towns.length) { const points = towns.map(t => [...asset.project(t.lon, t.lat), t.zone]); let cells = ''; for (let x = 20; x < 850; x += 14) for (let y = 35; y < 795; y += 14) { let nearest = null, best = Infinity; points.forEach(p => { const d = (p[0]-x-7)**2 + (p[1]-y-7)**2; if (d < best) { best = d; nearest = p; } }); cells += `<rect x="${x}" y="${y}" width="14.5" height="14.5" fill="${zoneColors[nearest[2]] || '#eee'}"/>`; } mapView.zoneCells = cells; }
+        const mainTowns = new Set(['Riyadh','Jeddah','Makkah','Madinah','Dammam','Taif','Tabuk','Buraydah','Abha','Hail','Najran','Jizan']);
+        const townDots = mapView.towns ? towns.filter(t => mainTowns.has(t.name)).map(t => { const [x,y] = asset.project(t.lon,t.lat); return `<circle cx="${x}" cy="${y}" r="2.6" fill="#b7791f"/><text x="${x+4}" y="${y-3}" font-size="7" fill="#7a4e12">${esc(t.name)}</text>`; }).join('') : '';
+        runs.forEach(group => {
+            for (let i = 1; i < group.length; i++) {
+                const a = group[i - 1], b = group[i];
+                if (a.lat == null || b.lat == null || a.lon == null || b.lon == null) continue;
+                const color = (labels.get(b.team) || {}).color || '#748594';
+                const [x1,y1] = asset.project(a.lon,a.lat), [x2,y2] = asset.project(b.lon,b.lat);
+                lines += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="2" opacity=".8"/>`;
+            }
+            group.forEach((v, index) => {
+                if (v.lat == null || v.lon == null) return;
+                const [x,y] = asset.project(v.lon,v.lat), color = (labels.get(v.team) || {}).color || '#748594';
+                dots += `<g class="sig-movement-point" data-session="${esc(v.name)}" tabindex="0" role="button"><circle cx="${x}" cy="${y}" r="6" fill="${color}" stroke="white" stroke-width="1.5"/><text x="${x}" y="${y+2}" font-size="6" text-anchor="middle" fill="white">${index+1}</text><title>${esc(v.site)} · ${esc(v.person)} · ${esc(v.at.slice(0,16))}</title></g>`;
+            });
+        });
+        if (mapView.base === 'road') { drawMovementRoad(shown, runs, labels); root.find('.sig-movement-note').text(`${movement.start} – ${movement.end} · ${shown.length} ${__('visits')} · ${shown.filter(v => v.lat == null || v.lon == null).length} ${__('unmapped')}`); return; }
+        root.find('.sig-movement-map').html(`<svg viewBox="${mapView.box.join(' ')}" role="img" aria-label="${__('Recorded visit movement')}"><defs><clipPath id="sig-movement-ksa"><polygon points="${outline}"/></clipPath></defs><rect x="20" y="35" width="830" height="760" fill="#e9f1f7"/><polygon points="${outline}" fill="#f8faf9"/><g clip-path="url(#sig-movement-ksa)">${mapView.zones ? mapView.zoneCells || '' : ''}</g><polygon points="${outline}" fill="none" stroke="#9db4c9" stroke-width="1.5"/>${townDots}${lines}${dots}</svg>`);
+        bindMovementMap();
+        setMovementBox(mapView.box);
+        root.find('[data-movement=drawing]').attr('aria-pressed', 'true'); root.find('[data-movement=road]').attr('aria-pressed', 'false');
+        root.find('[data-movement=towns]').attr('aria-pressed', String(mapView.towns));
+        root.find('[data-movement=zones]').attr('aria-pressed', String(mapView.zones));
+        const missing = shown.filter(v => v.lat == null || v.lon == null).length;
+        root.find('.sig-movement-note').text(`${movement.start} – ${movement.end} · ${shown.length} ${__('visits')} · ${missing} ${__('unmapped')}${movement.truncated ? ' · ' + __('Results limited to 10,000 visits') : ''}`);
+    }
+
+    function drawMovementRoad(shown, runs, labels) {
+        root.find('.sig-movement-map').html('<div class="sig-movement-leaflet"></div>');
+        const map = L.map(root.find('.sig-movement-leaflet')[0], {minZoom:5,maxZoom:11,scrollWheelZoom:false});
+        mapView.leaflet = map;
+        const tiles = frappe.utils.map_defaults.tiles, config = tiles.default_tile || {url: tiles, options: frappe.utils.map_defaults.options};
+        L.tileLayer(config.url, config.options).addTo(map);
+        runs.forEach(group => {
+            for (let i = 1; i < group.length; i++) { const a = group[i-1], b = group[i]; if (a.lat == null || a.lon == null || b.lat == null || b.lon == null) continue; L.polyline([[a.lat,a.lon],[b.lat,b.lon]], {color:(labels.get(b.team)||{}).color || '#748594',weight:3}).addTo(map); }
+            group.forEach((v,i) => { if (v.lat == null || v.lon == null) return; const color = (labels.get(v.team)||{}).color || '#748594'; const marker = L.circleMarker([v.lat,v.lon], {radius:7,color:'#fff',weight:2,fillColor:color,fillOpacity:1}).bindTooltip(`${esc(v.site)} · ${esc(v.person)} · ${esc(v.at.slice(0,16))} · ${i+1}`); marker.on('click', () => { if (!(lastPayload.rows || []).some(row => row.name === v.name)) { frappe.show_alert({message: __('This visit is outside the current list filters.'), indicator:'orange'}); return; } state.selected = v.name; root.find('.sig-sv-detail').removeClass('is-closed').addClass('is-open'); showDetail(v.name); }); marker.addTo(map); });
+        });
+        if (mapView.roadView) map.setView(mapView.roadView.center,mapView.roadView.zoom); else map.setView([24.5,45],6);
+        root.find('[data-movement=drawing]').attr('aria-pressed','false'); root.find('[data-movement=road]').attr('aria-pressed','true');
+        setTimeout(() => map.invalidateSize(), 50);
+    }
+
+    function clampMovementBox(box) {
+        const w = Math.min(830, Math.max(830 / 12, box[2])), h = w * 760 / 830;
+        const px = Math.min(830 * .35, w * .55), py = Math.min(760 * .35, h * .55);
+        return [Math.min(850 - w + px, Math.max(20 - px, box[0])), Math.min(795 - h + py, Math.max(35 - py, box[1])), w, h];
+    }
+    function setMovementBox(box) {
+        mapView.box = clampMovementBox(box);
+        const svg = root.find('.sig-movement-map svg')[0];
+        if (svg) {
+            svg.setAttribute('viewBox', mapView.box.join(' '));
+            const k = Math.max(.35, Math.pow(830 / mapView.box[2], -.8));
+            svg.querySelectorAll('.sig-movement-point').forEach(point => { const circle = point.querySelector('circle'), text = point.querySelector('text'); if (circle) { circle.setAttribute('r', 6*k); circle.setAttribute('stroke-width', 1.5*k); } if (text && circle) { text.setAttribute('font-size', 6*k); text.setAttribute('y', Number(circle.getAttribute('cy')) + 2*k); } });
+        }
+    }
+    function zoomMovement(factor, cx, cy) {
+        const [x,y,w,h] = mapView.box, px = cx == null ? x+w/2 : cx, py = cy == null ? y+h/2 : cy;
+        setMovementBox([px-(px-x)*factor, py-(py-y)*factor, w*factor, h*factor]);
+    }
+    function movementPoint(svg, event) {
+        const rect = svg.getBoundingClientRect(), [x,y,w,h] = mapView.box, scale = Math.min(rect.width/w, rect.height/h);
+        const left = rect.left + (rect.width-w*scale)/2, top = rect.top + (rect.height-h*scale)/2;
+        return [x+(event.clientX-left)/scale, y+(event.clientY-top)/scale];
+    }
+    function movementControl(action) {
+        if (action === 'drawing' || action === 'road') {
+            if (action === 'road') { Promise.all([frappe.require('leaflet.bundle.js'), frappe.require('leaflet.bundle.css')]).then(() => { if (typeof L === 'undefined' || !frappe.utils.map_defaults?.tiles) throw new Error('Map tiles unavailable'); mapView.base = 'road'; drawMovement(); }).catch(() => frappe.msgprint(__('Road map is unavailable.'))); }
+            else { mapView.base = 'drawing'; drawMovement(); }
+        }
+        else if (action === 'in' && mapView.leaflet) mapView.leaflet.zoomIn();
+        else if (action === 'out' && mapView.leaflet) mapView.leaflet.zoomOut();
+        else if (action === 'in') zoomMovement(.7);
+        else if (action === 'out') zoomMovement(1.4);
+        else if (action === 'reset') { if (mapView.leaflet) mapView.leaflet.setView([24.5,45], 6); else setMovementBox([20,35,830,760]); }
+        else if (action === 'towns' || action === 'zones') { mapView[action] = !mapView[action]; drawMovement(); }
+        else if (action === 'expand') { const card = root.find('.sig-movement'); card.toggleClass('is-expanded'); root.find('[data-movement=expand]').text(card.hasClass('is-expanded') ? __('Close expanded map') : __('Expand map')); if (mapView.leaflet) setTimeout(() => mapView.leaflet && mapView.leaflet.invalidateSize(), 80); }
+        else if (action === 'fit' || action === 'find') {
+            const query = String(root.find('.sig-movement-search').val() || '').trim().toLowerCase();
+            const matches = (movement.visits || []).filter(v => (!state.person || v.employee === state.person) && v.lat != null && v.lon != null && (action !== 'find' || (query && String(v.site || '').toLowerCase().includes(query))));
+            if (!matches.length) { frappe.show_alert({message: __('No matching mapped visits.'), indicator: 'orange'}); return; }
+            if (mapView.leaflet) { mapView.leaflet.fitBounds(matches.map(v => [v.lat,v.lon]), {padding:[44,44], maxZoom:8}); return; }
+            const points = matches.map(v => window.sigMovementMapAssets.project(v.lon,v.lat));
+            const xs = points.map(p => p[0]), ys = points.map(p => p[1]), minx = Math.min(...xs), maxx = Math.max(...xs), miny = Math.min(...ys), maxy = Math.max(...ys);
+            const width = Math.max(100, (maxx-minx)*1.5, (maxy-miny)*1.5*830/760);
+            setMovementBox([(minx+maxx-width)/2, (miny+maxy-width*760/830)/2, width, width*760/830]);
+        }
+    }
+    function bindMovementMap() {
+        const svg = root.find('.sig-movement-map svg')[0]; if (!svg) return;
+        svg.addEventListener('wheel', e => { if (!(e.ctrlKey || e.metaKey)) return; e.preventDefault(); const delta = Math.max(-50, Math.min(50, e.deltaY)), [x,y] = movementPoint(svg,e); zoomMovement(Math.exp(delta * .008),x,y); }, {passive: false});
+        svg.addEventListener('dblclick', e => { e.preventDefault(); const [x,y] = movementPoint(svg,e); zoomMovement(.5,x,y); });
+        const pointers = new Map(); let gesture = null;
+        const resetGesture = () => {
+            const values = [...pointers.values()];
+            if (values.length === 1) gesture = {kind: 'pan', start: values[0], box: [...mapView.box]};
+            else if (values.length === 2) gesture = {kind: 'pinch', distance: Math.hypot(values[0].x-values[1].x, values[0].y-values[1].y), box: [...mapView.box]};
+            else gesture = null;
+        };
+        svg.addEventListener('pointerdown', e => { if (e.target.closest('.sig-movement-point')) return; e.preventDefault(); pointers.set(e.pointerId,{x:e.clientX,y:e.clientY}); svg.setPointerCapture(e.pointerId); resetGesture(); });
+        svg.addEventListener('pointermove', e => {
+            if (!pointers.has(e.pointerId) || !gesture) return;
+            pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+            const rect = svg.getBoundingClientRect(); if (!rect.width || !rect.height) return;
+            if (gesture.kind === 'pan') { const p = pointers.get(e.pointerId), b = gesture.box, scale = Math.min(rect.width/b[2],rect.height/b[3]); setMovementBox([b[0]-(p.x-gesture.start.x)/scale,b[1]-(p.y-gesture.start.y)/scale,b[2],b[3]]); }
+            else if (gesture.kind === 'pinch' && pointers.size === 2) { const v = [...pointers.values()], distance = Math.hypot(v[0].x-v[1].x,v[0].y-v[1].y); if (distance > 0 && gesture.distance > 0) { const b = gesture.box, factor = gesture.distance / distance, w = b[2]*factor, h = b[3]*factor; setMovementBox([b[0]+(b[2]-w)/2,b[1]+(b[3]-h)/2,w,h]); } }
+        });
+        const endPointer = e => { pointers.delete(e.pointerId); resetGesture(); };
+        svg.addEventListener('pointerup', endPointer); svg.addEventListener('pointercancel', endPointer);
+        svg.querySelectorAll('.sig-movement-point').forEach(point => { const open = () => { const name = point.dataset.session; if (!(lastPayload.rows || []).some(row => row.name === name)) { frappe.show_alert({message: __('This visit is outside the current list filters.'), indicator: 'orange'}); return; } state.selected = name; root.find('.sig-sv-detail').removeClass('is-closed').addClass('is-open'); showDetail(state.selected); }; point.addEventListener('click', open); point.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } }); });
+    }
+
     let latestLoad = 0;
     function load() {
         const requestId = ++latestLoad;
         frappe.call({method: 'sig_warehouse.sig_warehouse.site_visits.get_visits',
             args: {stream: state.stream, site: state.site, person: state.person, status: state.status,
-                   view: state.view, search: state.search},
+                   view: state.view, search: state.search, date_from: state.dateFrom, date_to: state.dateTo},
             callback: (r) => { if (requestId === latestLoad && r.message) renderTable(r.message); }});
     }
 
     shell();
-    load();
+    loadMovement();
 };

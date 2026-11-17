@@ -36,7 +36,50 @@ def text_value(value):
 
 
 @frappe.whitelist()
-def get_visits(stream='', site='', person='', status='', view='current', search=''):
+def get_movement_map(period='week', anchor=None):
+    """Return dated visit points and the Planner roster for a week or month."""
+    from datetime import timedelta
+    from sig_warehouse.sig_warehouse.field_planner_api import _team_setup
+
+    if not set(frappe.get_roles()).intersection(SITE_VISIT_ROLES):
+        frappe.throw('You need an Operations role to view field visits.', frappe.PermissionError)
+    if period not in ('week', 'month'):
+        frappe.throw('Choose week or month.')
+    day = frappe.utils.getdate(anchor or frappe.utils.nowdate())
+    start = day - timedelta(days=day.weekday()) if period == 'week' else day.replace(day=1)
+    end = start + timedelta(days=7) if period == 'week' else frappe.utils.add_months(start, 1)
+    rows = frappe.db.sql(
+        "SELECT name, site_key, employee, start_at, status, posted FROM `tabSIG Field Session` "
+        "WHERE start_at >= %s AND start_at < %s AND disposition NOT IN ('IN_ERP_WINDOW','VOID') "
+        "ORDER BY start_at ASC, name ASC LIMIT 10001", (start, end), as_dict=True)
+    truncated = len(rows) > 10000
+    rows = rows[:10000]
+    codes = list({r.site_key for r in rows if r.site_key})
+    employees = list({r.employee for r in rows if r.employee})
+    sites = frappe.get_list('SIG Site', filters={'name': ['in', codes]}, fields=['name', 'site_latitude', 'site_longitude'], limit_page_length=0) if codes else []
+    coordinates = {s.name: (s.site_latitude, s.site_longitude) for s in sites if s.site_latitude and s.site_longitude}
+    names = frappe.db.get_values('Employee', {'name': ['in', employees]}, ['name', 'employee_name'], as_dict=True) if employees else []
+    names = {e.name: e.employee_name for e in names}
+    roster = _team_setup()
+    leader_ids = list({t['leader'] for t in roster if t.get('leader')})
+    leader_rows = frappe.db.get_values('Employee', {'name': ['in', leader_ids]}, ['name', 'employee_name'], as_dict=True) if leader_ids else []
+    leader_names = {e.name: e.employee_name for e in leader_rows}
+    teams = [{'id': str(t['team_id']), 'leader': t['leader'], 'label': leader_names.get(t['leader']) or t['leader'],
+              'periods': t.get('leader_periods') or [{'employee': t['leader'], 'from': '', 'to': ''}]} for t in roster]
+    points = []
+    for r in rows:
+        date = str(r.start_at)[:10]
+        matches = [t for t in teams if any(p.get('employee') == r.employee and (not p.get('from') or p['from'] <= date)
+                   and (not p.get('to') or date <= p['to']) for p in t['periods'])]
+        xy = coordinates.get(r.site_key)
+        points.append({'name': r.name, 'site': r.site_key, 'employee': r.employee, 'person': names.get(r.employee) or r.employee or '',
+                       'team': matches[0]['id'] if len(matches) == 1 else '', 'at': str(r.start_at), 'status': r.status,
+                       'lat': float(xy[0]) if xy else None, 'lon': float(xy[1]) if xy else None})
+    return {'start': str(start), 'end': str(end - timedelta(days=1)), 'teams': teams, 'visits': points, 'truncated': truncated}
+
+
+@frappe.whitelist()
+def get_visits(stream='', site='', person='', status='', view='current', search='', date_from='', date_to=''):
     user = frappe.session.user
     roles = set(frappe.get_roles(user)) if user != "Guest" else set()
     if not roles.intersection(SITE_VISIT_ROLES):
@@ -62,6 +105,12 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
     if status:
         where.append('s.status = %s')
         values.append(status)
+    if date_from:
+        where.append('s.start_at >= %s')
+        values.append(frappe.utils.getdate(date_from))
+    if date_to:
+        where.append('s.start_at < %s')
+        values.append(frappe.utils.add_days(frappe.utils.getdate(date_to), 1))
     if search:
         like = '%' + search + '%'
         where.append("(LOWER(IFNULL(s.site_key,'')) LIKE %s OR EXISTS "
@@ -76,8 +125,10 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
         "s.start_at, s.end_at, s.status, s.hours, s.activity_code, s.photo_count, s.diagnostics, "
         "s.disposition, s.posted, s.visit "
         "FROM `tabSIG Field Session` s WHERE " + ' AND '.join(where) +
-        " ORDER BY s.start_at DESC LIMIT 500", tuple(values), as_dict=True,
+        " ORDER BY s.start_at DESC LIMIT 501", tuple(values), as_dict=True,
     )
+    truncated = len(rows) > 500
+    rows = rows[:500]
     emp_ids = list({r.employee for r in rows if r.employee})
     emp_names = frappe.db.get_values('Employee', {'name': ['in', emp_ids]}, ['name', 'employee_name'], as_dict=True) if emp_ids else []
     emp_name_by_id = {e.name: e.employee_name for e in emp_names}
@@ -111,6 +162,7 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
     now_open_count = today_count = review_count = unclassified_count = 0
     today = frappe.utils.nowdate()
     sites_this_week = set()
+    sites_in_period = set()
     week_ago = frappe.utils.add_days(today, -7)
     for r in rows:
         diags = [d for d in (r.diagnostics or '').split(',') if d]
@@ -141,6 +193,8 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
             unclassified_count += 1
         if str(r.start_at or '')[:10] >= week_ago:
             sites_this_week.add(r.site_key)
+        if r.site_key:
+            sites_in_period.add(r.site_key)
 
         if view == 'open' and r.status != 'OPEN':
             continue
@@ -155,10 +209,11 @@ def get_visits(stream='', site='', person='', status='', view='current', search=
         result.append(record)
 
     return {
-        'result': 'ok', 'rows': result,
+        'result': 'ok', 'rows': result, 'truncated': truncated,
         'streams': [{'value': k, 'label': v, 'pm': STREAM_PM.get(k, '')} for k, v in STREAM_LABEL.items()],
         'summary': {'open_now': now_open_count, 'visits_today': today_count, 'needs_review': review_count,
-                    'unclassified': unclassified_count, 'sites_this_week': len(sites_this_week)},
+                    'unclassified': unclassified_count, 'sites_this_week': len(sites_this_week),
+                    'sites_in_period': len(sites_in_period)},
     }
 
 
@@ -189,7 +244,7 @@ def get_my_visit_schedule():
 def get_visit(session_key):
     session_key = text_value(session_key)
     s = frappe.db.get_value('SIG Field Session', session_key,
-                            ['stream', 'group', 'site_key', 'site', 'start_msg', 'end_msg', 'visit'], as_dict=True)
+                            ['stream', 'group', 'site_key', 'site', 'start_msg', 'end_msg', 'visit', 'start_at'], as_dict=True)
     if not s:
         return {'result': 'not_found'}
     lo_hi = frappe.db.sql(
@@ -222,6 +277,7 @@ def get_visit(session_key):
         'Employee', {'name': ['in', prior_emp_ids]}, ['name', 'employee_name'], as_dict=True)} if prior_emp_ids else {}
     for p in prior:
         p['reporter_name'] = prior_emp_names.get(p.employee) or p.reporter_name
+    previous_count = frappe.db.count('SIG Field Visit', filters={'site_key': s.site_key, 'start_at': ['<', s.start_at]}) if s.site_key and s.start_at else None
     comments = frappe.get_all('Comment', filters={'reference_doctype': 'SIG Field Session', 'reference_name': session_key,
                                                    'comment_type': 'Comment'},
                               fields=['content', 'owner', 'creation'], order_by='creation desc', limit_page_length=20)
@@ -229,7 +285,7 @@ def get_visit(session_key):
     # it shows exactly what the sender's phone displayed, not an ERP-resolved identity.
     return {'result': 'ok', 'timeline': [{'at': str(m.occurred_at), 'who': m.reporter_name, 'kind': m.kind,
                                           'text': m.text} for m in timeline],
-            'cycle': cycle, 'cycle_candidates': cycle_candidates, 'prior_visits': prior,
+            'cycle': cycle, 'cycle_candidates': cycle_candidates, 'prior_visits': prior, 'previous_visit_count': previous_count,
             'comments': [{'content': c.content, 'by': c.owner, 'at': str(c.creation)} for c in comments]}
 
 
