@@ -12,7 +12,7 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
     nav.find('[data-route="planner"]').on('click', () => frappe.set_route('field-planner'));
     nav.find('.sig-ops-refresh').on('click', () => load());
     const state = {stream: '', site: '', person: '', status: '', view: 'current', search: '', selected: null, period: 'week', anchor: frappe.datetime.get_today(), dateFrom: '', dateTo: '', historyFrom: '', historyTo: ''};
-    let movement = null, movementRequest = 0;
+    let movement = null, movementRequest = 0, highlightedVisit = null, focusRequest = 0;
     const mapView = {box: [20, 35, 830, 760], towns: true, zones: true, zoneCells: null, base: 'drawing', leaflet: null, roadView: null};
     const esc = (v) => frappe.utils.escape_html(String(v || ''));
     const dt = (v) => {
@@ -156,7 +156,7 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
         wrap.html(`<table class="table table-bordered sig-sv-table">
             <thead><tr><th>${__('Site / Description')}</th><th>${__('Person · When')}</th><th>${__('Duration · Pics')}</th><th>${__('Status')}</th></tr></thead>
             <tbody>${payload.rows.map(rowHtml).join('')}</tbody></table>`);
-        wrap.find('.sig-sv-row').on('click keydown', function (e) { if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return; e.preventDefault(); state.selected = $(this).data('name'); wrap.find('.sig-sv-row').removeClass('selected'); $(this).addClass('selected'); root.find('.sig-sv-detail').removeClass('is-closed').addClass('is-open'); showDetail(state.selected); });
+        wrap.find('.sig-sv-row').on('click keydown', function (e) { if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return; e.preventDefault(); state.selected = $(this).data('name'); wrap.find('.sig-sv-row').removeClass('selected'); $(this).addClass('selected'); root.find('.sig-sv-detail').removeClass('is-closed').addClass('is-open'); showDetail(state.selected); focusVisitOnMap(state.selected); });
     }
 
     function showDetail(name) {
@@ -348,7 +348,7 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
             group.forEach((v, index) => {
                 if (v.lat == null || v.lon == null) return;
                 const [x,y] = asset.project(v.lon,v.lat), color = personColor(v);
-                dots += `<g class="sig-movement-point" data-session="${esc(v.name)}" tabindex="0" role="button"><circle cx="${x}" cy="${y}" r="6" fill="${color}" stroke="white" stroke-width="1.5"/><text x="${x}" y="${y+2}" font-size="6" text-anchor="middle" fill="white">${index+1}</text><title>${esc(v.site)} · ${esc(v.person)} · ${esc(v.at.slice(0,16))}</title></g>`;
+                dots += `<g class="sig-movement-point ${highlightedVisit === v.name ? 'is-highlighted' : ''}" data-session="${esc(v.name)}" tabindex="0" role="button"><circle cx="${x}" cy="${y}" r="6" fill="${color}" stroke="white" stroke-width="1.5"/>${highlightedVisit === v.name ? `<circle class="sig-movement-highlight-ring" cx="${x}" cy="${y}" r="11" fill="none" stroke="#102f4c" stroke-width="3"/>` : ''}<text x="${x}" y="${y+2}" font-size="6" text-anchor="middle" fill="white">${index+1}</text><title>${esc(v.site)} · ${esc(v.person)} · ${esc(v.at.slice(0,16))}</title></g>`;
             });
         });
         if (mapView.base === 'road') { drawMovementRoad(shown, runs, personColor); root.find('.sig-movement-note').text(`${movement.start} – ${movement.end} · ${shown.length} ${__('visits')} · ${shown.filter(v => v.lat == null || v.lon == null).length} ${__('unmapped')}`); return; }
@@ -360,6 +360,32 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
         root.find('[data-movement=zones]').attr('aria-pressed', String(mapView.zones));
         const missing = shown.filter(v => v.lat == null || v.lon == null).length;
         root.find('.sig-movement-note').text(`${movement.start} – ${movement.end} · ${shown.length} ${__('visits')} · ${missing} ${__('unmapped')}${movement.truncated ? ' · ' + __('Results limited to 10,000 visits') : ''}`);
+    }
+
+    async function focusVisitOnMap(name) {
+        const request = ++focusRequest;
+        const row = (lastPayload.rows || []).find(r => r.name === name);
+        if (!row || !row.start_at) return;
+        const day = String(row.start_at).slice(0, 10);
+        if (!movement || day < movement.start || day > movement.end) {
+            state.anchor = day;
+            root.find('.sig-movement-anchor').val(day);
+            await loadMovement();
+            if (request !== focusRequest) return;
+        }
+        const visit = movement && (movement.visits || []).find(v => v.name === name);
+        if (!visit || visit.lat == null || visit.lon == null) {
+            highlightedVisit = null; drawMovement();
+            frappe.show_alert({message: __('This visit has no map point in the selected period.'), indicator: 'orange'});
+            return;
+        }
+        highlightedVisit = name;
+        drawMovement();
+        if (mapView.leaflet) mapView.leaflet.setView([visit.lat, visit.lon], 8);
+        else { const [x, y] = window.sigMovementMapAssets.project(visit.lon, visit.lat); const w = 180, h = w * 760 / 830; setMovementBox([x-w/2, y-h/2, w, h]); }
+        const point = root.find('.sig-movement-point').filter(function () { return $(this).attr('data-session') === name; });
+        const color = point.find('circle').first().attr('fill') || root.find('.sig-movement-person').filter(function () { return $(this).attr('data-person') === visit.employee; }).find('span').css('background-color') || '#3784db';
+        showMovementSite(visit, color);
     }
 
     function showMovementSite(visit, color) {
@@ -388,7 +414,7 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
         L.tileLayer(config.url, config.options).addTo(map);
         runs.forEach(group => {
             for (let i = 1; i < group.length; i++) { const a = group[i-1], b = group[i]; if (a.lat == null || a.lon == null || b.lat == null || b.lon == null) continue; L.polyline([[a.lat,a.lon],[b.lat,b.lon]], {color:personColor(b),weight:3}).addTo(map); }
-            group.forEach((v,i) => { if (v.lat == null || v.lon == null) return; const color = personColor(v); const marker = L.circleMarker([v.lat,v.lon], {radius:7,color:'#fff',weight:2,fillColor:color,fillOpacity:1}).bindTooltip(`${esc(v.site)} · ${esc(v.person)} · ${esc(v.at.slice(0,16))} · ${i+1}`); marker.on('click', () => showMovementSite(v, personColor(v))); marker.addTo(map); });
+            group.forEach((v,i) => { if (v.lat == null || v.lon == null) return; const color = personColor(v); const marker = L.circleMarker([v.lat,v.lon], {radius:highlightedVisit === v.name ? 11 : 7,color:highlightedVisit === v.name ? '#102f4c' : '#fff',weight:highlightedVisit === v.name ? 4 : 2,fillColor:color,fillOpacity:1}).bindTooltip(`${esc(v.site)} · ${esc(v.person)} · ${esc(v.at.slice(0,16))} · ${i+1}`); marker.on('click', () => showMovementSite(v, personColor(v))); marker.addTo(map); });
         });
         if (mapView.roadView) map.setView(mapView.roadView.center,mapView.roadView.zoom); else map.setView([24.5,45],6);
         root.find('[data-movement=drawing]').attr('aria-pressed','false'); root.find('[data-movement=road]').attr('aria-pressed','true');
