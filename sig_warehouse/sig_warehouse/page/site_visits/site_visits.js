@@ -343,6 +343,7 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
         if (mapView.base === 'road') { drawMovementRoad(shown, runs, labels); root.find('.sig-movement-note').text(`${movement.start} – ${movement.end} · ${shown.length} ${__('visits')} · ${shown.filter(v => v.lat == null || v.lon == null).length} ${__('unmapped')}`); return; }
         root.find('.sig-movement-map').html(`<svg viewBox="${mapView.box.join(' ')}" role="img" aria-label="${__('Recorded visit movement')}"><defs><clipPath id="sig-movement-ksa"><polygon points="${outline}"/></clipPath></defs><rect x="20" y="35" width="830" height="760" fill="#e9f1f7"/><polygon points="${outline}" fill="#f8faf9"/><g clip-path="url(#sig-movement-ksa)">${mapView.zones ? mapView.zoneCells || '' : ''}</g><polygon points="${outline}" fill="none" stroke="#9db4c9" stroke-width="1.5"/>${townDots}${lines}${dots}</svg>`);
         bindMovementMap();
+        setMovementBox(mapView.box);
         root.find('[data-movement=drawing]').attr('aria-pressed', 'true'); root.find('[data-movement=road]').attr('aria-pressed', 'false');
         root.find('[data-movement=towns]').attr('aria-pressed', String(mapView.towns));
         root.find('[data-movement=zones]').attr('aria-pressed', String(mapView.zones));
@@ -373,11 +374,20 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
     function setMovementBox(box) {
         mapView.box = clampMovementBox(box);
         const svg = root.find('.sig-movement-map svg')[0];
-        if (svg) svg.setAttribute('viewBox', mapView.box.join(' '));
+        if (svg) {
+            svg.setAttribute('viewBox', mapView.box.join(' '));
+            const k = Math.max(.35, Math.pow(830 / mapView.box[2], -.8));
+            svg.querySelectorAll('.sig-movement-point').forEach(point => { const circle = point.querySelector('circle'), text = point.querySelector('text'); if (circle) { circle.setAttribute('r', 6*k); circle.setAttribute('stroke-width', 1.5*k); } if (text && circle) { text.setAttribute('font-size', 6*k); text.setAttribute('y', Number(circle.getAttribute('cy')) + 2*k); } });
+        }
     }
-    function zoomMovement(factor) {
-        const [x,y,w,h] = mapView.box, nw = w * factor, nh = h * factor;
-        setMovementBox([x + (w-nw)/2, y + (h-nh)/2, nw, nh]);
+    function zoomMovement(factor, cx, cy) {
+        const [x,y,w,h] = mapView.box, px = cx == null ? x+w/2 : cx, py = cy == null ? y+h/2 : cy;
+        setMovementBox([px-(px-x)*factor, py-(py-y)*factor, w*factor, h*factor]);
+    }
+    function movementPoint(svg, event) {
+        const rect = svg.getBoundingClientRect(), [x,y,w,h] = mapView.box, scale = Math.min(rect.width/w, rect.height/h);
+        const left = rect.left + (rect.width-w*scale)/2, top = rect.top + (rect.height-h*scale)/2;
+        return [x+(event.clientX-left)/scale, y+(event.clientY-top)/scale];
     }
     function movementControl(action) {
         if (action === 'drawing' || action === 'road') {
@@ -404,8 +414,8 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
     }
     function bindMovementMap() {
         const svg = root.find('.sig-movement-map svg')[0]; if (!svg) return;
-        svg.addEventListener('wheel', e => { if (!e.ctrlKey) return; e.preventDefault(); zoomMovement(e.deltaY < 0 ? .8 : 1.25); }, {passive: false});
-        svg.addEventListener('dblclick', e => { e.preventDefault(); zoomMovement(.7); });
+        svg.addEventListener('wheel', e => { if (!(e.ctrlKey || e.metaKey)) return; e.preventDefault(); const delta = Math.max(-50, Math.min(50, e.deltaY)), [x,y] = movementPoint(svg,e); zoomMovement(Math.exp(delta * .008),x,y); }, {passive: false});
+        svg.addEventListener('dblclick', e => { e.preventDefault(); const [x,y] = movementPoint(svg,e); zoomMovement(.5,x,y); });
         const pointers = new Map(); let gesture = null;
         const resetGesture = () => {
             const values = [...pointers.values()];
@@ -418,7 +428,7 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
             if (!pointers.has(e.pointerId) || !gesture) return;
             pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
             const rect = svg.getBoundingClientRect(); if (!rect.width || !rect.height) return;
-            if (gesture.kind === 'pan') { const p = pointers.get(e.pointerId), b = gesture.box; setMovementBox([b[0]-(p.x-gesture.start.x)*b[2]/rect.width,b[1]-(p.y-gesture.start.y)*b[3]/rect.height,b[2],b[3]]); }
+            if (gesture.kind === 'pan') { const p = pointers.get(e.pointerId), b = gesture.box, scale = Math.min(rect.width/b[2],rect.height/b[3]); setMovementBox([b[0]-(p.x-gesture.start.x)/scale,b[1]-(p.y-gesture.start.y)/scale,b[2],b[3]]); }
             else if (gesture.kind === 'pinch' && pointers.size === 2) { const v = [...pointers.values()], distance = Math.hypot(v[0].x-v[1].x,v[0].y-v[1].y); if (distance > 0 && gesture.distance > 0) { const b = gesture.box, factor = gesture.distance / distance, w = b[2]*factor, h = b[3]*factor; setMovementBox([b[0]+(b[2]-w)/2,b[1]+(b[3]-h)/2,w,h]); } }
         });
         const endPointer = e => { pointers.delete(e.pointerId); resetGesture(); };
