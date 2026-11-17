@@ -262,7 +262,7 @@ def get_visit(session_key):
     cycle = frappe.db.get_value('SIG Site Cycle', cycle_name,
                                 ['name', 'project', 'erp_project', 'wo', 'stage', 'first_visit_at', 'last_visit_at',
                                  'sessions_completed'], as_dict=True) if cycle_name else None
-    family = normalize_family(cycle.project) if cycle else ''
+    family = {'capex': 'Capex', 'incident': 'Incident', '5g': 'Colocation'}.get(_family_key(cycle.project), '') if cycle else ''
     if cycle and cycle.erp_project and frappe.has_permission('Project', 'read', cycle.erp_project):
         fields = [field for field in ('custom_project_family', 'custom_family')
                   if frappe.get_meta('Project').has_field(field)]
