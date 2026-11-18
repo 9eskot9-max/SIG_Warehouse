@@ -7,10 +7,20 @@ PATH = Path(__file__).parents[1] / 'sig_warehouse/patches/v1_0/pr_owner_submit_l
 tree = ast.parse(PATH.read_text(encoding='utf-8-sig'))
 script = ast.literal_eval(next(n.value for n in tree.body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'SCRIPT' for t in n.targets)))
 
-def run(user, lines):
+def run(user, lines, script_to_run=script, supplier=None, prior_names=None, prior_lines=None):
     def fail(msg): raise PermissionError(msg)
-    frappe = SimpleNamespace(session=SimpleNamespace(user=user), throw=fail)
-    exec(script, {'frappe': frappe, 'doc': SimpleNamespace(items=[SimpleNamespace(**line) for line in lines])})
+    prior_names = prior_names or []
+    prior_lines = prior_lines or []
+    def get_all(doctype, **kwargs):
+        rows = prior_names if doctype == 'Purchase Receipt' else prior_lines
+        return [SimpleNamespace(**row) for row in rows]
+    frappe = SimpleNamespace(
+        session=SimpleNamespace(user=user), throw=fail, get_all=get_all,
+        utils=SimpleNamespace(add_days=lambda date, days: '2026-11-12'),
+    )
+    doc = SimpleNamespace(items=[SimpleNamespace(**line) for line in lines], supplier=supplier,
+                          posting_date='2026-11-18', name='PR-TEST')
+    exec(script_to_run, {'frappe': frappe, 'doc': doc})
 
 def test_limit_applies_only_above_20000_for_no_po():
     run('tahir', [{'purchase_order': None, 'qty': 1, 'rate': 20000}])
@@ -22,6 +32,48 @@ def test_only_explicit_owner_logins_may_exceed_limit():
     for user in ('Administrator','9eskot9@gmail.com'): run(user, lines)
     for user in ('tahir','m.ramzan@sigtele.com','other-system-manager'):
         with pytest.raises(PermissionError): run(user, lines)
+
+
+def test_mohammed_algain_can_submit_over_limit_but_other_accounts_managers_cannot():
+    lines = [{'purchase_order': None, 'qty': 2, 'rate': 10001}]
+    patch_path = Path(__file__).parents[1] / 'sig_warehouse/patches/v1_0/pr_submission_policy_revision3.py'
+    patch_tree = ast.parse(patch_path.read_text(encoding='utf-8-sig'))
+    constants = {
+        node.targets[0].id: ast.literal_eval(node.value)
+        for node in patch_tree.body
+        if isinstance(node, ast.Assign)
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id in {'old_users', 'new_users'}
+    }
+    updated_script = script.replace(constants['old_users'], constants['new_users'])
+    run('mohammed.gain@sigtele.com', lines, updated_script)
+    run('Administrator', lines, updated_script)
+    run('9eskot9@gmail.com', lines, updated_script)
+    for user in ('tahir', 'm.ramzan@sigtele.com', 'other-accounts-manager'):
+        with pytest.raises(PermissionError): run(user, lines, updated_script)
+
+
+def test_approver_exception_preserves_seven_day_supplier_aggregate_and_valuation_guard():
+    patch_path = Path(__file__).parents[1] / 'sig_warehouse/patches/v1_0/pr_submission_policy_revision3.py'
+    patch_tree = ast.parse(patch_path.read_text(encoding='utf-8-sig'))
+    constants = {
+        node.targets[0].id: ast.literal_eval(node.value)
+        for node in patch_tree.body
+        if isinstance(node, ast.Assign)
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id in {'old_users', 'new_users'}
+    }
+    updated_script = script.replace(constants['old_users'], constants['new_users'])
+    current = [{'purchase_order': None, 'qty': 1, 'rate': 10000}]
+    prior_receipts = [{'name': 'PR-PRIOR'}]
+    prior_lines = [{'purchase_order': None, 'qty': 1, 'rate': 10001}]
+    run('mohammed.gain@sigtele.com', current, updated_script, supplier='SUP-1',
+        prior_names=prior_receipts, prior_lines=prior_lines)
+    with pytest.raises(PermissionError):
+        run('other-accounts-manager', current, updated_script, supplier='SUP-1',
+            prior_names=prior_receipts, prior_lines=prior_lines)
+    with pytest.raises(PermissionError):
+        run('mohammed.gain@sigtele.com', [{'purchase_order': None, 'qty': 1, 'rate': 0}], updated_script)
 
 
 def test_patch_changes_only_unchanged_live_script_and_is_repeatable(monkeypatch):
