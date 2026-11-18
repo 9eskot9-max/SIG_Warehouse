@@ -1,11 +1,9 @@
 """Pure Tawal payment planning for the bank router (no Frappe import; fully unit-testable).
 
 Server-side port of ERPNext/scripts/tawal/tawal_erpnext_payload.mjs, restructured for the router:
-one portal payment becomes one row with a state, the bank credit that proves the money, any
-Payment Entry that already exists, and (when allowed) the exact draft Payment Entry to create.
-
-A draft needs money proof: a bank credit. Evidence beyond that (portal status, portal reconcile,
-invoices in ERP) decides *how* the draft is built or why it waits, never whether the bank received it.
+one portal payment becomes one row with a state, any bank credit and existing Payment Entry,
+and, when supported, a draft Payment Entry. Cleared portal payments can be reviewed without a
+bank feed; a person must supply the receiving account and date for that draft.
 """
 import re
 from datetime import date
@@ -16,9 +14,9 @@ COST_CENTER = "Main - SIG"
 MODE_OF_PAYMENT = "Wire Transfer"
 
 # Bank GL by the tail of the SNB account the credit actually landed in (never by the Tawal remit-to fallback).
-BANK_GL_BY_TAIL = {"0109": "13121", "6605": "13123"}
-# Tawal remit-to account -> SNB account tail it is paid into (owner decision 2026-09-08 for 81300000023605).
-TAIL_BY_REMIT = {"23659568000109": "0109", "01400010326605": "6605", "81300000023605": "0109"}
+BANK_GL_BY_TAIL = {"0109": "13121", "6605": "13123", "3605": "13124"}
+# Tawal remit-to account -> SNB account tail, used only for matching unreferenced credits.
+TAIL_BY_REMIT = {"23659568000109": "0109", "01400010326605": "6605", "81300000023605": "3605"}
 
 CLEARED = {"CLEARED", "PAID", "COMPLETED"}
 VOIDED = {"VOIDED", "VOID", "STOP INITIATED", "CANCELLED", "CANCELED"}
@@ -84,11 +82,11 @@ def match_credit(payment, credits, used=frozenset()):
     for c in credits:
         if c["name"] in used or c.get("erp_document"):
             continue
-        if tail and c.get("tail") != tail:
-            continue
         if abs(abs(float(c["amount"])) - amount) > 0.01:
             continue
         referenced = references_payment(c.get("text"), payment["payment_number"])
+        if tail and c.get("tail") != tail and not referenced:
+            continue
         window = REFERENCED_WINDOW_DAYS if referenced else EXACT_WINDOW_DAYS
         if _days(c["event_date"], payment["payment_date"]) <= window:
             pool.append((c, referenced))
@@ -211,7 +209,7 @@ def _body(payment, credit, refs, missing, paid_from, tail, kind_note):
     remarks += f"invoices {', '.join(names)}; " if names else ""
     if missing:
         remarks += f"invoice(s) not present in ERP: {', '.join(missing)}; "
-    remarks += f"SNB {credit['name']}" + (f"; retention {' | '.join(offsets)}" if offsets else "") + (f"; {kind_note}" if kind_note else "")
+    remarks += (f"SNB {credit['name']}" if credit.get('name') else "TAWAL cleared; bank receipt requires reconciliation") + (f"; retention {' | '.join(offsets)}" if offsets else "") + (f"; {kind_note}" if kind_note else "")
     return {"doctype": "Payment Entry", "payment_type": "Receive", "company": COMPANY, "posting_date": str(credit["event_date"])[:10],
             "mode_of_payment": MODE_OF_PAYMENT, "party_type": "Customer", "party": TAWAL_CUSTOMER, "paid_from": paid_from, "paid_to_gl": gl,
             "paid_amount": float(payment["amount"]), "received_amount": float(payment["amount"]), "reference_no": payment["payment_number"],
@@ -219,7 +217,7 @@ def _body(payment, credit, refs, missing, paid_from, tail, kind_note):
             "references": [{k: v for k, v in r.items() if k != "retention_offset"} for r in refs]}
 
 
-def plan_payment(payment, invoices, erp_index, credits, entries, *, settings, default_receivable, used_credits=frozenset(), claimed=None):
+def plan_payment(payment, invoices, erp_index, credits, entries, *, settings, default_receivable, used_credits=frozenset(), claimed=None, manual_receipt=None):
     """One row for one portal payment. See module docstring; never writes anything."""
     num = payment["payment_number"]
     base = {"payment_number": num, "payment_date": str(payment["payment_date"])[:10], "amount": float(payment["amount"]),
@@ -242,7 +240,19 @@ def plan_payment(payment, invoices, erp_index, credits, entries, *, settings, de
         return {**base, "state": LEGACY, "reason": "BEFORE_FORWARD_DATE"}
     credit, by_ref, issue = match_credit(payment, credits, used_credits)
     if not credit:
-        return {**base, "state": WAITING_BANK, "reason": issue}
+        occupied = [c for c in credits if (c["name"] in used_credits or c.get("erp_document"))
+                    and abs(abs(float(c["amount"])) - base["amount"]) <= 0.01
+                    and _days(c["event_date"], payment["payment_date"]) <= REFERENCED_WINDOW_DAYS
+                    and (references_payment(c.get("text"), num) or _days(c["event_date"], payment["payment_date"]) <= EXACT_WINDOW_DAYS)]
+        if occupied:
+            return {**base, "state": HOLD_REVIEW, "reason": "BANK_CREDIT_ALREADY_LINKED"}
+        if status not in CLEARED or issue != "NO_BANK_CREDIT":
+            return {**base, "state": WAITING_BANK, "reason": issue}
+        if not manual_receipt:
+            return {**base, "state": HOLD_REVIEW, "reason": "CLEARED_BANK_DETAILS_REQUIRED"}
+        if manual_receipt.get("tail") not in BANK_GL_BY_TAIL or not manual_receipt.get("date"):
+            return {**base, "state": HOLD_REVIEW, "reason": "BANK_GL_UNMAPPED"}
+        credit = {"name": None, "event_date": manual_receipt["date"], "tail": manual_receipt["tail"]}
     base.update(credit=credit["name"], by_reference=by_ref)
     amount = base["amount"]
     possible = [e["name"] for e in entries if abs(float(e.get("paid_amount") or 0) - amount) <= 0.005 and _days(e["posting_date"], credit["event_date"]) <= POSSIBLE_RECEIPT_DAYS]
@@ -251,15 +261,18 @@ def plan_payment(payment, invoices, erp_index, credits, entries, *, settings, de
     tail = credit.get("tail")
     if tail not in BANK_GL_BY_TAIL:
         return {**base, "state": HOLD_REVIEW, "reason": "BANK_GL_UNMAPPED"}
-    reconciled = (payment.get("reconcile") or {}).get("verdict") == "RECONCILED"
     cleared = status in CLEARED
-    # Portal gate unchanged (cleared + RECONCILED); a credit naming the payment number is accepted as the stronger proof.
-    if not (cleared and reconciled) and not (by_ref and settings["allow_bank_reference"]):
+    # A referenced bank credit remains useful when the portal status has not yet changed.
+    if not cleared and not (by_ref and settings["allow_bank_reference"]):
         return {**base, "state": BANK_RECEIVED, "reason": "PORTAL_NOT_RECONCILED" if cleared else "PORTAL_NOT_CLEARED"}
     children = resolve_children(payment, invoices, erp_index)
+    if not children:
+        return {**base, "state": HOLD_REVIEW, "reason": "INVOICE_DETAILS_REQUIRED"}
     issue, refs, missing = build_allocations(children)
     if issue:
         return {**base, "state": HOLD_REVIEW, "reason": issue}
+    if abs(sum(c["amount"] for c in children) - amount) > 0.02:
+        return {**base, "state": HOLD_REVIEW, "reason": "ALLOCATION_TOTAL_MISMATCH"}
     receivable = default_receivable
     alloc_total = sum(r["allocated_amount"] for r in refs)
     if refs:
@@ -287,7 +300,7 @@ def plan_payment(payment, invoices, erp_index, credits, entries, *, settings, de
             "missing_invoices": legacy_names}
 
 
-def plan_all(payments, invoices, erp_index, credits, entries, *, settings, default_receivable):
+def plan_all(payments, invoices, erp_index, credits, entries, *, settings, default_receivable, manual_receipts=None):
     """Plan every payment oldest-first so one credit is never offered to two payments."""
     claims = claim_entries(payments, entries)
     taken = {e["name"] for e, _how in claims.values()}
@@ -295,7 +308,8 @@ def plan_all(payments, invoices, erp_index, credits, entries, *, settings, defau
     used, rows = set(), []
     for p in sorted(payments, key=lambda p: (str(p["payment_date"]), p["payment_number"])):
         row = plan_payment(p, invoices, erp_index, credits, free, settings=settings, default_receivable=default_receivable,
-                           used_credits=frozenset(used), claimed=claims.get(p["payment_number"]) or False)
+                           used_credits=frozenset(used), claimed=claims.get(p["payment_number"]) or False,
+                           manual_receipt=(manual_receipts or {}).get(p["payment_number"]))
         if row["credit"]:
             used.add(row["credit"])
         rows.append(row)

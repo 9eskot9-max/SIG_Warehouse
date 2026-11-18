@@ -261,7 +261,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     const tawalGroups = {action: __('Needs you'), drafts: __('Drafts'), waiting: __('Waiting for bank'), posted: __('Posted'), legacy: __('Legacy')};
     const tawalReasons = {PORTAL_NOT_CLEARED: __('Portal not cleared yet; the bank already has it'), PORTAL_NOT_RECONCILED: __('Portal reconcile still pending'), PENALTY_CREDIT_NOTE_REVIEW: __('Contains an unlabelled credit note'),
         RETENTION_ASSOCIATION_REVIEW: __('Retention without its invoice'), INVOICE_ALREADY_SETTLED: __('Invoice already has no balance'), ALLOCATION_TOTAL_MISMATCH: __('Invoices do not add up to the payment'),
-        BANK_CREDIT_AMBIGUOUS: __('Two bank credits fit'), BANK_GL_UNMAPPED: __('Bank account not mapped'), UNALLOCATED: __('Entry exists but money is not allocated'), POSSIBLE_EXISTING_RECEIPT: __('Check the similar receipt first'),
+        BANK_CREDIT_AMBIGUOUS: __('Two bank credits fit'), BANK_GL_UNMAPPED: __('Bank account not mapped'), CLEARED_BANK_DETAILS_REQUIRED: __('Cleared by TAWAL; select receipt account and date'), UNALLOCATED: __('Entry exists but money is not allocated'), POSSIBLE_EXISTING_RECEIPT: __('Check the similar receipt first'),
         MIXED_RECEIVABLE_ACCOUNTS: __('Invoices use different receivable accounts'), INVOICE_AMBIGUOUS: __('Two ERP invoices share this number'), INVOICE_NOT_SUBMITTED_TAWAL: __('Invoice is not a submitted Tawal invoice')};
     const showTawal = on => { q('[data-tawal]').hidden = !on; q('.snb-grid').hidden = on; q('[data-types]').hidden = on || state.tab === 'confirm'; };
     function renderTawal() {
@@ -276,6 +276,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
             const credit = r.credit ? `${esc(r.credit_date)}${r.by_reference ? ' · ' + esc(__('named in bank text')) : ''}` : '';
             const act = [];
             if (r.can_draft) act.push(`<button class="btn btn-xs btn-primary" data-tawal-draft="${esc(r.payment_number)}">${__('Create draft')}</button>`);
+            if (r.reason === 'CLEARED_BANK_DETAILS_REQUIRED') act.push(`<button class="btn btn-xs btn-primary" data-tawal-manual="${esc(r.payment_number)}">${__('Create draft')}</button>`);
             if (r.state === 'POSSIBLE_EXISTING') act.push(`<button class="btn btn-xs btn-default" data-tawal-draft="${esc(r.payment_number)}" data-confirm-possible="1">${__('Create anyway')}</button>`);
             if (r.credit_to_link) act.push(`<button class="btn btn-xs btn-default" data-tawal-link="${esc(r.payment_number)}">${__('Link bank credit')}</button>`);
             const why = tawalReasons[r.reason] || r.reason || '';
@@ -368,6 +369,16 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
             const r = await tawalCall('create_draft', {payment_number: number, confirm_possible: confirmPossible});
             if (r) { frappe.show_alert({message: __('Draft {0} created', [r.entry]), indicator: 'green'}); loadTawal(); }
         });
+    });
+    root.on('click', '[data-tawal-manual]', function () {
+        const number = this.dataset.tawalManual;
+        frappe.prompt([
+            {fieldname: 'bank_tail', fieldtype: 'Select', label: __('Receiving bank account'), options: '\n0109\n6605\n3605', reqd: 1},
+            {fieldname: 'receipt_date', fieldtype: 'Date', label: __('Receipt date'), reqd: 1},
+        ], async values => {
+            const result = await tawalCall('create_draft', {payment_number: number, ...values});
+            if (result) { frappe.show_alert({message: __('Draft {0} created', [result.entry]), indicator: 'green'}); loadTawal(); }
+        }, __('TAWAL cleared payment {0}', [number]), __('Create draft'));
     });
     root.on('click', '[data-tawal-link]', async function () {
         const r = await tawalCall('link_entry', {payment_number: this.dataset.tawalLink});
