@@ -123,7 +123,8 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
                 `<button class="btn btn-primary" data-pick>${__('Link')}</button>`;
         }
         if (x.kind === 'OWN_TRANSFER' && !x.erp_document && x.signals?.paired_transfer) return `<p>${__('This pair moves money between company bank accounts. Review both legs before creating one draft.')}</p><button class="btn btn-primary" data-own-transfer>${__('Create one transfer draft')}</button> ${state.status?.can_submit_journal_entry ? `<button class="btn btn-default" data-own-transfer-post>${__('Create and post')}</button>` : ''}`;
-        if (x.kind === 'PETTY_CASH' && !x.erp_document && x.pc_employee) return `<button class="btn btn-default" data-clear-pc>${__('Change purpose')}</button>`;
+        // A connected Employee never dead-ends: when the line is not ready to draft yet, one click confirms that Employee.
+        if (x.kind === 'PETTY_CASH' && !x.erp_document && x.pc_employee) return `${x.decision_type !== 'CREATE_DRAFT' ? `<button class="btn btn-primary" data-use-pc-employee>${__('Use this Employee')}</button> ` : ''}<button class="btn btn-default" data-clear-pc>${__('Not petty cash')}</button>`;
         if (x.kind === 'PETTY_CASH' && !x.erp_document) return `${x.pc_employee_suggestion ? `<p>${__('Employee')}: <strong>${esc(x.pc_employee_suggestion.name)}</strong> · ${esc(x.pc_employee_suggestion.account)}</p><button class="btn btn-primary" data-confirm-pc>${__('Confirm')}</button> <button class="btn btn-default" data-change-employee>${__('Change')}</button>` : `<p>${__('Choose the Employee who holds this custody.')}</p><button class="btn btn-primary" data-confirm-pc>${__('Confirm Employee')}</button>`}<div data-employee-control ${x.pc_employee_suggestion ? 'hidden' : ''}></div><details><summary>${__('Not an Employee: use a company custody account')}</summary><div data-custody-control></div><button class="btn btn-default" data-confirm-custody>${__('Confirm custody account')}</button></details>`;
         const canRoute = (!x.erp_document || x.doc_status === 0) && ['SUPPLIER_PAYMENT', 'CUSTOMER_RECEIPT', 'EXPENSE_PAYMENT', 'UNKNOWN', 'EMPLOYEE'].includes(x.kind) &&
             (x.decision_type || x.link_method === 'AUTO_DRAFT' || (x.direction === 'DEBIT' && ['UNKNOWN', 'EMPLOYEE'].includes(x.kind)));
@@ -456,7 +457,8 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     });
     root.on('click', '[data-confirm-pc]', () => { const x = selected(), employee = employeeControl?.get_value(); if (!employee) { q('[data-message]').textContent = __('Choose an Employee.'); return; } act('confirm_petty_cash_employee', {employee, counterparty: x.suggested_counterparty?.name || '', remember: q('[data-pc-remember]')?.checked ? 1 : 0}); });
     root.on('click', '[data-pc-employee]', function () { employeeControl?.set_value(this.dataset.pcEmployee, this.dataset.pcEmployeeLabel); });
-    root.on('click', '[data-clear-pc]', () => act('clear_petty_cash_designation', {}));
+    root.on('click', '[data-clear-pc]', () => frappe.confirm(__('Remove the petty-cash designation from this line? It will need a new purpose.'), () => act('clear_petty_cash_designation', {})));
+    root.on('click', '[data-use-pc-employee]', () => { const x = selected(); act('confirm_petty_cash_employee', {employee: x.pc_employee, counterparty: x.suggested_counterparty?.name || '', remember: 1}); });
     root.on('click', '[data-change-employee]', () => { q('[data-employee-control]').hidden = false; employeeControl?.set_value(''); });
     root.on('click', '[data-confirm-custody]', () => { const account = custodyControl?.get_value(); if (!account) { q('[data-message]').textContent = __('Choose a custody ledger.'); return; } act('confirm_petty_cash_custody', {account}); });
     root.on('change', '[data-bank]', function () { state.bank = this.value; load(); });
