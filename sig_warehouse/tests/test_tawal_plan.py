@@ -70,7 +70,7 @@ def test_single_invoice_in_erp_is_a_ready_allocated_draft():
 
 
 def test_bank_gl_comes_from_the_credit_account_not_the_remit_fallback():
-    row = plan(pay(remit_account="81300000023605"), credits=[credit(tail="0109")])
+    row = plan(pay(remit_account="81300000023605"), credits=[credit(tail="0109", text="202602717192")])
     assert row["body"]["paid_to_gl"] == "13121"
     row = plan(pay(remit_account="01400010326605"), credits=[credit(tail="6605")])
     assert row["body"]["paid_to_gl"] == "13123"
@@ -148,7 +148,7 @@ def test_legacy_void_and_waiting_bank():
     assert plan(pay(payment_date="2025-12-01"))["state"] == tp.LEGACY
     assert plan(pay(portal_status="Voided"))["state"] == tp.VOID
     waiting = plan(pay(), credits=[])
-    assert waiting["state"] == tp.WAITING_BANK and waiting["reason"] == "NO_BANK_CREDIT"
+    assert waiting["state"] == tp.HOLD_REVIEW and waiting["reason"] == "CLEARED_BANK_DETAILS_REQUIRED"
 
 
 def test_negotiable_with_a_referencing_credit_drafts_only_when_the_setting_allows():
@@ -166,8 +166,22 @@ def test_a_credit_is_never_offered_to_two_payments():
     a = pay(payment_number="AAAAAAAA1", payment_date="2026-07-28", invoice_raw="SIG-SINV-26-068")
     b = pay(payment_number="BBBBBBBB2", payment_date="2026-07-29", invoice_raw="SIG-SINV-26-068")
     rows = tp.plan_all([b, a], [], INDEX, [credit()], [], settings=SETTINGS, default_receivable=RECV)
-    assert [r["state"] for r in rows] == [tp.READY, tp.WAITING_BANK] and rows[0]["payment_number"] == "AAAAAAAA1"
+    assert [r["state"] for r in rows] == [tp.READY, tp.HOLD_REVIEW] and rows[1]["reason"] == "BANK_CREDIT_ALREADY_LINKED"
 
 
 def test_a_credit_already_linked_to_a_document_is_not_reused():
-    assert plan(pay(), credits=[credit(erp_document="ACC-PAY-9")])["state"] == tp.WAITING_BANK
+    assert plan(pay(), credits=[credit(erp_document="ACC-PAY-9")])["reason"] == "BANK_CREDIT_ALREADY_LINKED"
+
+
+def test_cleared_payment_can_be_prepared_without_bank_feed_using_explicit_details():
+    row = tp.plan_payment(pay(), [], INDEX, [], [], settings=SETTINGS, default_receivable=RECV,
+                          manual_receipt={"tail": "3605", "date": "2026-07-29"})
+    assert row["state"] == tp.READY and row["credit"] is None
+    assert row["body"]["paid_to_gl"] == "13124" and row["body"]["posting_date"] == "2026-07-29"
+    assert "requires reconciliation" in row["body"]["remarks"]
+
+
+def test_manual_details_do_not_override_a_linked_bank_credit():
+    row = tp.plan_payment(pay(), [], INDEX, [credit(erp_document="ACC-PAY-9")], [], settings=SETTINGS,
+                          default_receivable=RECV, manual_receipt={"tail": "0109", "date": "2026-07-29"})
+    assert not row["can_draft"] and row["reason"] == "BANK_CREDIT_ALREADY_LINKED"

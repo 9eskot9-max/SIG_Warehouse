@@ -200,15 +200,15 @@ def _context():
             "receivable": receivable}
 
 
-def _rows(ctx):
+def _rows(ctx, manual_receipts=None):
     rows = tp.plan_all(ctx["payments"], ctx["invoices"], ctx["index"], ctx["credits"], ctx["entries"], settings=ctx["settings"],
-                       default_receivable=ctx["receivable"])
+                       default_receivable=ctx["receivable"], manual_receipts=manual_receipts)
     by_credit = {c["name"]: c for c in ctx["credits"]}
     linked = {c["name"] for c in ctx["credits"] if c["erp_document"]}
     payments = {p["payment_number"]: p for p in ctx["payments"]}
     for row in rows:
         # An entry that exists but whose bank credit is not linked yet: offer the credit so the accountant can link it.
-        if row["entry"] and row["state"] in (tp.POSTED, tp.DRAFT):
+        if row["entry"] and row["state"] in (tp.POSTED, tp.DRAFT, tp.UNALLOCATED):
             credit, _ref, _issue = tp.match_credit(payments[row["payment_number"]], [c for c in ctx["credits"] if c["name"] not in linked])
             row["credit_to_link"] = credit["name"] if credit else ""
         row["credit_date"] = by_credit[row["credit"]]["event_date"] if row["credit"] in by_credit else ""
@@ -266,9 +266,19 @@ def _verify_draft(entry, body):
 
 def _create(row, credit_modified):
     body = dict(row["body"])
+    frappe.db.sql("SELECT name FROM `tabSIG Tawal Payment` WHERE name=%s FOR UPDATE", (row["payment_number"],))
+    existing = frappe.db.get_value(PAYMENT, row["payment_number"], "payment_entry")
+    if existing or frappe.db.exists("Payment Entry", {"company": tp.COMPANY, "payment_type": "Receive", "reference_no": body["reference_no"], "docstatus": ["<", 2]}):
+        frappe.throw(_("A receipt for this Tawal payment already exists. Refresh the list."))
     gl = body.pop("paid_to_gl")
     body["paid_to"] = _account_for_gl(gl)
     body["paid_from"] = row["paid_from"]
+    if not row["credit"]:
+        entry = frappe.get_doc(body)
+        entry.insert()
+        _verify_draft(entry, body)
+        frappe.db.set_value(PAYMENT, row["payment_number"], {"payment_entry": entry.name}, update_modified=False)
+        return entry.name
     movement = frappe.get_doc(MOVEMENT, row["credit"])
     frappe.db.sql("SELECT name FROM `tabSNB Movement Review` WHERE name=%s FOR UPDATE", (movement.name,))
     movement.reload()
@@ -290,25 +300,37 @@ def _create(row, credit_modified):
     return entry.name
 
 
-def _row_for(payment_number, ctx=None, confirm_possible=False):
+def _row_for(payment_number, ctx=None, confirm_possible=False, manual_receipt=None):
     ctx = ctx or _context()
     if confirm_possible:
         first = next((r for r in _rows(ctx) if r["payment_number"] == payment_number), None)
         if first and first["state"] == tp.POSSIBLE_EXISTING:
             ctx["entries"] = [e for e in ctx["entries"] if e["name"] not in first["possible_entries"]]
-    row = next((r for r in _rows(ctx) if r["payment_number"] == payment_number), None)
+    row = next((r for r in _rows(ctx, {payment_number: manual_receipt} if manual_receipt else None) if r["payment_number"] == payment_number), None)
     if not row:
         frappe.throw(_("Payment {0} is not staged.").format(payment_number))
     return row, ctx
 
 
 @frappe.whitelist(methods=["POST"])
-def create_draft(payment_number, confirm_possible=0):
+def create_draft(payment_number, confirm_possible=0, bank_tail=None, receipt_date=None):
     """Create ONE draft Receive Payment Entry from a fresh plan (never from what the page showed). The accountant posts it."""
     _require_access()
     if not frappe.has_permission("Payment Entry", "create") or not frappe.has_permission(MOVEMENT, "write"):
         frappe.throw(_("You need permission to create a Payment Entry and update bank movements."), frappe.PermissionError)
-    row, ctx = _row_for(str(payment_number).strip(), confirm_possible=bool(int(confirm_possible or 0)))
+    payment_number = str(payment_number).strip()
+    frappe.db.sql("SELECT name FROM `tabSIG Tawal Payment` WHERE name=%s FOR UPDATE", (payment_number,))
+    manual_receipt = None
+    if bank_tail or receipt_date:
+        if str(bank_tail) not in tp.BANK_GL_BY_TAIL or not receipt_date:
+            frappe.throw(_("Choose a bank account and receipt date."))
+        if _staleness()["stale"]:
+            frappe.throw(_("Refresh the Tawal portal export before creating this draft."))
+        last_seen = frappe.db.get_value(PAYMENT, payment_number, "last_seen_at")
+        if not last_seen or (now_datetime() - last_seen).total_seconds() > STALE_HOURS * 3600:
+            frappe.throw(_("This payment was not present in a recent Tawal export."))
+        manual_receipt = {"tail": str(bank_tail), "date": str(getdate(receipt_date))}
+    row, ctx = _row_for(payment_number, confirm_possible=bool(int(confirm_possible or 0)), manual_receipt=manual_receipt)
     if not row["can_draft"]:
         frappe.throw(_("This payment cannot be drafted now: {0} ({1}).").format(row["state"], row["reason"] or "-"))
     name = _create(row, next((c["modified"] for c in ctx["credits"] if c["name"] == row["credit"]), ""))
