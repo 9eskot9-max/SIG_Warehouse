@@ -4,12 +4,12 @@ import sys
 import types
 import datetime as dt
 from pathlib import Path
-from bank_router.text import account_scope
 
 import pytest
 
 ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT / "sig_accounting"))
+from bank_router.text import account_scope  # noqa: E402
 
 
 @pytest.fixture
@@ -298,3 +298,20 @@ def test_explicit_nonemployee_custody_draft_has_no_employee_funding_designation(
     ctx.create("PETTY_CASH", mv, {"employee":"", "custody_account":"1322 - Rajhi", "label":"Owner bank"}, [])
     assert inserted[0]["accounts"][0]["account"] == "1322 - Rajhi"
     assert not inserted[0].get("custom_pc_employee") and not inserted[0].get("custom_pc_top_up")
+
+
+def test_fee_rows_follow_a_journal_that_books_fee_and_vat_on_separate_bank_lines(runtime):
+    module, _frappe = runtime
+    ledger = module.Ledger.__new__(module.Ledger)
+    ledger.rows, ledger.by_name, ledger.by_marker, ledger.pe_party = [], module.collections.defaultdict(list), {}, {}
+    for amount in (-5000.0, -1.0, -0.15):          # ACC-JV-2026-02340: main line, fee line, VAT line
+        ledger._add({"doctype": "Journal Entry", "name": "JV-NEW", "date": "2026-11-17", "docstatus": 0, "amount": amount,
+                     "reference": "", "marker": "", "bank_account": "13123"})
+    ledger._add({"doctype": "Journal Entry", "name": "JV-OLD", "date": "2026-09-17", "docstatus": 1, "amount": -20000.0,
+                 "reference": "", "marker": "", "bank_account": "13123"})
+    ledger._add({"doctype": "Journal Entry", "name": "JV-OLD", "date": "2026-09-17", "docstatus": 1, "amount": -1.15,
+                 "reference": "", "marker": "", "bank_account": "13123"})
+    assert ledger.covers_fee("Journal Entry", "JV-NEW", "13123", 1.15, -5000.0)
+    assert ledger.covers_fee("Journal Entry", "JV-OLD", "13123", 1.15, -20000.0)          # older combined fee line
+    assert not ledger.covers_fee("Journal Entry", "JV-NEW", "13123", 1.15, -4000.0)       # another movement's amount
+    assert not ledger.covers_fee("Journal Entry", "JV-NEW", "13121", 1.15, -5000.0)       # another bank account

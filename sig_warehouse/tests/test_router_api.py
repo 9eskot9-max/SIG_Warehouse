@@ -22,6 +22,8 @@ def api(monkeypatch):
     fake.throw = lambda message, exc=None: (_ for _ in ()).throw((exc or ValueError)(message))
     fake.has_permission = lambda doctype, permission: True
     fake.get_roles = lambda: ["Accounts Manager"]
+    fake.local = types.SimpleNamespace()
+    fake.get_all = lambda *args, **kwargs: []
     utils = types.ModuleType("frappe.utils")
     utils.flt, utils.now_datetime, utils.nowdate = float, lambda: None, lambda: "2026-11-09"
     fake.utils = utils
@@ -388,6 +390,25 @@ def test_confirmation_candidate_needs_a_mapped_biller(api, monkeypatch):
     assert candidate["credit"] == "BANK"
     settings.billers.clear()
     assert api._confirmation_candidate(doc, settings) is None
+
+
+def test_a_line_whose_document_may_exist_is_never_offered_for_a_new_draft(api, monkeypatch):
+    monkeypatch.setattr(api, "_check_link", lambda *args: None)
+    monkeypatch.setattr(api.frappe, "has_permission", lambda *args: True)
+    settings = types.SimpleNamespace(scopes={"scope": "BANK", "other": "BANK2"}, billers={"050": "IQAMA"})
+    bill = Doc(name="M1", erp_document="", parent_movement="", kind="EXPENSE_PAYMENT", direction="DEBIT", account_scope_hash="scope",
+               source_json='{"parser_family":"SADAD"}', signals_json='{"biller_code":"050"}', decision_type="PICK_DOCUMENT")
+    assert api._confirmation_candidate(bill, settings) is None
+    # a paired own transfer whose other leg already has posted entries to pick (ACC-JV-2026-01519 on 9 Aug)
+    first = Doc(name="A", erp_document="", parent_movement="", kind="OWN_TRANSFER", direction="DEBIT", account_scope_hash="scope",
+                currency="SAR", amount=-300000, source_json="{}", signals_json='{"paired_transfer":{"name":"B","primary":true}}', decision_type="")
+    second = Doc(name="B", erp_document="", kind="OWN_TRANSFER", direction="CREDIT", account_scope_hash="other", currency="SAR", amount=300000,
+                 signals_json='{"paired_transfer":{"name":"A"}}', decision_type="PICK_DOCUMENT")
+    api.frappe.db = types.SimpleNamespace(exists=lambda *args: True)
+    monkeypatch.setattr(api.frappe, "get_doc", lambda doctype, name: second, raising=False)
+    assert api._confirmation_candidate(first, settings) is None
+    second.decision_type = ""
+    assert api._confirmation_candidate(first, settings)["kind"] == "own_transfer"
 
 
 @pytest.mark.parametrize("route", ["own_ledger", "bank_service"])
@@ -1149,6 +1170,30 @@ def test_manual_custody_is_explicit_and_does_not_assign_employee(api, monkeypatc
     assert calls == [{"names":["R"], "review_only":True}]
     with pytest.raises(ValueError, match="different custody"):
         api.confirm_petty_cash_custody("R", "t", "1322 - SAB")
+
+
+def test_an_employee_owned_custody_ledger_keeps_its_employee(api, monkeypatch):
+    movement = Doc(name="R", direction="DEBIT", kind="PETTY_CASH", erp_document="", recognition_json='{"category":"XXPC","am_category_status":"MATCHED"}',
+                   signals_json='{}', source_json='{}', counterparty="", route_source="", accounting_treatment="", accounting_account="")
+    audits = []
+    movement.append = lambda field, row: audits.append(row)
+    cp = Doc(name="CP", employee="", custody_account="")
+    cp.save = lambda **kwargs: None
+    for name, value in (("_lock", lambda *a: movement), ("_ensure_counterparty", lambda *a: cp), ("_verified_custody_account", lambda account: account),
+                        ("_learn_identifiers", lambda *a: None), ("get_movement", lambda name: {"name": name})):
+        monkeypatch.setattr(api, name, value)
+    funding = types.ModuleType("sig_warehouse.sig_warehouse.pc_funding")
+    funding._require_finance = lambda: None
+    monkeypatch.setitem(sys.modules, funding.__name__, funding)
+    api.runtime.run = lambda *args, **kwargs: {"errors": 0}
+    api.frappe.local = types.SimpleNamespace(sig_router_hr_owners={"13230 - Yawar - SIG": [("HR-EMP-00005", "Yawar Raza Sibtain Ali")]})
+    api.confirm_petty_cash_custody("R", "t", "13230 - Yawar - SIG")
+    assert (cp.employee, cp.custody_account, cp.is_employee) == ("HR-EMP-00005", "13230 - Yawar - SIG", 1)
+    assert '"employee":"HR-EMP-00005"' in audits[0]["decision_json"]
+    api.frappe.local = types.SimpleNamespace(sig_router_hr_owners={"13240 - Shared": [("E1", "A"), ("E2", "B")]})
+    cp.custody_account, cp.employee = "", ""
+    with pytest.raises(ValueError, match="More than one"):
+        api.confirm_petty_cash_custody("R", "t", "13240 - Shared")
 
 
 def test_own_transfer_creates_one_draft_and_links_both_legs(api, monkeypatch):

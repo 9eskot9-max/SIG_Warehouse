@@ -38,7 +38,7 @@ class Ledger:
                 return d
         return None
 
-    def covers_fee(self, doctype, name, bank_gl, fee_total):
+    def covers_fee(self, doctype, name, bank_gl, fee_total, main_amount=None):
         return any(d["name"] == name and d.get("fee_line") == fee_total for d in self.docs)
 
 
@@ -184,13 +184,37 @@ def test_remembered_treatment_is_a_default_but_line_override_wins():
     assert out["accounting_treatment"] == "JOURNAL_ENTRY" and out["erp_doctype"] == "Journal Entry"
 
 
-def test_payee_default_is_a_suggestion_until_the_movement_is_reviewed():
+def test_payee_default_prepares_the_draft_but_never_creates_it_unreviewed():
     registry = Registry({}, {"CP-M": {"supplier": "SUP-M", "default_treatment": "PAYMENT_ENTRY"}})
     ctx = Ctx(auto=True, registry=registry)
     mv = movement(-1000, IPS_OUT, route_source="MANUAL", counterparty="CP-M")
     out = E.process(mv, ctx)
-    assert out["decision_type"] == "CONFIRM_TREATMENT"
-    assert out["signals"]["suggested_treatment"] == "PAYMENT_ENTRY" and not ctx.created
+    assert (out["decision_type"], out["accounting_treatment"], out["kind"]) == ("CREATE_DRAFT", "PAYMENT_ENTRY", "SUPPLIER_PAYMENT")
+    assert out["signals"]["suggested_treatment"] == "PAYMENT_ENTRY" and out["signals"]["treatment_from"] == "PAYEE_DEFAULT"
+    assert not ctx.created
+    # the reviewer's Create runs the line again with the stored treatment: now the draft is made
+    reviewed = E.process(dict(mv, accounting_treatment=out["accounting_treatment"]), ctx)
+    assert reviewed["engine_state"] == "DRAFT_READY" and ctx.created[0][1]["party"] == "SUP-M"
+
+
+def test_a_remembered_treatment_does_not_hide_a_matching_document_of_the_other_type():
+    registry = Registry({}, {"CP-M": {"supplier": "SUP-M", "default_treatment": "PAYMENT_ENTRY"}})
+    out = E.process(movement(-1000, IPS_OUT, route_source="MANUAL", counterparty="CP-M"),
+                    Ctx(registry=registry, ledger=Ledger([doc("JV-9", -1000, "2026-10-05")])))
+    assert out["decision_type"] == "PICK_DOCUMENT" and out["candidates"]["documents"][0]["name"] == "JV-9"
+
+
+def test_one_suggested_payee_named_by_the_transfer_request_is_identified():
+    registry = Registry({("NAME", hint_key("NAME", "ACME TRADING ESTABLISHMENT")): ("CP-A", "ACTIVE")},
+                        {"CP-A": {"supplier": "SUP-ACME"}})
+    parties = Parties({("Supplier", hint_key("NAME", "Acme Trading Est.")): "SUP-ACME"})
+    mv = movement(-184000, IPS_OUT)
+    mv["recognition"] = {"am_category_status": "NO_CATEGORY", "transfer_request": {"erp_party": "Supplier: Acme Trading Est."}}
+    out = E.process(mv, Ctx(registry=registry, parties=parties))
+    assert (out["counterparty"], out["route_source"], out["signals"]["identified_by"]) == ("CP-A", "IDENTIFIER", "TX_REQUEST")
+    assert out["decision_type"] != "ROUTE_PARTY"
+    mv["recognition"]["transfer_request"]["erp_party"] = "Supplier: Someone Else"
+    assert E.process(mv, Ctx(registry=registry, parties=parties))["decision_type"] == "ROUTE_PARTY"   # disagreement: still asked
 
 
 def test_finance_handled_line_is_not_drafted():
@@ -473,3 +497,51 @@ def test_finance_petty_cash_is_distinct_from_unmatched_tx_tag():
     assert mined_category({"finance_petty_cash": "true"}) == ""
     assert mined_category({"category": "XXPC", "am_category_status": "MATCHED", "finance_petty_cash": False}) == ""
     assert mined_category({"category": "XXSC", "am_category_status": "MATCHED", "finance_petty_cash": False}) == "XXSC"
+
+
+def test_an_am_link_to_another_period_is_not_made_and_an_old_one_is_dropped():
+    january = doc("JV-JAN", -1500, "2026-01-06", docstatus=1)
+    fresh = E.process(movement(-1500, IPS_OUT, key="K10", day="2026-08-17", hint={"linked_doc": "JV-JAN"}), Ctx(ledger=Ledger([january])))
+    assert fresh["erp_document"] == "" and fresh["link_method"] == ""
+    linked = movement(-1500, IPS_OUT, key="K10", day="2026-08-17", erp_doctype="Journal Entry", erp_document="JV-JAN", link_method="AM_LINK")
+    out = E.process(linked, Ctx(ledger=Ledger([january])))
+    assert out["erp_document"] == "" and "JV-JAN" in out["candidates"]["rejected"] and out["engine_state"] == "NEEDS_YOU"
+    manual = dict(linked, link_method="MANUAL")
+    assert E.process(manual, Ctx(ledger=Ledger([january])))["erp_document"] == "JV-JAN"       # a person's link is kept
+
+
+OWNERS = {"13230 - Yawar - SIG": [("HR-EMP-00005", "Yawar Raza Sibtain Ali")],
+          "132250 - Bleeg - SIG": [("HR-EMP-00050", "Bleeg Hamdi Mohamed Sherief")],
+          "132299 - Shared - SIG": [("E1", "One"), ("E2", "Two")]}
+
+
+def test_hr_records_the_owner_of_the_payee_custody_ledger():
+    assert E.hr_custody_owner({"custody_account": "13230 - Yawar - SIG"}, OWNERS)["employee"] == "HR-EMP-00005"
+    # no custody field: the number in the Sheet Am label, and the label must name that person
+    assert E.hr_custody_owner({"am_party": "Employee: BLEEG HMDIA MOHAMED SHERIEF | 132250"}, OWNERS)["employee"] == "HR-EMP-00050"
+    assert E.hr_custody_owner({"am_party": "Employee: SOMEONE ELSE | 132250"}, OWNERS) is None
+    assert E.hr_custody_owner({"am_party": "Employee: محمد | 132250"}, OWNERS)["employee"] == "HR-EMP-00050"     # Arabic: number is identity
+    assert E.hr_custody_owner({"custody_account": "132299 - Shared - SIG"}, OWNERS) is None                      # two owners
+    assert E.hr_custody_owner({"am_party": "Supplier: ACME"}, OWNERS) is None
+
+
+def test_petty_cash_for_an_hr_connected_payee_is_ready_to_draft_without_asking():
+    owner = {"employee": "HR-EMP-00005", "name": "Yawar", "custody_account": "13230 - Yawar - SIG"}
+    registry = Registry({("BEN_ID", "555123"): ("CP-Y", "ACTIVE")},
+                        {"CP-Y": {"is_employee": True, "custody_account": "13230 - Yawar - SIG", "hr_owner": owner}})
+    mv = movement(-1000, "1234567890123 BEN ID:555123", family="INTERNAL_BEN_ID")
+    mv["recognition"] = {"category": "XXPC", "am_category_status": "MATCHED"}
+    out = E.process(mv, Ctx(auto=False, registry=registry))
+    assert (out["kind"], out["decision_type"], out["signals"]["employee_connected_by"]) == ("PETTY_CASH", "CREATE_DRAFT", "HR")
+    # the line already carries the same ledger as its account (chosen before as 'company custody'): still the Employee's
+    chosen = dict(mv, route_source="MANUAL", counterparty="CP-Y", accounting_account="13230 - Yawar - SIG")
+    ctx = Ctx(auto=True, registry=registry)
+    E.process(chosen, ctx)
+    assert ctx.created[0][1]["employee"] == "HR-EMP-00005"
+
+
+def test_a_linked_document_type_wins_over_a_remembered_treatment():
+    registry = Registry({}, {"CP-M": {"supplier": "SUP-M", "default_treatment": "PAYMENT_ENTRY"}})
+    mv = movement(-1000, IPS_OUT, route_source="MANUAL", counterparty="CP-M", erp_doctype="Journal Entry", erp_document="JV-1", link_method="MANUAL")
+    out = E.process(mv, Ctx(registry=registry, ledger=Ledger([doc("JV-1", -1000, "2026-10-05")])))
+    assert (out["erp_document"], out["accounting_treatment"], out["decision_type"]) == ("JV-1", "JOURNAL_ENTRY", "")

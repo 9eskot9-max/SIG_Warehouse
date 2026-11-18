@@ -362,3 +362,29 @@ def test_the_statement_remarks_code_is_not_part_of_a_payee_name():
     other = {"parser_family": "LOCAL_OTBANK", "direction": "DEBIT", "transaction_description": "Local transfer",
              "detail_description": "SA4745000000042728881001 OTBANK:SABB ZAMIL AIR CONDITIONING", "extra_description": "", "remarks": "JM"}
     assert not snb.parse(other).get("display_name", "").endswith("JM")
+
+
+def _ips(detail, direction):
+    return {"parser_family": "IPS_LOCAL", "transaction_description": "Incoming IPS local transfer" if direction == "CREDIT" else "Outgoing IPS local transfer",
+            "detail_description": detail, "direction": direction}
+
+
+def test_incoming_ips_payer_is_the_account_holder_after_the_sending_bank_code():
+    jash = "CITY:Jeddah 20261105SARIBLRIBL6BTMS12133916692 261105SA *****SAUDI ARABIA nses/Maintenance 946703090IPSTZKA Purchase/expe SARIBL JASH CO"
+    assert snb.parse(_ips(jash, "CREDIT"))["display_name"] == "JASH CO"
+    lujain = ("CITY:Jeddah 20261108SABJAZBJAZ2BTMS11049979965 261108SA *****SAUDI ARABIA لاح ابراهيم القين 1794124156343328 "
+              "حوالة لشركة ص SABJAZ LUJAIN BUSINESS CONTRACTING CO")
+    assert snb.parse(_ips(lujain, "CREDIT"))["identifiers"] == [("NAME", "LUJAIN BUSINESS CONTRACTING CO")]
+    # outgoing IPS keeps the payee named after the country
+    assert snb.parse(_ips("SAUDI ARABIA SAINMA ACME TRADING ESTABLISHMENT 1234567890123", "DEBIT"))["display_name"] == "ACME TRADING ESTABLISHMENT"
+
+
+def test_statement_reference_text_is_never_a_name():
+    from bank_router.engine import beneficiary_name
+    from bank_router.text import is_reference_text
+    assert is_reference_text("PA:Transfer to family and friends 38759875000102 DEP ID:2323429130 CHNL:SNB Payment Systems")
+    assert is_reference_text("شراء بضاعة 24763620000109 DEP ID:1010259143")
+    assert is_reference_text("CITY:Digital Channel  مصاريف تشغيل")
+    assert not is_reference_text("شركة خطوط المباني للمقاولات") and not is_reference_text("MUHAMMAD WAQAS MUHAMMAD AYYUB")
+    assert beneficiary_name({"beneficiary_name": "CRF:202601001526 BB:Buying Goods 19500000077601 DEP ID:1010933182"}) == ""
+    assert beneficiary_name({"beneficiary_name": "Muzna workshop"}) == "Muzna workshop"

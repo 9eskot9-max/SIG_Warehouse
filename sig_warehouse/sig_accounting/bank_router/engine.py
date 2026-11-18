@@ -20,6 +20,7 @@ from . import classify as K
 from . import reconcile
 from .adapters import snb
 from .identify import identify
+from .text import is_reference_text, normalize_text
 
 HOLDING = "HOLDING"
 PERSON_CATEGORY_POSITION = 1
@@ -69,15 +70,64 @@ def remembered_account(facts, category):
         return ""
 
 
+EMPLOYEE_LABEL = re.compile(r"Employee:\s*([^|]+?)\s*\|\s*(\d+)\s*", re.I)
+
+
+def _same_person(label, employee_name):
+    """An Arabic label cannot be compared with an English name: the custody number is the identity. A Latin label must
+    share a name (three letters or more) with the Employee, so a mistyped number does not pick a stranger."""
+    if re.search(r"[؀-ۿ]", str(label or "")):
+        return True
+    words = lambda value: {w for w in normalize_text(value).split() if len(w) >= 3}
+    return bool(words(label) & words(employee_name))
+
+
+def hr_custody_owner(facts, owners):
+    """The Employee HR records as owning this payee's custody ledger, or None.
+
+    The ledger is the payee's own custody_account, else the number in its Sheet Am label 'Employee: <name> | <number>'.
+    owners maps each custody account to the [(employee, employee_name)] of active Employees whose custody account it is;
+    exactly one owner is required.
+    """
+    custody = str(facts.get("custody_account") or "")
+    label = EMPLOYEE_LABEL.fullmatch(str(facts.get("am_party") or ""))
+    if not custody and label:
+        hits = [account for account in owners if re.match(r"\s*(\d+)", account) and re.match(r"\s*(\d+)", account).group(1) == label.group(2)]
+        custody = hits[0] if len(hits) == 1 else ""
+    people = owners.get(custody) or []
+    if len(people) != 1:
+        return None
+    employee, name = people[0]
+    if label and not _same_person(label.group(1), name):
+        return None
+    return {"employee": employee, "name": name, "custody_account": custody}
+
+
+def payee_employee(facts):
+    """(employee, custody account) for a payee: Finance's confirmed pair, else the HR owner of its custody ledger."""
+    if facts.get("employee") and facts.get("custody_account"):
+        return facts["employee"], facts["custody_account"], "CONFIRMED"
+    owner = facts.get("hr_owner") or {}
+    if owner.get("employee") and owner.get("custody_account"):
+        return owner["employee"], owner["custody_account"], "HR"
+    return "", "", ""
+
+
+def beneficiary_name(mapping):
+    """The hub's beneficiary name, unless it is statement reference text (purpose, account, DEP ID) and not a name."""
+    name = str((mapping or {}).get("beneficiary_name") or "")
+    return "" if is_reference_text(name) else name
+
+
 def _label(signals, mined, facts, name=""):
     mapping = mined.get("am_beneficiary_mapping") or {}
-    return facts.get("display_name") or signals.get("display_name") or mapping.get("beneficiary_name") or name or ""
+    return facts.get("display_name") or signals.get("display_name") or beneficiary_name(mapping) or name or ""
 
 
 def resolve_target(kind, mv, signals, facts, mined, ctx):
     """Where a draft goes. Returns a dict, or None when nothing can be drafted."""
     mapping = mined.get("am_beneficiary_mapping") or {}
-    name = signals.get("display_name") or mapping.get("beneficiary_name") or ""
+    name = signals.get("display_name") or beneficiary_name(mapping)
     label = _label(signals, mined, facts, name)
     if kind == K.SUPPLIER_PAYMENT:
         party = facts.get("supplier") or ctx.parties.exact("Supplier", name)
@@ -118,12 +168,33 @@ def _payee_evidence(facts, mined):
     """Who the other side of an existing document should be: a custody ledger number and/or a Supplier id."""
     mapping = mined.get("am_beneficiary_mapping") or {}
     label = str(mapping.get("erp_party") or "") if mapping.get("source") == "Sheet Am matched beneficiary" else str(facts.get("am_party") or "")
-    custody = re.match(r"\s*(\d+)", str(facts.get("custody_account") or ""))
+    hr = (facts.get("hr_owner") or {}).get("custody_account") or ""
+    custody = re.match(r"\s*(\d+)", str(facts.get("custody_account") or hr))
     mapped = re.fullmatch(r"Employee:[^|]*\|\s*(\d+)\s*", label)
     number = custody.group(1) if custody else (mapped.group(1) if mapped else "")
     supplier = facts.get("supplier") or (label.split(":", 1)[1].strip() if label.startswith("Supplier:") else "")
     return {"custody": number, "supplier": supplier,
             "verified_custody": bool(custody), "verified_supplier": bool(facts.get("supplier"))}
+
+
+def requested_supplier(mined, ctx):
+    """The ERP Supplier a uniquely matched TX Manager transfer request names, else ""."""
+    if mined.get("am_category_status") not in ("MATCHED", "NO_CATEGORY"):
+        return ""
+    found = re.fullmatch(r"Supplier:\s*(.+?)\s*", str((mined.get("transfer_request") or {}).get("erp_party") or ""), re.I)
+    return ctx.parties.exact("Supplier", found.group(1)) if found else ""
+
+
+def _corroborated_by_request(ident, direction, mined, ctx):
+    """A name alone only suggests a payee. When the one suggested payee's Supplier is also the Supplier the matched
+    transfer request names, two independent sources agree: the payee is identified."""
+    if ident["status"] != "SUGGESTED" or len(ident["candidates"]) != 1 or direction != "DEBIT":
+        return ident
+    candidate = ident["candidates"][0]
+    supplier = ctx.registry.facts(candidate).get("supplier") or ""
+    if supplier and supplier == requested_supplier(mined, ctx):
+        return {"status": "IDENTIFIED", "counterparty": candidate, "candidates": [candidate], "via": "TX_REQUEST"}
+    return ident
 
 
 def route(mv, ctx):
@@ -153,6 +224,9 @@ def route(mv, ctx):
         if fmt in ("IPS_LOCAL", "LARGE_LOCAL", "INTERNAL_SNB"):
             identifiers += [("NAME_" + fmt, value) for kind, value in signals["identifiers"] if kind == "NAME"]
         ident = identify(identifiers, ctx.registry.lookup)
+        ident = _corroborated_by_request(ident, direction, mined, ctx)
+        if ident.get("via") == "TX_REQUEST":
+            out["signals"]["identified_by"] = "TX_REQUEST"
     cp = ident["counterparty"]
     facts = ctx.registry.facts(cp) if cp else {}
     out["counterparty"] = cp
@@ -162,8 +236,15 @@ def route(mv, ctx):
     # Stage 3: classify
     kind = K.classify(direction, source.get("parser_family"), signals, facts, intent, mroute)
     treatment = mv.get("accounting_treatment") or ""
+    remembered = False
     if not treatment and facts.get("default_treatment"):
         out["signals"]["suggested_treatment"] = facts["default_treatment"]
+        # Finance's remembered treatment for an identified payee (only the router's Remember writes it) is applied, not asked
+        # again on every line. It still only prepares the draft: the reviewer creates it, or changes it.
+        if (cp and kind in (K.SUPPLIER_PAYMENT, K.EXPENSE_PAYMENT, K.CUSTOMER_RECEIPT)
+                and facts["default_treatment"] in ("PAYMENT_ENTRY", "JOURNAL_ENTRY")):
+            treatment, remembered = facts["default_treatment"], True
+            out["signals"]["treatment_from"] = "PAYEE_DEFAULT"
     biller_account = getattr(s, "billers", {}).get(str(signals.get("biller_code") or ""))
     if source.get("parser_family") == "SADAD":
         if biller_account:
@@ -206,12 +287,18 @@ def route(mv, ctx):
     existing = None
     if mv.get("erp_document"):
         existing = ctx.ledger.doc(mv["erp_doctype"], mv["erp_document"], bank_gl)
+        if (existing and mv.get("link_method") == "AM_LINK"
+                and abs((reconcile._date(existing["date"]) - reconcile._date(mv["date"])).days) > reconcile.HINT_WINDOW_DAYS):
+            # An Am link to another period's entry is wrong: drop it and never offer that entry again.
+            out["candidates"]["rejected"].append(existing["name"])
+            out["signals"]["am_link_rejected"] = True
+            existing = None
         if existing and existing["docstatus"] != 2 and existing["name"] not in out["candidates"]["rejected"]:
-            expected = {"PAYMENT_ENTRY": "Payment Entry", "JOURNAL_ENTRY": "Journal Entry"}.get(treatment)
+            expected = {"PAYMENT_ENTRY": "Payment Entry", "JOURNAL_ENTRY": "Journal Entry"}.get("" if remembered else treatment)
             if expected and existing["doctype"] != expected:
                 out.update(_document_fields(existing, mv.get("link_method") or "LEDGER"), engine_state="NEEDS_YOU", decision_type="TREATMENT_MISMATCH")
                 return out
-            if not treatment:
+            if not treatment or remembered:
                 out["accounting_treatment"] = {"Payment Entry": "PAYMENT_ENTRY", "Journal Entry": "JOURNAL_ENTRY"}.get(existing["doctype"], "")
             ctx.claimed.add(existing["name"])
             state, decision = _state_for_document(existing, mv, ctx)
@@ -223,7 +310,7 @@ def route(mv, ctx):
         kind_name = "Payment Entry" if linked.startswith("ACC-PAY") else "Journal Entry"
         hint = ctx.ledger.doc(kind_name, linked, bank_gl)
     candidates = ctx.ledger.candidates(bank_gl, movement["date"])
-    expected = {"PAYMENT_ENTRY": "Payment Entry", "JOURNAL_ENTRY": "Journal Entry"}.get(treatment)
+    expected = {"PAYMENT_ENTRY": "Payment Entry", "JOURNAL_ENTRY": "Journal Entry"}.get("" if remembered else treatment)
     if expected:
         candidates = [candidate for candidate in candidates if candidate["doctype"] == expected]
         if hint and hint.get("doctype") != expected:
@@ -233,7 +320,7 @@ def route(mv, ctx):
     if outcome == "LINK":
         doc = docs[0]
         ctx.claimed.add(doc["name"])
-        if not treatment:
+        if not treatment or remembered:
             out["accounting_treatment"] = {"Payment Entry": "PAYMENT_ENTRY", "Journal Entry": "JOURNAL_ENTRY"}.get(doc["doctype"], "")
         state, decision = _state_for_document(doc, mv, ctx)
         out.update(_document_fields(doc, method), engine_state=state, decision_type=decision)
@@ -265,14 +352,16 @@ def route(mv, ctx):
         out.update(engine_state="NEEDS_YOU", decision_type="CONFIRM_TREATMENT" if facts.get("default_treatment") else "CHOOSE_TREATMENT")
         return out
     if kind == K.PETTY_CASH:
-        # Only an explicit router decision can designate an Employee funding cycle. A payee whose Employee and
-        # custody account Finance already confirmed (they are never seeded) is not asked again on every line.
-        employee, custody = facts.get("employee") or "", facts.get("custody_account") or ""
+        # Only an explicit router decision, or HR's own record that this Employee owns the payee's custody ledger, designates
+        # an Employee funding cycle. Seeded payee data alone never does. A connected payee is not asked again on every line.
+        employee, custody, connected_by = payee_employee(facts)
+        if connected_by:
+            out["signals"]["employee_connected_by"] = connected_by
         if mv.get("route_source") != "MANUAL" and not (employee and custody):
             out.update(engine_state="NEEDS_YOU", decision_type="NEEDS_HR_LINK")
             return out
         manual_custody = mv.get("accounting_account") or ""
-        if employee and custody and not manual_custody:
+        if employee and custody and manual_custody in ("", custody):
             target = {"employee": employee, "custody_account": custody, "holding": False, "label": facts.get("display_name") or ""}
         elif manual_custody and not employee:
             target = {"employee": "", "custody_account": manual_custody, "holding": False, "label": facts.get("display_name") or ""}
@@ -301,7 +390,7 @@ def route(mv, ctx):
         out["route_source"] = "EXACT_NAME"
     elif target["holding"]:
         out["route_source"] = "HOLDING"
-    if not s.auto_draft(mv["date"]):
+    if remembered or not s.auto_draft(mv["date"]):
         out.update(engine_state="NEEDS_YOU", decision_type="ROUTE_PARTY" if target["holding"] else "CREATE_DRAFT")
         return out
     out["_create"] = target
@@ -315,7 +404,7 @@ def _route_charge(mv, out, ctx, bank_gl):
         return out
     out["parent_movement"] = parent["name"]
     if parent.get("erp_document"):
-        covered = ctx.ledger.covers_fee(parent["erp_doctype"], parent["erp_document"], bank_gl, parent["fee_total"])
+        covered = ctx.ledger.covers_fee(parent["erp_doctype"], parent["erp_document"], bank_gl, parent["fee_total"], parent.get("amount"))
         if covered:
             doc = {"doctype": parent["erp_doctype"], "name": parent["erp_document"], "docstatus": parent.get("docstatus", 0)}
             out.update(_document_fields(doc, "LEDGER"), engine_state="POSTED" if doc["docstatus"] == 1 else "DRAFT_READY", decision_type="")

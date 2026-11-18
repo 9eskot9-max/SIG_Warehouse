@@ -69,6 +69,11 @@ class Registry:
         self.cps = {r.name: r for r in frappe.get_all(
             COUNTERPARTY, fields=["name", "display_name", "status", "is_company", "handler", "is_employee", "custody_account", "employee",
                                   "customer", "supplier", "expense_account", "category", "default_treatment", "purpose_defaults_json", "am_party"], limit_page_length=0)}
+        owners = collections.defaultdict(list)   # custody ledger -> active Employees HR records as its owner
+        for e in frappe.get_all("Employee", filters={"status": "Active", "company": documents.COMPANY, "custom_custody_account": ["is", "set"]},
+                                fields=["name", "employee_name", "custom_custody_account"], limit_page_length=0):
+            owners[e.custom_custody_account].append((e.name, e.employee_name))
+        self.owners = dict(owners)
 
     def lookup(self, kind, value):
         hit = self.ids.get(identity_key(kind, value))
@@ -78,7 +83,11 @@ class Registry:
 
     def facts(self, counterparty):
         cp = self.cps.get(counterparty)
-        return dict(cp) if cp else {}
+        if not cp:
+            return {}
+        facts = dict(cp)
+        facts["hr_owner"] = engine.hr_custody_owner(facts, self.owners)
+        return facts
 
 
 class Parties:
@@ -179,8 +188,13 @@ class Ledger:
         self._add(doc)
         return doc
 
-    def covers_fee(self, doctype, name, bank_gl, fee_total):
-        return any(r["bank_account"] == bank_gl and abs(r["amount"] + fee_total) <= 0.005 for r in self.by_name.get(name, []))
+    def covers_fee(self, doctype, name, bank_gl, fee_total, main_amount=None):
+        """True when the main line's document already books the fees: one combined fee line, or (current drafts) separate
+        fee and VAT lines, seen as the document's bank lines summing to the main amount plus the fees."""
+        lines = [r for r in self.by_name.get(name, []) if r["bank_account"] == bank_gl]
+        if any(abs(r["amount"] + fee_total) <= 0.005 for r in lines):
+            return True
+        return main_amount is not None and bool(lines) and abs(sum(r["amount"] for r in lines) - (flt(main_amount) - fee_total)) <= 0.005
 
 
 class Context:
@@ -424,7 +438,7 @@ def to_engine(name, index, children, ctx):
     if parent_name:
         p = index[parent_name]["row"]
         mv["parent"] = {"name": parent_name, "key": index[parent_name]["source"].get("statement_key") or p.source_key,
-                        "erp_doctype": p.erp_doctype or "", "erp_document": p.erp_document or "",
+                        "erp_doctype": p.erp_doctype or "", "erp_document": p.erp_document or "", "amount": flt(p.amount),
                         "docstatus": (ctx.ledger.doc(p.erp_doctype, p.erp_document, ctx.settings.scopes.get(p.account_scope_hash), None) or {}).get("docstatus", 0)
                         if p.erp_document else 0, "fee_total": sum(abs(c["amount"]) for c in children.get(parent_name, []))}
     return mv

@@ -12,7 +12,7 @@ from frappe import _
 from frappe.utils import flt, now_datetime
 from datetime import date
 
-from sig_warehouse.sig_accounting.bank_router import business_routes, runtime
+from sig_warehouse.sig_accounting.bank_router import business_routes, engine, runtime
 from sig_warehouse.sig_accounting.bank_router.adapters import snb
 from sig_warehouse.sig_accounting.bank_router.sadad_billers import biller_name
 from sig_warehouse.sig_accounting.bank_router.classify import CUSTOMER_RECEIPT, DRAFTABLE, EXPENSE_PAYMENT, SUPPLIER_PAYMENT
@@ -45,6 +45,27 @@ def _json(value):
 def _require(permission):
     if frappe.session.user == "Guest" or not frappe.has_permission(DOCTYPE, permission):
         frappe.throw(_("You do not have permission for bank movement review."), frappe.PermissionError)
+
+
+def _hr_owners():
+    """{custody ledger: [(employee, employee_name)]} of active Employees, once per request."""
+    cached = getattr(frappe.local, "sig_router_hr_owners", None)
+    if cached is None:
+        cached = {}
+        for e in frappe.get_all("Employee", filters={"status": "Active", "company": runtime.documents.COMPANY, "custom_custody_account": ["is", "set"]},
+                                fields=["name", "employee_name", "custom_custody_account"], limit_page_length=0):
+            cached.setdefault(e.custom_custody_account, []).append((e.name, e.employee_name))
+        frappe.local.sig_router_hr_owners = cached
+    return cached
+
+
+def _payee_employee(cp):
+    """(employee, custody ledger, 'CONFIRMED' | 'HR' | '') for a payee: Finance's confirmed pair, else HR's owner of its ledger."""
+    if not cp:
+        return "", "", ""
+    facts = dict(cp)
+    facts["hr_owner"] = engine.hr_custody_owner(facts, _hr_owners())
+    return engine.payee_employee(facts)
 
 
 def _is_finance_user():
@@ -535,12 +556,13 @@ def _payload(doc, fees=None, statuses=None):
     party = (payee_cp or {}).get(party_type.lower()) or ""
     if party and (not frappe.has_permission(party_type, "read", party) or frappe.db.get_value(party_type, party, "disabled")):
         party = ""
-    employee = (cp or {}).get("employee") or ""
+    employee, custody, employee_source = _payee_employee(cp)
     if employee and not ((doc.kind == "PETTY_CASH" and _is_finance_user())
                          or frappe.has_permission("Employee", "read", employee)):
         employee = ""
     employee_name = frappe.db.get_value("Employee", employee, "employee_name") or "" if employee else ""
-    custody = (cp or {}).get("custody_account") or "" if employee else ""
+    custody = custody if employee else ""
+    employee_source = employee_source if employee else ""
     if custody and not frappe.has_permission("Account", "read", custody):
         custody = ""
     category = recognition.get("category") if recognition.get("am_category_status") == "MATCHED" else ""
@@ -571,7 +593,7 @@ def _payload(doc, fees=None, statuses=None):
         "accounting_treatment": doc.accounting_treatment or "", "accounting_account": doc.accounting_account or "",
         "counterparty": doc.counterparty or "", "counterparty_name": (cp or {}).get("display_name") or "",
         "linked_party_type": party_type if party else "", "linked_party": party, "suggested_parties": sorted(set(candidate_parties)),
-        "pc_employee": employee, "pc_employee_name": employee_name, "pc_custody_account": custody,
+        "pc_employee": employee, "pc_employee_name": employee_name, "pc_custody_account": custody, "pc_employee_source": employee_source,
         "pc_employee_suggestion": pc_suggestion,
         "supply_types": supply_types, "supply_type": doc.get("supply_type") or _suggest_supply(supply_types, category, cp),
         "supply_threshold": SUPPLY_THRESHOLD, "bill_owner": _bill_owner(signals) if signals.get("bill_account") else None,
@@ -585,7 +607,7 @@ def _payload(doc, fees=None, statuses=None):
         "request_supplier": request_supplier, "request_supplier_conflict": bool(party and request_supplier and party != request_supplier),
         "payment_reference_doctype": doc.get("payment_reference_doctype") or "",
         "payment_reference": doc.get("payment_reference") or "",
-        "display_name": (signals.get("display_name") or mapping.get("beneficiary_name") or "")[:140],
+        "display_name": (signals.get("display_name") or engine.beneficiary_name(mapping))[:140],
         "route_source": doc.route_source or "", "erp_doctype": doc.erp_doctype or "", "erp_document": doc.erp_document or "",
         "doc_status": statuses.get((doc.erp_doctype, doc.erp_document)), "link_method": doc.link_method or "",
         "category": category,
@@ -767,7 +789,8 @@ def get_movement(name):
 
 
 def _confirmation_candidate(doc, settings):
-    if doc.erp_document or doc.parent_movement:
+    # A line whose ERP document may already exist (the engine offers it to pick) is linked, never drafted again.
+    if doc.erp_document or doc.parent_movement or doc.get("decision_type") == "PICK_DOCUMENT":
         return None
     signals = _data(doc.signals_json) or {}
     pair = signals.get("paired_transfer") or {}
@@ -779,7 +802,7 @@ def _confirmation_candidate(doc, settings):
         first_account = settings.scopes.get(doc.account_scope_hash or "")
         other_account = settings.scopes.get(other.account_scope_hash or "")
         other_pair = (_data(other.signals_json) or {}).get("paired_transfer") or {}
-        if (other.erp_document or not first_account or not other_account or first_account == other_account
+        if (other.erp_document or other.get("decision_type") == "PICK_DOCUMENT" or not first_account or not other_account or first_account == other_account
                 or other_pair.get("name") != doc.name or {doc.direction, other.direction} != {"DEBIT", "CREDIT"}
                 or doc.currency != other.currency or abs(abs(flt(doc.amount)) - abs(flt(other.amount))) > 0.005):
             return None
@@ -1421,13 +1444,20 @@ def confirm_petty_cash_custody(name, modified, account):
         frappe.throw(_("This beneficiary is linked to an Employee. Review the ownership before changing its custody treatment."))
     if cp.get("custody_account") and cp.get("custody_account") != custody:
         frappe.throw(_("This beneficiary already has a different custody account. Review the account ownership first."))
+    owners = _hr_owners().get(custody) or []
+    if len(owners) > 1:
+        frappe.throw(_("More than one active Employee holds this custody account. Fix the Employee records first."))
+    # An Employee's own custody ledger is that Employee's petty cash, not a company account: keep the link HR already records.
+    owner = owners[0][0] if owners else ""
     cp.custody_account = custody
+    if owner:
+        cp.employee, cp.is_employee = owner, 1
     cp.flags.bank_router_write = True
     cp.save(ignore_permissions=True)
     _learn_identifiers(doc, cp)
     doc.counterparty, doc.route_source, doc.accounting_treatment, doc.accounting_account = cp.name, "MANUAL", "JOURNAL_ENTRY", custody
     doc.append("audit", {"reviewer": frappe.session.user, "reviewed_at": now_datetime(), "previous_json": "{}",
-        "decision_json": _json({"petty_cash_custody": custody, "employee": ""})})
+        "decision_json": _json({"petty_cash_custody": custody, "employee": owner})})
     doc.flags.snb_router_write = True
     doc.save()
     result = runtime.run("main", 0, 1, names=[doc.name], review_only=True)
@@ -1721,12 +1751,13 @@ def post_reviewed_draft(name, modified, reviewed_document=None, reviewed_modifie
                    for line in entry.accounts):
             frappe.throw(_("The draft no longer uses the selected account."))
     if movement.get("kind") == "PETTY_CASH" and movement.get("counterparty"):
-        cp = frappe.db.get_value(COUNTERPARTY, movement.counterparty, ["employee", "custody_account"], as_dict=True)
-        if cp and cp.employee:
+        cp = frappe.db.get_value(COUNTERPARTY, movement.counterparty, ["employee", "custody_account", "am_party"], as_dict=True)
+        cp_employee, cp_custody, _source = _payee_employee(cp)
+        if cp_employee:
             from sig_warehouse.sig_warehouse.pc_funding import _active_employee
-            custody = _active_employee(cp.employee, runtime.documents.COMPANY)
+            custody = _active_employee(cp_employee, runtime.documents.COMPANY)
             if (entry.doctype != "Journal Entry" or not entry.get("custom_pc_top_up")
-                    or entry.get("custom_pc_employee") != cp.employee or custody != cp.custody_account
+                    or entry.get("custom_pc_employee") != cp_employee or custody != cp_custody
                     or not any(line.account == custody and abs(flt(line.debit_in_account_currency) - abs(flt(movement.amount))) <= 0.005
                                for line in entry.accounts)):
                 frappe.throw(_("The draft no longer matches the confirmed Employee petty-cash funding."))

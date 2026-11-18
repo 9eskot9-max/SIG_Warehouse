@@ -7,6 +7,7 @@ amount and date may suggest a link; it never decides a party.
 import datetime as dt
 
 WINDOW_DAYS = 5
+HINT_WINDOW_DAYS = 62  # an Am link may reach past WINDOW_DAYS, but not to another period's entry (Jan replay JEs on Aug lines, 223 days)
 TOLERANCE = 0.005
 
 
@@ -49,10 +50,11 @@ def pick_document(movement, candidates, claimed=(), rejected=(), hint=None, wind
     for doc in live:
         if doc.get("marker") and doc["marker"] == movement["key"] and doc["name"] not in claimed and doc["bank_account"] == movement["bank_account"] and (doc["amount"] > 0) == (float(movement["amount"]) > 0) and _same_amount(doc["amount"], movement["amount"]):
             return "LINK", [doc], "MARKER"
-    if hint and hint["docstatus"] != 2 and hint["name"] not in rejected and hint["name"] not in claimed and payee_fit(movement, hint) != "other" \
-            and (hint["amount"] > 0) == (float(movement["amount"]) > 0) and _same_amount(hint["amount"], movement["amount"]) and hint.get("bank_account") == movement["bank_account"]:
-        return "LINK", [hint], "AM_LINK"
     day = _date(movement["date"])
+    if hint and hint["docstatus"] != 2 and hint["name"] not in rejected and hint["name"] not in claimed and payee_fit(movement, hint) != "other" \
+            and (hint["amount"] > 0) == (float(movement["amount"]) > 0) and _same_amount(hint["amount"], movement["amount"]) and hint.get("bank_account") == movement["bank_account"] \
+            and abs((_date(hint["date"]) - day).days) <= HINT_WINDOW_DAYS:
+        return "LINK", [hint], "AM_LINK"
     near = [c for c in live
             if c["name"] not in claimed
             and c["bank_account"] == movement["bank_account"]

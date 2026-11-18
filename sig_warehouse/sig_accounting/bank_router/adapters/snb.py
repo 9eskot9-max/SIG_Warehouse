@@ -14,6 +14,7 @@ TAWAL_PATTERN = re.compile(r"\bTAWAL\b|TELECOMMUNICATIONS?\s+TOWERS", re.I)
 ADJUSTMENT_PATTERN = re.compile(r"FEES?\s+REVERSAL|VAT\s+REBATE|LG\s*-\s*OUTWARD", re.I)
 MIN_LENGTH = {"NAME": 4, "ACCOUNT": 8, "IBAN": 20, "BEN_ID": 3, "DEP_ID": 5}
 NOT_BANK_CODES = {"SAUDIA", "SAUDIS"}
+INCOMING_IPS_PAYER = re.compile(r"\b(SA[A-Z]{4})\s+(\D+?)\s*$")
 
 
 def narrative(source):
@@ -98,6 +99,11 @@ def parse(source, scopes=DEFAULT_COMPANY_SCOPES):
             found.append(("ACCOUNT", account.group(1)))
     elif fmt == "IPS_LOCAL" and ips:
         name = clean_ips_name(ips.group(1))
+        # Incoming IPS: the text after the country is the remitter's purpose ("nses/Maintenance", truncated); the payer is
+        # the account holder named after the sending bank's code at the end ("... SARIBL JASH CO").
+        payer = INCOMING_IPS_PAYER.search(name_text)
+        if str(source.get("direction") or "").upper() == "CREDIT" and payer and payer.group(1) not in NOT_BANK_CODES:
+            name = payer.group(2).strip()
         if name:
             found.append(("NAME", name))
             out["display_name"] = name

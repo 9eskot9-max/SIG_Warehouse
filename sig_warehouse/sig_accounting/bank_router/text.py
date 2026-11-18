@@ -22,6 +22,12 @@ def normalize_text(value):
     return " ".join(re.findall(r"\w+", value, flags=re.UNICODE))
 
 
+def is_reference_text(value):
+    """Statement reference text a hub copied into a name field: an account or ID number, a DEP/BEN ID, a CITY: header."""
+    text = str(value or "")
+    return bool(re.search(r"\b(?:BEN|DEP)\s*ID\s*:|\d{10,}|^\s*CITY\s*:", text, re.I))
+
+
 def hint_key(kind, value):
     """Comparison form of an identifier. Digit-only values ignore leading zeros (Sheets drops them)."""
     text = normalize_text(value)
