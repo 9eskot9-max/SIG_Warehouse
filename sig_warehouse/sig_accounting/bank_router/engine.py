@@ -215,6 +215,13 @@ def route(mv, ctx):
         out["signals"]["error"] = "Statement account is not in Bank Router Settings"
         return out
 
+    # Statement 3605 is handled by the Financing and TAWAL tabs.
+    # Keep unlinked movements out of the ordinary supplier and receipt draft flow.
+    if str(source.get("bank") or "").upper() == "SNB" and source.get("account_tail") == "3605" and not mv.get("erp_document"):
+        out.update(kind=K.SPECIALIST, engine_state="DEFERRED", decision_type="")
+        out["signals"]["specialist"] = "SNB_FINANCING"
+        return out
+
     # Stage 2: identify
     if mv.get("route_source") == "MANUAL" and mv.get("counterparty"):
         ident = {"status": "IDENTIFIED", "counterparty": mv["counterparty"], "candidates": [mv["counterparty"]], "via": "MANUAL"}

@@ -12,6 +12,7 @@ from frappe import _
 from frappe.utils import add_days, flt, getdate, now_datetime
 
 from sig_warehouse.sig_accounting.bank_router import tawal_plan as tp
+from sig_warehouse.sig_accounting.bank_router.snb_financing import classify_movement
 
 MOVEMENT = "SNB Movement Review"
 PAYMENT = "SIG Tawal Payment"
@@ -190,8 +191,36 @@ def _context():
     credits = []
     for c in frappe.get_list(MOVEMENT, filters={"direction": "CREDIT", "event_date": [">=", add_days(earliest, -tp.REFERENCED_WINDOW_DAYS)]},
                              fields=["name", "event_date", "amount", "source_account_tail", "erp_doctype", "erp_document", "source_json", "modified"], limit_page_length=0):
+        text = _credit_text(_data(c.source_json) or {})
+        if c.source_account_tail == "3605" and classify_movement({
+            "account_tail": "3605", "direction": "CREDIT", "description": text,
+        }) != "TAWAL_RECEIPT":
+            continue
         credits.append({"name": c.name, "event_date": str(c.event_date), "amount": flt(c.amount), "tail": c.source_account_tail,
-                        "text": _credit_text(_data(c.source_json) or {}), "erp_document": c.erp_document or "", "modified": str(c.modified)})
+                        "text": text, "erp_document": c.erp_document or "", "modified": str(c.modified)})
+    # A posted bank debit can already represent a TAWAL receipt via a legacy
+    # journal or combined entry. Hold a credible existing posting for review.
+    financing_credits = [c for c in credits if c["tail"] == "3605" and not c["erp_document"]]
+    if financing_credits:
+        posting_days = [c["event_date"] for c in financing_credits]
+        if frappe.has_permission("GL Entry", "read") and frappe.has_permission("Account", "read"):
+            accounts = frappe.get_list("Account", filters={"account_number": "13124", "company": tp.COMPANY,
+                                                         "is_group": 0}, fields=["name"], limit_page_length=2)
+        else:
+            accounts = []
+        if len(accounts) != 1:
+            for credit in financing_credits:
+                credit["erp_document"] = "BANK_LEDGER_REVIEW_REQUIRED"
+        else:
+            ledger = frappe.get_list("GL Entry", filters={"account": accounts[0].name, "company": tp.COMPANY,
+                "is_cancelled": 0, "debit": [">", 0],
+                "posting_date": ["between", [add_days(min(posting_days), -3), add_days(max(posting_days), 3)]]},
+                fields=["posting_date", "debit", "remarks"], limit_page_length=0)
+            for credit in financing_credits:
+                day = getdate(credit["event_date"])
+                if any(abs((getdate(line.posting_date) - day).days) <= 3
+                       and abs(flt(line.debit) - flt(credit["amount"])) <= 0.005 for line in ledger):
+                    credit["erp_document"] = "POSSIBLE_EXISTING_BANK_POSTING"
     entries = [dict(e) for e in frappe.get_list("Payment Entry", filters={"party_type": "Customer", "party": tp.TAWAL_CUSTOMER, "docstatus": ["<", 2],
                                                                            "payment_type": "Receive", "company": tp.COMPANY},
                                                 fields=["name", "reference_no", "docstatus", "paid_amount", "unallocated_amount", "posting_date"], limit_page_length=0)]

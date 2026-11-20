@@ -3,7 +3,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     const root = $('<main class="snb-router"></main>').appendTo(page.main), el = root[0];
     const esc = v => frappe.utils.escape_html(String(v == null ? '' : v));
     const api = 'sig_warehouse.sig_accounting.snb_movement_router.';
-    const tabs = {needs: __('Needs you'), confirm: __('Confirm'), drafts: __('Drafts'), posted: __('Posted'), deferred: __('Deferred'), tawal: __('Tawal')};
+    const tabs = {needs: __('Needs you'), confirm: __('Confirm'), drafts: __('Drafts'), posted: __('Posted'), deferred: __('Deferred'), tawal: __('Tawal'), financing: __('SNB financing')};
     const kinds = {SUPPLIER_PAYMENT: __('Supplier payment'), CUSTOMER_RECEIPT: __('Customer receipt'), EXPENSE_PAYMENT: __('Expense, no party'), UNKNOWN: __('Unclassified outgoing'),
         PETTY_CASH: __('Petty Cash'), EMPLOYEE: __('Employee'), OWN_TRANSFER: __('Own transfer'), SPECIALIST: __('Specialist workflow'),
         BANK_CHARGE: __('Bank charge'), OTHER: __('Other')};
@@ -66,7 +66,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
 
     function renderTabs() {
         q('[data-tabs]').innerHTML = Object.entries(tabs).map(([k, label]) =>
-            `<button class="btn ${state.tab === k ? 'btn-primary' : 'btn-default'}" data-tab="${k}">${label} · ${k === 'tawal' ? (state.tawal.counts.action ?? '–') : (state.counts[k] ?? 0)}</button>`).join('');
+            `<button class="btn ${state.tab === k ? 'btn-primary' : 'btn-default'}" data-tab="${k}">${label} · ${k === 'financing' ? '–' : k === 'tawal' ? (state.tawal.counts.action ?? '–') : (state.counts[k] ?? 0)}</button>`).join('');
         q('[data-types]').innerHTML = Object.entries(kindGroups).map(([k, label]) =>
             `<button class="btn btn-sm ${state.kindGroup === k ? 'btn-primary' : 'btn-default'}" data-kind="${k}">${label} · ${state.kindCounts[k] ?? 0}</button>`).join('');
         q('[data-types]').hidden = state.tab === 'confirm';
@@ -291,6 +291,44 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
             <th>${__('Bank credit')}</th><th>${__('Payment Entry')}</th><th>${__('State')}</th><th></th></tr></thead><tbody>${rows || `<tr><td colspan="7" class="text-muted text-center">${__('Nothing here.')}</td></tr>`}</tbody></table></div>
             ${t.hasMore ? `<button class="btn btn-default btn-sm" data-tawal-more>${__('Show more')}</button>` : ''}`;
     }
+    let financingRequest = 0;
+    const ledgerVoucher = v => `<a href="#" data-erp-doctype="${esc(v.doctype)}" data-erp-name="${esc(v.name)}">${esc(v.name)}</a>
+        <div class="text-muted small">${__('Loan 221')}: ${money(v.liability)} · ${__('Interest 5151')}: ${money(v.interest)} · ${__('Fees 538')}: ${money(v.fees)}</div>`;
+    async function loadFinancing() {
+        const request = ++financingRequest;
+        showTawal(true);
+        renderTabs();
+        q('[data-tawal]').innerHTML = `<p>${__('Loading financing movements…')}</p>`;
+        try {
+            const r = (await frappe.call({method: 'sig_warehouse.sig_accounting.snb_financing_review.review', type: 'GET'})).message;
+            if (state.tab !== 'financing' || request !== financingRequest) return;
+            const labels = {UNKNOWN: __('Awaiting statement'), CLOSURE_ONGOING: __('Closure in progress'),
+                POSSIBLE_CLOSURE: __('Review possible closure'), SETTLEMENT_RECORDED: __('Settlement recorded'), FUNDING_RECEIVED_REVIEW: __('Review funding received'), OPEN: __('Funding recorded')};
+            const rows = [...r.movements].reverse().map(m => {
+                const vouchers = m.posted_allocation ? ledgerVoucher(m.posted_allocation)
+                    : (m.vouchers || []).map(ledgerVoucher).join('');
+                const lines = (m.proposed_lines || []).map(l =>
+                    `<div>${esc(l.account)} · ${l.debit > 0 ? __('Debit') : __('Credit')} ${money(l.debit || l.credit)}</div>`).join('');
+                const tawal = m.classification === 'TAWAL_RECEIPT' && m.tawal_reference
+                    ? `<button class="btn btn-xs btn-default" data-financing-tawal="${esc(m.tawal_reference)}">${__('Find TAWAL payment')}</button>` : '';
+                const cost = m.classification === 'SETTLEMENT_CANDIDATE'
+                    ? `<button class="btn btn-xs btn-default" data-financing-cost="${esc(m.name)}">${__('Preview settlement cost')}</button>` : '';
+                return `<tr><td>${esc(m.date)}<div>${esc(m.bank_reference)}</div></td><td>${esc(__(m.classification.replaceAll('_', ' ')))}</td>
+                    <td>${esc(__(m.direction))} ${money(m.amount)}</td><td>${esc(m.description)}</td>
+                    <td><strong>${esc(__(m.allocation_status.replaceAll('_', ' ')))}</strong><p>${esc(__(m.allocation_action))}</p>
+                    ${vouchers}${lines}${tawal}${cost}</td></tr>`;
+            }).join('');
+            const balance = r.loan_credit_balance == null ? __('Unavailable') : money(r.loan_credit_balance);
+            q('[data-tawal]').innerHTML = `<h4>${esc(labels[r.status] || r.status)}</h4>
+                <p>${__('ERP loan balance (221)')}: <strong>${esc(balance)}</strong> · ${__('Latest staged 3605 transaction')}: ${esc(r.last_staged_movement || '–')}</p>
+                <p class="text-muted">${esc(r.coverage_warning)}</p>
+                <div class="table-responsive"><table class="table table-bordered"><thead><tr>
+                <th>${__('Date / reference')}</th><th>${__('Movement')}</th><th>${__('Amount')}</th><th>${__('Bank details')}</th><th>${__('ERP allocation')}</th>
+                </tr></thead><tbody>${rows || `<tr><td colspan="5">${__('No 3605 movements staged')}</td></tr>`}</tbody></table></div>`;
+        } catch (error) {
+            if (state.tab === 'financing' && request === financingRequest) q('[data-tawal]').textContent = __('Unable to load financing evidence.');
+        }
+    }
     async function loadTawal(append = false) {
         try {
             const t = state.tawal;
@@ -301,10 +339,12 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     }
     const render = () => {
         renderTabs();
+        if (state.tab === 'financing') { showTawal(true); return; }
         if (state.tab === 'tawal') { showTawal(true); renderTawal(); } else { showTawal(false); renderList(); renderCard(); }
     };
     async function load(append = false) {
         if (state.tab === 'tawal') return loadTawal(append);
+        if (state.tab === 'financing') return loadFinancing();
         try {
             const confirming = state.tab === 'confirm';
             const args = confirming ? {bank: state.bank, search: state.search, start: append ? state.nextStart || 0 : 0, limit: 100} : {tab: state.tab, bank: state.bank, search: state.search, kind_group: state.kindGroup, start: append ? state.nextStart || 0 : 0, limit: 100};
@@ -357,6 +397,38 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     });
     root.on('click', '[data-erp-doctype]', function (e) { e.preventDefault(); frappe.set_route('Form', this.dataset.erpDoctype, this.dataset.erpName); });
     root.on('click', '[data-tab]', function () { state.tab = this.dataset.tab; state.selected = ''; state.missingSelected.clear(); state.confirmSelected.clear(); load(); });
+    root.on('click', '[data-financing-cost]', function () {
+        const movement = this.dataset.financingCost;
+        const fields = [
+            {fieldname: 'bank_evidence', fieldtype: 'Data', label: __('Bank settlement evidence reference'), reqd: 1},
+            {fieldname: 'principal', fieldtype: 'Currency', label: __('Principal paid in this settlement'), reqd: 1},
+            {fieldname: 'already_booked', fieldtype: 'Currency', label: __('Costs for this facility already booked in ERP'), reqd: 1},
+            {fieldname: 'extra_fees', fieldtype: 'Currency', label: __('Fees charged separately from this settlement'), default: 0},
+            {fieldname: 'refund', fieldtype: 'Currency', label: __('Separate refunds of financing costs'), default: 0},
+            {fieldname: 'preview', fieldtype: 'HTML'},
+        ];
+        const dialog = new frappe.ui.Dialog({
+            title: __('Preview SNB settlement cost'), fields, primary_action_label: __('Calculate'),
+            async primary_action(values) {
+                const r = (await frappe.call({
+                    method: 'sig_warehouse.sig_accounting.snb_financing_review.preview_cost',
+                    type: 'GET', args: {movement, ...values},
+                })).message;
+                dialog.fields_dict.preview.$wrapper.html(`<p>${__('Total cost')}: ${money(r.cost)}</p>
+                    <p>${__('Already booked')}: ${money(r.already_booked)}</p>
+                    <p>${__('Difference for Finance review')}: <strong>${money(r.remaining_cost)}</strong></p>
+                    ${r.issues.length ? `<p class="text-warning">${__('Amounts need review. Check principal, fees and prior postings.')}</p>` : ''}`);
+            },
+        });
+        dialog.show();
+    });
+    root.on('click', '[data-financing-tawal]', function () {
+        state.tab = 'tawal';
+        state.tawal.group = 'action';
+        state.search = this.dataset.financingTawal;
+        q('[data-search]').value = state.search;
+        load();
+    });
     root.on('click', '[data-tawal-group]', function () { state.tawal.group = this.dataset.tawalGroup; loadTawal(); });
     root.on('click', '[data-tawal-more]', () => loadTawal(true));
     async function tawalCall(method, args) {
