@@ -20,7 +20,7 @@ def test_transfer_requires_unique_reference_and_amount():
 def test_classification_keeps_receipts_and_financing_separate():
     from sig_warehouse.sig_accounting.bank_router.snb_financing import summarize_movements
     rows = [
-        {'account_tail':'3605', 'reference':'1', 'date':'2026-11-05', 'direction':'CREDIT', 'amount':24133.63, 'description':'Telecommunication Towers Tawal'},
+        {'account_tail':'3605', 'reference':'1', 'date':'2026-11-05', 'direction':'CREDIT', 'amount':24133.63, 'description':'شركة ابراج ا لاتصالات'},
         {'account_tail':'3605', 'reference':'2', 'date':'2026-11-11', 'direction':'DEBIT', 'amount':1799396.53, 'description':'Financing Early Settlement'},
         {'account_tail':'3605', 'reference':'3', 'date':'2026-11-12', 'direction':'DEBIT', 'amount':1824054.15, 'description':'Outgoing transfer 01400010326605'},
     ]

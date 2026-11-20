@@ -192,10 +192,12 @@ def _context():
     for c in frappe.get_list(MOVEMENT, filters={"direction": "CREDIT", "event_date": [">=", add_days(earliest, -tp.REFERENCED_WINDOW_DAYS)]},
                              fields=["name", "event_date", "amount", "source_account_tail", "erp_doctype", "erp_document", "source_json", "modified"], limit_page_length=0):
         text = _credit_text(_data(c.source_json) or {})
-        if c.source_account_tail == "3605" and classify_movement({
-            "account_tail": "3605", "direction": "CREDIT", "description": text,
-        }) != "TAWAL_RECEIPT":
-            continue
+        if c.source_account_tail == "3605":
+            identified = classify_movement({"account_tail": "3605", "direction": "CREDIT", "description": text}) == "TAWAL_RECEIPT"
+            exact_portal = any(tp.references_payment(text, p["payment_number"])
+                               and abs(p["amount"] - flt(c.amount)) <= 0.005 for p in payments)
+            if not (identified or exact_portal):
+                continue
         credits.append({"name": c.name, "event_date": str(c.event_date), "amount": flt(c.amount), "tail": c.source_account_tail,
                         "text": text, "erp_document": c.erp_document or "", "modified": str(c.modified)})
     # A posted bank debit can already represent a TAWAL receipt via a legacy

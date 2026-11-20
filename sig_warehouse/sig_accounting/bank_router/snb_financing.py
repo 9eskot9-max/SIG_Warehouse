@@ -79,7 +79,7 @@ def classify_movement(row):
         return 'OUTSIDE_3605'
     digits = set(re.findall(r'(?<!\d)\d{10,24}(?!\d)', text))
     names = normalize_text(text)
-    if direction == 'CREDIT' and re.search(r'\btawal\b|telecommunications? towers|ابراج الاتصالات', names):
+    if direction == 'CREDIT' and re.search(r'\btawal\b|telecommunications? towers|ابراج ا\s*لاتصالات', names):
         return 'TAWAL_RECEIPT'
     if direction == 'DEBIT' and '01400010326605' in digits:
         return 'TRANSFER_TO_6605'
