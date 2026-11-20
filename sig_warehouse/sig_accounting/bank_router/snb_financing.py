@@ -1,6 +1,6 @@
 """Read-only financing reconciliation; ambiguous evidence always stays in review."""
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
@@ -183,6 +183,8 @@ def allocation_review(movements, transfer_credits, ledger_rows):
                 claims[(voucher['doctype'], voucher['name'])].add(row['name'])
         candidates[row['name']] = eligible
 
+    outgoing = Counter((r.get('bank_reference'), money(r['amount'])) for r in result['movements']
+                       if r['classification'] == 'TRANSFER_TO_6605')
     for row in result['movements']:
         kind = row['classification']
         amount = money(row['amount']) * (1 if row['direction'] == 'CREDIT' else -1)
@@ -202,7 +204,10 @@ def allocation_review(movements, transfer_credits, ledger_rows):
                 'source_tail': '3605', 'destination_tail': '6605', 'reference': row.get('bank_reference'),
                 'date': row['date'], 'amount': abs(amount),
             }, transfer_credits)
+            if outgoing[(row.get('bank_reference'), abs(amount))] > 1:
+                match = {'status': 'REVIEW', 'reason': 'MULTIPLE_DEBITS_CLAIM_TRANSFER'}
             row['transfer_status'] = match['status']
+            row['transfer_reason'] = match.get('reason')
             row['transfer_reference'] = (match.get('credit') or {}).get('reference')
             row['allocation_action'] = 'Reconcile one transfer from 13124 to 13123'
             if match['status'] == 'MATCHED' and not eligible and not row.get('linked_voucher') and not match['credit'].get('linked_voucher'):

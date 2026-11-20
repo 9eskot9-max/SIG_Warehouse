@@ -191,7 +191,8 @@ def _context():
     credits = []
     for c in frappe.get_list(MOVEMENT, filters={"direction": "CREDIT", "event_date": [">=", add_days(earliest, -tp.REFERENCED_WINDOW_DAYS)]},
                              fields=["name", "event_date", "amount", "source_account_tail", "erp_doctype", "erp_document", "source_json", "modified"], limit_page_length=0):
-        text = _credit_text(_data(c.source_json) or {})
+        source = _data(c.source_json) or {}
+        text = _credit_text(source)
         if c.source_account_tail == "3605":
             identified = classify_movement({"account_tail": "3605", "direction": "CREDIT", "description": text}) == "TAWAL_RECEIPT"
             exact_portal = any(tp.references_payment(text, p["payment_number"])
@@ -199,7 +200,7 @@ def _context():
             if not (identified or exact_portal):
                 continue
         credits.append({"name": c.name, "event_date": str(c.event_date), "amount": flt(c.amount), "tail": c.source_account_tail,
-                        "text": text, "erp_document": c.erp_document or "", "modified": str(c.modified)})
+                        "bank_reference": str(source.get("reference") or ""), "text": text, "erp_document": c.erp_document or "", "modified": str(c.modified)})
     # A posted bank debit can already represent a TAWAL receipt via a legacy
     # journal or combined entry. Hold a credible existing posting for review.
     financing_credits = [c for c in credits if c["tail"] == "3605" and not c["erp_document"]]
@@ -221,7 +222,8 @@ def _context():
             for credit in financing_credits:
                 day = getdate(credit["event_date"])
                 if any(abs((getdate(line.posting_date) - day).days) <= 3
-                       and abs(flt(line.debit) - flt(credit["amount"])) <= 0.005 for line in ledger):
+                       and (abs(flt(line.debit) - flt(credit["amount"])) <= 0.005
+                            or tp.references_payment(line.remarks, credit["bank_reference"])) for line in ledger):
                     credit["erp_document"] = "POSSIBLE_EXISTING_BANK_POSTING"
     entries = [dict(e) for e in frappe.get_list("Payment Entry", filters={"party_type": "Customer", "party": tp.TAWAL_CUSTOMER, "docstatus": ["<", 2],
                                                                            "payment_type": "Receive", "company": tp.COMPANY},
