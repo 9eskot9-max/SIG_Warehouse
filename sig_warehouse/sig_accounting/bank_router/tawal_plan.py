@@ -85,7 +85,7 @@ def match_credit(payment, credits, used=frozenset()):
         if abs(abs(float(c["amount"])) - amount) > 0.01:
             continue
         referenced = references_payment(c.get("text"), payment["payment_number"])
-        if tail and c.get("tail") != tail and not referenced:
+        if not referenced and (c.get("tail") == "3605" or (tail and c.get("tail") != tail)):
             continue
         window = REFERENCED_WINDOW_DAYS if referenced else EXACT_WINDOW_DAYS
         if _days(c["event_date"], payment["payment_date"]) <= window:
@@ -95,6 +95,8 @@ def match_credit(payment, credits, used=frozenset()):
     refd = [c for c, r in pool if r]
     if len(refd) == 1:
         return refd[0], True, ""
+    if len(refd) > 1:
+        return None, False, "BANK_CREDIT_AMBIGUOUS"
     if len(pool) == 1:
         return pool[0][0], pool[0][1], ""
     exact = [c for c, _ in pool if _days(c["event_date"], payment["payment_date"]) == 0]
