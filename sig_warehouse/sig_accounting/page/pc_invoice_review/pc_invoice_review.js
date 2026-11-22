@@ -21,6 +21,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
 
     const S = {rows: [], senders: {}, filter: 'all', person: null, index: 0, search: '', busy: false, loadedAt: 0};
     let view = {s: 1, x: 0, y: 0, r: 0, mode: null};
+    let archiveUrl = null;
 
     const esc = (v) => frappe.utils.escape_html(v == null ? '' : String(v));
     const isPhone = (v) => {
@@ -223,6 +224,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
 
     // ---- render -------------------------------------------------------------------------------
     function render() {
+        if (archiveUrl) { URL.revokeObjectURL(archiveUrl); archiveUrl = null; }
         const nocat = S.rows.filter((x) => !catOf(x)).length;
         const unmatched = S.rows.filter(unmatchedSender).length;
         const dups = S.rows.filter((x) => x._dup).length;
@@ -307,9 +309,9 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
     }
 
     // ---- receipt viewer + form ----------------------------------------------------------------
-    function viewer(url) {
+    function viewer(url, mime) {
         if (!url) return `<div class="sig-pc-no-photo">${__('No receipt file URL')}</div>`;
-        if (isPdf(url)) return `<iframe class="sig-pc-pdf" src="${esc(url)}" title="${__('Invoice PDF')}"></iframe>`;
+        if (mime === 'application/pdf' || isPdf(url)) return `<iframe class="sig-pc-pdf" src="${esc(url)}" title="${__('Invoice PDF')}"></iframe>`;
         return `<div class="sig-pc-viewer"><div class="sig-pc-vtools">
             <button type="button" data-z="out" title="${__('Zoom out')} (-)">−</button><span class="sig-pc-zoomlabel">${__('Fit')}</span><button type="button" data-z="in" title="${__('Zoom in')} (+)">+</button>
             <button type="button" data-z="mode" class="sig-pc-mode" title="F"></button><button type="button" data-z="actual" title="${__('Actual size')} (1)">100%</button>
@@ -323,7 +325,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
         const selected = catOf(x);
         const options = CATEGORIES.map((c) => `<option value="${esc(c)}"${selected === c ? ' selected' : ''}>${esc(c)}</option>`).join('');
         const dup = x._dup ? `<p class="sig-pc-dupwarn"><i class="fa fa-exclamation-triangle" aria-hidden="true"></i> ${x._dup.kind === 'image' ? __('Possible duplicate: same receipt image as {0}.', [x._dup.others.join(', ')]) : __('Possible duplicate: same sender, date and amount as {0}.', [x._dup.others.join(', ')])}</p>` : '';
-        return `<article class="sig-pc-card-review" data-name="${esc(x.name)}"><div class="sig-pc-photo">${viewer(x.source_media_url)}</div><div class="sig-pc-side">
+        return `<article class="sig-pc-card-review" data-name="${esc(x.name)}"><div class="sig-pc-photo">${x.archive_status === 'Archived' ? `<div class="sig-pc-no-photo">${__('Loading archived receipt…')}</div>` : viewer(x.source_media_url)}</div><div class="sig-pc-side">
             <div class="sig-pc-title">${__('Receipt details')}</div>
             ${dup}
             ${x.archive_status === 'Failed' ? `<p class="sig-pc-error" data-archive-error>${__('Previous archive attempt failed.')}${x.last_archive_error ? ` ${esc(x.last_archive_error)}` : ''}</p>` : ''}
@@ -335,7 +337,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
                 ${field('merchant', __('Merchant'), x.merchant)}${field('supplier_vat_number', __('Supplier VAT number (15 digits)'), x.supplier_vat_number, 'text', ' inputmode="numeric" maxlength="15"')}</details>
             <div class="sig-pc-actions"><button type="button" class="btn btn-default sig-pc-archive"${x.archive_status === 'Archived' ? ' disabled' : ''}>${x.archive_status === 'Archived' ? __('Receipt archived') : __('Archive now')}</button><button type="button" class="btn btn-primary sig-pc-confirm">${__('Confirm')}</button><button type="button" class="btn btn-danger sig-pc-reject">${__('Reject')}</button></div>
             <div class="sig-pc-msg"></div>
-            <div class="sig-pc-links">${x.source_media_url ? `<a href="${esc(x.source_media_url)}" target="_blank" rel="noopener">${__('Open receipt')}</a> · ` : ''}${x.source_row_url ? `<a href="${esc(x.source_row_url)}" target="_blank" rel="noopener">${__('Source row')}</a> · ` : ''}<a href="#" data-route="${esc(JSON.stringify(['Form', 'SIG PC Transaction', x.name]))}">${__('Open record')}</a></div>
+            <div class="sig-pc-links">${x.archive_status === 'Archived' || x.source_media_url ? `<a data-open-receipt href="${esc(x.source_media_url || '#')}" target="_blank" rel="noopener">${__('Open receipt')}</a> · ` : ''}${x.source_row_url ? `<a href="${esc(x.source_row_url)}" target="_blank" rel="noopener">${__('Source row')}</a> · ` : ''}<a href="#" data-route="${esc(JSON.stringify(['Form', 'SIG PC Transaction', x.name]))}">${__('Open record')}</a></div>
             <p class="sig-pc-hint">${__('Confirm archives and verifies the receipt before creating its draft Journal Entry. Previous/Next never change a receipt. Keys: ← → navigate, Ctrl+Enter confirm, + − 0 zoom, R rotate, F fit.')}</p></div></article>`;
     }
 
@@ -363,7 +365,30 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
         c.querySelector('.sig-pc-archive').addEventListener('click', () => archiveTx(x, c));
         c.querySelector('.sig-pc-confirm').addEventListener('click', () => confirmTx(x, c));
         c.querySelector('.sig-pc-reject').addEventListener('click', () => rejectBox(x, c));
-        wireViewer(c);
+        if (x.archive_status === 'Archived') loadArchivedPreview(x, c);
+        else wireViewer(c);
+    }
+    async function loadArchivedPreview(x, cardElement) {
+        const photo = cardElement.querySelector('.sig-pc-photo');
+        try {
+            const result = await call('sig_warehouse.sig_warehouse.pc_journal.archived_receipt_media', {transaction_id: x.name});
+            if (!cardElement.isConnected) return;
+            const allowed = ['image/jpeg', 'image/png', 'application/pdf'];
+            if (!result || !allowed.includes(result.mime_type) || !result.data || !/^[A-Za-z0-9+/=]+$/.test(result.data)) throw new Error(__('Invalid archived receipt data.'));
+            const binary = atob(result.data);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+            if (archiveUrl) URL.revokeObjectURL(archiveUrl);
+            archiveUrl = URL.createObjectURL(new Blob([bytes], {type: result.mime_type}));
+            const url = archiveUrl;
+            photo.innerHTML = viewer(url, result.mime_type);
+            const link = cardElement.querySelector('[data-open-receipt]');
+            if (link) { link.href = url; link.textContent = __('Open archived receipt'); }
+            wireViewer(cardElement);
+        } catch (error) {
+            if (!cardElement.isConnected) return;
+            photo.innerHTML = `<div class="sig-pc-no-photo">${__('Archived receipt could not be opened.')} ${esc(error.message || '')}</div>`;
+        }
     }
     function afterRemoval(x) {
         S.rows = S.rows.filter((r) => r.name !== x.name);
@@ -405,6 +430,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
             x.last_archive_error = '';
             c.querySelector('[data-archive-error]')?.remove();
             button.textContent = __('Receipt archived');
+            loadArchivedPreview(x, c);
             frappe.show_alert({message: __('Receipt image archived and verified.'), indicator: 'green'});
         } catch (e) {
             button.disabled = false; button.textContent = __('Archive now');
