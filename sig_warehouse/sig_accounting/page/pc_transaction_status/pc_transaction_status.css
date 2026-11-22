@@ -54,8 +54,10 @@
 @media print {
     body * { visibility:hidden!important; }
     .sig-pc-printdoc,.sig-pc-printdoc * { visibility:visible!important; }
-    .sig-pc-printdoc { position:absolute; inset:0; width:100%; margin:0; padding:0; border:0; border-radius:0; overflow:visible; }
-    .sig-pc-status { max-width:none; margin:0; padding:0; }
+    /* Keep the report in normal document flow so long tables and receipt pages
+       paginate. An absolutely positioned report is clipped to its first page. */
+    .sig-pc-printdoc { position:static!important; inset:auto!important; width:100%; margin:0; padding:0; border:0; border-radius:0; overflow:visible!important; }
+    .sig-pc-status,.sig-pc-status-report-section { position:static!important; max-width:none!important; margin:0; padding:0; overflow:visible!important; }
     .sig-pc-status-table { font-size:9px; }
     .sig-pc-status-table thead { display:table-header-group; }
     .sig-pc-status-table tr { break-inside:avoid; }
@@ -140,8 +142,8 @@
     .sig-pc-status-report-section>h2,.sig-pc-status-report-section>p,.sig-pc-status-screen-only { display:none!important; }
     .sig-pc-status-report-section { margin:0; }
     .sig-pc-status-table-wrap { overflow:visible; }
-    .sig-pc-status-receipts { display:block; break-before:auto; }
-    .sig-pc-status-receipt { break-before:page; }
+    .sig-pc-status-receipts { display:block!important; break-before:page; }
+    .sig-pc-status-receipt { break-before:page; page-break-before:always; }
 }
 
 .sig-pc-status-selection-note { margin:0 0 10px; color:#697586; font-size:11px; }
