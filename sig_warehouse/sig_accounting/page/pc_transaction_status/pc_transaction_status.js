@@ -10,9 +10,11 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
     const money = (value) => (Number(value) || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
     const date = (value) => value ? frappe.datetime.str_to_user(String(value).slice(0, 10)) : '—';
     const isPdf = (url) => /\.pdf(?:[?#]|$)/i.test(url) || /[?&]\w*=pdf(?:&|$)/i.test(url);
+    const ARCHIVE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'application/pdf']);
     const status = (row) => row.finance_status === 'Pending Review' ? __('Pending Manager') : __(row.finance_status || 'Unknown');
     const total = (rows) => rows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
     const state = {rows: [], employees: new Map(), employeeIds: new Map(), employee: '', selected: '', search: '', status: '', cycles: [], cycleKey: '', applied: {scope: 'all'}, request: 0, loading: false, archiveRequest: 0, archiveUrl: null};
+    const printArchiveUrls = new Set();
     const view = {s: 1, x: 0, y: 0, r: 0, mode: 'page'};
 
     root.html('<header class="sig-pc-status-head">' +
@@ -175,9 +177,9 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
             [__('PC review delegation'), esc(row.review_group || __('Unassigned')) + (row.review_group_lead ? '<small>' + __('Lead') + ': ' + esc(row.review_group_lead) + '</small>' : '')],
         ].map(([label, value]) => '<div><dt>' + label + '</dt><dd>' + value + '</dd></div>').join('') + '</dl>';
     }
-    function viewer(url) {
+    function viewer(url, mimeType) {
         if (!url) return '<div class="sig-pc-status-no-receipt">' + __('No receipt is attached to this transaction.') + '</div>';
-        if (isPdf(url)) return '<iframe class="sig-pc-status-pdf" src="' + esc(url) + '" title="' + __('Invoice PDF') + '"></iframe>';
+        if (mimeType === 'application/pdf' || isPdf(url)) return '<iframe class="sig-pc-status-pdf" src="' + esc(url) + '" title="' + __('Invoice PDF') + '"></iframe>';
         return '<div class="sig-pc-status-viewer"><div class="sig-pc-status-vtools">' +
             '<button type="button" data-z="out" aria-label="' + __('Zoom out') + '">−</button><span class="sig-pc-status-zoomlabel">' + __('Fit page') + '</span><button type="button" data-z="in" aria-label="' + __('Zoom in') + '">+</button>' +
             '<button type="button" data-z="mode" class="sig-pc-status-mode">' + __('Fit width') + '</button><button type="button" data-z="actual">100%</button><button type="button" data-z="rot">' + __('Rotate') + '</button>' +
@@ -214,12 +216,13 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
                 type: 'POST', args: {transaction_id: row.name}});
             if (request !== state.archiveRequest || state.selected !== row.name) return;
             const payload = response.message || {};
-            if (!payload.data || !payload.mime_type) throw new Error(__('Archived receipt response was incomplete.'));
-            const binary = atob(payload.data), bytes = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-            state.archiveUrl = URL.createObjectURL(new Blob([bytes], {type: payload.mime_type}));
-            const media = q('.sig-pc-status-pdf, .sig-pc-status-vstage img');
-            if (media) media.src = state.archiveUrl;
+            const blob = archivedReceiptBlob(payload);
+            state.archiveUrl = URL.createObjectURL(blob);
+            const photo = q('.sig-pc-status-photo');
+            if (photo) {
+                photo.innerHTML = viewer(state.archiveUrl, payload.mime_type);
+                wireViewer(q('.sig-pc-status-selected'));
+            }
             const link = q('[data-open-receipt]');
             if (link) { link.href = state.archiveUrl; link.textContent = __('Open archived receipt'); }
         } catch (error) {
@@ -228,6 +231,15 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
                 if (message) message.textContent = error.message || __('Could not load archived receipt.');
             }
         }
+    }
+    function archivedReceiptBlob(payload) {
+        if (!payload || !ARCHIVE_MIME_TYPES.has(String(payload.mime_type || '').toLowerCase()) ||
+            !payload.data || !/^[A-Za-z0-9+/=]+$/.test(payload.data)) {
+            throw new Error(__('Archived receipt response was incomplete or unsupported.'));
+        }
+        const binary = atob(payload.data), bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+        return new Blob([bytes], {type: payload.mime_type});
     }
     async function archiveReceipt(row, button) {
         const message = q('[data-archive-message]');
@@ -417,23 +429,51 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
     });
     // Keep hundreds of off-screen receipt previews out of the interactive Desk DOM.
     // Build the sequential print appendix only when Print report is requested.
-    function preparePrint(rows) {
-        q('.sig-pc-status-receipts').innerHTML = rows.map((row, index) => {
-            const file = String(row.source_media_url || '');
-            const media = !file ? '<div class="sig-pc-status-no-receipt">' + __('No receipt attached.') + '</div>' :
-                isPdf(file) ? '<iframe class="sig-pc-status-receipt-pdf" src="' + esc(file) + '" title="' + __('Receipt {0}', [index + 1]) + '"></iframe>' :
-                '<img class="sig-pc-status-receipt-image" src="' + esc(file) + '" alt="' + __('Receipt {0}', [index + 1]) + '">';
-            return '<article class="sig-pc-status-receipt"><div class="sig-pc-status-receipt-info"><div class="sig-pc-status-receipt-count">' + __('Transaction {0} of {1}', [index + 1, rows.length]) + '</div><h3>' + esc(row.employee_name) + '</h3>' + detail(row) + '</div><div class="sig-pc-status-receipt-media">' + media + '</div></article>';
-        }).join('');
-        return Promise.all([...q('.sig-pc-status-receipts').querySelectorAll('img,iframe')].map((item) => new Promise((resolve) => {
-            if (item.tagName === 'IMG' && item.complete) {
-                if (!item.naturalWidth) unavailable(item);
-                resolve(); return;
+    async function preparePrint(rows) {
+        const prepared = new Array(rows.length);
+        let cursor = 0;
+        const worker = async () => {
+            while (cursor < rows.length) {
+                const index = cursor++, row = rows[index];
+                let file = String(row.source_media_url || ''), mimeType = isPdf(file) ? 'application/pdf' : '';
+                try {
+                    if (row.archive_status === 'Archived') {
+                        const response = await frappe.call({method: 'sig_warehouse.sig_warehouse.pc_journal.archived_receipt_media',
+                            type: 'POST', args: {transaction_id: row.name}});
+                        const payload = response.message || {}, blob = archivedReceiptBlob(payload);
+                        file = URL.createObjectURL(blob); printArchiveUrls.add(file); mimeType = payload.mime_type;
+                    }
+                } catch (error) {
+                    file = ''; mimeType = '';
+                }
+                const media = !file ? '<div class="sig-pc-status-no-receipt">' +
+                    (row.archive_status === 'Archived' ? __('Archived receipt could not be loaded for print.') : __('No receipt attached or readable.')) + '</div>' :
+                    (mimeType === 'application/pdf' || isPdf(file) ?
+                        '<iframe class="sig-pc-status-receipt-pdf" src="' + esc(file) + '" title="' + __('Receipt {0}', [index + 1]) + '"></iframe>' :
+                        '<img class="sig-pc-status-receipt-image" src="' + esc(file) + '" alt="' + __('Receipt {0}', [index + 1]) + '">');
+                prepared[index] = '<article class="sig-pc-status-receipt"><div class="sig-pc-status-receipt-info"><div class="sig-pc-status-receipt-count">' + __('Transaction {0} of {1}', [index + 1, rows.length]) + '</div><h3>' + esc(row.employee_name) + '</h3>' + detail(row) + '</div><div class="sig-pc-status-receipt-media">' + media + '</div></article>';
             }
-            const timer = setTimeout(() => { unavailable(item); resolve(); }, 30000);
-            item.addEventListener('load', () => { clearTimeout(timer); resolve(); }, {once: true});
-            item.addEventListener('error', () => { clearTimeout(timer); unavailable(item); resolve(); }, {once: true});
+        };
+        await Promise.all(Array.from({length: Math.min(4, rows.length)}, worker));
+        q('.sig-pc-status-receipts').innerHTML = prepared.join('');
+        const items = [...q('.sig-pc-status-receipts').querySelectorAll('img,iframe')];
+        await Promise.all(items.map((item) => new Promise((resolve) => {
+            let settled = false;
+            const finish = () => { if (settled) return; settled = true; clearTimeout(timer); resolve(); };
+            const timer = setTimeout(() => { if (item.tagName === 'IMG' && !item.naturalWidth) unavailable(item); finish(); }, 30000);
+            if (item.tagName === 'IMG' && item.complete) {
+                if (!item.naturalWidth) { unavailable(item); finish(); }
+                else if (item.decode) item.decode().then(finish, () => { unavailable(item); finish(); });
+                else finish();
+                return;
+            }
+            item.addEventListener('load', () => {
+                if (item.tagName === 'IMG' && item.decode) item.decode().then(finish, () => { unavailable(item); finish(); });
+                else finish();
+            }, {once: true});
+            item.addEventListener('error', () => { unavailable(item); finish(); }, {once: true});
         })));
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     }
     function unavailable(item) {
         const note = document.createElement('div');
@@ -455,7 +495,10 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
             button.textContent = __('Print report'); updateScopeControls();
         }
     });
-    window.addEventListener('afterprint', () => { const appendix = q('.sig-pc-status-receipts'); if (appendix) appendix.innerHTML = ''; });
+    window.addEventListener('afterprint', () => {
+        const appendix = q('.sig-pc-status-receipts'); if (appendix) appendix.innerHTML = '';
+        printArchiveUrls.forEach((url) => URL.revokeObjectURL(url)); printArchiveUrls.clear();
+    });
     if (!roles.some((role) => frappe.user.has_role(role)) || !frappe.model.can_read('SIG PC Transaction')) {
         q('.sig-pc-status-selected').innerHTML = '<div class="sig-pc-status-empty">' + __('Your ERP role cannot view petty-cash transactions.') + '</div>';
     } else load();
