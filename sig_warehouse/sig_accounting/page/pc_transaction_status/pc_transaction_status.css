@@ -52,8 +52,28 @@
 .sig-pc-status-empty { padding:28px; color:#697586; text-align:center; }
 @media (max-width:900px) { .sig-pc-status-meta { grid-template-columns:1fr; } .sig-pc-printdoc { overflow-x:auto; padding:14px; } .sig-pc-status-table { min-width:900px; } .sig-pc-status-receipt { grid-template-columns:1fr; } .sig-pc-status-receipt-media { min-height:240px; } }
 @media print {
-    body * { visibility:hidden!important; }
-    .sig-pc-printdoc,.sig-pc-printdoc * { visibility:visible!important; }
+    /* Desk scrolls inside a viewport-height shell. Let the report's ancestor
+       chain grow across pages and remove Desk siblings from print layout. */
+    html:has(.sig-pc-status.is-printing),
+    body:has(.sig-pc-status.is-printing),
+    body :has(.sig-pc-status.is-printing) {
+        display:block!important;
+        position:static!important;
+        width:auto!important;
+        min-width:0!important;
+        max-width:none!important;
+        height:auto!important;
+        min-height:0!important;
+        max-height:none!important;
+        margin:0!important;
+        padding:0!important;
+        overflow:visible!important;
+        contain:none!important;
+    }
+    body:has(.sig-pc-status.is-printing) > :not(:has(.sig-pc-status.is-printing), .sig-pc-status.is-printing),
+    body :has(.sig-pc-status.is-printing) > :not(:has(.sig-pc-status.is-printing), .sig-pc-status.is-printing) {
+        display:none!important;
+    }
     /* Keep the report in normal document flow so long tables and receipt pages
        paginate. An absolutely positioned report is clipped to its first page. */
     .sig-pc-printdoc { position:static!important; inset:auto!important; width:100%; margin:0; padding:0; border:0; border-radius:0; overflow:visible!important; }
@@ -61,7 +81,6 @@
     .sig-pc-status-table { font-size:9px; }
     .sig-pc-status-table thead { display:table-header-group; }
     .sig-pc-status-table tr { break-inside:avoid; }
-    .sig-pc-status-receipts { break-before:page; }
     .sig-pc-status-receipt { grid-template-columns:minmax(210px, .32fr) minmax(0, 1fr); gap:10px; margin:0; padding:8px; border-radius:0; break-inside:avoid; page-break-inside:avoid; }
     .sig-pc-status-receipt-info h3 { font-size:13px; }
     .sig-pc-status-receipt-info dl>div { padding:3px 0; }
@@ -143,7 +162,7 @@
     .sig-pc-status-report-section { margin:0; }
     .sig-pc-status-table-wrap { overflow:visible; }
     .sig-pc-status-receipts { display:block!important; break-before:page; }
-    .sig-pc-status-receipt { break-before:page; page-break-before:always; }
+    .sig-pc-status-receipt + .sig-pc-status-receipt { break-before:page; }
 }
 
 .sig-pc-status-selection-note { margin:0 0 10px; color:#697586; font-size:11px; }
