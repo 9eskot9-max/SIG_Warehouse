@@ -489,16 +489,24 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
         const controls = [...el.querySelectorAll('input,select,button')];
         const disabled = controls.map((control) => control.disabled);
         controls.forEach((control) => { control.disabled = true; });
-        try { await preparePrint(rows); window.print(); }
-        finally {
+        try {
+            await preparePrint(rows);
+            el.classList.add('is-printing');
+            window.print();
+        } catch (error) {
+            clearPrint();
+            throw error;
+        } finally {
             controls.forEach((control, index) => { control.disabled = disabled[index]; });
             button.textContent = __('Print report'); updateScopeControls();
         }
     });
-    window.addEventListener('afterprint', () => {
+    function clearPrint() {
+        el.classList.remove('is-printing');
         const appendix = q('.sig-pc-status-receipts'); if (appendix) appendix.innerHTML = '';
         printArchiveUrls.forEach((url) => URL.revokeObjectURL(url)); printArchiveUrls.clear();
-    });
+    }
+    window.addEventListener('afterprint', clearPrint);
     if (!roles.some((role) => frappe.user.has_role(role)) || !frappe.model.can_read('SIG PC Transaction')) {
         q('.sig-pc-status-selected').innerHTML = '<div class="sig-pc-status-empty">' + __('Your ERP role cannot view petty-cash transactions.') + '</div>';
     } else load();
