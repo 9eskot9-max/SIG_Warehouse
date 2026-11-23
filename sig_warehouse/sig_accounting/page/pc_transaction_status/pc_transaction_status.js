@@ -14,12 +14,12 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
     const status = (row) => row.finance_status === 'Pending Review' ? __('Pending Manager') : __(row.finance_status || 'Unknown');
     const total = (rows) => rows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
     const state = {rows: [], employees: new Map(), employeeIds: new Map(), employee: '', selected: '', search: '', status: '', cycles: [], cycleKey: '', applied: {scope: 'all'}, request: 0, loading: false, archiveRequest: 0, archiveUrl: null};
-    const printArchiveUrls = new Set();
+    let downloading = false;
     const view = {s: 1, x: 0, y: 0, r: 0, mode: 'page'};
 
     root.html('<header class="sig-pc-status-head">' +
         '<div><div class="sig-pc-status-eyebrow">' + __('Accounts') + '</div><h1>' + __('Petty Cash Status') + '</h1><p data-subtitle>' + __('Review approval and accounting status') + '</p></div>' +
-        '<div class="sig-pc-status-actions"><button class="btn btn-default" data-review>' + __('Open PC Review') + '</button><button class="btn btn-default" data-refresh>' + __('Refresh') + '</button><button class="btn btn-primary" data-print disabled>' + __('Print report') + '</button></div></header>' +
+        '<div class="sig-pc-status-actions"><button class="btn btn-default" data-review>' + __('Open PC Review') + '</button><button class="btn btn-default" data-refresh>' + __('Refresh') + '</button></div></header>' +
         '<section class="sig-pc-status-context" aria-live="polite"></section>' +
         '<section class="sig-pc-status-workarea"><aside class="sig-pc-status-queue" aria-label="' + __('Employee transactions') + '">' +
         '<label class="sr-only" for="pc-status-employee">' + __('Employee') + '</label><select id="pc-status-employee" data-employee><option value="">' + __('Loading employees…') + '</option></select>' +
@@ -32,6 +32,7 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
         '<label data-cycle-wrap hidden>' + __('Petty Cash cycle') + '<select data-cycle><option value="">' + __('Select a cycle…') + '</option></select></label>' +
         '<label data-from-wrap hidden>' + __('From') + '<input type="date" data-from></label><label data-to-wrap hidden>' + __('To') + '<input type="date" data-to></label><button class="btn btn-default" data-apply>' + __('Apply') + '</button></section>' +
         '<div class="sig-pc-status-cycle-note" data-cycle-note hidden>' + __('Cycles start only from a Finance-designated employee funding Journal Entry. Bank statement drafts show Pending Finance; date-only receipts on a day with multiple top-ups need allocation.') + '</div>' +
+        '<p class="sig-pc-status-screen-only"><button class="btn btn-primary" data-download disabled>' + __('Download PDF') + '</button></p>' +
         '<div class="sig-pc-status-message" role="status" hidden></div><section class="sig-pc-printdoc"></section></section>');
 
     function employeeRows() { return state.rows.filter((row) => row.employee_key === state.employee); }
@@ -46,6 +47,13 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
         return '<span class="sig-pc-status-badge ' + cls + '">' + esc(value || '—') + '</span>';
     }
     function message(text) { q('.sig-pc-status-message').hidden = !text; q('.sig-pc-status-message').textContent = text || ''; }
+    function scopeIsApplied() {
+        const applied = state.applied;
+        if (applied.employee !== state.employee || applied.scope !== q('[data-scope]').value) return false;
+        if (applied.scope === 'cycle') return applied.cycleKey === q('[data-cycle]').value;
+        if (applied.scope === 'range') return applied.from === q('[data-from]').value && applied.to === q('[data-to]').value;
+        return true;
+    }
     function updateScopeControls() {
         const scope = q('[data-scope]').value;
         q('[data-from-wrap]').hidden = scope !== 'range';
@@ -55,7 +63,7 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
         q('[data-apply]').disabled = state.loading || (scope === 'cycle' && !q('[data-cycle]').value);
         q('[data-employee]').disabled = state.loading;
         q('[data-cycle]').disabled = state.loading || !state.employee;
-        q('[data-print]').disabled = state.loading || !visibleRows().length;
+        q('[data-download]').disabled = downloading || state.loading || !scopeIsApplied() || !employeeRows().length;
     }
     async function load() {
         const scope = q('[data-scope]').value;
@@ -116,7 +124,7 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
             });
             if (!state.employee) state.employee = [...state.employees.keys()][0] || '';
             state.rows = rows;
-            state.applied = {scope, from: args.from_date, to: args.to_date, cycleKey: args.cycle_key || ''};
+            state.applied = {scope, employee: state.employee, from: args.from_date, to: args.to_date, cycleKey: args.cycle_key || ''};
             state.selected = ''; state.search = ''; state.status = '';
             q('[data-search]').value = '';
             q('[data-employee]').innerHTML = [...state.employees].sort((a, b) => String(a[1]).localeCompare(String(b[1])))
@@ -161,7 +169,7 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
             return heading + '<button type="button" role="option" aria-selected="' + (row.name === state.selected) + '" data-select="' + esc(row.name) + '" class="sig-pc-status-queue-item">' +
                 '<strong>' + esc(money(row.amount)) + '</strong><span>' + esc(row.transaction_category || '—') + '</span>' + badge(status(row)) + '</button>';
         }).join('') || '<div class="sig-pc-status-empty">' + __('No matching transactions.') + '</div>';
-        renderDocument(rows); renderSelected(); updateScopeControls();
+        renderDocument(all); renderSelected(); updateScopeControls();
     }
     function detail(row) {
         return '<dl>' + [
@@ -274,7 +282,15 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
         }, __('Archive recovered photo'), __('Archive'));
     }
     function select(name, scroll) {
-        state.selected = name; renderSelected();
+        if (scroll && !visibleRows().some((row) => row.name === name)) {
+            state.search = ''; state.status = '';
+            q('[data-search]').value = ''; q('[data-status]').value = '';
+            state.selected = name;
+            render();
+        } else {
+            state.selected = name;
+            renderSelected();
+        }
         if (scroll) q('.sig-pc-status-context').scrollIntoView({behavior: 'smooth', block: 'start'});
     }
     function step(delta) {
@@ -315,15 +331,12 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
         unallocated.forEach((row) => segments.push({date: String(row.transaction_date || ''), content: receiptRow(row, rows.indexOf(row))}));
         segments.sort((a, b) => a.date.localeCompare(b.date));
         const renderedRows = segments.map((segment) => segment.content).join('');
-        const selectionNote = state.status || state.search ?
-            '<p class="sig-pc-status-selection-note">' + esc([state.status ? status({finance_status: state.status}) : '', state.search ? __('Search: {0}', [state.search]) : ''].filter(Boolean).join(' · ')) + '</p>' : '';
         q('.sig-pc-printdoc').innerHTML = '<div class="sig-pc-status-brand"><div class="sig-pc-status-brand-mark">SIG</div><div><strong>SIG</strong><span>' + __('Petty Cash') + '</span></div><div class="sig-pc-status-document-title"><h2>' + __('Petty Cash Transaction Status') + '</h2></div></div>' +
             '<div class="sig-pc-status-meta"><div><small>' + __('Employee') + '</small><strong>' + esc(state.employees.get(state.employee) || '—') + '</strong></div><div><small>' + (selectedCycle ? __('Petty Cash cycle') : __('Period')) + '</small><strong>' + esc(period) + '</strong></div><div><small>' + __('Generated') + '</small><strong>' + esc(date(frappe.datetime.get_today())) + '</strong></div></div>' +
-            selectionNote +
             '<div class="sig-pc-status-table-wrap"><table class="sig-pc-status-table"><thead><tr><th>#</th><th>' + __('Date') + '</th><th>' + __('Category') + '</th><th>' + __('Amount (SAR)') + '</th><th>' + __('Status') + '</th><th>' + __('Approved by') + '</th><th>' + __('Journal Entry status') + '</th><th>' + __('Petty Cash cycle') + '</th><th class="sig-pc-status-screen-only">' + __('Receipt') + '</th></tr></thead><tbody>' +
             (renderedRows ||
             '<tr><td colspan="9" class="sig-pc-status-empty">' + __('No transactions match this selection.') + '</td></tr>') +
-            '</tbody><tfoot><tr><th colspan="3">' + __('Receipt total (SAR)') + '</th><th class="sig-pc-status-money">' + esc(money(total(rows))) + '</th><td colspan="5"></td></tr></tfoot></table></div><section class="sig-pc-status-receipts"></section>' +
+            '</tbody><tfoot><tr><th colspan="3">' + __('Receipt total (SAR)') + '</th><th class="sig-pc-status-money">' + esc(money(total(rows))) + '</th><td colspan="5"></td></tr></tfoot></table></div>' +
             '<footer class="sig-pc-status-foot">' + __('Draft Journal Entries are pending Finance review; Submitted means posted.') + '</footer>';
     }
 
@@ -398,6 +411,8 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
 
     q('[data-scope]').addEventListener('change', () => { state.cycleKey = ''; updateScopeControls(); if (q('[data-scope]').value === 'cycle') load(); });
     q('[data-apply]').addEventListener('click', load);
+    q('[data-from]').addEventListener('input', updateScopeControls);
+    q('[data-to]').addEventListener('input', updateScopeControls);
     q('[data-refresh]').addEventListener('click', load);
     q('[data-employee]').addEventListener('change', (event) => {
         state.employee = event.target.value; state.cycleKey = '';
@@ -427,86 +442,45 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
         if (event.key === 'ArrowLeft') { event.preventDefault(); step(-1); }
         if (event.key === 'ArrowRight') { event.preventDefault(); step(1); }
     });
-    // Keep hundreds of off-screen receipt previews out of the interactive Desk DOM.
-    // Build the sequential print appendix only when Print report is requested.
-    async function preparePrint(rows) {
-        const prepared = new Array(rows.length);
-        let cursor = 0;
-        const worker = async () => {
-            while (cursor < rows.length) {
-                const index = cursor++, row = rows[index];
-                let file = String(row.source_media_url || ''), mimeType = isPdf(file) ? 'application/pdf' : '';
-                try {
-                    if (row.archive_status === 'Archived') {
-                        const response = await frappe.call({method: 'sig_warehouse.sig_warehouse.pc_journal.archived_receipt_media',
-                            type: 'POST', args: {transaction_id: row.name}});
-                        const payload = response.message || {}, blob = archivedReceiptBlob(payload);
-                        file = URL.createObjectURL(blob); printArchiveUrls.add(file); mimeType = payload.mime_type;
-                    }
-                } catch (error) {
-                    file = ''; mimeType = '';
-                }
-                const media = !file ? '<div class="sig-pc-status-no-receipt">' +
-                    (row.archive_status === 'Archived' ? __('Archived receipt could not be loaded for print.') : __('No receipt attached or readable.')) + '</div>' :
-                    (mimeType === 'application/pdf' || isPdf(file) ?
-                        '<iframe class="sig-pc-status-receipt-pdf" src="' + esc(file) + '" title="' + __('Receipt {0}', [index + 1]) + '"></iframe>' :
-                        '<img class="sig-pc-status-receipt-image" src="' + esc(file) + '" alt="' + __('Receipt {0}', [index + 1]) + '">');
-                prepared[index] = '<article class="sig-pc-status-receipt"><div class="sig-pc-status-receipt-info"><div class="sig-pc-status-receipt-count">' + __('Transaction {0} of {1}', [index + 1, rows.length]) + '</div><h3>' + esc(row.employee_name) + '</h3>' + detail(row) + '</div><div class="sig-pc-status-receipt-media">' + media + '</div></article>';
-            }
-        };
-        await Promise.all(Array.from({length: Math.min(4, rows.length)}, worker));
-        q('.sig-pc-status-receipts').innerHTML = prepared.join('');
-        const items = [...q('.sig-pc-status-receipts').querySelectorAll('img,iframe')];
-        await Promise.all(items.map((item) => new Promise((resolve) => {
-            let settled = false;
-            const finish = () => { if (settled) return; settled = true; clearTimeout(timer); resolve(); };
-            const timer = setTimeout(() => { if (item.tagName === 'IMG' && !item.naturalWidth) unavailable(item); finish(); }, 30000);
-            if (item.tagName === 'IMG' && item.complete) {
-                if (!item.naturalWidth) { unavailable(item); finish(); }
-                else if (item.decode) item.decode().then(finish, () => { unavailable(item); finish(); });
-                else finish();
-                return;
-            }
-            item.addEventListener('load', () => {
-                if (item.tagName === 'IMG' && item.decode) item.decode().then(finish, () => { unavailable(item); finish(); });
-                else finish();
-            }, {once: true});
-            item.addEventListener('error', () => { unavailable(item); finish(); }, {once: true});
-        })));
-        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    }
-    function unavailable(item) {
-        const note = document.createElement('div');
-        note.className = 'sig-pc-status-no-receipt';
-        note.textContent = __('Receipt preview unavailable. Check the original receipt before issuing this report.');
-        item.replaceWith(note);
-    }
-    q('[data-print]').addEventListener('click', async () => {
-        const button = q('[data-print]'), rows = visibleRows();
-        if (state.loading || !rows.length) return;
-        button.disabled = true; button.textContent = __('Preparing receipts…');
-        // Prevent the print selection changing while its media loads.
-        const controls = [...el.querySelectorAll('input,select,button')];
-        const disabled = controls.map((control) => control.disabled);
-        controls.forEach((control) => { control.disabled = true; });
+    q('[data-download]').addEventListener('click', async () => {
+        const button = q('[data-download]');
+        if (button.disabled) return;
+        const {employee, scope, from, to, cycleKey} = state.applied;
+        const args = {employee, scope};
+        if (scope === 'range') Object.assign(args, {from_date: from, to_date: to});
+        if (scope === 'cycle') args.cycle_key = cycleKey;
+        downloading = true;
+        button.textContent = __('Preparing PDF…');
+        updateScopeControls();
         try {
-            await preparePrint(rows);
-            el.classList.add('is-printing');
-            window.print();
-        } catch (error) {
-            clearPrint();
-            throw error;
+            const response = await fetch('/api/method/sig_warehouse.sig_warehouse.pc_status_pdf.download_status_pdf', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {'X-Frappe-CSRF-Token': frappe.csrf_token},
+                body: new URLSearchParams(args),
+            });
+            if (!response.ok || !(response.headers.get('content-type') || '').includes('application/pdf')) {
+                throw new Error('Invalid PDF response');
+            }
+            const disposition = response.headers.get('content-disposition') || '';
+            const utf8 = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+            const plain = disposition.match(/filename=(?:"([^"]+)"|([^;]+))/i);
+            const link = document.createElement('a');
+            link.download = utf8 ? decodeURIComponent(utf8[1]) : (plain?.[1] || plain?.[2] || 'Petty Cash Status.pdf').trim();
+            const url = URL.createObjectURL(await response.blob());
+            link.href = url;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 60000);
+        } catch {
+            frappe.msgprint(__('Could not download the petty cash PDF. Please try again.'));
         } finally {
-            controls.forEach((control, index) => { control.disabled = disabled[index]; });
-            button.textContent = __('Print report'); updateScopeControls();
+            downloading = false;
+            button.textContent = __('Download PDF');
+            updateScopeControls();
         }
     });
-    function clearPrint() {
-        el.classList.remove('is-printing');
-        const appendix = q('.sig-pc-status-receipts'); if (appendix) appendix.innerHTML = '';
-        printArchiveUrls.forEach((url) => URL.revokeObjectURL(url)); printArchiveUrls.clear();
-    }
-    window.addEventListener('afterprint', clearPrint);
     if (!roles.some((role) => frappe.user.has_role(role)) || !frappe.model.can_read('SIG PC Transaction')) {
         q('.sig-pc-status-selected').innerHTML = '<div class="sig-pc-status-empty">' + __('Your ERP role cannot view petty-cash transactions.') + '</div>';
     } else load();
