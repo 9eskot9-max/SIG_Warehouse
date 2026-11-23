@@ -72,3 +72,10 @@ def test_roster_uses_enabled_crews_and_dated_unique_leaders():
                  {"team": "c", "employee": "disabled", "role": "leader", "enabled": 1, "effective_from": "2026-01-01"}]}
     assert nv.planner_leaders(setup, "2026-11-11") == {"current"}
     assert nv.planner_leaders(setup, "2026-11-03") == {"old"}
+
+
+def test_a_crew_can_opt_out_of_the_no_visit_message():
+    setup = {"operational_teams": [{"id": "a", "enabled": 1}, {"id": "b", "enabled": 1, "no_visit_message": False},
+                                   {"id": "c", "enabled": 1, "no_visit_message": True}],
+             "team_memberships": [{"team": t, "employee": t.upper(), "role": "leader", "enabled": 1, "effective_from": "2026-01-01"} for t in "abc"]}
+    assert nv.planner_leaders(setup, "2026-11-11") == {"A", "C"}

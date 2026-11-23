@@ -97,56 +97,39 @@ def set_plan_decision(cycle, action="", reason=""):
 
 
 def _team_setup():
-    """Enabled planner teams from the published Excel Setup.
+    """Enabled field crews from the published Excel Setup, each with its one current leader.
 
-    The dated operational team model is preferred when published. Legacy leader
-    rows remain readable during the reviewed migration; only team identity and
-    leader contact details leave this function to the already role-gated planner.
+    Only team identity and leader contact details leave this function to the
+    already role-gated planner. A crew without exactly one active Employee leader
+    today is skipped; Excel Setup warns about it.
     """
     try:
         data = json.loads(frappe.db.get_single_value("SIG Excel Setup", "configuration_json") or "{}")
     except (ValueError, frappe.DoesNotExistError):
         return []
-    from sig_warehouse.sig_warehouse.people_model_gate import PEOPLE_MODEL_ACTIVE
-    operational = {str(row.get("id")): row for row in data.get("operational_teams", []) if row.get("enabled")} if PEOPLE_MODEL_ACTIVE else {}
-    if operational:
-        today = str(frappe.utils.nowdate())[:10]
-        leaders = {}
-        history = {}
-        for row in data.get("team_memberships", []):
-            start, end = str(row.get("effective_from") or "")[:10], str(row.get("effective_to") or "")[:10]
-            if (row.get("enabled") and row.get("role") == "leader" and row.get("team") in operational
-                    and row.get("employee") and start):
-                history.setdefault(row["team"], []).append({"employee": str(row["employee"]), "from": start, "to": end})
-                if start <= today and (not end or today <= end):
-                    leaders.setdefault(row["team"], set()).add(str(row["employee"]))
-        # The first flexible leader rows are a migration of the existing
-        # Planner roster. Their effective_from is the cutover date, but their
-        # prior visits and manual positions already represent that same team
-        # and must remain its last-known location. Match by both employee ID
-        # and the existing team label; later leader periods stay date-bounded.
-        legacy_team_pairs = {
-            (str(row.get("leader") or ""), str(row.get("team") or "").strip().casefold())
-            for row in data.get("teams", []) if row.get("enabled") and row.get("leader")
-        }
-        result = []
-        for team_id, team in sorted(operational.items()):
-            active_leaders = sorted(leaders.get(team_id, set()))
-            if len(active_leaders) != 1:
-                continue
-            periods = sorted(history.get(team_id, []), key=lambda period: (period["from"], period["employee"]))
-            if periods and (periods[0]["employee"], str(team.get("team_name") or "").strip().casefold()) in legacy_team_pairs:
-                periods[0]["from"] = ""
-            leader = active_leaders[0]
-            person = frappe.db.get_value("Employee", leader, ["employee_name", "cell_number", "status"], as_dict=True)
-            if person and person.status == "Active":
-                result.append({"team_id": team_id, "leader_periods": periods, "leader": leader, "team": team.get("team_name") or leader,
-                               "phone": person.cell_number or "", "family": team.get("family") or "",
-                               "archetype": team.get("archetype") or "Project"})
-        return result
-    return [{"team_id": str(r.get("id") or r["leader"]), "leader": r["leader"], "team": r.get("team") or r["leader"], "phone": r.get("phone", ""),
-             "archetype": r.get("archetype") or "Project"}
-            for r in data.get("teams", []) if r.get("enabled") and r.get("leader")]
+    operational = {str(row.get("id")): row for row in data.get("operational_teams", []) if row.get("enabled")}
+    today = str(frappe.utils.nowdate())[:10]
+    leaders, history = {}, {}
+    for row in data.get("team_memberships", []):
+        start, end = str(row.get("effective_from") or "")[:10], str(row.get("effective_to") or "")[:10]
+        if (row.get("enabled") and row.get("role") == "leader" and row.get("team") in operational
+                and row.get("employee") and start):
+            history.setdefault(row["team"], []).append({"employee": str(row["employee"]), "from": start, "to": end})
+            if start <= today and (not end or today <= end):
+                leaders.setdefault(row["team"], set()).add(str(row["employee"]))
+    result = []
+    for team_id, team in sorted(operational.items()):
+        active_leaders = sorted(leaders.get(team_id, set()))
+        if len(active_leaders) != 1:
+            continue
+        leader = active_leaders[0]
+        person = frappe.db.get_value("Employee", leader, ["employee_name", "cell_number", "status"], as_dict=True)
+        if person and person.status == "Active":
+            result.append({"team_id": team_id, "leader": leader, "team": team.get("team_name") or leader,
+                           "leader_periods": sorted(history.get(team_id, []), key=lambda p: (p["from"], p["employee"])),
+                           "phone": person.cell_number or "", "family": team.get("family") or "",
+                           "archetype": team.get("archetype") or "Project"})
+    return result
 
 
 def _projects():

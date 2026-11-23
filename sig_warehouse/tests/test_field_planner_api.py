@@ -15,6 +15,16 @@ class Row(dict):
     __getattr__ = dict.get
 
 
+def crews(*specs):
+    """Excel Setup JSON with one enabled-or-not crew per (leader, team name, enabled, archetype)."""
+    import json
+    teams, members = [], []
+    for leader, name, enabled, *rest in specs:
+        teams.append({"id": "ops-" + leader, "team_name": name, "family": "Capex", "archetype": rest[0] if rest else "Project", "enabled": enabled})
+        members.append({"team": "ops-" + leader, "employee": leader, "role": "leader", "effective_from": "2026-01-01", "effective_to": "", "enabled": True})
+    return json.dumps({"operational_teams": teams, "team_memberships": members})
+
+
 def load_api(roles, can_read=True, setup_json="{}", visits=(), sessions=(), positions=()):
     calls = []
     frappe = ModuleType("frappe")
@@ -160,11 +170,7 @@ class FieldPlannerApiTests(unittest.TestCase):
 
     def test_setup_teams_set_the_team_count_names_and_starting_positions(self):
         import json
-        setup = json.dumps({"teams": [
-            {"id": "t1", "leader": "E1", "team": "Waqas", "phone": "1", "enabled": True},
-            {"id": "t2", "leader": "E2", "team": "Asif", "phone": "2", "enabled": True},
-            {"id": "t3", "leader": "E3", "team": "Off", "phone": "3", "enabled": False},
-            {"id": "t4", "leader": "E4", "team": "Incident crew", "phone": "4", "enabled": True, "archetype": "Incident"}]})
+        setup = crews(("E1", "Waqas", True), ("E2", "Asif", True), ("E3", "Off", False), ("E4", "Incident crew", True, "Incident"))
         visits = [dict(employee="E1", site="Z1", start_at="2026-10-23 08:00:00", end_at="2026-10-23 09:00:00", status="COMPLETED", cycle=None)]
         api, _ = load_api(["SIG Field Ops"], setup_json=setup, visits=visits)
         result = api.get_field_plan(week_start="2026-10-25")
@@ -173,40 +179,34 @@ class FieldPlannerApiTests(unittest.TestCase):
         self.assertEqual({"Waqas": "Current", "Asif": "Unknown", "Incident crew": "Incident"}, states)
         self.assertEqual({"Waqas", "Asif"}, {t["leader"] for t in result["teams"]} | {"Waqas", "Asif"})
 
-    def test_people_model_keeps_the_imported_planner_teams_prior_position_history(self):
+    def test_crew_leader_periods_are_dated_and_only_one_leader_is_active(self):
         import json
-        from types import ModuleType
         setup = json.dumps({
-            "teams": [{"id": "legacy-e1", "leader": "E1", "team": "Yawar", "enabled": True}],
             "operational_teams": [{"id": "ops-team-E1", "team_name": "Yawar", "family": "Capex",
                                    "archetype": "Project", "enabled": True}],
             "team_memberships": [
-                {"team": "ops-team-E1", "employee": "E1", "role": "leader", "effective_from": "2026-10-24",
+                {"team": "ops-team-E1", "employee": "E1", "role": "leader", "effective_from": "2000-01-01",
                  "effective_to": "2026-12-31", "enabled": True},
                 {"team": "ops-team-E1", "employee": "E2", "role": "leader", "effective_from": "2027-01-01",
                  "effective_to": "", "enabled": True},
             ],
         })
         api, _ = load_api(["SIG Field Ops"], setup_json=setup)
-        gate = ModuleType("sig_warehouse.sig_warehouse.people_model_gate")
-        gate.PEOPLE_MODEL_ACTIVE = True
-        prior_gate = sys.modules.get(gate.__name__)
-        sys.modules[gate.__name__] = gate
-        try:
-            team = api._team_setup()[0]
-        finally:
-            if prior_gate is None:
-                sys.modules.pop(gate.__name__, None)
-            else:
-                sys.modules[gate.__name__] = prior_gate
-
+        team = api._team_setup()[0]
         self.assertEqual("E1", team["leader"])
-        self.assertEqual([{"employee": "E1", "from": "", "to": "2026-12-31"},
+        self.assertEqual([{"employee": "E1", "from": "2000-01-01", "to": "2026-12-31"},
                           {"employee": "E2", "from": "2027-01-01", "to": ""}], team["leader_periods"])
+
+    def test_a_crew_without_exactly_one_active_leader_is_skipped(self):
+        import json
+        setup = json.loads(crews(("E1", "Solo", True)))
+        setup["team_memberships"].append(dict(setup["team_memberships"][0], employee="E2"))
+        api, _ = load_api(["SIG Field Ops"], setup_json=json.dumps(setup))
+        self.assertEqual([], api._team_setup())
 
     def test_latest_reported_session_updates_the_team_start_when_not_yet_posted_as_a_visit(self):
         import json
-        setup = json.dumps({"teams": [{"leader": "E1", "team": "Yawar Raza Sibtain Ali", "enabled": True}]})
+        setup = crews(("E1", "Yawar Raza Sibtain Ali", True))
         session = dict(employee="E1", site="Z1", site_key="Z1", start_at="2026-10-25 02:37:36",
                        end_at="2026-10-25 02:39:55", status="AUTO_CLOSED", disposition="PENDING")
         api, _ = load_api(["Projects Manager"], setup_json=setup, sessions=[session])
@@ -229,7 +229,7 @@ class FieldPlannerApiTests(unittest.TestCase):
 
     def test_only_project_managers_can_append_an_enabled_team_site_position(self):
         import json
-        setup = json.dumps({"teams": [{"leader": "E1", "team": "Yawar Raza Sibtain Ali", "enabled": True}]})
+        setup = crews(("E1", "Yawar Raza Sibtain Ali", True))
         api, calls = load_api(["Projects Manager"], setup_json=setup)
         result = api.update_team_position("E1", "Z1")
         self.assertEqual({"team_leader": "E1", "team": "Yawar Raza Sibtain Ali", "site": "Z1"},

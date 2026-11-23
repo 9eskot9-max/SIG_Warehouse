@@ -344,17 +344,52 @@ def test_site_cycles_dashboard_unrouted_user_gets_no_cycle_rows():
     assert rows == []
 
 
-def test_site_cycles_uses_short_names_for_legacy_roster():
-    workbench = _workbench()
-    workbench.PEOPLE_MODEL_ACTIVE = False
+def _configured(workbench, rows):
+    import json
+    workbench.frappe.db = SimpleNamespace(get_single_value=lambda *args: json.dumps({"ops_team_members": rows}))
 
-    assert workbench._owner_names("Capex", "pm") == ["Sohil"]
-    assert workbench._owner_names("Capex", "co") == ["Gulzar", "Sultan"]
-    assert workbench._owner_names("Incident", "pm") == ["Sohil", "Raheem"]
-    assert workbench._owner_names("Incident", "co") == ["Arshad"]
-    assert workbench._owner_names("Colocation", "pm") == ["Imran"]
-    assert workbench._owner_names("Colocation", "co") == ["Waleed", "Obed"]
-    assert workbench._owner_names("Incident", "warehouse") == ["Ramzan", "Tahir"]
+
+def _ops(employee, role, family="Capex", **extra):
+    return {"id": employee + role + family, "employee": employee, "role": role, "family": family, "project": "",
+            "effective_from": "2026-11-05", "effective_to": "", "enabled": True, **extra}
+
+
+def test_configured_roles_decide_task_audience_strictly():
+    workbench = _workbench()
+    _configured(workbench, [_ops("PM1", "pm"), _ops("CO1", "coordinator"), _ops("WH1", "warehouse", family="")])
+    pm = workbench._operations_team_memberships("PM1")
+    co = workbench._operations_team_memberships("CO1")
+    wh = workbench._operations_team_memberships("WH1")
+    assert [(m["scope"], m["role"]) for m in pm] == [("Capex", "pm")]
+    assert [(m["scope"], m["role"]) for m in co] == [("Capex", "co")]
+    assert {(m["scope"], m["role"]) for m in wh} == {(f, "warehouse") for f in ("Capex", "Incident", "Colocation")}
+    # the As-Built BOQ file is PM only, Tags coordinator only, a shared task is for both
+    assert workbench._task_audience("Capex", "pm", pm) and not workbench._task_audience("Capex", "pm", co)
+    assert workbench._task_audience("Capex", "co", co) and not workbench._task_audience("Capex", "co", pm)
+    assert workbench._task_audience("Capex", "either", pm) and workbench._task_audience("Capex", "either", co)
+    assert not workbench._task_audience("Capex", "either", wh) and workbench._task_audience("Incident", "warehouse", wh)
+    assert not workbench._task_audience("Incident", "pm", pm)
+
+
+def test_project_row_replaces_the_family_team_for_that_role_only():
+    workbench = _workbench()
+    _configured(workbench, [_ops("PM1", "pm"), _ops("PM2", "pm", project="P-9"), _ops("CO1", "coordinator")])
+    pm1, pm2, co = (workbench._operations_team_memberships(e) for e in ("PM1", "PM2", "CO1"))
+    assert not workbench._task_audience("Capex", "pm", pm1, "P-9") and workbench._task_audience("Capex", "pm", pm1, "P-1")
+    assert workbench._task_audience("Capex", "pm", pm2, "P-9") and not workbench._task_audience("Capex", "pm", pm2, "P-1")
+    assert workbench._task_audience("Capex", "co", co, "P-9")
+
+
+def test_expired_or_disabled_rows_give_no_membership():
+    workbench = _workbench()
+    _configured(workbench, [_ops("A", "pm", effective_to="2026-11-10"), _ops("B", "pm", enabled=False), _ops("C", "pm", effective_from="2026-12-01")])
+    assert workbench._operations_team_memberships() == []
+
+
+def test_removed_hardcoded_rosters_stay_removed():
+    workbench = _workbench()
+    for name in ("OPS_ROSTER", "WAREHOUSE_USERS", "OPS_OWNER_NAMES", "WAREHOUSE_OWNER_NAMES", "PEOPLE_MODEL_ACTIVE"):
+        assert not hasattr(workbench, name)
 
 
 def test_cycle_export_includes_named_owners_and_keeps_late_columns_aligned():

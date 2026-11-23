@@ -144,8 +144,7 @@ def test_duplicate_exact_cycles_need_explicit_selection(route):
 def setup_functions(fake):
     path = Path(__file__).resolve().parents[1] / 'sig_operations/excel_setup_v3.py'
     tree = ast.parse(path.read_text(encoding='utf-8'))
-    nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef) and
-             node.name in ('_assignment_default_state', '_effective_default_contact', 'save_po_setup')]
+    nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'save_po_setup']
     for node in nodes:
         node.decorator_list = []
     namespace = {'frappe': fake, 'json': json}
@@ -153,55 +152,37 @@ def setup_functions(fake):
     return namespace
 
 
-def test_existing_assignment_supplies_missing_project_field():
-    fake = SimpleNamespace(get_all=lambda *a, **k: [SimpleNamespace(tawal_contact='CONTACT')])
-    assert setup_functions(fake)['_effective_default_contact']('PROJECT', '') == 'CONTACT'
-
-
-def test_conflicting_native_defaults_are_reported():
+def label_saver(writes, projects=('P',)):
     def throw(message):
         raise ValueError(message)
-    fake = SimpleNamespace(get_all=lambda *a, **k: [SimpleNamespace(tawal_contact='CONTACT')], throw=throw)
-    with pytest.raises(ValueError, match='disagree'):
-        setup_functions(fake)['_effective_default_contact']('PROJECT', 'OTHER')
-
-
-def test_conflicting_defaults_can_be_read_for_reconciliation():
-    fake = SimpleNamespace(get_all=lambda *a, **k: [SimpleNamespace(tawal_contact='ASSIGNED')])
-    state = setup_functions(fake)['_assignment_default_state']('PROJECT', 'PROJECT_FIELD')
-    assert state == {'project_default': 'PROJECT_FIELD', 'assignment_default': 'ASSIGNED',
-                     'default_contact': 'PROJECT_FIELD', 'needs_reconciliation': True}
-
-
-@pytest.mark.parametrize('alias', ['', 'CSV label'])
-def test_unrelated_save_preserves_inactive_default_and_assignments(alias):
-    writes = []
-    def unexpected_query(*args, **kwargs):
-        raise AssertionError('Unchanged contact must not rewrite assignments')
-    def throw(message):
-        raise ValueError(message)
-    fake = SimpleNamespace(db=SimpleNamespace(set_value=lambda *a: writes.append(a)),
-                           get_all=unexpected_query, throw=throw)
+    fake = SimpleNamespace(db=SimpleNamespace(set_value=lambda *a: writes.append(a)), throw=throw)
     namespace = setup_functions(fake)
-    state = {'projects': [{'project': 'P', 'csv_alias': '', 'default_contact': 'RETIRED'}],
-             'contacts': [], 'hash': 'HASH'}
+    state = {'projects': [{'project': p, 'csv_alias': 'OLD'} for p in projects], 'contacts': [], 'hash': 'HASH'}
     namespace.update(_require=lambda **k: None, _state=lambda **k: (SimpleNamespace(revision=8), {}),
-                     _validated_v3=lambda d, w: d,
-                     _po_setup_state=lambda d, allow_conflicts=True: state)
-    namespace['save_po_setup']([{'project': 'P', 'csv_alias': alias, 'default_contact': 'RETIRED'}], 8, 'HASH')
-    assert writes == ([('Project', 'P', {'custom_excel_csv_alias': alias})] if alias else [])
+                     _validated_v3=lambda d, w: d, _po_setup_state=lambda d: state)
+    return namespace
 
 
-def test_unconfirmed_conflict_is_not_reconciled_by_unrelated_save():
+def test_only_a_changed_csv_label_is_written():
     writes = []
-    fake = SimpleNamespace(db=SimpleNamespace(set_value=lambda *a: writes.append(a)),
-                           throw=lambda message: (_ for _ in ()).throw(ValueError(message)))
-    namespace = setup_functions(fake)
-    state = {'projects': [{'project': 'P', 'csv_alias': '', 'default_contact': 'PROJECT',
-                           'needs_reconciliation': True}], 'contacts': [{'id': 'OTHER', 'active': True}], 'hash': 'HASH'}
-    namespace.update(_require=lambda **k: None, _state=lambda **k: (SimpleNamespace(revision=8), {}),
-                     _validated_v3=lambda d, w: d, _po_setup_state=lambda d, allow_conflicts=True: state)
-    namespace['save_po_setup']([{'project': 'P', 'csv_alias': '', 'default_contact': 'PROJECT'}], 8, 'HASH')
+    save = label_saver(writes)['save_po_setup']
+    save([{'project': 'P', 'csv_alias': 'OLD'}], 8, 'HASH')
     assert writes == []
-    with pytest.raises(ValueError, match='family defaults or dated PO rules'):
-        namespace['save_po_setup']([{'project': 'P', 'csv_alias': '', 'default_contact': 'OTHER'}], 8, 'HASH')
+    save([{'project': 'P', 'csv_alias': 'NEW'}], 8, 'HASH')
+    assert writes == [('Project', 'P', {'custom_excel_csv_alias': 'NEW'})]
+
+
+def test_label_save_rejects_stale_incomplete_unknown_or_oversized_submissions():
+    writes = []
+    save = label_saver(writes, projects=('P', 'Q'))['save_po_setup']
+    with pytest.raises(ValueError, match='another session'):
+        save([], 7, 'HASH')
+    with pytest.raises(ValueError, match='changed in another session'):
+        save([], 8, 'OTHER')
+    with pytest.raises(ValueError, match='complete visible Project list'):
+        save([{'project': 'P', 'csv_alias': 'X'}], 8, 'HASH')
+    with pytest.raises(ValueError, match='invalid'):
+        save([{'project': 'P', 'csv_alias': 'X'}, {'project': 'ZZ', 'csv_alias': 'X'}], 8, 'HASH')
+    with pytest.raises(ValueError, match='invalid'):
+        save([{'project': 'P', 'csv_alias': 'X' * 141}, {'project': 'Q', 'csv_alias': ''}], 8, 'HASH')
+    assert writes == []

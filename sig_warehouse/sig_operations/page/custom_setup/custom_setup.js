@@ -14,7 +14,7 @@ frappe.pages['custom-setup'].on_page_load = function (wrapper) {
         {title: __('User access'), description: __('Review employee-linked Users and Role Profiles as a separate IT/HR approval step.'), doctype: 'User', route: ['List', 'User', 'List'], roles: ['HR Manager', 'System Manager'], icon: 'user'},
         {title: __('Payroll assignments'), description: __('Review native Salary Structure Assignments after payroll approval; proposed intake salary is not posted automatically.'), doctype: 'Salary Structure Assignment', route: ['List', 'Salary Structure Assignment', 'List'], roles: ['HR Manager', 'Accounts Manager', 'System Manager'], icon: 'money'},
         {title: __('Field Reporter Maps'), description: __('Maintain verified Employee-to-phone mappings for field reports.'), doctype: 'SIG Field Reporter Map', route: ['List', 'SIG Field Reporter Map', 'List'], roles: ['HR Manager', 'Projects Manager', 'SIG Field Ops', 'System Manager'], icon: 'phone'},
-        {title: __('Workbook setup'), description: __('Manage Excel/RV80/SIGPC project, builder, tag, and workbook integration settings.'), doctype: 'SIG Excel Setup', route: ['Form', 'SIG Excel Setup', 'SIG Excel Setup'], roles: ['SIG Excel Setup Editor', 'SIG Excel Setup Reader', 'System Manager'], icon: 'table'}
+        {title: __('Workbook setup'), description: __('Manage RV80 workbook setup: Projects and TAWAL PM, Operations team, crews, tags and mappings.'), doctype: 'SIG Excel Setup', route: ['Form', 'SIG Excel Setup', 'SIG Excel Setup'], roles: ['SIG Excel Setup Editor', 'SIG Excel Setup Reader', 'System Manager'], icon: 'table'}
     ];
 
     const available = cards.filter((card) =>

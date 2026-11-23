@@ -1,58 +1,49 @@
-"""Pure, shared Excel Setup validation. No Frappe or workbook dependencies."""
+"""Pure, shared Excel Setup validation. No Frappe or workbook dependencies.
+
+The legacy Builder, Planner-leader, team-Project, Project-responsibility and PO
+TAWAL-rule lists were removed on 24 November 2026 (snapshot kept under
+ERPNext/backups/ops_setup_legacy_20261124). A one-run TAWAL exception is chosen
+in the RV80 TCN batch prompt and is never stored here.
+"""
 import copy
 import hashlib
 import json
 import re
 from datetime import date
 
-CONTRACT = "SIG_EXCEL_SETUP_V2"
-ADAPTER_VERSION = 2
 SCHEMA_VERSION = 2
 FIELDS = {
-    "projects": ("id", "project", "po", "family", "upl_revision", "enabled"),
-    "builder_profiles": ("id", "alias", "template", "internal_pm", "enabled"),
-    "builder_contacts": ("id", "profile", "tawal_contact", "contact_name", "contact_phone", "contact_email", "origin", "enabled"),
-    "project_builder_links": ("id", "project", "profile", "stream", "stream_alias", "enabled"),
+    "projects": ("id", "project", "po", "upl_revision", "enabled"),
     "tag_definitions": ("id", "item", "rule", "priority", "po", "enabled"),
     "tag_upl_links": ("id", "tag_item", "cuc", "description", "tag_matcher", "builder_rule", "po", "upl_revision", "enabled"),
     "material_upl_links": ("id", "item_code", "cuc", "source_uom", "target_uom", "treatment", "quantity_basis", "po", "upl_revision", "enabled"),
     "builder_defaults": ("id", "kind", "key", "value", "value2", "po", "enabled"),
-    "teams": ("id", "leader", "team", "phone", "archetype", "enabled"),
     "family_tawal_defaults": ("id", "family", "tawal_contact", "effective_from", "effective_to", "enabled"),
-    "operational_teams": ("id", "team_name", "family", "archetype", "enabled"),
+    "operational_teams": ("id", "team_name", "family", "archetype", "no_visit_message", "enabled"),
     "team_memberships": ("id", "team", "employee", "role", "effective_from", "effective_to", "enabled"),
-    "team_projects": ("id", "team", "project", "effective_from", "effective_to", "enabled"),
-    "project_responsibilities": ("id", "project", "employee", "role", "effective_from", "effective_to", "enabled"),
-    "ops_team_members": ("id", "family", "project", "employee", "effective_from", "effective_to", "enabled"),
-    "project_tawal_rules": ("id", "project", "mode", "tawal_contact", "effective_from", "effective_to", "enabled"),
+    "ops_team_members": ("id", "family", "project", "employee", "role", "weekly_pm", "effective_from", "effective_to", "enabled"),
     "pc_family_defaults": ("id", "family", "review_group", "enabled"),
 }
 REQUIRED = {
     "projects": ("id", "project"),
-    "builder_profiles": ("id", "alias"),
-    "builder_contacts": ("id", "profile"),
-    "project_builder_links": ("id", "project", "profile"),
     "tag_definitions": ("id", "item", "rule"),
     "tag_upl_links": ("id", "tag_item", "cuc"),
     "material_upl_links": ("id", "item_code", "treatment"),
     "builder_defaults": ("id", "kind", "key", "value"),
-    "teams": ("id", "leader"),
     "family_tawal_defaults": ("id", "family", "tawal_contact", "effective_from"),
     "operational_teams": ("id", "team_name", "family", "archetype"),
     "team_memberships": ("id", "team", "employee", "role", "effective_from"),
-    "team_projects": ("id", "team", "project", "effective_from"),
-    "project_responsibilities": ("id", "project", "employee", "role", "effective_from"),
-    "ops_team_members": ("id", "family", "employee", "effective_from"),
-    "project_tawal_rules": ("id", "project", "mode", "effective_from"),
+    "ops_team_members": ("id", "employee", "role", "effective_from"),
     "pc_family_defaults": ("id", "family", "review_group"),
 }
+# Boolean columns and the value used when a row does not supply one.
+BOOLEANS = {"enabled": True, "weekly_pm": False, "no_visit_message": True}
 KINDS = {"purpose_reason", "csv_remarks", "tms_implementer"}
+FAMILIES = ("Capex", "Incident", "Colocation", "5G / Colocation")
 # Project (DC) and Incident teams are planned in separate Field Planner modes.
 TEAM_ARCHETYPES = ("Project", "Incident")
-WORKBOOK_DATASETS = {
-    "RV80": ("projects", "builder_profiles", "builder_contacts", "project_builder_links", "tag_definitions", "builder_defaults"),
-    "SIGPC": ("projects", "tag_definitions", "tag_upl_links", "material_upl_links"),
-}
+OPS_ROLES = ("pm", "coordinator", "warehouse")
+WORKBOOK_DATASETS = {"RV80": ("projects", "tag_definitions", "tag_upl_links", "material_upl_links", "builder_defaults", "family_tawal_defaults")}
 
 
 def canonical(value):
@@ -61,6 +52,10 @@ def canonical(value):
 
 def digest(value):
     return hashlib.sha256(canonical(value).encode("utf-8")).hexdigest()
+
+
+def family_key(value):
+    return "Colocation" if value == "5G / Colocation" else value
 
 
 def _validate_date(value, label, required=False):
@@ -76,24 +71,36 @@ def _validate_date(value, label, required=False):
         raise ValueError(label + " must be a real calendar date") from exc
 
 
+def _period(row, label):
+    start = _validate_date(row["effective_from"], label + " effective_from", True)
+    end = _validate_date(row["effective_to"], label + " effective_to")
+    if end and end < start:
+        raise ValueError(label + " end date must not precede its start date")
+
+
+def _no_overlap(rows, key, label):
+    groups = {}
+    for row in rows:
+        if row["enabled"]:
+            groups.setdefault(key(row), []).append(row)
+    for group, items in groups.items():
+        items.sort(key=lambda row: row["effective_from"])
+        for prior, current in zip(items, items[1:]):
+            if not prior["effective_to"] or prior["effective_to"] >= current["effective_from"]:
+                raise ValueError("Overlapping " + label + " periods for " + str(group))
+
+
 def natural_key(dataset, row):
     keys = {
         "projects": ("project",),
-        "builder_profiles": ("alias",),
-        "builder_contacts": ("profile", "tawal_contact", "contact_email", "contact_name"),
-        "project_builder_links": ("project", "profile", "stream"),
         "tag_definitions": ("po", "item", "rule"),
         "tag_upl_links": ("po", "upl_revision", "tag_item", "cuc", "tag_matcher"),
         "material_upl_links": ("po", "upl_revision", "item_code", "cuc"),
         "builder_defaults": ("po", "kind", "key"),
-        "teams": ("leader",),
         "family_tawal_defaults": ("family", "effective_from"),
         "operational_teams": ("team_name",),
         "team_memberships": ("team", "employee", "role", "effective_from"),
-        "team_projects": ("team", "project", "effective_from"),
-        "project_responsibilities": ("project", "employee", "role", "effective_from"),
-        "ops_team_members": ("family", "project", "employee", "effective_from"),
-        "project_tawal_rules": ("project", "effective_from"),
+        "ops_team_members": ("family", "project", "employee", "role", "effective_from"),
         "pc_family_defaults": ("family",),
     }[dataset]
     return tuple(str(row.get(k, "")).strip().casefold() for k in keys)
@@ -113,11 +120,11 @@ def validate(datasets):
             row = {}
             for field in FIELDS[name]:
                 value = supplied.get(field, "")
-                if field == "enabled":
+                if field in BOOLEANS:
                     if value in ("", None):
-                        value = True
+                        value = BOOLEANS[field]
                     if value not in (True, False, 0, 1):
-                        raise ValueError(f"{name} row {index}: enabled must be boolean")
+                        raise ValueError(f"{name} row {index}: {field} must be boolean")
                     row[field] = bool(value)
                 else:
                     if isinstance(value, (dict, list, bool)):
@@ -140,10 +147,6 @@ def validate(datasets):
                     row["priority"] = str(int(row["priority"] or "0"))
                 except ValueError as exc:
                     raise ValueError("Tags rule priority must be an integer") from exc
-            if name == "builder_contacts":
-                row["origin"] = row["origin"] or "ERP directory"
-                if row["origin"] not in ("ERP directory", "RV80 Builder"):
-                    raise ValueError("Builder contact origin must be ERP directory or RV80 Builder")
             if name == "material_upl_links":
                 if row["treatment"] not in ("Direct 1:1", "Excluded", "Manual"):
                     raise ValueError("Material link treatment must be Direct 1:1, Excluded or Manual")
@@ -152,158 +155,54 @@ def validate(datasets):
                         raise ValueError("Direct material link needs CUC, both UOMs and reviewed quantity basis")
                     if row["source_uom"].casefold() != row["target_uom"].casefold():
                         raise ValueError("Direct material links cannot convert UOM")
-            if name == "teams":
-                row["archetype"] = row["archetype"] or "Project"
-                if row["archetype"] not in TEAM_ARCHETYPES:
-                    raise ValueError("Team archetype must be Project or Incident")
             if name == "family_tawal_defaults":
-                if row["family"] not in ("Capex", "Incident", "Colocation", "5G / Colocation"):
+                if row["family"] not in FAMILIES:
                     raise ValueError("TAWAL family defaults must use Capex, Incident or 5G / Colocation")
-                start = _validate_date(row["effective_from"], "TAWAL family default effective_from", True)
-                end = _validate_date(row["effective_to"], "TAWAL family default effective_to")
-                if end and end < start:
-                    raise ValueError("TAWAL family default end date must not precede its start date")
-            if name == "pc_family_defaults":
-                if row["family"] not in ("Capex", "Incident", "5G / Colocation"):
-                    raise ValueError("PC family default needs Capex, Incident or 5G / Colocation")
+                _period(row, "TAWAL family default")
+            if name == "pc_family_defaults" and row["family"] not in ("Capex", "Incident", "5G / Colocation"):
+                raise ValueError("PC family default needs Capex, Incident or 5G / Colocation")
             if name == "operational_teams":
-                if row["family"] not in ("Capex", "Incident", "Colocation", "5G / Colocation"):
-                    raise ValueError("Operational team needs a reviewed family: Capex, Incident or 5G / Colocation")
-                row["archetype"] = row["archetype"] or "Project"
+                if row["family"] not in FAMILIES:
+                    raise ValueError("Field crew needs a reviewed family: Capex, Incident or 5G / Colocation")
                 if row["archetype"] not in TEAM_ARCHETYPES:
-                    raise ValueError("Operational team archetype must be Project or Incident")
+                    raise ValueError("Field crew archetype must be Project or Incident")
             if name == "team_memberships":
-                if row["role"] not in ("leader", "pm", "coordinator", "member"):
-                    raise ValueError("Team membership role must be leader, pm, coordinator or member")
-                start = _validate_date(row["effective_from"], "Team membership effective_from", True)
-                end = _validate_date(row["effective_to"], "Team membership effective_to")
-                if end and end < start:
-                    raise ValueError("Team membership effective_to must be blank or a valid date after its start")
-            if name == "team_projects":
-                start = _validate_date(row["effective_from"], "Team Project link effective_from", True)
-                end = _validate_date(row["effective_to"], "Team Project link effective_to")
-                if end and end < start:
-                    raise ValueError("Team Project link effective_to must be blank or a valid date after its start")
-            if name == "project_responsibilities":
-                if row["role"] not in ("pm", "coordinator", "weekly_pm"):
-                    raise ValueError("Project responsibility role must be pm, coordinator or weekly_pm")
-                start = _validate_date(row["effective_from"], "Project responsibility effective_from", True)
-                end = _validate_date(row["effective_to"], "Project responsibility effective_to")
-                if end and end < start:
-                    raise ValueError("Project responsibility effective_to must be blank or a valid date after its start")
+                if row["role"] not in ("leader", "member"):
+                    raise ValueError("Crew membership role must be leader or member")
+                _period(row, "Crew membership")
             if name == "ops_team_members":
-                if row["family"] not in ("Capex", "Incident", "Colocation", "5G / Colocation"):
-                    raise ValueError("Operations team needs a supported family")
-                if row["family"] == "Colocation":
-                    row["family"] = "5G / Colocation"
-                start = _validate_date(row["effective_from"], "Operations team effective_from", True)
-                end = _validate_date(row["effective_to"], "Operations team effective_to")
-                if end and end < start:
-                    raise ValueError("Operations team end date must not precede its start")
-            if name == "project_tawal_rules":
-                if row["mode"] not in ("inherit", "exception", "cleared"):
-                    raise ValueError("PO TAWAL rule mode must be inherit, exception or cleared")
-                if row["mode"] == "exception" and not row["tawal_contact"]:
-                    raise ValueError("PO TAWAL exception needs an active contact")
-                if row["mode"] != "exception" and row["tawal_contact"]:
-                    raise ValueError("Only exception mode may select a PO TAWAL contact")
-                start = _validate_date(row["effective_from"], "PO TAWAL rule effective_from", True)
-                end = _validate_date(row["effective_to"], "PO TAWAL rule effective_to")
-                if end and end < start:
-                    raise ValueError("PO TAWAL rule effective_to must be blank or a valid date after its start")
-            if name == "builder_defaults" and row["kind"] not in KINDS:
-                raise ValueError("Adapter v1 supports purpose_reason, csv_remarks and tms_implementer Builder lists")
-            if name == "builder_defaults" and row["po"]:
-                raise ValueError("Adapter v1 Builder wording is shared; PO-scoped wording needs a scoped consumer")
+                if row["role"] not in OPS_ROLES:
+                    raise ValueError("Operations role must be pm, coordinator or warehouse")
+                if row["role"] == "warehouse":
+                    # Warehouse owners cover every family and are not scoped to a Project.
+                    if row["family"] or row["project"] or row["weekly_pm"]:
+                        raise ValueError("A warehouse owner has no family, Project or weekly PM check")
+                else:
+                    if row["family"] not in FAMILIES:
+                        raise ValueError("Operations team needs a supported family")
+                    if row["family"] == "Colocation":
+                        row["family"] = "5G / Colocation"
+                if row["weekly_pm"] and row["role"] != "pm":
+                    raise ValueError("Only a PM can receive the weekly PM check")
+                _period(row, "Operations team")
+            if name == "builder_defaults":
+                if row["kind"] not in KINDS:
+                    raise ValueError("Adapter v1 supports purpose_reason, csv_remarks and tms_implementer Builder lists")
+                if row["po"]:
+                    raise ValueError("Adapter v1 Builder wording is shared; PO-scoped wording needs a scoped consumer")
             result[name].append(row)
     definitions = {}
     for row in result["tag_definitions"]:
         if row["enabled"]:
             definitions.setdefault(row["item"].casefold(), set()).add(row["po"].casefold())
-    profiles = {r["id"]: r for r in result["builder_profiles"] if r["enabled"]}
-    projects = {r["project"] for r in result["projects"] if r["enabled"]}
-    for row in result["builder_contacts"]:
-        if row["enabled"] and row["profile"] not in profiles:
-            raise ValueError("Builder contact requires an enabled Builder profile")
-        if row["enabled"] and not any(row[k] for k in ("tawal_contact", "contact_name", "contact_email")):
-            raise ValueError("Builder contact requires an existing directory contact")
-    for row in result["project_builder_links"]:
-        if row["enabled"] and (row["profile"] not in profiles or row["project"] not in projects):
-            raise ValueError("Assignment requires an enabled ERP Project and Builder profile")
-    intervals = {}
-    for row in result["family_tawal_defaults"]:
-        if row["enabled"]:
-            key = "Colocation" if row["family"] == "5G / Colocation" else row["family"]
-            intervals.setdefault(key, []).append(row)
-    for family, rows in intervals.items():
-        rows.sort(key=lambda row: row["effective_from"])
-        for prior, current in zip(rows, rows[1:]):
-            if not prior["effective_to"] or prior["effective_to"] >= current["effective_from"]:
-                raise ValueError("Overlapping active TAWAL family defaults for " + family)
+    _no_overlap(result["family_tawal_defaults"], lambda r: family_key(r["family"]), "TAWAL family default")
     teams = {row["id"] for row in result["operational_teams"] if row["enabled"]}
-    for dataset in ("team_memberships", "team_projects"):
-        for row in result[dataset]:
-            if row["enabled"] and row["team"] not in teams:
-                raise ValueError(dataset + " references a missing or disabled operational team")
-    member_intervals = {}
     for row in result["team_memberships"]:
-        if row["enabled"]:
-            key = (row["team"], row["employee"], row["role"])
-            member_intervals.setdefault(key, []).append(row)
-    for key, rows in member_intervals.items():
-        rows.sort(key=lambda row: row["effective_from"])
-        for prior, current in zip(rows, rows[1:]):
-            if not prior["effective_to"] or prior["effective_to"] >= current["effective_from"]:
-                raise ValueError("Overlapping team membership periods for " + "/".join(key))
-    leaders_by_team = {}
-    for row in result["team_memberships"]:
-        if row["enabled"] and row["role"] == "leader":
-            leaders_by_team.setdefault(row["team"], []).append(row)
-    for team, rows in leaders_by_team.items():
-        rows.sort(key=lambda row: row["effective_from"])
-        for prior, current in zip(rows, rows[1:]):
-            if not prior["effective_to"] or prior["effective_to"] >= current["effective_from"]:
-                raise ValueError("A team can have only one effective leader at a time: " + team)
-    project_intervals = {}
-    for row in result["team_projects"]:
-        if row["enabled"]:
-            project_intervals.setdefault((row["team"], row["project"]), []).append(row)
-    for (team, project), rows in project_intervals.items():
-        rows.sort(key=lambda row: row["effective_from"])
-        for prior, current in zip(rows, rows[1:]):
-            if not prior["effective_to"] or prior["effective_to"] >= current["effective_from"]:
-                raise ValueError("Overlapping team-to-Project periods for " + team + "/" + project)
-    responsibility_intervals = {}
-    for row in result["project_responsibilities"]:
-        if row["enabled"]:
-            responsibility_intervals.setdefault((row["project"], row["employee"], row["role"]), []).append(row)
-    for key, rows in responsibility_intervals.items():
-        rows.sort(key=lambda row: row["effective_from"])
-        for prior, current in zip(rows, rows[1:]):
-            if not prior["effective_to"] or prior["effective_to"] >= current["effective_from"]:
-                raise ValueError("Overlapping Project responsibility periods for " + "/".join(key))
-    operations_intervals = {}
-    for row in result["ops_team_members"]:
-        if row["enabled"]:
-            operations_intervals.setdefault((row["family"], row["project"], row["employee"]), []).append(row)
-    for key, rows in operations_intervals.items():
-        rows.sort(key=lambda row: row["effective_from"])
-        for prior, current in zip(rows, rows[1:]):
-            if not prior["effective_to"] or prior["effective_to"] >= current["effective_from"]:
-                raise ValueError("Overlapping Operations team membership periods for " + "/".join(key))
-    tawal_rule_intervals = {}
-    for row in result["project_tawal_rules"]:
-        if row["enabled"]:
-            tawal_rule_intervals.setdefault(row["project"], []).append(row)
-    for project, rows in tawal_rule_intervals.items():
-        rows.sort(key=lambda row: row["effective_from"])
-        for prior, current in zip(rows, rows[1:]):
-            if not prior["effective_to"] or prior["effective_to"] >= current["effective_from"]:
-                raise ValueError("Overlapping active PO TAWAL rules for " + project)
-    # A legacy Builder block includes one placeholder row for a profile without contacts.
-    contact_profiles = {r["profile"] for r in result["builder_contacts"] if r["enabled"]}
-    if sum(row["enabled"] for row in result["builder_contacts"]) + len(set(profiles) - contact_profiles) > 999:
-        raise ValueError("Current RV80 Builder consumers support at most 999 enabled contact rows")
+        if row["enabled"] and row["team"] not in teams:
+            raise ValueError("team_memberships references a missing or disabled field crew")
+    _no_overlap(result["team_memberships"], lambda r: (r["team"], r["employee"], r["role"]), "Crew membership")
+    _no_overlap([r for r in result["team_memberships"] if r["role"] == "leader"], lambda r: r["team"], "Crew leader")
+    _no_overlap(result["ops_team_members"], lambda r: (r["family"], r["project"], r["employee"], r["role"]), "Operations team")
     revisions = {}
     for row in result["projects"]:
         if not row["enabled"]:
@@ -324,9 +223,35 @@ def validate(datasets):
     return result
 
 
+def active_on(row, day):
+    """True when an enabled dated row covers the ISO date `day`."""
+    start, end = str(row.get("effective_from") or "")[:10], str(row.get("effective_to") or "")[:10]
+    return bool(row.get("enabled") and start and start <= day and (not end or day <= end))
+
+
+def setup_warnings(datasets, day):
+    """Plain-language problems an Operations editor should fix. Never blocks a save."""
+    notes = []
+    for family in ("Capex", "Incident", "Colocation"):
+        if not any(family_key(r["family"]) == family and active_on(r, day) for r in datasets.get("family_tawal_defaults", [])):
+            notes.append(f"No TAWAL PM default is active today for {family}: its POs get no PM in TCN.")
+        members = [r for r in datasets.get("ops_team_members", []) if active_on(r, day) and family_key(r["family"]) == family]
+        for role in ("pm", "coordinator"):
+            if not any(r["role"] == role for r in members):
+                notes.append(f"{family} has no active Operations {role}.")
+    leaders = {}
+    for row in datasets.get("team_memberships", []):
+        if row["role"] == "leader" and active_on(row, day):
+            leaders.setdefault(row["team"], set()).add(row["employee"])
+    for team in datasets.get("operational_teams", []):
+        if team["enabled"] and len(leaders.get(team["id"], ())) != 1:
+            notes.append(f"Crew {team['team_name']} needs exactly one active leader today; Planner skips it otherwise.")
+    return notes
+
+
 def merge_import(current, package):
     if not isinstance(package, dict) or package.get("schema_version") != SCHEMA_VERSION:
-        raise ValueError("Import requires schema_version 2; re-export independent Builder lists")
+        raise ValueError("Import requires schema_version 2")
     if set(package) - {"schema_version", "batch_id", "source", "datasets"}:
         raise ValueError("Unknown import envelope fields")
     if not isinstance(package.get("batch_id"), str) or not 1 <= len(package["batch_id"]) <= 120:
@@ -352,52 +277,3 @@ def merge_import(current, package):
             by_id[row["id"]] = row
         merged[name] = list(by_id.values())
     return validate(merged), counts
-
-
-def project_bundle(datasets, workbook_type):
-    if workbook_type not in WORKBOOK_DATASETS:
-        raise ValueError("workbook_type must be RV80 or SIGPC")
-    result = {name: copy.deepcopy(datasets[name]) for name in WORKBOOK_DATASETS[workbook_type]}
-    if workbook_type == "SIGPC":
-        # SIGPC needs scope identity, never RV80's contact/template directory.
-        result["projects"] = [{key: row[key] for key in ("id", "project", "po", "upl_revision", "enabled")} for row in result["projects"]]
-    return result
-
-
-def is_legacy(datasets):
-    return "builder_profiles" not in datasets
-
-
-def upgrade_legacy(datasets):
-    """Keep canonical scope facts. Never infer a profile/PO relation from v1 rows.
-
-    The immutable v1 revision retains the rejected associations for audit. Profiles
-    and their contacts must be re-exported from the independent Builder block.
-    """
-    if not is_legacy(datasets):
-        return validate(datasets)
-    result = {name: copy.deepcopy(datasets.get(name, [])) for name in FIELDS if name != "projects"}
-    result["builder_profiles"] = []
-    result["builder_contacts"] = []
-    result["project_builder_links"] = []
-    by_project = {}
-    for old in datasets.get("projects", []):
-        project = str(old.get("project", "")).strip()
-        if not project:
-            continue
-        row = {k: old.get(k, "") for k in FIELDS["projects"]}
-        row["id"] = "erp-project-" + hashlib.sha256(project.encode()).hexdigest()[:24]
-        if project in by_project and any(str(row[k] or "").casefold() != str(by_project[project][k] or "").casefold()
-                                         for k in ("po", "upl_revision")):
-            raise ValueError("Conflicting legacy scope facts for " + project)
-        by_project[project] = row
-    result["projects"] = list(by_project.values())
-    return validate(result)
-
-
-def bundle_complete(datasets, workbook_type):
-    needed = ("builder_profiles", "builder_contacts", "tag_definitions") if workbook_type == "RV80" else ("tag_definitions", "tag_upl_links")
-    complete = all(any(row["enabled"] for row in datasets.get(name, [])) for name in needed)
-    if workbook_type == "RV80":
-        complete = complete and all(row["tawal_contact"] for row in datasets.get("builder_contacts", []) if row["enabled"])
-    return bool(complete)
