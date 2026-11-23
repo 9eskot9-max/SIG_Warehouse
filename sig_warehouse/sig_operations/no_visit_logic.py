@@ -28,8 +28,9 @@ def parse_ids(value):
 
 
 def planner_leaders(setup, day):
-    """Return uniquely assigned leaders of enabled crews on the given ISO date."""
-    crews = {str(t.get("id")) for t in setup.get("operational_teams", []) if t.get("id") and t.get("enabled")}
+    """Return uniquely assigned leaders of enabled, message-enabled crews on the given ISO date."""
+    crews = {str(t.get("id")) for t in setup.get("operational_teams", [])
+             if t.get("id") and t.get("enabled") and t.get("no_visit_message", True)}
     leaders = {team: set() for team in crews}
     for row in setup.get("team_memberships", []):
         team, start, end = str(row.get("team") or ""), str(row.get("effective_from") or "")[:10], str(row.get("effective_to") or "")[:10]

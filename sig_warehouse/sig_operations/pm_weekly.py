@@ -19,7 +19,6 @@ from sig_warehouse.sig_operations.no_visit_nudge import _mask, _send_text
 SETTINGS = "SIG Field Ops Settings"
 SNAPSHOT = "SIG Weekly Plan Snapshot"
 REVIEW = "SIG PM Weekly Review"
-SCOPE = "SIG PM Weekly Scope"
 ALLOWED_ROLES = {"System Manager", "Operations Manager"}
 SUNDAY = 6
 
@@ -83,12 +82,27 @@ def _visits(start, end):
 
 
 def _pms():
-    """Read only the dedicated weekly-PM scope; it is not a cycle-owner roster."""
-    rows = frappe.get_all(SCOPE, filters={"active": 1}, fields=["employee", "project", "active"], limit_page_length=0)
+    """PMs ticked "weekly PM check" on the Excel Setup Operations team, with their Projects.
+
+    A row with a Project covers that Project; a family row covers every configured
+    Project of the family that has no Project-specific PM row.
+    """
+    import json
+    from sig_warehouse.sig_operations.excel_setup_contract import active_on, family_key
+    from sig_warehouse.sig_warehouse.project_family import resolve_project_family
+    setup = json.loads(frappe.db.get_single_value("SIG Excel Setup", "configuration_json") or "{}")
+    today = str(frappe.utils.nowdate())[:10]
+    meta = frappe.get_meta("Project")
+    fields = [f for f in ("custom_project_family", "custom_family") if meta.has_field(f)]
+    families = {r["project"]: family_key(resolve_project_family(frappe.db.get_value("Project", r["project"], fields, as_dict=True))["family"])
+                for r in setup.get("projects", []) if r.get("enabled") and fields}
     out = {}
-    for r in rows:
-        out.setdefault(r.employee, set()).add(r.project)
-    return out
+    for row in setup.get("ops_team_members", []):
+        if row.get("role") != "pm" or not row.get("weekly_pm") or not active_on(row, today):
+            continue
+        covered = {row["project"]} if row.get("project") else {p for p, f in families.items() if f == family_key(row["family"])}
+        out.setdefault(row["employee"], set()).update(covered)
+    return {employee: projects for employee, projects in out.items() if projects}
 
 
 def create_reviews(week_start=None):

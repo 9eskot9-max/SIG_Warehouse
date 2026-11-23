@@ -1,8 +1,8 @@
 """Version 3 Excel reference projection and native PO contact setup.
 
-Version 2 remains available through ``excel_setup.get_setup_bundle``. This
-module gives updated workbooks a PO-first projection without changing the
-stored v2 configuration or deriving contacts from Builder aliases.
+The only workbook bundle (the v2 bundle and Builder data were removed on
+24 November 2026). A PO takes its family's dated TAWAL PM; a one-off exception
+is chosen in the RV80 TCN batch prompt and is not stored in ERP.
 """
 import json
 
@@ -14,7 +14,7 @@ from sig_warehouse.sig_operations.excel_setup import (
     SETUP,
     _state,
 )
-from sig_warehouse.sig_operations.excel_setup_contract import canonical, digest, validate
+from sig_warehouse.sig_operations.excel_setup_contract import WORKBOOK_DATASETS, canonical, digest, validate
 from sig_warehouse.sig_warehouse.project_family import resolve_project_family
 from frappe.utils import getdate, nowdate
 
@@ -39,29 +39,6 @@ def _meta_project_fields():
     return meta
 
 
-def _assignment_default_state(project, field_contact):
-    defaults = frappe.get_all("SIG Project PM Assignment",
-        filters={"project": project, "active": 1, "is_default": 1},
-        fields=["tawal_contact"], limit_page_length=2)
-    if len(defaults) > 1:
-        frappe.throw("More than one active default TAWAL assignment exists for " + project)
-    assigned = str(defaults[0].tawal_contact or "").strip() if defaults else ""
-    field_contact = str(field_contact or "").strip()
-    return {
-        "project_default": field_contact,
-        "assignment_default": assigned,
-        "default_contact": field_contact or assigned,
-        "needs_reconciliation": bool(assigned and field_contact and assigned != field_contact),
-    }
-
-
-def _effective_default_contact(project, field_contact):
-    state = _assignment_default_state(project, field_contact)
-    if state["needs_reconciliation"]:
-        frappe.throw("Project default and active TAWAL assignment disagree for " + project + "; reconcile them before syncing")
-    return state["default_contact"]
-
-
 def _family_default(datasets, family, as_of=None):
     if not family:
         return None
@@ -81,22 +58,7 @@ def _family_default(datasets, family, as_of=None):
     return matches[0] if matches else None
 
 
-def _project_contact_rule(datasets, project, as_of=None):
-    as_of = getdate(as_of or nowdate())
-    matches = []
-    for row in datasets.get("project_tawal_rules", []):
-        if not row.get("enabled") or row.get("project") != project:
-            continue
-        start = getdate(row["effective_from"])
-        end = getdate(row["effective_to"]) if row.get("effective_to") else None
-        if start <= as_of and (end is None or as_of <= end):
-            matches.append(row)
-    if len(matches) > 1:
-        frappe.throw("More than one effective PO TAWAL rule exists for " + project)
-    return matches[0] if matches else None
-
-
-def _configured_project_rows(datasets, allow_conflicts=False):
+def _configured_project_rows(datasets):
     meta = _meta_project_fields()
     project_fields = ["name", "project_name", "custom_default_tawal_contact", "custom_excel_csv_alias"]
     for field in ("custom_agreement_no", "custom_tawal_ba", "custom_po_number",
@@ -128,29 +90,14 @@ def _configured_project_rows(datasets, allow_conflicts=False):
         if po_key:
             seen_po.add(po_key)
         family_state = resolve_project_family(project)
-        if family_state["conflict"] and not allow_conflicts:
+        if family_state["conflict"]:
             frappe.throw("Project family fields disagree for " + project.name + "; reconcile before syncing RV80")
-        family = family_state["family"] or (family_state["values"][0]["value"] if family_state["values"] else str(setup_row.get("family") or "").strip())
-        assignment_state = _assignment_default_state(project.name, project.custom_default_tawal_contact)
+        family = family_state["family"] or (family_state["values"][0]["value"] if family_state["values"] else "")
         family_default = _family_default(datasets, family_state["family"])
-        project_rule = _project_contact_rule(datasets, project.name)
-        if project_rule:
-            if project_rule["mode"] == "cleared":
-                effective_contact, contact_source = "", "PO cleared"
-                contact_from, contact_to = project_rule["effective_from"], project_rule.get("effective_to", "")
-            elif project_rule["mode"] == "exception":
-                effective_contact, contact_source = project_rule["tawal_contact"], "PO exception"
-                contact_from, contact_to = project_rule["effective_from"], project_rule.get("effective_to", "")
-            else:
-                effective_contact = family_default.get("tawal_contact") if family_default else ""
-                contact_source = "family default" if family_default else "unconfigured"
-                contact_from = family_default.get("effective_from", "") if family_default else ""
-                contact_to = family_default.get("effective_to", "") if family_default else ""
-        else:
-            effective_contact = family_default.get("tawal_contact") if family_default else ""
-            contact_source = "family default" if family_default else "unconfigured"
-            contact_from = family_default.get("effective_from", "") if family_default else ""
-            contact_to = family_default.get("effective_to", "") if family_default else ""
+        effective_contact = family_default.get("tawal_contact") if family_default else ""
+        contact_source = "family default" if family_default else "unconfigured"
+        contact_from = family_default.get("effective_from", "") if family_default else ""
+        contact_to = family_default.get("effective_to", "") if family_default else ""
         project_row = {
             "id": str(setup_row["id"]),
             "project": project.name,
@@ -159,23 +106,17 @@ def _configured_project_rows(datasets, allow_conflicts=False):
             "family": family,
             "family_label": family_state["label"],
             "family_conflict": family_state["conflict"],
-            "family_sources": family_state["values"] if allow_conflicts else [],
+            "family_sources": [],
             "upl_revision": str(setup_row.get("upl_revision") or ""),
             "csv_alias": str(project.custom_excel_csv_alias or "").strip(),
             "default_contact": effective_contact,
             "contact_source": contact_source,
-            "contact_rule_mode": project_rule["mode"] if project_rule else "",
+            "contact_rule_mode": "",
             "contact_effective_from": contact_from,
             "contact_effective_to": contact_to,
             "contact_family": family_state["family"],
             "enabled": True,
         }
-        if allow_conflicts:
-            project_row.update({
-                "project_default_contact": assignment_state["project_default"],
-                "assignment_default_contact": assignment_state["assignment_default"],
-                "needs_reconciliation": assignment_state["needs_reconciliation"],
-            })
         result.append(project_row)
     return sorted(result, key=lambda row: (row["po"].casefold(), row["project"].casefold()))
 
@@ -210,37 +151,24 @@ def _active_contacts():
 
 
 def _v3_datasets(datasets, workbook_type):
+    """RV80 is the only workbook (SIGPC was merged into it and retired)."""
+    if workbook_type != "RV80":
+        frappe.throw("workbook_type must be RV80")
     projects = _configured_project_rows(datasets)
-    result = {"projects": projects}
-    if workbook_type == "RV80":
-        result["contacts"] = _active_contacts()
-        active_contact_ids = {row["id"] for row in result["contacts"]}
-        missing = [row["po"] or row["project"] for row in projects
-                   if row["default_contact"] and row["default_contact"] not in active_contact_ids]
-        if missing:
-            frappe.throw("Configured TAWAL default is missing or inactive for: " + ", ".join(missing))
-        result["tag_definitions"] = datasets["tag_definitions"]
-        result["builder_defaults"] = datasets["builder_defaults"]
-        result["tag_upl_links"] = datasets["tag_upl_links"]
-        result["material_upl_links"] = datasets["material_upl_links"]
-    elif workbook_type == "SIGPC":
-        result["tag_definitions"] = datasets["tag_definitions"]
-        result["tag_upl_links"] = datasets["tag_upl_links"]
-        result["material_upl_links"] = datasets["material_upl_links"]
-    else:
-        frappe.throw("workbook_type must be RV80 or SIGPC")
-    return result
+    contacts = _active_contacts()
+    active_contact_ids = {row["id"] for row in contacts}
+    missing = [row["po"] or row["project"] for row in projects
+               if row["default_contact"] and row["default_contact"] not in active_contact_ids]
+    if missing:
+        frappe.throw("Configured TAWAL default is missing or inactive for: " + ", ".join(missing))
+    return {"projects": projects, "contacts": contacts, "tag_definitions": datasets["tag_definitions"],
+            "builder_defaults": datasets["builder_defaults"], "tag_upl_links": datasets["tag_upl_links"],
+            "material_upl_links": datasets["material_upl_links"]}
 
 
 def _validated_v3(datasets, workbook_type):
-    """Validate only the published datasets consumed by this workbook.
-
-    Builder profiles and profile-linked contacts/assignments remain in the
-    V2 archive for compatibility. They must not be a prerequisite for the
-    PO-first V3 sync.
-    """
-    names = ("projects", "tag_definitions", "tag_upl_links", "material_upl_links", "builder_defaults", "family_tawal_defaults", "project_tawal_rules") if workbook_type == "RV80" else (
-        "projects", "tag_definitions", "tag_upl_links", "material_upl_links", "family_tawal_defaults", "project_tawal_rules")
+    """Validate only the published datasets consumed by this workbook."""
+    names = WORKBOOK_DATASETS[workbook_type]
     payload = {name: datasets.get(name, []) for name in names}
     try:
         return validate(payload)
@@ -284,8 +212,8 @@ def get_setup_bundle(workbook_type, adapter_version=0, last_revision=0, last_has
     return result
 
 
-def _po_setup_state(datasets, allow_conflicts=True):
-    projects = _configured_project_rows(datasets, allow_conflicts=allow_conflicts)
+def _po_setup_state(datasets):
+    projects = _configured_project_rows(datasets)
     contacts = _active_contacts()
     projection = {"projects": projects, "contacts": contacts}
     return {**projection, "hash": digest(projection)}
@@ -296,56 +224,34 @@ def get_po_setup_state():
     _require(editor=True)
     doc, datasets = _state()
     datasets = _validated_v3(datasets, "RV80")
-    return {"revision": int(doc.revision or 0), **_po_setup_state(datasets, allow_conflicts=True)}
+    return {"revision": int(doc.revision or 0), **_po_setup_state(datasets)}
 
 
 @frappe.whitelist(methods=["POST"])
 def save_po_setup(rows, base_revision, base_hash):
-    """Edit PO CSV labels and default TAWAL PMs through the existing setup authority."""
+    """Save only the optional per-PO CSV label. The TAWAL PM comes from the family default."""
     _require(editor=True)
-    if isinstance(rows, str):
-        try:
-            rows = json.loads(rows)
-        except ValueError:
-            frappe.throw("Invalid PO setup rows")
+    rows = json.loads(rows) if isinstance(rows, str) else rows
     if not isinstance(rows, list):
         frappe.throw("PO setup must be a list")
-
     setup_doc, datasets = _state(lock=True)
     if int(base_revision) != int(setup_doc.revision or 0):
-        frappe.throw("Excel Setup changed in another session. Reload before saving PO defaults.")
+        frappe.throw("Excel Setup changed in another session. Reload before saving PO labels.")
     datasets = _validated_v3(datasets, "RV80")
-    current = _po_setup_state(datasets, allow_conflicts=True)
+    current = _po_setup_state(datasets)
     if str(base_hash or "") != current["hash"]:
-        frappe.throw("PO defaults or contact directory changed in another session. Reload before saving.")
-
+        frappe.throw("PO labels or contact directory changed in another session. Reload before saving.")
     expected = {row["project"]: row for row in current["projects"]}
-    supplied = {}
+    labels = {}
     for index, row in enumerate(rows, 1):
-        if not isinstance(row, dict):
-            frappe.throw("PO setup row " + str(index) + " is invalid")
-        project = str(row.get("project") or "").strip()
-        if project not in expected or project in supplied:
-            frappe.throw("PO setup includes an unknown or duplicate Project")
-        alias = str(row.get("csv_alias") or "").strip()
-        if len(alias) > 140:
-            frappe.throw("CSV alias must be 140 characters or fewer")
-        supplied[project] = {"csv_alias": alias, "default_contact": str(row.get("default_contact") or "").strip(),
-                             "resolve_conflict": row.get("resolve_conflict") is True}
-    if set(supplied) != set(expected):
-        frappe.throw("Submit the complete visible Project list. No PO setting was changed.")
-
-    directory = {row["id"]: row for row in current["contacts"]}
-    for project, row in supplied.items():
-        contact = row["default_contact"]
-        if contact and contact not in directory and contact != expected[project]["default_contact"]:
-            frappe.throw("Select an active TAWAL contact for " + project)
-
-    for project, row in supplied.items():
-        before = expected[project]
-        if before["default_contact"] != row["default_contact"] or row["resolve_conflict"]:
-            frappe.throw("Change TAWAL PMs using family defaults or dated PO rules; this editor only saves CSV labels.")
-    for project, row in supplied.items():
-        if expected[project]["csv_alias"] != row["csv_alias"]:
-            frappe.db.set_value("Project", project, {"custom_excel_csv_alias": row["csv_alias"]})
-    return {"result": "saved", **_po_setup_state(datasets, allow_conflicts=True)}
+        project = str((row or {}).get("project") or "").strip() if isinstance(row, dict) else ""
+        alias = str(row.get("csv_alias") or "").strip() if project else ""
+        if project not in expected or project in labels or len(alias) > 140:
+            frappe.throw("PO setup row " + str(index) + " is invalid, duplicate, or its label exceeds 140 characters")
+        labels[project] = alias
+    if set(labels) != set(expected):
+        frappe.throw("Submit the complete visible Project list. No PO label was changed.")
+    for project, alias in labels.items():
+        if expected[project]["csv_alias"] != alias:
+            frappe.db.set_value("Project", project, {"custom_excel_csv_alias": alias})
+    return {"result": "saved", **_po_setup_state(datasets)}

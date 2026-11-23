@@ -13,48 +13,14 @@ from sig_warehouse.sig_warehouse.cycle_rules import derive_cycle_state
 from sig_warehouse.sig_warehouse import cycle_kpi
 from sig_warehouse.sig_warehouse.cycle_lifecycle import effective_lifecycle, parking_transition
 from sig_warehouse.sig_warehouse.project_family import normalize_family, resolve_project_family
-from sig_warehouse.sig_warehouse.people_model_gate import PEOPLE_MODEL_ACTIVE
 
 PAGE_SIZE = 500
 MAX_ROWS = 20000
 RECENT_VISIT_DAYS = 14   # bulk closure skips cycles visited within this many days
 
-# Owner-confirmed Operations routing. Employee.user_id resolves the opener to
-# this allowlisted roster; these names do not grant access to a Site Cycle.
-OPS_ROSTER = {
-    "Capex": {
-        "pm": ("Mohammed Sohail Mohammed Ilyas",),
-        "co": ("Ghlzar Ahmad Fazal Malik", "Sultan Afsar Ashraf Muhammed"),
-    },
-    "Incident": {
-        "pm": ("Abdulraheem Mohammed", "Mohammed Sohail Mohammed Ilyas"),
-        "co": ("Arshad ahmed abdulhameed",),
-    },
-    "Colocation": {
-        "pm": ("Mohammed Imran Ansary",),
-        "co": ("Mohamed Walid Khalil Nmer Rahma", "Obed Sharrif"),
-    },
-}
-
-# Warehouse owns the operational DN closure check. These accounts are the
-# confirmed operational contacts; this list does not grant Page or DocType
-# access. Ramzan currently lacks SIG Site Cycle/Workbench access, so the
-# permission checks below intentionally leave his queue unavailable until the
-# site role setup is changed through its own reviewed release.
-WAREHOUSE_USERS = {
-    "m.ramzan@sigtele.com",
-    "tahir.shahzad@sigtele.com",
-}
-
-# Short owner labels confirmed for the Operations dashboard. Stage work remains
-# shared by its project-family role; these names explain who that role covers
-# and do not assign an individual or change access.
-OPS_OWNER_NAMES = {
-    "Capex": {"pm": ("Sohil",), "co": ("Gulzar", "Sultan")},
-    "Incident": {"pm": ("Sohil", "Raheem"), "co": ("Arshad",)},
-    "Colocation": {"pm": ("Imran",), "co": ("Waleed", "Obed")},
-}
-WAREHOUSE_OWNER_NAMES = ("Ramzan", "Tahir")
+# Operations routing comes from Excel Setup "Operations team" rows (family or Project,
+# role pm / coordinator / warehouse, dated). Nothing here grants access to a Site Cycle.
+FAMILIES = ("Capex", "Incident", "Colocation")
 
 # The Site Cycles page is a cross-project dashboard for the same audiences
 # allowed by its Page role list. Data reads still use normal Frappe permissions.
@@ -70,58 +36,26 @@ TASK_STAGE = {
 }
 
 
-def _normalize_person(value):
-    return " ".join(str(value or "").split()).casefold()
-
-
 def _current_ops_membership(user):
-    """Resolve only this opener's Employee link and confirmed Operations scope."""
-    if user in WAREHOUSE_USERS:
-        return {"ready": True, "issue": "", "memberships": [
-            {"scope": scope, "role": "warehouse"} for scope in OPS_ROSTER
-        ]}
+    """Resolve only this opener's Employee link and their configured Operations team rows."""
     if user in ("", "Guest") or not frappe.db.exists("DocType", "Employee"):
         return {"ready": False, "issue": "Employee identity is unavailable.", "memberships": []}
-    if not frappe.has_permission("Employee", "read"):
-        return {"ready": False, "issue": "Your Employee link cannot be read for task routing.", "memberships": []}
-    try:
-        employees = frappe.get_list(
-            "Employee", filters={"user_id": user, "status": "Active"},
-            fields=["name", "employee_name", "user_id"], page_length=2)
-    except Exception:
-        return {"ready": False, "issue": "Employee identity lookup needs review.", "memberships": []}
+    # The opener's own Employee id is read without Employee read permission so Warehouse
+    # owners, who may lack it, still resolve; nothing but their own id is returned.
+    employees = frappe.get_all("Employee", filters={"user_id": user, "status": "Active"}, pluck="name", limit_page_length=2)
     if len(employees) != 1:
         return {"ready": False, "issue": "A unique active Employee link is required for task routing.", "memberships": []}
-    employee_id = str(employees[0].get("name") or "")
-    configured = _configured_ops_memberships(employee_id)
-    if configured is not None:
-        if not configured:
-            return {"ready": False, "issue": "This Employee has no active Operations team/project assignment.", "memberships": []}
-        return {"ready": True, "issue": "", "memberships": configured}
-    employee_name = _normalize_person(employees[0].get("employee_name"))
-    memberships = []
-    for scope, roles in OPS_ROSTER.items():
-        for role, names in roles.items():
-            if any(_normalize_person(name) == employee_name for name in names):
-                memberships.append({"scope": scope, "role": role})
+    memberships = _operations_team_memberships(employee_id=employees[0])
     if not memberships:
-        return {"ready": False, "issue": "This Employee is not in the confirmed Operations roster.", "memberships": []}
+        return {"ready": False, "issue": "This Employee has no active Operations team assignment.", "memberships": []}
     return {"ready": True, "issue": "", "memberships": memberships}
 
 
-def _configured_ops_memberships(employee_id):
-    """Return None before the reviewed ID-based roster is activated; [] means active but unassigned.
-
-    Operations members cover the family by default. Project-scoped member rows
-    replace the family group for that Project. Field crews are separate.
-    """
-    if not PEOPLE_MODEL_ACTIVE:
-        return None
-    return _operations_team_memberships(employee_id=employee_id)
+_TASK_ROLE = {"pm": "pm", "coordinator": "co", "warehouse": "warehouse"}
 
 
 def _operations_team_memberships(employee_id=None):
-    """Resolve dated family defaults and whole-team Project exceptions."""
+    """Resolve dated Operations rows. A Project row replaces the family team for that Project."""
     try:
         data = json.loads(frappe.db.get_single_value("SIG Excel Setup", "configuration_json") or "{}")
     except (TypeError, ValueError, frappe.DoesNotExistError):
@@ -134,55 +68,42 @@ def _operations_team_memberships(employee_id=None):
     exceptions = {}
     for row in rows:
         if row.get("project"):
-            exceptions.setdefault(normalize_family(row.get("family")), set()).add(str(row["project"]))
+            exceptions.setdefault((normalize_family(row.get("family")), row.get("role")), set()).add(str(row["project"]))
     result = []
     for row in rows:
         if employee_id and row.get("employee") != employee_id:
             continue
-        family = normalize_family(row.get("family"))
-        if not family:
+        role = _TASK_ROLE.get(row.get("role"))
+        if not role:
             continue
         project = str(row.get("project") or "")
-        result.append({"employee": str(row.get("employee") or ""), "scope": family, "role": "co",
-                       "shared_ops": True, "projects": [project] if project else None,
-                       "excluded_projects": [] if project else sorted(exceptions.get(family, set())),
-                       "source": "Operations Project team"})
+        for family in (FAMILIES if role == "warehouse" else (normalize_family(row.get("family")),)):
+            if not family:
+                continue
+            result.append({"employee": str(row.get("employee") or ""), "scope": family, "role": role,
+                           "projects": [project] if project else None,
+                           "excluded_projects": [] if project else sorted(exceptions.get((family, row.get("role")), set())),
+                           "source": "Operations team"})
     return result
 
 
 def _task_audience(family, owner_role, memberships, project_id=None):
-    """A shared task is visible to a roster member of its scope and role."""
+    """A shared task is visible to a team member of its family whose role matches the task."""
     def covers_project(membership):
         projects = membership.get("projects")
         return project_id not in membership.get("excluded_projects", []) and (projects is None or (project_id and project_id in projects))
     if owner_role == "either":
         return any(m["scope"] == family and m["role"] in ("pm", "co") and covers_project(m) for m in memberships)
-    return any(m["scope"] == family and (m.get("shared_ops") or m["role"] == owner_role) and covers_project(m) for m in memberships)
+    return any(m["scope"] == family and m["role"] == owner_role and covers_project(m) for m in memberships)
 
 
 def _owner_names(family, owner_role, project_id=None):
-    """Return short display names for the confirmed shared task audience."""
-    if owner_role == "warehouse":
-        return list(WAREHOUSE_OWNER_NAMES)
-    configured_names = _configured_family_owner_names(family, owner_role, project_id)
-    if configured_names is not None:
-        return configured_names
-    family_owners = OPS_OWNER_NAMES.get(family, {})
-    if owner_role == "either":
-        return list(dict.fromkeys(family_owners.get("pm", ()) + family_owners.get("co", ())))
-    return list(family_owners.get(owner_role, ()))
-
-
-def _configured_family_owner_names(family, owner_role, project_id=None):
-    if not PEOPLE_MODEL_ACTIVE:
-        return None
-    roles = {"either": ("pm", "coordinator"), "pm": ("pm",), "co": ("coordinator",)}.get(owner_role, (owner_role,))
+    """Full Employee names of the configured team members who see this task."""
+    wanted = ("pm", "co") if owner_role == "either" else (owner_role,)
     ids = {str(row["employee"]) for row in _operations_team_memberships()
-           if row["scope"] == family and (row.get("shared_ops") or row["role"] in roles)
-           and _task_audience(family, "either", [row], project_id)}
-    if not ids:
-        return []
-    if not frappe.has_permission("Employee", "read"):
+           if row["scope"] == family and row["role"] in wanted
+           and _task_audience(family, row["role"], [row], project_id)}
+    if not ids or not frappe.has_permission("Employee", "read"):
         return []
     try:
         people = frappe.get_list("Employee", filters={"name": ["in", sorted(ids)], "status": "Active"},
@@ -429,15 +350,8 @@ def _can_close_cycles(user, memberships=None):
     memberships = memberships if memberships is not None else _current_ops_membership(user).get("memberships", [])
     roles = set(frappe.get_roles(user))
     admin = user != "Guest" and "System Manager" in roles
-    if PEOPLE_MODEL_ACTIVE:
-        # Team visibility must not silently expand the separate cycle-close grant.
-        employees = frappe.get_list("Employee", filters={"user_id": user, "status": "Active"},
-                                    fields=["employee_name"], page_length=2) if frappe.has_permission("Employee", "read") else []
-        legacy = {_normalize_person(name) for groups in OPS_ROSTER.values() for names in groups.values() for name in names}
-        ops_closer = len(employees) == 1 and _normalize_person(employees[0].get("employee_name")) in legacy
-    else:
-        ops_closer = any(m.get("role") in ("pm", "co") for m in memberships)
-    field_ops = user != "Guest" and "SIG Field Ops" in roles and ops_closer
+    # Visibility of a Warehouse row never grants the separate cycle-close action.
+    field_ops = user != "Guest" and "SIG Field Ops" in roles and any(m.get("role") in ("pm", "co") for m in memberships)
     return bool((admin or field_ops)
                 and frappe.has_permission("SIG Site Cycle", "write")
                 and frappe.has_permission("SIG Evidence Event", "create"))

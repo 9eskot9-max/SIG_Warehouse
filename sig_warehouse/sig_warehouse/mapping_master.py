@@ -1,4 +1,4 @@
-"""Receive small, idempotent receipts when SIGPC updates its Mapping Master."""
+"""Receive small, idempotent receipts when the RV80 workbook updates its Mapping Master."""
 
 import hashlib
 import re

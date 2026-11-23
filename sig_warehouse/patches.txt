@@ -77,3 +77,4 @@ sig_warehouse.sig_warehouse.patches.v1_0.add_cycle_lifecycle_fields
 sig_warehouse.sig_warehouse.patches.v1_0.update_cycle_stage_rule
 sig_warehouse.sig_warehouse.patches.v1_0.reopen_parked_cycle
 sig_warehouse.sig_warehouse.patches.v1_0.park_legacy_site_cycles_20261116
+sig_warehouse.sig_warehouse.patches.v1_0.ops_setup_hub_20261124
