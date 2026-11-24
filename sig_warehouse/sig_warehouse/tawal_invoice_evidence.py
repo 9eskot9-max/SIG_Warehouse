@@ -1,7 +1,8 @@
 """TAWAL invoice evidence with distinct, retry-safe Site Cycle reservations."""
 
 import frappe
-from sig_warehouse.sig_warehouse.tawal_cycle_plan import plan_site_cycles
+from sig_warehouse.sig_warehouse.tawal_cycle_plan import (
+    INVOICE_CLOSE_SOURCE, invoice_close_event_id, invoice_close_fields, plan_site_cycles)
 
 
 def _clean(value):
@@ -38,6 +39,32 @@ def _make_cycle(site_id, site_key, po, project_family, erp_project, occurred):
     })
     doc.insert(ignore_permissions=True)
     return doc.name
+
+
+def close_invoice_cycle(cycle_name, invoice_no, source_key, seq, amount, operator, now, batch):
+    """Close one cycle because its Tawal invoice row is submitted. Returns True when it closed it now.
+
+    Already closed cycles are left as they are, and the event ID is per invoice row, so retries write nothing twice.
+    """
+    cycle = frappe.get_doc("SIG Site Cycle", cycle_name)
+    if int(cycle.terminal or 0):
+        return False
+    event_id = invoice_close_event_id(invoice_no, source_key)
+    cycle.update(invoice_close_fields(now, operator))
+    cycle.save(ignore_permissions=True)
+    if not frappe.db.exists("SIG Evidence Event", {"event_id": event_id}):
+        frappe.get_doc({
+            "doctype": "SIG Evidence Event", "event_id": event_id, "schema_version": "EV1",
+            "event_code": "SITE_CLOSED", "occurred_at": now, "recorded_at": now,
+            "site_id": cycle.site_id, "site_key": cycle.site_key, "project": cycle.project,
+            "po": cycle.po, "wo": cycle.wo or "", "gross_value": amount or 0,
+            "artifact_ref": (INVOICE_CLOSE_SOURCE + "|" + invoice_no + "|Row Key|" + source_key)[:140],
+            "sig_close_outcome": "Completed", "sig_close_reason": "Tawal invoice " + invoice_no + " submitted",
+            "batch_id": batch, "seq": seq, "source_sub": INVOICE_CLOSE_SOURCE,
+            "source_workbook": "SIG Tawal Invoicing.xlsm / ERP!Table11", "operator": operator,
+            "machine": "neosys", "core_version": "EvidenceCore EV1 / Tawal-2", "cycle": cycle.name,
+        }).insert(ignore_permissions=True)
+    return True
 
 
 def _resolve_family(project):
@@ -156,6 +183,7 @@ def _register_locked(invoice, invoice_no, phase, ba, project):
 
     allocated = {}
     cycles_created = 0
+    already_closed = 0
     deferred_sites = set()
     for (site_id, site_key), group in groups.items():
         all_cycles = frappe.get_all("SIG Site Cycle",
@@ -186,6 +214,11 @@ def _register_locked(invoice, invoice_no, phase, ba, project):
                 unresolved.append(site_id + " / " + row["source_key"] + ": bridge cycle no longer exists")
                 invalid = True
                 continue
+            if (cycle.terminal and bridge.sales_invoice == invoice_no and (cycle.site_key == site_key or cycle.site_id == site_id)
+                    and (not cycle.po or cycle.po == ba)):
+                row["done"] = True     # this invoice's row is already closed: nothing left to do for it
+                already_closed += 1
+                continue
             if cycle.terminal or (cycle.site_key != site_key and cycle.site_id != site_id) or (cycle.po and cycle.po != ba):
                 unresolved.append(site_id + " / " + row["source_key"] + ": existing bridge points to a closed or mismatched historical cycle; review required")
                 invalid = True
@@ -198,6 +231,9 @@ def _register_locked(invoice, invoice_no, phase, ba, project):
             if cycle.name not in cycle_names:
                 cycle_names.append(cycle.name)
         if invalid:
+            continue
+        group["rows"] = [r for r in group["rows"] if not r.get("done")]
+        if not group["rows"]:
             continue
         if len(set(existing.values())) != len(existing):
             unresolved.append(site_id + ": multiple invoice rows already reserve the same cycle; historical bridge review required")
@@ -223,6 +259,7 @@ def _register_locked(invoice, invoice_no, phase, ba, project):
                 cycle_names.append(cycle_name)
 
     events_created = events_duplicate = links_written = 0
+    registered = []
     for line in invoice.items:
         source_key = _clean(line.custom_source_row_key)
         item = allocated.get(source_key)
@@ -291,15 +328,27 @@ def _register_locked(invoice, invoice_no, phase, ba, project):
             events_created += 1
         else:
             events_duplicate += 1
+        registered.append((source_key, cycle_name, line))
+
+    # Invoicing ends the work: on submission every cycle the invoice reserved is closed as Completed, also when
+    # the site was short of cycles. A draft only reserves; it can still change.
+    cycles_closed = 0
+    if phase == "SUBMITTED":
+        now = frappe.utils.now()
+        for seq, (source_key, cycle_name, line) in enumerate(registered, start=1):
+            if close_invoice_cycle(cycle_name, invoice_no, source_key, seq, line.amount, operator, now,
+                                   "TAWAL-" + safe_invoice + "-C"):
+                cycles_closed += 1
 
     frappe.db.commit()
-    result = "partial" if unresolved else ("created" if events_created or links_written or cycles_created else "duplicate")
+    result = "partial" if unresolved else ("created" if events_created or links_written or cycles_created or cycles_closed else "duplicate")
     detail = "phase=" + phase + "; per-row events created=" + str(events_created)
     detail += ", duplicate=" + str(events_duplicate) + "; links written=" + str(links_written)
-    detail += "; new cycles=" + str(cycles_created) + "; closed=0; defer-closure sites=" + str(len(deferred_sites))
+    detail += "; new cycles=" + str(cycles_created) + "; closed=" + str(cycles_closed) + "; already closed=" + str(already_closed)
+    detail += "; short-of-cycles sites=" + str(len(deferred_sites))
     detail += "; sites created=" + str(sites_created)
     if unresolved:
         detail += "; review=" + "; ".join(unresolved[:12])
     return _set_message(result, detail, events_created=events_created, events_duplicate=events_duplicate,
-                        links_written=links_written, cycles_created=cycles_created, cycles_closed=0,
+                        links_written=links_written, cycles_created=cycles_created, cycles_closed=cycles_closed,
                         sites_created=sites_created, deferred_sites=sorted(deferred_sites), unresolved=len(unresolved))

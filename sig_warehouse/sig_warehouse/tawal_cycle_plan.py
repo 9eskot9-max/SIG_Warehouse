@@ -7,6 +7,23 @@ evidence events, because the shared writer may commit one event at a time.
 from dataclasses import dataclass
 
 
+INVOICE_CLOSE_SOURCE = "TAWAL_INVOICE_ROW_CLOSE"
+
+
+def invoice_close_fields(now, user):
+    """Cycle values once its invoice is submitted: closed as Completed, the same shape as a workbench closure."""
+    return {"terminal": 1, "sig_lifecycle": "Closed", "sig_close_outcome": "Completed",
+            "closed_on": str(now)[:10], "closed_by": user, "stage": "5 - Closed",
+            "stage_anchor_at": None, "stage_due_on": None, "is_delayed": 0,
+            "last_event_at": now, "last_event_code": "SITE_CLOSED"}
+
+
+def invoice_close_event_id(invoice_no, source_key):
+    """One closure event per invoice row, so a retry never writes a second one."""
+    safe = lambda value: "".join(ch for ch in str(value).upper() if ch.isalnum() or ch in "-_")
+    return "TAWAL-CLOSE-" + safe(invoice_no) + "-" + safe(source_key)
+
+
 @dataclass(frozen=True)
 class CyclePlan:
     assignments: tuple[tuple[str, str | None], ...]
@@ -20,7 +37,9 @@ def plan_site_cycles(row_keys, open_cycles, existing=None, shortage_deferred=Fal
     ``None`` indicates a cycle that must be created. Existing reservations
     must refer to a distinct currently open cycle. An existing closed-cycle
     link needs explicit reconciliation and must not be silently reassigned.
-    ``shortage_deferred`` must be durably preserved across draft/submission.
+    ``shortage_deferred`` must be durably preserved across draft/submission. It records that the
+    site was short of open cycles; since 24 November 2026 a submitted invoice still closes every
+    cycle it reserved (an invoiced row is finished work).
     """
     rows = tuple(row_keys)
     cycles = tuple(open_cycles)
