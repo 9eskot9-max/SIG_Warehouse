@@ -742,6 +742,20 @@ def test_sadad_route_can_reuse_an_existing_active_counterparty(api):
     assert seen == ["read"]
 
 
+def test_new_counterparty_cannot_inherit_the_acting_users_employee(api):
+    # A single Employee User Permission becomes the new-document default and used to land on payees created by that user.
+    seen = {}
+
+    class Created(Doc):
+        def insert(self, **kwargs):
+            seen.update(self.__dict__)
+
+    api.frappe.db = types.SimpleNamespace(exists=lambda doctype, name: False)
+    api.frappe.get_doc = lambda data: Created(**data)
+    api._ensure_counterparty(Doc(counterparty=""), "Manna", "")
+    assert seen["employee"] == ""
+
+
 def test_counterparty_route_does_not_silently_switch_an_existing_link(api):
     api.frappe.db = types.SimpleNamespace(exists=lambda doctype, name: True)
     doc = Doc(counterparty="OLD-CP")
@@ -1443,3 +1457,38 @@ def test_settings_and_account_lookups_are_built_once_per_request(api, monkeypatc
     api.frappe.local = types.SimpleNamespace()          # a new request starts clean
     api._bank_gl({"account_scope_hash": "S"})
     assert len(built) == 2
+def _signals(fmt, *names):
+    return json.dumps({"format": fmt, "identifiers": [["NAME", n] for n in names]})
+
+
+def test_exact_statement_names_are_confirmed_only_for_a_single_holder(api):
+    owners = {"adnan sajid": {"CP1"}, "shared name": {"CP1", "CP2"}}
+    rows = [{"name": "m1", "signals_json": _signals("IPS_LOCAL", "ADNAN SAJID")},
+            {"name": "m2", "signals_json": _signals("IPS_LOCAL", "Shared Name")},
+            {"name": "m3", "signals_json": _signals("", "ADNAN SAJID")},
+            {"name": "m4", "signals_json": _signals("IPS_LOCAL", "ADNAN SAJID", "Shared Name")}]
+    found = api._exact_name_confirmations(rows, owners)
+    assert list(found) == [("IPS_LOCAL", "adnan sajid")]
+    assert found[("IPS_LOCAL", "adnan sajid")]["movements"] == ["m1", "m4"]
+    assert found[("IPS_LOCAL", "adnan sajid")]["kind"] == "NAME_IPS_LOCAL"
+
+
+def test_a_line_two_payees_claim_is_left_alone(api):
+    owners = {"first name": {"CP1"}, "second name": {"CP2"}}
+    rows = [{"name": "m1", "signals_json": _signals("LARGE_LOCAL", "First Name", "Second Name")}]
+    assert api._exact_name_confirmations(rows, owners) == {}
+
+
+def test_route_decisions_are_validated_and_never_overwrite(api):
+    accounts = {"13126": Doc(company="Co", disabled=0, is_group=0), "GROUP": Doc(company="Co", disabled=0, is_group=1)}
+    existing = Doc(direction="DEBIT", purpose="OWN_LEDGER", route="own_ledger", account="OTHER")
+    api.frappe.db = types.SimpleNamespace(get_value=lambda doctype, name, field, as_dict=False: "ACTIVE" if doctype == "Bank Counterparty" else accounts.get(name))
+    api.frappe.get_doc = lambda doctype, name: Doc(confirmed_routes=[existing] if name == "CP2" else [])
+    ready, held = api._plan_routes([
+        {"counterparty": "CP1", "route": "own_ledger", "purpose": "own_ledger", "account": "13126"},
+        {"counterparty": "CP1", "route": "own_ledger", "purpose": "OWN_LEDGER", "account": "GROUP"},
+        {"counterparty": "CP2", "route": "own_ledger", "purpose": "OWN_LEDGER", "account": "13126"},
+        {"counterparty": "CP1", "route": "client_receipt", "purpose": "X", "account": "13126"}])
+    assert [r["counterparty"] for r in ready] == ["CP1"] and ready[0]["purpose"] == "OWN_LEDGER"
+    assert [h["why"] for h in held] == ["account is not an enabled leaf account of this company",
+                                        "a different route is already confirmed for this purpose", "unknown route or wrong direction"]

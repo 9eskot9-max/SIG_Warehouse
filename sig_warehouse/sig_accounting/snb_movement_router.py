@@ -6,6 +6,7 @@ submits an accounting document.
 import hashlib
 import json
 import re
+import types
 
 import frappe
 from frappe import _
@@ -1082,7 +1083,9 @@ def _ensure_counterparty(doc, label, selected_counterparty=""):
         if cp.status != "ACTIVE":
             frappe.throw(_("Choose an active bank counterparty."))
         return cp
-    cp = frappe.get_doc({"doctype": COUNTERPARTY, "display_name": (label or "Unnamed counterparty")[:140], "status": "ACTIVE"})
+    # employee is set to "" so insert() cannot fill it with the acting user's own Employee (a single Employee User Permission
+    # becomes the new-document default); see PERM-20261124-01. Only Finance's explicit petty-cash designation sets it.
+    cp = frappe.get_doc({"doctype": COUNTERPARTY, "display_name": (label or "Unnamed counterparty")[:140], "status": "ACTIVE", "employee": ""})
     # The movement was permission-checked by the caller. The registry itself is owner-maintained, so it is written
     # as the integration owner and the acting user is recorded in the movement's audit instead.
     cp.flags.bank_router_write = True
@@ -2228,6 +2231,122 @@ def bulk_confirm_verified_employees(apply=0):
     for start in range(0, len(names), 100):
         runtime.run("main", 0, 100, names=names[start:start + 100], review_only=True)
     return {"applied": done, "payees": summary}
+
+
+NAME_FORMATS = ("IPS_LOCAL", "LARGE_LOCAL", "INTERNAL_SNB")
+
+
+def _exact_name_confirmations(rows, owners):
+    """Unidentified lines whose statement name is held by exactly one payee: {(format, name): {counterparty, kind, value, movements}}.
+
+    owners maps a normalized name to the set of active payees holding it. A line that two payees claim is left alone.
+    """
+    found, claimed = {}, {}
+    for r in rows:
+        signals = _data(r.get("signals_json")) or {}
+        fmt = signals.get("format") or ""
+        if fmt not in NAME_FORMATS:
+            continue
+        for kind, value in signals.get("identifiers") or []:
+            key = hint_key("NAME", value)
+            holders = owners.get(key) or set()
+            if kind != "NAME" or len(key) < 4 or len(holders) != 1:
+                continue
+            cp = next(iter(holders))
+            claimed.setdefault(r["name"], set()).add(cp)
+            entry = found.setdefault((fmt, key), {"counterparty": cp, "kind": "NAME_" + fmt, "value": str(value), "movements": []})
+            entry["movements"].append(r["name"])
+    for entry in found.values():
+        entry["movements"] = [m for m in entry["movements"] if len(claimed[m]) == 1]
+    return {k: v for k, v in found.items() if v["movements"]}
+
+
+def _plan_routes(items):
+    """Validate reviewed route decisions for payees. Returns (ready, held); nothing is written."""
+    ready, held = [], []
+    for item in items:
+        route = str(item.get("route") or "")
+        direction = str(item.get("direction") or "DEBIT").upper()
+        purpose = str(item.get("purpose") or "").strip().upper()[:40]
+        account = str(item.get("account") or "")
+        name = str(item.get("counterparty") or "")
+        why = ""
+        if business_routes.ROUTES.get(route) != direction:
+            why = "unknown route or wrong direction"
+        elif not frappe.db.get_value(COUNTERPARTY, name, "status") == "ACTIVE":
+            why = "payee is not active"
+        else:
+            details = frappe.db.get_value("Account", account, ["company", "disabled", "is_group"], as_dict=True) if account else None
+            if not details or details.company != runtime.documents.COMPANY or details.disabled or details.is_group:
+                why = "account is not an enabled leaf account of this company"
+        if not why:
+            existing = [r for r in frappe.get_doc(COUNTERPARTY, name).get("confirmed_routes") or []
+                        if r.direction == direction and (r.purpose or "").strip().upper() == purpose]
+            if existing and (existing[0].route, existing[0].account or "") != (route, account):
+                why = "a different route is already confirmed for this purpose"
+            elif existing:
+                continue
+        (held if why else ready).append({**item, "route": route, "direction": direction, "purpose": purpose, **({"why": why} if why else {})})
+    return ready, held
+
+
+@frappe.whitelist(methods=["POST"])
+def bulk_prepare_payees(apply=0, routes=None):
+    """Prepare payees Finance has already decided on. Dry run unless apply=1; nothing is drafted, linked or submitted.
+
+    1. A statement name that exactly one active payee holds is confirmed for that payee (NAME_<format>), so the next run
+       identifies the payee; name-only Local transfers no longer ask who the payee is on every line.
+    2. `routes` ([{counterparty, route, purpose, account, treatment}]) are remembered as that payee's confirmed route, like
+       the first reviewed decision would; an existing different route is never overwritten.
+    """
+    _require("write")
+    from sig_warehouse.sig_warehouse.pc_funding import _require_finance
+    _require_finance()
+    commit = str(apply) in ("1", "true", "True")
+    items = _data(routes) or []
+    if not isinstance(items, list) or len(items) > 100 or not all(isinstance(i, dict) for i in items):
+        frappe.throw(_("Give at most 100 route decisions."))
+    active = {r.name for r in frappe.get_all(COUNTERPARTY, filters={"status": "ACTIVE"}, fields=["name"], limit_page_length=0)}
+    owners = {}
+    for r in frappe.get_all(IDENTIFIER, filters={"status": ["!=", "REVOKED"], "kind": ["like", "NAME%"]},
+                            fields=["counterparty", "normalized"], limit_page_length=0):
+        if r.counterparty in active:
+            owners.setdefault(r.normalized, set()).add(r.counterparty)
+    rows = frappe.get_list(DOCTYPE, filters={"direction": "DEBIT", "counterparty": ["is", "not set"], "engine_state": ["in", ["NEEDS_YOU", "PENDING"]]},
+                           fields=["name", "signals_json"], limit_page_length=0)
+    names = _exact_name_confirmations(rows, owners)
+    ready, held = _plan_routes(items)
+    summary = {"names": [{"counterparty": v["counterparty"], "kind": v["kind"], "value": v["value"], "lines": len(v["movements"])} for v in names.values()],
+               "routes": ready, "held": held}
+    if not commit:
+        return {"applied": 0, **summary}
+    created, touched = 0, []
+    for entry in names.values():
+        key = runtime.identity_key(entry["kind"], entry["value"])
+        owner = frappe.db.exists(IDENTIFIER, key) and frappe.db.get_value(IDENTIFIER, key, "counterparty")
+        if owner and owner != entry["counterparty"]:
+            held.append({**entry, "movements": len(entry["movements"]), "why": "name already belongs to another payee"})
+            continue
+        if not owner:
+            ident = frappe.get_doc({"doctype": IDENTIFIER, "identity_key": key, "counterparty": entry["counterparty"], "kind": entry["kind"],
+                                    "value": entry["value"][:140], "normalized": hint_key(entry["kind"], entry["value"]), "status": "ACTIVE",
+                                    "source": "ROUTER", "first_seen": frappe.utils.nowdate()})
+            ident.flags.bank_router_write = True
+            ident.insert(ignore_permissions=True)
+            created += 1
+        touched += entry["movements"]
+    remembered = 0
+    for item in ready:
+        cp = frappe.get_doc(COUNTERPARTY, item["counterparty"])
+        _remember_business_route(cp, types.SimpleNamespace(direction=item["direction"]),
+                                 {"business_route": item["route"], "business_purpose": item["purpose"]},
+                                 item.get("treatment") or "JOURNAL_ENTRY", {"account": item["account"]})
+        cp.flags.bank_router_write = True
+        cp.save(ignore_permissions=True)
+        remembered += 1
+    for start in range(0, len(touched), 100):
+        runtime.run("main", 0, 100, names=touched[start:start + 100], review_only=True)
+    return {"applied": 1, "identifiers_created": created, "routes_remembered": remembered, **summary, "held": held}
 
 
 @frappe.whitelist(methods=["POST"])

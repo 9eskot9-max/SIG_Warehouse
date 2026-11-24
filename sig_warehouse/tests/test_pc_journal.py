@@ -647,3 +647,8 @@ def test_incident_group_is_additional_reviewer_for_capex_employees_named_by_owne
         assert set(capex_only) < set(stored[employee])  # still every Capex reviewer, plus Incident reviewers
         assert {"HR-EMP-00028", "HR-EMP-00034"} <= set(stored[employee])
     assert not {"HR-EMP-00028", "HR-EMP-00034"} & set(capex_only)
+
+
+def test_petty_cash_materials_do_not_post_to_the_stock_consumption_account():
+    # 5121 receives warehouse issues; the accountant moved 24 of 25 material receipts to 5126 by hand before submitting.
+    assert rules.CATEGORY_ACCOUNTS["Construction/Operational Material"] == "5126"

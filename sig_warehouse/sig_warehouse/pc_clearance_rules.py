@@ -10,7 +10,7 @@ from datetime import date
 CATEGORY_ACCOUNTS = {
     "Fuel/Disel": "51315", "Hotel Rent": "5148", "Food expenses": "5150",
     "Equipment Rental": "5123", "Car Maintanence": "51312",
-    "Construction/Operational Material": "5121", "Vehicle OIL change": "51312",
+    "Construction/Operational Material": "5126", "Vehicle OIL change": "51312",
     "Vehicle Other Misc.": "5126", "Drinking water": "5150", "Medical expenses": "518",
     "Phone bill": "517", "Trailer Rent": "51313", "Dyna Rent": "51313",
     "Work Labor": "5124", "Car Spare Parts": "51312", "Others": "5126",

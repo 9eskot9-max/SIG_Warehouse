@@ -107,7 +107,7 @@ def apply(rows):
         if cp is None:
             doc = frappe.get_doc({"doctype": COUNTERPARTY, "display_name": p["display_name"][:140], "status": "ACTIVE", "am_key": p["am_key"],
                                   "is_company": cint_(p["is_company"]), "handler": p["handler"], "is_employee": 0,
-                                  "custody_account": custody or None, "employee": employee or None,
+                                  "custody_account": custody or None, "employee": employee or "",
                                   "supplier": p["supplier"] or None if not p["is_company"] else None,
                                   "customer": p["customer"] or None if not p["is_company"] else None,
                                   "expense_account": p["expense_account"] or None, "category": p["category"], "am_party": am_party})
