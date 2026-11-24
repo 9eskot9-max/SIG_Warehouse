@@ -22,13 +22,17 @@ def execute():
     amounts = {(row.parent, row.custom_source_row_key): row.amount for row in frappe.get_all(
         "Sales Invoice Item", filters={"parent": ["in", names]}, fields=["parent", "custom_source_row_key", "amount"],
         limit_page_length=0)}
-    now, closed = frappe.utils.now(), 0
+    now, closed, parked = frappe.utils.now(), 0, 0
     for seq, link in enumerate(links, start=1):
         invoice = invoices.get(link.sales_invoice)
         if (not invoice or invoice.docstatus != 1 or invoice.customer != TAWAL or int(invoice.custom_tawal_test or 0)
                 or not frappe.db.exists("SIG Site Cycle", link.cycle)):
             continue
+        # A person parked this cycle on purpose (hidden from active lists): leave their decision to them.
+        if frappe.db.get_value("SIG Site Cycle", link.cycle, "sig_lifecycle") == "Parked":
+            parked += 1
+            continue
         if close_invoice_cycle(link.cycle, link.sales_invoice, link.source_row_key, seq,
                                amounts.get((link.sales_invoice, link.source_row_key)), "Administrator", now, BATCH):
             closed += 1
-    print(f"Closed {closed} cycles of submitted Tawal invoices")
+    print(f"Closed {closed} cycles of submitted Tawal invoices; left {parked} parked cycles to their owners")
