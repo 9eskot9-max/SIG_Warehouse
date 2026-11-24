@@ -47,6 +47,20 @@ def _require(permission):
         frappe.throw(_("You do not have permission for bank movement review."), frappe.PermissionError)
 
 
+def _per_request(key, make):
+    """Compute once per request: the page repeats the same lookups for every row it builds."""
+    cache = getattr(frappe.local, "sig_router_cache", None)
+    if cache is None:
+        cache = frappe.local.sig_router_cache = {}
+    if key not in cache:
+        cache[key] = make()
+    return cache[key]
+
+
+def _settings():
+    return _per_request("settings", runtime.Settings)
+
+
 def _hr_owners():
     """{custody ledger: [(employee, employee_name)]} of active Employees, once per request."""
     cached = getattr(frappe.local, "sig_router_hr_owners", None)
@@ -284,7 +298,7 @@ def list_confirmed_party_hints(start=0, limit=200):
 @frappe.whitelist()
 def engine_status():
     _require("read")
-    settings = runtime.Settings()
+    settings = _settings()
     visible = frappe.get_list(DOCTYPE, fields=["engine_state"], limit_page_length=0)
     counts = {}
     for row in visible:
@@ -489,6 +503,10 @@ def _label_custody(mapping, cp):
 
 def _purpose_account(category):
     """The account a purpose that is not an expense goes to (salary advance, salaries), as a real ERP account name."""
+    return _per_request(("purpose_account", str(category or "").upper()), lambda: _purpose_account_lookup(category))
+
+
+def _purpose_account_lookup(category):
     number = getattr(getattr(runtime, "engine", None), "PURPOSE_ACCOUNT_NUMBERS", {}).get(str(category or "").upper())
     if not number or not frappe.has_permission("Account", "read"):
         return ""
@@ -499,7 +517,7 @@ def _purpose_account(category):
 
 def _bank_gl(doc):
     try:
-        return runtime.Settings().scopes.get(doc.get("account_scope_hash") or "", "")
+        return _settings().scopes.get(doc.get("account_scope_hash") or "", "")
     except Exception:
         return ""
 
@@ -677,6 +695,10 @@ FEE_BILLERS = {"090": GOVERNMENT_FEE_ACCOUNTS, "093": GOVERNMENT_FEE_ACCOUNTS, "
 
 def _account_choices(biller_code):
     """Expense accounts Finance may choose for this biller, in the owner's order, as real ERP account names."""
+    return _per_request(("account_choices", str(biller_code or "")), lambda: _account_choices_lookup(biller_code))
+
+
+def _account_choices_lookup(biller_code):
     numbers = FEE_BILLERS.get(str(biller_code or ""), [])
     if not numbers or not frappe.has_permission("Account", "read"):
         return []
@@ -860,18 +882,23 @@ def _confirmation_fees(candidate, settings):
     return result
 
 
+CONFIRM_FIELDS = ["name", "kind", "direction", "amount", "currency", "event_date", "account_scope_hash", "counterparty",
+                  "decision_type", "erp_document", "parent_movement", "source_json", "signals_json", "recognition_json"]
+
+
 def _confirmation_candidates(bank, search):
-    filters = {"engine_state": ["in", ["NEEDS_YOU", "DEFERRED", "PENDING"]]}
+    # Only unlinked lines that are not fee rows and not waiting on a document pick can be offered, so the query says so:
+    # the page used to open every queued movement (about 950 full documents) on each load just to reject most of them.
+    filters = {"engine_state": ["in", ["NEEDS_YOU", "DEFERRED", "PENDING"]], "erp_document": ["is", "not set"],
+               "parent_movement": ["is", "not set"], "decision_type": ["not in", ["PICK_DOCUMENT"]]}
     if bank != "ALL":
         filters["source_key"] = ["like", bank + "-%"]
     term = str(search or "").strip()
     or_filters = [["source_json", "like", f"%{term}%"], ["counterparty", "like", f"%{term}%"]] if term else None
-    rows = frappe.get_list(DOCTYPE, filters=filters, or_filters=or_filters, fields=["name", "kind", "source_json"],
+    rows = frappe.get_list(DOCTYPE, filters=filters, or_filters=or_filters, fields=CONFIRM_FIELDS,
                            order_by="event_date desc, name asc", limit_page_length=0)
-    settings, candidates, seen = runtime.Settings(), [], set()
-    for row in rows:
-        doc = frappe.get_doc(DOCTYPE, row.name)
-        doc.check_permission("read")
+    settings, candidates, seen = _settings(), [], set()
+    for doc in rows:
         candidate = _confirmation_candidate(doc, settings)
         if not candidate and doc.kind == "OWN_TRANSFER":
             pair = (_data(doc.signals_json) or {}).get("paired_transfer") or {}
@@ -915,10 +942,12 @@ def list_confirmation_queue(bank="ALL", search="", start=0, limit=50, from_date=
         candidates = [(doc, candidate) for doc, candidate in candidates if date_range[0] <= date.fromisoformat(str(doc.event_date)[:10]) <= date_range[1]]
     selected = candidates[start:start + limit]
     fees = _fees_for(list({candidate["fee_parent"] for _, candidate in selected}))
-    settings = runtime.Settings()
+    settings = _settings()
     items = []
     for doc, candidate in selected:
         candidate["fee_accounts"] = _confirmation_fees(candidate, settings)
+        doc = frappe.get_doc(DOCTYPE, doc.name)
+        doc.check_permission("read")
         item = _payload(doc, fees.get(candidate["fee_parent"], []), {})
         item["confirmation"] = candidate
         items.append(item)
@@ -1068,7 +1097,7 @@ def _learn_identifiers(doc, cp):
     if source and str(source.get("bank") or "SNB").upper() == "SNB":
         # Reparse the immutable evidence so older review rows learn newly
         # supported formats when the user confirms a party.
-        parsed = snb.parse(source, runtime.Settings().company_scopes)
+        parsed = snb.parse(source, _settings().company_scopes)
         signals.update(parsed)
         doc.signals_json = _json(signals)
     for kind, value in signals.get("identifiers") or []:
@@ -1582,7 +1611,7 @@ def create_reviewed_draft(name, modified):
         frappe.throw(_("An explicit treatment and permission to create the selected document are required."), frappe.PermissionError)
     fees = _fees_for([doc.name]).get(doc.name, [])
     if fees:
-        _validate_fee_accounts(runtime.Settings(), fees)
+        _validate_fee_accounts(_settings(), fees)
     result = runtime.run("main", 0, 1, names=[name], manual_draft=True)
     if result.get("errors"):
         frappe.throw(_("The draft could not be created. Review the movement and its error details."))
@@ -1633,7 +1662,7 @@ def preview_route(name, target):
     movement = frappe.get_doc(DOCTYPE, name)
     movement.check_permission("read")
     target = _data(target) or {}
-    settings = runtime.Settings()
+    settings = _settings()
     bank = settings.scopes.get(movement.get("account_scope_hash") or "")
     if not bank:
         frappe.throw(_("The bank account is not configured for this movement."))
@@ -1927,7 +1956,7 @@ def bulk_confirm_routes(items, mode):
             doc.check_permission("write")
             if str(doc.modified) != str(row.get("modified") or ""):
                 frappe.throw(_("This movement changed. Refresh and review it again."))
-            settings = runtime.Settings()
+            settings = _settings()
             candidate = _confirmation_candidate(doc, settings)
             if not candidate:
                 frappe.throw(_("This movement is no longer ready for confirmation."))
@@ -1993,7 +2022,7 @@ def create_own_transfer_draft(name, modified):
         frappe.throw(_("This movement changed. Refresh and try again."))
     if first.erp_document or second.erp_document:
         frappe.throw(_("A transfer leg already has a linked accounting document; review it first."))
-    settings = runtime.Settings()
+    settings = _settings()
     index, children = runtime.load_index()
     pairs = runtime.pair_own_transfers(index, settings)
     if pairs.get(name, {}).get("name") != other_name or pairs.get(other_name, {}).get("name") != name:

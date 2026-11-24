@@ -522,7 +522,7 @@ def run(phase="main", start=0, limit=120, names=None, review_only=False, bank=""
         ctx.settings._enabled = False
     else:
         if not names or len(names) != 1:
-            frappe.throw("Manual drafting requires exactly one reviewed movement.")
+            frappe.throw(frappe._("Manual drafting requires exactly one reviewed movement."))
         ctx.settings.auto_draft = lambda day: True
         # Fees belong to the reviewed movement even when unattended drafting is off.
         ctx.settings.draft_fees = True

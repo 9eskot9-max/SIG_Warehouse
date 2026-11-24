@@ -15,6 +15,8 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     const kindGroups = {ALL: __('All'), SADAD: __('SADAD'), UNCLASSIFIED: __('Unclassified'), PETTY_CASH: __('Petty cash'), RECEIPTS: __('Receipts'), OWN_TRANSFER: __('Own transfers'),
         SUPPLIER: __('Supplier & expense'), OTHER: __('Other')};
     const tawalApi = 'sig_warehouse.sig_accounting.tawal_router.';
+    const linkMethods = {AUTO_DRAFT: __('Draft made by the router'), MANUAL: __('Linked by a reviewer'), LEDGER: __('Matched in the ledger'),
+        MARKER: __('Router marker'), AM_LINK: __('Sheet Am link'), OWN_TRANSFER: __('Own-transfer pair')};
     const state = {tawal: {rows: [], counts: {}, group: 'action', settings: {}, fresh: {}, hasMore: false, next: 0}, tab: 'needs', bank: 'ALL', search: '', items: [], counts: {}, kindCounts: {}, kindGroup: 'ALL', groupByPayee: false, selected: '', status: null,
         bulkSelected: new Set(), missingSelected: new Set(), confirmSelected: new Set(), businessChanged: new Set(), hasMore: false, openDocs: {}, supplyChoice: {}, businessChoice: {}, fromDate: '', toDate: ''};
     const businessRoutes = {
@@ -59,7 +61,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
     const docLink = (t, n, s) => n ? `<a href="#" data-erp-doctype="${esc(t)}" data-erp-name="${esc(n)}">${esc(n)}</a> · ${esc(docStatus(s))}` : '';
 
     root.html(`<header><h2>${__('Bank movements')}</h2><div class="snb-banner" data-banner></div></header>
-        <div class="snb-controls"><select data-bank><option value="ALL">${__('All banks')}</option><option value="SNB">SNB</option><option value="ALINMA">Alinma</option></select>
+        <div class="snb-controls"><select data-bank><option value="ALL">${__('All banks')}</option><option value="SNB">${__('SNB')}</option><option value="ALINMA">${__('Alinma')}</option></select>
         <input class="form-control" data-search type="search" placeholder="${__('Search name, reference or document')}"><button class="btn btn-default" data-refresh>${__('Refresh')}</button>
         <label class="snb-group-toggle"><input type="checkbox" data-group-payee> ${__('Group by payee')}</label></div>
         <nav data-tabs></nav><nav class="snb-types" data-types></nav><section class="snb-tawal" data-tawal hidden></section><section class="snb-grid"><aside><div class="snb-list-title">${__('Movements')}</div><div class="snb-date-controls"><button class="btn btn-default btn-sm" data-week-prev aria-label="${__('Previous week')}">‹</button><label>${__('From')} <input type="date" data-date-from></label><label>${__('To')} <input type="date" data-date-to></label><button class="btn btn-default btn-sm" data-week-next aria-label="${__('Next week')}">›</button><button class="btn btn-default btn-sm" data-date-apply>${__('Apply dates')}</button><button class="btn btn-default btn-sm" data-date-clear>${__('All dates')}</button><span data-date-error role="alert"></span></div><details class="snb-bulk-menu"><summary>${__('Bulk actions')}</summary><div class="snb-bulk" data-standard-bulk><button class="btn btn-default" data-bulk>${__('Confirm selected unique matches')}</button><button class="btn btn-default" data-select-missing>${__('Select missing links on this page')}</button><button class="btn btn-default" data-clear-selected>${__('Clear selected missing links')}</button><button class="btn btn-default" data-confirm-employees>${__('Confirm verified employees')}</button></div><div class="snb-bulk" data-confirm-bulk hidden><button class="btn btn-default" data-confirm-drafts>${__('Create selected drafts')}</button><button class="btn btn-default" data-confirm-posts>${__('Post selected')}</button></div></details><div data-queue></div><button class="btn btn-default" data-more hidden>${__('Load more')}</button></aside><article data-card></article></section>`);
@@ -163,7 +165,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
             ${x.request_supplier ? `<p>${__('Matched TX Manager supplier:')} <strong>${esc(x.request_supplier)}</strong>${x.request_supplier_conflict ? ' · ' + __('Differs from the currently linked supplier; review both.') : ''}</p>` : ''}
             ${x.signals && x.signals.biller_code ? `<p>${__('SADAD biller')} ${esc(x.signals.biller_code)}${sadadBiller(x) ? ' · ' + esc(sadadBiller(x)) : ' · ' + __('not on the public SADAD list')}${x.signals.bill_account ? ' · ' + __('bill') + ' ' + esc(x.signals.bill_account) : ''}${x.bill_owner ? ' · ' + __('Iqama of {0}', [esc(x.bill_owner.name)]) : ''}</p>` : ''}
             ${x.signals && x.signals.paired_transfer ? `<p>${__('Paired own-account transfer')} · ${esc(x.signals.paired_transfer.source_key || '')}</p>` : ''}
-            ${x.erp_document ? `<p>${x.doc_status === 1 ? '✓ ' : '○ '}${docLink(x.erp_doctype, x.erp_document, x.doc_status)} <small>(${esc(x.link_method)})</small>${x.doc_status != null ? ` <button class="btn btn-xs btn-default" data-preview-entry>${__('Preview entry')}</button>` : ''}${x.doc_status == null ? ` <button class="btn btn-xs btn-default" data-clear-missing>${__('Check and clear missing link')}</button>` : x.link_method !== 'MARKER' ? ` <button class="btn btn-xs btn-default" data-unlink>${__('Wrong match')}</button>` : ''}</p>` : ''}
+            ${x.erp_document ? `<p>${x.doc_status === 1 ? '✓ ' : '○ '}${docLink(x.erp_doctype, x.erp_document, x.doc_status)} <small>(${esc(linkMethods[x.link_method] || x.link_method)})</small>${x.doc_status != null ? ` <button class="btn btn-xs btn-default" data-preview-entry>${__('Preview entry')}</button>` : ''}${x.doc_status == null ? ` <button class="btn btn-xs btn-default" data-clear-missing>${__('Check and clear missing link')}</button>` : x.link_method !== 'MARKER' ? ` <button class="btn btn-xs btn-default" data-unlink>${__('Wrong match')}</button>` : ''}</p>` : ''}
             ${x.signals && x.signals.error ? `<p class="snb-error">${esc(x.signals.error)}</p>` : ''}${fees}
             <div class="snb-actions">${actions(x)}${x.decision_type === 'CREATE_DRAFT' && !x.erp_document ? `<button class="btn btn-primary" data-create-draft>${__('Create reviewed draft')}</button> ${(x.accounting_treatment === 'JOURNAL_ENTRY' ? state.status?.can_submit_journal_entry : state.status?.can_submit_payment_entry) ? `<button class="btn btn-default" data-reviewed-post>${__('Create and post')}</button>` : ''}` : ''}</div><div data-message></div>
             <details><summary>${__('Statement')}</summary><pre>${esc(x.narrative || '—')}</pre><small>${esc(x.name)}</small></details>`;
@@ -347,6 +349,7 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
         if (state.tab === 'financing') return loadFinancing();
         try {
             const confirming = state.tab === 'confirm';
+            const statusCall = frappe.call({method: api + 'engine_status'});
             const args = confirming ? {bank: state.bank, search: state.search, start: append ? state.nextStart || 0 : 0, limit: 100} : {tab: state.tab, bank: state.bank, search: state.search, kind_group: state.kindGroup, start: append ? state.nextStart || 0 : 0, limit: 100};
             if (state.fromDate && state.toDate) Object.assign(args, {from_date: state.fromDate, to_date: state.toDate});
             const r = (await frappe.call({method: api + (confirming ? 'list_confirmation_queue' : 'list_inbox'), args})).message;
@@ -370,14 +373,21 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
             }
             state.nextStart = r.next_start;
             if (!visibleItems().some(x => x.name === state.selected)) state.selected = visibleItems()[0]?.name || '';
-            state.status = (await frappe.call({method: api + 'engine_status'})).message;
+            state.status = (await statusCall).message;
         } catch (e) { frappe.msgprint(__('Could not load bank movements. Check your access.')); }
         render();
     }
     async function act(method, args) {
         const x = selected(), msg = q('[data-message]');
-        try { await frappe.call({method: api + method, type: 'POST', args: {name: x.name, modified: x.modified, ...args}}); await load(); frappe.show_alert({message: __('Saved'), indicator: 'green'}); }
-        catch (e) { msg.textContent = __('Could not save. Refresh and try again.'); }
+        try {
+            await frappe.call({method: api + method, type: 'POST', args: {name: x.name, modified: x.modified, ...args}});
+            frappe.show_alert({message: __('Saved'), indicator: 'green'});
+        } catch (e) { msg.textContent = __('Could not save. Refresh and try again.'); return; }
+        try {
+            const fresh = (await frappe.call({method: api + 'get_movement', args: {name: x.name}})).message, i = state.items.findIndex(it => it.name === x.name);
+            if (fresh && i >= 0) { state.items[i] = fresh; renderCard(); }
+        } catch (e) { /* the list refresh below corrects the card */ }
+        load();
     }
     let timer;
     function applyDates(from, to) {

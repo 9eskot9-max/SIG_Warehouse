@@ -1413,3 +1413,33 @@ def test_router_date_range_validates_both_boundaries(api):
         api._router_date_range('2026-10-01', '')
     with pytest.raises(ValueError):
         api._router_date_range('invalid', '2026-10-07')
+
+
+def test_confirmation_queue_filters_in_the_query_and_opens_no_full_documents(api, monkeypatch):
+    calls = {"get_list": [], "get_doc": 0}
+    rows = [api.frappe._dict(name="A", kind="EXPENSE_PAYMENT") if hasattr(api.frappe, "_dict") else types.SimpleNamespace(name="A", kind="EXPENSE_PAYMENT", get=lambda k, d=None: None),
+            types.SimpleNamespace(name="B", kind="UNKNOWN", get=lambda k, d=None: None)]
+    api.frappe.get_list = lambda doctype, **kw: calls["get_list"].append(kw) or rows
+    api.frappe.get_doc = lambda *a, **k: calls.__setitem__("get_doc", calls["get_doc"] + 1)
+    monkeypatch.setattr(api, "_confirmation_candidate", lambda doc, settings: {"kind": "bill"} if doc.name == "A" else None)
+    monkeypatch.setattr(api.runtime, "Settings", lambda: types.SimpleNamespace(), raising=False)
+    found = api._confirmation_candidates("ALL", "")
+    assert [d.name for d, _c in found] == ["A"] and calls["get_doc"] == 0
+    filters = calls["get_list"][0]["filters"]
+    assert filters["erp_document"] == ["is", "not set"] and filters["parent_movement"] == ["is", "not set"]
+    assert filters["decision_type"] == ["not in", ["PICK_DOCUMENT"]]
+    assert "source_json" in calls["get_list"][0]["fields"] and "modified" not in calls["get_list"][0]["fields"]
+
+
+def test_settings_and_account_lookups_are_built_once_per_request(api, monkeypatch):
+    built = []
+    monkeypatch.setattr(api.runtime, "Settings", lambda: built.append(1) or types.SimpleNamespace(scopes={"S": "13121"}), raising=False)
+    api.frappe.local = types.SimpleNamespace()
+    assert [api._bank_gl({"account_scope_hash": "S"}) for _ in range(5)] == ["13121"] * 5
+    assert len(built) == 1
+    lookups = []
+    monkeypatch.setattr(api, "_account_choices_lookup", lambda code: lookups.append(code) or ["524"])
+    assert [api._account_choices("050") for _ in range(4)] == [["524"]] * 4 and lookups == ["050"]
+    api.frappe.local = types.SimpleNamespace()          # a new request starts clean
+    api._bank_gl({"account_scope_hash": "S"})
+    assert len(built) == 2

@@ -642,3 +642,250 @@ bill,فاتورة
 create drafts for,إنشاء مسودات لـ
 "make the Purchase Invoice from this receipt first, then pay that invoice",أنشئ فاتورة الشراء من الاستلام أولاً، ثم ادفع الفاتورة
 post,ترحيل
+A Journal Entry already moves the same amount between these accounts near this date. Review it first.,يوجد قيد يومية ينقل المبلغ نفسه بين هذين الحسابين قرب هذا التاريخ. راجعه أولاً.
+A Journal Entry already uses this bank statement key.,يوجد قيد يومية يستخدم مفتاح كشف الحساب البنكي هذا.
+A client route requires a Customer.,مسار العميل يتطلب عميلاً.
+A configured fee or VAT account is not available for this company.,حساب الرسوم أو ضريبة القيمة المضافة المحدد غير متاح لهذه الشركة.
+A counterparty changed since preview. Generate a new preview.,تغيّر طرف مقابل منذ المعاينة. أنشئ معاينة جديدة.
+A payment for work requires a Supplier.,الدفع مقابل عمل يتطلب موردًا.
+A previewed counterparty is no longer active.,الطرف المقابل الذي تمت معاينته لم يعد نشطًا.
+A proposed Employee is no longer active.,الموظف المقترح لم يعد نشطًا.
+A proposed account is no longer available for this company.,الحساب المقترح لم يعد متاحًا لهذه الشركة.
+A proposed party is disabled.,الطرف المقترح معطّل.
+A related fee is linked to a different document. Review it before posting.,رسم مرتبط بمستند مختلف. راجعه قبل الترحيل.
+A related fee moved to another bank transaction. Refresh and review.,انتقل رسم مرتبط إلى حركة بنكية أخرى. حدّث الصفحة وراجع.
+A supplier route requires a Supplier.,مسار المورد يتطلب موردًا.
+A transfer leg already has a linked accounting document; review it first.,طرف التحويل مرتبط بمستند محاسبي بالفعل؛ راجعه أولاً.
+Already booked,مسجّل بالفعل
+Amount,المبلغ
+"Amounts need review. Check principal, fees and prior postings.",المبالغ تحتاج مراجعة. تحقق من الأصل والرسوم والترحيلات السابقة.
+An explicit treatment and permission to create the selected document are required.,يلزم تحديد المعالجة المحاسبية صراحةً وصلاحية إنشاء المستند المختار.
+An internal Payment Entry already moves the same amount between these accounts near this date. Review it first.,يوجد سند دفع داخلي ينقل المبلغ نفسه بين هذين الحسابين قرب هذا التاريخ. راجعه أولاً.
+Awaiting statement,بانتظار كشف الحساب
+Bank account not mapped,الحساب البنكي غير مربوط
+Bank credit,إيداع بنكي
+Bank details,تفاصيل البنك
+"Bank received, portal pending",استلمه البنك، والبوابة لم تُحدَّث بعد
+Bank settlement evidence reference,مرجع إثبات التسوية البنكية
+Before forward date,قبل تاريخ البدء
+Both accounts must be enabled SAR company bank accounts.,يجب أن يكون الحسابان حسابين بنكيين مفعّلين للشركة بالريال السعودي.
+Both company bank accounts must be configured separately.,يجب إعداد حسابي الشركة البنكيين كلٌّ على حدة.
+Calculate,احسب
+Check the similar receipt first,راجع المقبوض المشابه أولاً
+Choose Draft or Post for between one and 100 movements.,اختر مسودة أو ترحيل لعدد من 1 إلى 100 حركة.
+Choose Draft or Post.,اختر مسودة أو ترحيل.
+"Choose Payment Entry, Journal Entry, or Finance handles this.",اختر سند دفع أو قيد يومية أو «المالية تتولى هذه الحركة».
+Choose a business purpose first.,اختر الغرض من الحركة أولاً.
+Choose a custody account under the approved 1322 ledger.,اختر حساب عهدة تحت دفتر 1322 المعتمد.
+Choose a party for Payment Entry or an expense account for Journal Entry.,اختر طرفًا لسند الدفع أو حساب مصروف لقيد اليومية.
+Choose a submitted SAR reference for this party and company.,اختر مرجعًا مرحّلاً بالريال السعودي لهذا الطرف وهذه الشركة.
+Choose a supported reference for this party.,اختر مرجعًا مدعومًا لهذا الطرف.
+Choose a supported route before previewing.,اختر مسارًا مدعومًا قبل المعاينة.
+Choose a type of supply from the list.,اختر نوع التوريد من القائمة.
+Choose a valid account for this outgoing movement.,اختر حسابًا صالحًا لهذه الحركة الصادرة.
+Choose a valid party for this movement.,اختر طرفًا صالحًا لهذه الحركة.
+Choose an Employee purpose before linking an Employee.,اختر غرضًا يخص الموظف قبل ربط الموظف.
+Choose an active Employee of this company.,اختر موظفًا نشطًا في هذه الشركة.
+Choose an active bank counterparty.,اختر طرفًا مقابلاً بنكيًا نشطًا.
+Choose an enabled SAR asset account for the company.,اختر حساب أصول مفعّلاً بالريال السعودي للشركة.
+Choose an enabled party.,اختر طرفًا مفعّلاً.
+"Choose an enabled, non-group account of this company other than this bank account. Receivable and payable accounts need a party: use a Payment Entry.",اختر حسابًا مفعّلاً وغير تجميعي في هذه الشركة غير هذا الحساب البنكي. حسابات الذمم المدينة والدائنة تتطلب طرفًا: استخدم سند دفع.
+Choose an unlinked outgoing movement to designate for petty cash.,اختر حركة صادرة غير مرتبطة لتخصيصها للعهدة النقدية.
+Choose between 1 and 100 distinct movements.,اختر من 1 إلى 100 حركة مختلفة.
+Choose between 1 and 100 movements.,اختر من 1 إلى 100 حركة.
+Cleared by TAWAL; select receipt account and date,تم تحصيله لدى توال؛ اختر حساب الاستلام والتاريخ
+Closure in progress,الإقفال قيد التنفيذ
+Configure the bank fee and VAT accounts before creating this entry.,اضبط حسابي الرسوم البنكية وضريبة القيمة المضافة قبل إنشاء هذا القيد.
+Confirm the Employee before remembering this route.,أكّد الموظف قبل حفظ هذا المسار.
+Contains an unlabelled credit note,يتضمن إشعارًا دائنًا بلا وصف
+Costs for this facility already booked in ERP,تكاليف هذه التسهيلات مسجّلة بالفعل في النظام
+Could not complete this. Refresh and check the payment state.,تعذّر إتمام العملية. حدّث الصفحة وتحقق من حالة الدفعة.
+"Could not load Tawal receipts. You need access to bank movements, Payment Entries and Sales Invoices.",تعذّر تحميل مقبوضات توال. تحتاج صلاحية الاطلاع على الحركات البنكية وسندات الدفع وفواتير المبيعات.
+Could not review this movement; no change was saved.,تعذّرت مراجعة هذه الحركة؛ لم يُحفظ أي تغيير.
+Could not review this movement; no designation was saved.,تعذّرت مراجعة هذه الحركة؛ لم يُحفظ أي تخصيص.
+Create a draft receipt for Tawal payment {0}? You review and post it from the Payment Entry.,إنشاء مسودة مقبوض لدفعة توال {0}؟ تراجعها وترحّلها من سند الدفع.
+Create all ready drafts,إنشاء كل المسودات الجاهزة
+Create anyway,أنشئ على أي حال
+Create {0} draft receipts? Nothing is posted.,إنشاء {0} مسودة مقبوض؟ لن يُرحَّل أي شيء.
+Date / reference,التاريخ / المرجع
+Difference for Finance review,فرق لمراجعة المالية
+Draft without invoice link,مسودة بلا ربط بفاتورة
+Draft {0} created,تم إنشاء المسودة {0}
+ERP allocation,التوزيع في النظام
+ERP loan balance (221),رصيد القرض في النظام (221)
+Each counterparty must appear once.,يجب أن يظهر كل طرف مقابل مرة واحدة.
+Each selected movement must appear once.,يجب أن تظهر كل حركة محددة مرة واحدة.
+Each selected movement must be unique.,يجب أن تكون كل حركة محددة فريدة.
+Employee (owns this custody account in HR):,الموظف (يملك حساب العهدة هذا في الموارد البشرية):
+Enter the party's full name.,أدخل الاسم الكامل للطرف.
+Entry exists but money is not allocated,القيد موجود لكن المبلغ غير موزّع
+Fees 538,رسوم 538
+Fees charged separately from this settlement,رسوم محتسبة بشكل منفصل عن هذه التسوية
+Find TAWAL payment,ابحث عن دفعة توال
+Forward from {0}. Drafts are created automatically: {1}.,ابتداءً من {0}. إنشاء المسودات تلقائيًا: {1}.
+Funding recorded,تم تسجيل التمويل
+Incoming receipts take a Customer; outgoing payments take a Supplier or a Customer.,المقبوضات الواردة تتطلب عميلاً؛ والمدفوعات الصادرة تتطلب موردًا أو عميلاً.
+Interest 5151,فوائد 5151
+Invalid account scope fingerprint.,بصمة نطاق الحساب غير صالحة.
+Invalid beneficiary evidence.,إثبات المستفيد غير صالح.
+Invalid movement item.,عنصر الحركة غير صالح.
+Invalid transfer request evidence.,إثبات طلب التحويل غير صالح.
+Invoice already has no balance,لا يوجد رصيد متبقٍ على الفاتورة
+Invoice is not a submitted Tawal invoice,الفاتورة ليست فاتورة توال مرحّلة
+Invoice not in ERP,الفاتورة غير موجودة في النظام
+Invoices do not add up to the payment,مجموع الفواتير لا يطابق الدفعة
+Invoices use different receivable accounts,الفواتير تستخدم حسابات ذمم مدينة مختلفة
+Latest staged 3605 transaction,آخر حركة 3605 تم تجهيزها
+Legacy,قديم
+Link bank credit,ربط الإيداع البنكي
+Linked {0},تم ربط {0}
+Loading financing movements…,جارٍ تحميل حركات التمويل…
+Loan 221,القرض 221
+More than one active Employee holds this custody account. Fix the Employee records first.,أكثر من موظف نشط يملك حساب العهدة هذا. صحّح سجلات الموظفين أولاً.
+Movement,الحركة
+Movement evidence exceeds the size limit.,إثبات الحركة يتجاوز الحد الأقصى للحجم.
+"Movement identity, date, and direction are required.",معرّف الحركة وتاريخها واتجاهها مطلوبة.
+Multiple confirmed routes exist for this purpose; review them first.,توجد عدة مسارات مؤكدة لهذا الغرض؛ راجعها أولاً.
+Multiple petty-cash defaults exist for this payee. Review them first.,توجد عدة إعدادات افتراضية للعهدة لهذا المستفيد. راجعها أولاً.
+Needs review,يحتاج مراجعة
+No 3605 movements staged,لا توجد حركات 3605 مجهّزة
+No draft was created. Review any matching documents and the selected party or account.,لم تُنشأ مسودة. راجع أي مستندات مطابقة والطرف أو الحساب المختار.
+No portal export has been staged yet.,لم يتم تجهيز أي تصدير من البوابة بعد.
+No ready payments on this page.,لا توجد دفعات جاهزة في هذه الصفحة.
+Not petty cash,ليست عهدة نقدية
+Only an unlinked petty-cash movement can be changed.,يمكن تغيير حركة العهدة النقدية غير المرتبطة فقط.
+"Only an unlinked, confirmed XXPC bank debit can be designated for petty cash.",يمكن تخصيص سحب بنكي XXPC مؤكد وغير مرتبط فقط للعهدة النقدية.
+Only the configured movement integration owner may run this.,يمكن لمالك تكامل الحركات المحدد فقط تشغيل هذا.
+Payment,الدفعة
+Payment Entry read access is required to check for an existing internal transfer.,يلزم صلاحية قراءة سند الدفع للتحقق من وجود تحويل داخلي.
+Payment references are available only for outgoing bank movements.,مراجع الدفع متاحة للحركات البنكية الصادرة فقط.
+Portal,البوابة
+Portal export last staged {0} ({1} h ago).,آخر تجهيز لتصدير البوابة {0} (قبل {1} ساعة).
+Portal not cleared yet; the bank already has it,لم تُحصَّل في البوابة بعد؛ والبنك استلمها
+Portal reconcile still pending,مطابقة البوابة لم تكتمل بعد
+Preview SNB settlement cost,معاينة تكلفة تسوية SNB
+Preview settlement cost,معاينة تكلفة التسوية
+Principal paid in this settlement,الأصل المسدَّد في هذه التسوية
+Ready to draft,جاهز لإنشاء المسودة
+Receipt date,تاريخ الاستلام
+"Receipt posted, not allocated to invoices",المقبوض مرحّل لكنه غير موزّع على الفواتير
+Receiving bank account,حساب البنك المستلِم
+Refresh the movements before clearing links.,حدّث الحركات قبل مسح الروابط.
+Refresh this movement and resolve its existing document or pending review first.,حدّث هذه الحركة وعالج مستندها القائم أو المراجعة المعلّقة أولاً.
+Remove the petty-cash designation from this line? It will need a new purpose.,إزالة تخصيص العهدة النقدية من هذا السطر؟ سيحتاج إلى غرض جديد.
+Resolve the linked document and remaining review decisions before continuing.,عالج المستند المرتبط وقرارات المراجعة المتبقية قبل المتابعة.
+Resolve the movement's remaining review decision before posting.,عالج قرار المراجعة المتبقي للحركة قبل الترحيل.
+Retention without its invoice,استقطاع ضمان بلا فاتورته
+Review funding received,راجع التمويل المستلَم
+Review possible closure,راجع احتمال الإقفال
+SNB financing,تمويل SNB
+Select a valid country for the new Customer.,اختر دولة صالحة للعميل الجديد.
+Select an enabled party.,اختر طرفًا مفعّلاً.
+Select between 1 and 100 movements.,اختر من 1 إلى 100 حركة.
+Select between one and 100 previewed counterparties.,اختر من 1 إلى 100 طرف مقابل تمت معاينته.
+Send between 1 and 100 movements per request.,أرسل من 1 إلى 100 حركة في الطلب الواحد.
+Send up to 500 beneficiaries per request.,أرسل حتى 500 مستفيد في الطلب الواحد.
+Separate refunds of financing costs,استردادات منفصلة لتكاليف التمويل
+Settlement recorded,تم تسجيل التسوية
+Show more,عرض المزيد
+Similar receipt exists,يوجد مقبوض مشابه
+State,الحالة
+TAWAL cleared payment {0},دفعة توال المحصَّلة {0}
+Tawal,توال
+That document was not offered for this movement.,لم يُعرض هذا المستند لهذه الحركة.
+The Employee custody account changed since the legacy decision.,تغيّر حساب عهدة الموظف منذ القرار السابق.
+The bank account is not configured for this movement.,الحساب البنكي غير مضبوط لهذه الحركة.
+The created document still needs review.,المستند الذي أُنشئ ما زال يحتاج مراجعة.
+The draft changed after review. Preview it again.,تغيّرت المسودة بعد المراجعة. عاينها مرة أخرى.
+The draft could not be created. Review the movement and its error details.,تعذّر إنشاء المسودة. راجع الحركة وتفاصيل الخطأ.
+The draft has an unsupported party type.,نوع الطرف في المسودة غير مدعوم.
+The draft no longer contains the selected invoice or order.,المسودة لم تعد تتضمن الفاتورة أو الأمر المختار.
+The draft no longer matches the confirmed Employee petty-cash funding.,المسودة لم تعد تطابق تمويل العهدة النقدية المؤكد للموظف.
+The draft no longer matches this movement's bank account and amount.,المسودة لم تعد تطابق الحساب البنكي ومبلغ هذه الحركة.
+The draft no longer uses the selected account.,المسودة لم تعد تستخدم الحساب المختار.
+The draft party does not match the reviewed counterparty.,طرف المسودة لا يطابق الطرف المقابل الذي روجع.
+The fee journal no longer matches the bank charges.,قيد الرسوم لم يعد يطابق الرسوم البنكية.
+The journal contains additional bank lines. Review the entry before posting.,يحتوي القيد على أسطر بنكية إضافية. راجع القيد قبل الترحيل.
+The journal does not include all related bank fee lines.,لا يتضمن القيد كل أسطر الرسوم البنكية المرتبطة.
+The linked document is not a draft. Refresh and review the movement.,المستند المرتبط ليس مسودة. حدّث الصفحة وراجع الحركة.
+The linked document still exists. Review it before unlinking.,المستند المرتبط ما زال موجودًا. راجعه قبل فك الربط.
+The linked entry belongs to a different company.,القيد المرتبط يخص شركة مختلفة.
+The linked entry is no longer a draft. Refresh the movement.,القيد المرتبط لم يعد مسودة. حدّث الحركة.
+The movement still needs review before a draft can be created.,الحركة ما زالت تحتاج مراجعة قبل إنشاء المسودة.
+The other bank leg is missing. Review the transfer.,الطرف البنكي الآخر مفقود. راجع التحويل.
+The paired bank leg no longer matches this transfer draft.,الطرف البنكي المقابل لم يعد يطابق مسودة التحويل.
+The paired movements must have opposite directions.,يجب أن تكون الحركتان المقترنتان باتجاهين متعاكسين.
+The paired movements must have the same SAR amount.,يجب أن تكون الحركتان المقترنتان بالمبلغ نفسه بالريال السعودي.
+The proposed accounts changed. Refresh and review them again.,تغيّرت الحسابات المقترحة. حدّث الصفحة وراجعها مرة أخرى.
+The proposed accounts changed. Review them again.,تغيّرت الحسابات المقترحة. راجعها مرة أخرى.
+The related fee draft could not be created. No payment draft was saved.,تعذّر إنشاء مسودة الرسوم المرتبطة. لم تُحفظ أي مسودة دفع.
+The related fee journal is missing. Review fees before posting.,قيد الرسوم المرتبط مفقود. راجع الرسوم قبل الترحيل.
+The related fee journal is not valid for this company.,قيد الرسوم المرتبط غير صالح لهذه الشركة.
+The related fees changed. Refresh and review them again.,تغيّرت الرسوم المرتبطة. حدّث الصفحة وراجعها مرة أخرى.
+The replacement draft could not be created. The original draft was restored; review the movement and try again.,تعذّر إنشاء المسودة البديلة. أُعيدت المسودة الأصلية؛ راجع الحركة وحاول مرة أخرى.
+The route does not match the movement direction.,المسار لا يطابق اتجاه الحركة.
+The selected reference has no outstanding amount.,المرجع المختار ليس عليه مبلغ متبقٍ.
+The selected route and accounting treatment do not match.,المسار المختار والمعالجة المحاسبية غير متطابقين.
+The transfer no longer has one unique opposite bank leg.,لم يعد للتحويل طرف بنكي مقابل واحد فريد.
+This Payment Entry has invoice or order allocations. Review them before changing its document type.,لهذا السند توزيعات على فواتير أو أوامر. راجعها قبل تغيير نوع المستند.
+This bank hint is already linked to another counterparty; review the conflict before changing it.,هذا المؤشر البنكي مرتبط بطرف مقابل آخر؛ راجع التعارض قبل تغييره.
+This beneficiary already has a different Employee or custody account. Resolve the ownership conflict first.,لهذا المستفيد موظف أو حساب عهدة مختلف بالفعل. عالج تعارض الملكية أولاً.
+This beneficiary already has a different custody account. Review the account ownership first.,لهذا المستفيد حساب عهدة مختلف بالفعل. راجع ملكية الحساب أولاً.
+This beneficiary is linked to an Employee. Review the ownership before changing its custody treatment.,هذا المستفيد مرتبط بموظف. راجع الملكية قبل تغيير معالجة عهدته.
+This document is already linked to another movement. Refresh and review the match.,هذا المستند مرتبط بحركة أخرى بالفعل. حدّث الصفحة وراجع المطابقة.
+This draft has invoice or order allocations. Review them before changing its party.,لهذه المسودة توزيعات على فواتير أو أوامر. راجعها قبل تغيير الطرف.
+This linked draft does not carry this movement's router marker; it has been kept.,هذه المسودة المرتبطة لا تحمل علامة الموجّه لهذه الحركة؛ وقد أُبقيت كما هي.
+This movement already has a linked counterparty. Review or clear that route before changing it.,لهذه الحركة طرف مقابل مرتبط بالفعل. راجع ذلك المسار أو امسحه قبل التغيير.
+This movement changed since you opened it. Refresh and try again.,تغيّرت هذه الحركة منذ فتحتها. حدّث الصفحة وحاول مرة أخرى.
+This movement changed. Refresh and review it again.,تغيّرت هذه الحركة. حدّث الصفحة وراجعها مرة أخرى.
+This movement changed. Refresh and try again.,تغيّرت هذه الحركة. حدّث الصفحة وحاول مرة أخرى.
+This movement could not be classified as petty cash; no designation was saved.,تعذّر تصنيف هذه الحركة كعهدة نقدية؛ لم يُحفظ أي تخصيص.
+This movement does not have a unique paired company-bank transfer.,ليس لهذه الحركة تحويل مقترن فريد بين حسابات الشركة البنكية.
+This movement has an existing draft. Review invoice allocations on that Payment Entry before changing its route.,لهذه الحركة مسودة قائمة. راجع توزيعات الفواتير في سند الدفع ذلك قبل تغيير المسار.
+This movement has no linked document.,ليس لهذه الحركة مستند مرتبط.
+This movement has no supported linked accounting document.,ليس لهذه الحركة مستند محاسبي مرتبط مدعوم.
+This movement has no supported linked document.,ليس لهذه الحركة مستند مرتبط مدعوم.
+This movement has no supported linked draft.,ليس لهذه الحركة مسودة مرتبطة مدعومة.
+"This movement is held for its specialist, petty-cash, own-transfer, or fee workflow.",هذه الحركة محجوزة لمسارها الخاص: متخصص أو عهدة نقدية أو تحويل ذاتي أو رسوم.
+This movement is no longer ready for confirmation.,لم تعد هذه الحركة جاهزة للتأكيد.
+This payee is a company account. Review its ownership before assigning an Employee.,هذا المستفيد حساب يخص الشركة. راجع ملكيته قبل تعيين موظف.
+This payee is already linked to a different owner or Employee.,هذا المستفيد مرتبط بالفعل بمالك أو موظف مختلف.
+Total cost,إجمالي التكلفة
+Two ERP invoices share this number,فاتورتان في النظام تحملان هذا الرقم
+Two bank credits fit,إيداعان بنكيان يطابقان
+Unable to load financing evidence.,تعذّر تحميل إثباتات التمويل.
+Unavailable,غير متاح
+Unknown bank.,بنك غير معروف.
+Unknown phase.,مرحلة غير معروفة.
+Unknown tab.,تبويب غير معروف.
+Unknown type.,نوع غير معروف.
+Use this Employee,استخدم هذا الموظف
+Voided,ملغاة
+Waiting for bank,بانتظار البنك
+Waiting for the bank,بانتظار البنك
+"You cannot create a new {0}. Ask an Accounts Manager, or choose an existing one.",لا يمكنك إنشاء {0} جديد. اطلب من مدير الحسابات، أو اختر موجودًا.
+You cannot create the selected {0} draft.,لا يمكنك إنشاء مسودة {0} المختارة.
+You do not have permission for bank movement review.,ليست لديك صلاحية مراجعة الحركات البنكية.
+You do not have permission to search this party type.,ليست لديك صلاحية البحث في هذا النوع من الأطراف.
+You need permission to create a Journal Entry.,تحتاج صلاحية إنشاء قيد يومية.
+You need permission to create the selected document.,تحتاج صلاحية إنشاء المستند المختار.
+You need permission to read the counterparty registry.,تحتاج صلاحية قراءة سجل الأطراف المقابلة.
+You need permission to read the linked document type.,تحتاج صلاحية قراءة نوع المستند المرتبط.
+You need permission to submit a Journal Entry.,تحتاج صلاحية ترحيل قيد يومية.
+You need permission to submit the selected document.,تحتاج صلاحية ترحيل المستند المختار.
+You need read access to check existing {0} records before creating one.,تحتاج صلاحية القراءة للتحقق من سجلات {0} الموجودة قبل الإنشاء.
+named in bank text,مذكور في نص البنك
+off,متوقف
+on from,يعمل من
+{0} already exists: {1}. Select it instead.,{0} موجود بالفعل: {1}. اخترْه بدلاً من ذلك.
+"{0} drafts created, {1} skipped",تم إنشاء {0} مسودة، وتخطي {1}
+SNB,البنك الأهلي (SNB)
+Alinma,الإنماء
+Draft made by the router,مسودة أنشأها الموجّه
+Linked by a reviewer,ربطها مراجع
+Matched in the ledger,طُوبقت في دفتر الأستاذ
+Router marker,علامة الموجّه
+Sheet Am link,رابط ورقة Am
+Own-transfer pair,زوج تحويل ذاتي
+Clear Link,مسح الربط
+Manual drafting requires exactly one reviewed movement.,يتطلب إنشاء المسودة اليدوي حركة واحدة تمت مراجعتها بالضبط.
