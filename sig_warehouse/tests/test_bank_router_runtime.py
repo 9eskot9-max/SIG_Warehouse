@@ -247,6 +247,8 @@ def test_petty_cash_draft_rechecks_custody_before_inserting(runtime, monkeypatch
     module, frappe = runtime
     funding = types.ModuleType("sig_warehouse.sig_warehouse.pc_funding")
     funding._active_employee = lambda employee, company: "ACTUAL-CUSTODY"
+    funding.FINANCE_ROLES = {"Accounts User"}
+    frappe.get_roles = lambda: []
     monkeypatch.setitem(sys.modules, funding.__name__, funding)
     employee = types.SimpleNamespace(check_permission=lambda permission: None)
     created = []
@@ -263,6 +265,8 @@ def test_reviewed_petty_cash_draft_contains_employee_and_statement_key(runtime, 
     module, frappe = runtime
     funding = types.ModuleType("sig_warehouse.sig_warehouse.pc_funding")
     funding._active_employee = lambda employee, company: "CUSTODY"
+    funding.FINANCE_ROLES = {"Accounts User"}
+    frappe.get_roles = lambda: []
     monkeypatch.setitem(sys.modules, funding.__name__, funding)
     inserted = []
     employee = types.SimpleNamespace(check_permission=lambda permission: None)
@@ -281,6 +285,35 @@ def test_reviewed_petty_cash_draft_contains_employee_and_statement_key(runtime, 
     assert ctx.create("PETTY_CASH", mv, {"employee": "EMP-1", "custody_account": "CUSTODY", "label": "Employee"}, []) == ("Journal Entry", "JV-NEW")
     assert inserted[0]["custom_pc_employee"] == "EMP-1" and inserted[0]["custom_pc_top_up"] == 1
     assert inserted[0]["custom_pc_statement_key"] == "BANK-KEY" and len(registrations) == 1
+
+
+@pytest.mark.parametrize("roles, allowed", [(["Accounts User"], True), (["Operations User"], False)])
+def test_petty_cash_draft_needs_finance_or_employee_read(runtime, monkeypatch, roles, allowed):
+    """Finance without HR Employee read can fund the confirmed Employee (PERM-20261111-01); others still need Employee read."""
+    module, frappe = runtime
+    funding = types.ModuleType("sig_warehouse.sig_warehouse.pc_funding")
+    funding._active_employee = lambda employee, company: "CUSTODY"
+    funding.FINANCE_ROLES = {"System Manager", "Accounts User", "Accounts Manager"}
+    frappe.get_roles = lambda: roles
+    monkeypatch.setitem(sys.modules, funding.__name__, funding)
+    def denied(permission):
+        raise PermissionError("No permission for Employee")
+    def get_doc(*args):
+        if args[0] == "Employee":
+            return types.SimpleNamespace(check_permission=denied)
+        return types.SimpleNamespace(name="JV-NEW", insert=lambda: None)
+    frappe.get_doc = get_doc
+    ctx = module.Context.__new__(module.Context)
+    ctx.settings = types.SimpleNamespace(scopes={"scope": "BANK"}, draft_fees=False, fee_account="Fees", vat_account="VAT")
+    ctx._existing = lambda *args: None
+    ctx.ledger = types.SimpleNamespace(register=lambda *args: None)
+    mv = {"key": "K", "amount": -1000, "date": "2026-11-19", "scope": "scope", "source": {}}
+    target = {"employee": "EMP-1", "custody_account": "CUSTODY", "label": "Employee"}
+    if allowed:
+        assert ctx.create("PETTY_CASH", mv, target, []) == ("Journal Entry", "JV-NEW")
+    else:
+        with pytest.raises(PermissionError):
+            ctx.create("PETTY_CASH", mv, target, [])
 
 
 def test_explicit_nonemployee_custody_draft_has_no_employee_funding_designation(runtime, monkeypatch):

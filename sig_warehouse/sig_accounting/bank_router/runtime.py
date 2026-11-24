@@ -279,8 +279,10 @@ class Context:
         if kind == "PETTY_CASH":
             employee, custody = target.get("employee"), target.get("custody_account")
             if employee:
-                from sig_warehouse.sig_warehouse.pc_funding import _active_employee
-                frappe.get_doc("Employee", employee).check_permission("read")
+                from sig_warehouse.sig_warehouse.pc_funding import FINANCE_ROLES, _active_employee
+                # Finance funds the payee's confirmed Employee without HR read access, as the card already shows it (PERM case below).
+                if not set(frappe.get_roles()).intersection(FINANCE_ROLES):
+                    frappe.get_doc("Employee", employee).check_permission("read")
                 if _active_employee(employee, documents.COMPANY) != custody:
                     raise ValueError("The Employee custody account changed; review the movement again.")
             else:
