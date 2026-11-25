@@ -30,6 +30,21 @@ def add_option(options, value):
 
 
 def execute():
+    script = "register_evidence_event"
+    if not frappe.db.exists("Server Script", script):
+        frappe.throw("Cannot store the TCN visit type: register_evidence_event is missing.")
+    original = frappe.db.get_value("Server Script", script, "script") or ""
+    try:
+        source = rewrite(original)
+    except ValueError as error:
+        frappe.throw(str(error))
+
+    # Validate metadata before inserting the Custom Field, which can change the schema.
+    row = frappe.db.get_value("DocField", {"parent": "SIG Field Visit", "fieldname": "activity_code"},
+                              ["name", "fieldtype", "options"], as_dict=True)
+    if not row or row.fieldtype != "Select":
+        frappe.throw("SIG Field Visit.activity_code is not the expected Select; review before migration.")
+
     name = frappe.db.get_value("Custom Field", {"dt": FIELD["dt"], "fieldname": FIELD["fieldname"]}, "name")
     if name:
         if frappe.db.get_value("Custom Field", name, "fieldtype") != FIELD["fieldtype"]:
@@ -38,19 +53,10 @@ def execute():
         frappe.get_doc(dict(FIELD, doctype="Custom Field")).insert(ignore_permissions=True)
 
     # SIG Field Visit is a site-owned DocType (custom=1), so its DocField is the source to change.
-    row = frappe.db.get_value("DocField", {"parent": "SIG Field Visit", "fieldname": "activity_code"},
-                              ["name", "fieldtype", "options"], as_dict=True)
-    if not row or row.fieldtype != "Select":
-        frappe.throw("SIG Field Visit.activity_code is not the expected Select; review before migration.")
-    frappe.db.set_value("DocField", row.name, "options", add_option(row.options, "PAT"), update_modified=False)
-
-    script = "register_evidence_event"
-    if not frappe.db.exists("Server Script", script):
-        frappe.throw("Cannot store the TCN visit type: register_evidence_event is missing.")
-    try:
-        source = rewrite(frappe.db.get_value("Server Script", script, "script") or "")
-    except ValueError as error:
-        frappe.throw(str(error))
-    frappe.db.set_value("Server Script", script, "script", source)
+    options = add_option(row.options, "PAT")
+    if options != row.options:
+        frappe.db.set_value("DocField", row.name, "options", options, update_modified=False)
+    if source != original:
+        frappe.db.set_value("Server Script", script, "script", source)
     for doctype in ("SIG Evidence Event", "SIG Field Visit"):
         frappe.clear_cache(doctype=doctype)

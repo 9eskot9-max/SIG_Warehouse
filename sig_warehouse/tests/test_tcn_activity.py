@@ -79,3 +79,49 @@ def test_resolve_accepts_tcn_created_long_before_planned_window(monkeypatch):
                                 tcn_window_start="2026-11-01", tcn_window_end="2026-11-02")]
     monkeypatch.setitem(sys.modules, "frappe", types.SimpleNamespace(get_all=get_all))
     assert ta.resolve("SITE1", "2026-11-01 10:00:00") == ("PAT", "PAT", "")
+
+
+def test_migration_checks_script_and_metadata_before_writing(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    import pytest
+
+    writes = []
+    script = "missing anchor"
+    fieldtype = "Data"
+
+    def get_value(doctype, *args, **kwargs):
+        if doctype == "Server Script":
+            return script
+        if doctype == "DocField":
+            return SimpleNamespace(name="activity", fieldtype=fieldtype, options="INSTALL")
+        return None
+
+    def throw(message):
+        raise ValueError(message)
+
+    fake = SimpleNamespace(
+        db=SimpleNamespace(exists=lambda *args: True, get_value=get_value,
+                           set_value=lambda *args, **kwargs: writes.append(args)),
+        get_doc=lambda doc: SimpleNamespace(insert=lambda **kwargs: writes.append(doc)),
+        clear_cache=lambda **kwargs: None,
+        throw=throw,
+    )
+    monkeypatch.setitem(sys.modules, "frappe", fake)
+    patch = _load("tcn_patch_preflight", "sig_warehouse", "patches", "v1_0", "tcn_visit_type_20261125.py")
+
+    with pytest.raises(ValueError, match="anchor"):
+        patch.execute()
+    assert writes == []
+
+    script = patch.ANCHOR
+    with pytest.raises(ValueError, match="Select"):
+        patch.execute()
+    assert writes == []
+
+    fieldtype = "Select"
+    patch.execute()
+    assert writes[0]["fieldname"] == "planned_activity"
+    assert writes[1] == ("DocField", "activity", "options", "INSTALL\nPAT")
+    assert patch.MARKER in writes[2][3]
