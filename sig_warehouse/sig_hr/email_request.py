@@ -50,9 +50,9 @@ def _recently_asked(employee):
     })
 
 
-def _send_text(settings, to_number):
+def _send_text(settings, to_number, text=REQUEST_TEXT):
     from sig_whatsapp.maytapi import _post
-    result = _post(settings, {"to_number": to_number, "type": "text", "message": REQUEST_TEXT})
+    result = _post(settings, {"to_number": to_number, "type": "text", "message": text})
     if not 200 <= int(result.get("status", 0)) < 300:
         raise frappe.ValidationError(_("Maytapi returned HTTP {0}.").format(result.get("status")))
     try:
