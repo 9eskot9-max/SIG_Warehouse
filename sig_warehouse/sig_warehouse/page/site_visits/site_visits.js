@@ -77,7 +77,7 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
         });
     }
 
-    const ACTIVITIES = ['UNSPECIFIED', 'SURVEY', 'INSTALL', 'HANDOVER', 'WARRANTY', 'DISMANTLE', 'SNAG'];
+    const ACTIVITIES = ['UNSPECIFIED', 'SURVEY', 'INSTALL', 'HANDOVER', 'WARRANTY', 'DISMANTLE', 'SNAG', 'PAT'];
 
     function call(method, args, freeze_message) {
         return new Promise((resolve) => {
