@@ -81,3 +81,4 @@ sig_warehouse.sig_warehouse.patches.v1_0.ops_setup_hub_20261124
 sig_warehouse.sig_warehouse.patches.v1_0.close_cycles_of_submitted_tawal_invoices
 sig_warehouse.sig_warehouse.patches.v1_0.clear_default_employee_on_counterparties_20261124
 sig_warehouse.sig_warehouse.patches.v1_0.tawal_active_tick_20261125
+sig_warehouse.sig_warehouse.patches.v1_0.tcn_visit_type_20261125

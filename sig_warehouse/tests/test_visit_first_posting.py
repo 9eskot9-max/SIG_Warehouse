@@ -19,9 +19,10 @@ class Doc(SimpleNamespace):
         return getattr(self, key, default)
 
 
-def feed_with(session, sites=("ZRW957",), writer=None, visits=None):
+def feed_with(session, sites=("ZRW957",), writer=None, visits=None, tcns=()):
     fake = ModuleType("frappe")
     fake.whitelist = lambda: lambda fn: fn
+    fake.get_all = lambda doctype, **kwargs: [Doc(**t) for t in tcns] if doctype == "SIG Evidence Event" else []
     sys.modules["frappe"] = fake
     feed = load("feed_visit_first", ROOT / "field_feed.py")
     visits = {} if visits is None else visits
@@ -83,6 +84,18 @@ def test_auto_closed_session_is_posted_as_auto_closed_visit():
     assert feed.post_session(s.name)["result"] == "created"
     assert calls[0]["status"] == "AUTO_CLOSED" and "START_WITHOUT_END" in calls[0]["diagnostic"]
     assert s.posted == 1 and s.disposition == "POSTED"
+
+
+def test_untyped_visit_takes_the_tcn_type_and_a_typed_one_keeps_its_own():
+    pat = {"planned_activity": "PAT", "occurred_at": "2026-11-11 00:00:00", "tcn_window_start": None, "tcn_window_end": None}
+    s = session()
+    feed, _writes, _inserted, calls, _visits = feed_with(s, tcns=[pat])
+    feed.post_session(s.name)
+    assert calls[0]["activity_code"] == "PAT" and calls[0]["scope"] == "PAT" and s.activity_code == "PAT"
+    typed = session(activity_code="HANDOVER")
+    feed, _writes, _inserted, calls, _visits = feed_with(typed, tcns=[pat])
+    feed.post_session(typed.name)
+    assert calls[0]["activity_code"] == "HANDOVER"
 
 
 def test_open_session_is_not_posted():

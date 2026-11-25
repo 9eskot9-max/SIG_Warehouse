@@ -241,6 +241,8 @@ def post_session(name, force=False, cycle_hint=None):
     now = fs.fmt(_now())
     event_id = _batch_id(s.name) + "-000001"
     end_at = s.end_at or s.start_at
+    if (s.activity_code or "UNSPECIFIED") in ("UNSPECIFIED", "UNRESOLVED") and not getattr(s, "corrected_by", None):
+        _label_from_tcn(s)
     payload = {
         "event_code": "FIELD_VISIT_COMPLETED", "site_id": s.site_key, "site_key": s.site_key,
         "occurred_at": str(end_at)[:19], "recorded_at": now, "project": STREAM_PROJECT.get(s.stream, s.stream),
@@ -250,6 +252,7 @@ def post_session(name, force=False, cycle_hint=None):
         "status": "AUTO_CLOSED" if s.status == "AUTO_CLOSED" else "COMPLETED", "start_at": str(s.start_at)[:19],
         "end_at": str(end_at)[:19], "duration_hours": s.hours or 0, "reporter": s.reporter,
         "reporter_name": who or s.reporter_name, "activity_code": s.activity_code or "UNSPECIFIED",
+        "scope": getattr(s, "scope", None) or "",
         "photo_count": s.photo_count or 0, "visit_ordinal": 0, "diagnostic": s.diagnostics or "",
     }
     if unallocated:
@@ -281,6 +284,21 @@ def post_session(name, force=False, cycle_hint=None):
     frappe.db.set_value("SIG Field Session", s.name, values, update_modified=False)
     frappe.db.commit()
     return {"result": res.get("result") or "created", "site_created": created_site, "cycle": cycle}
+
+
+def _label_from_tcn(s):
+    """Fill the visit type from the site's TCN (TCN-MDT column I) when the leader typed none."""
+    from sig_warehouse.sig_warehouse import tcn_activity
+    activity, scope, note = tcn_activity.resolve(s.site_key, s.start_at)
+    diagnostics = [d for d in (s.diagnostics or "").split(",") if d and not d.startswith("TCN_ACTIVITY_")]
+    if note:
+        diagnostics.append(note)
+    values = {"diagnostics": ",".join(diagnostics)}
+    if activity:
+        values.update(activity_code=activity, scope=scope)
+    frappe.db.set_value("SIG Field Session", s.name, values, update_modified=False)
+    for key, value in values.items():
+        setattr(s, key, value)
 
 
 def _record_unallocated(s, who, payload, reason):
