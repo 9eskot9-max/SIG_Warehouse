@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 
 INSTALL_CODES = {"FF", "HVAC", "DC", "MODULE", "BB", "LIFELOADDC", "LIVELOADDC", "LDP", "CIVIL", "CB"}
 SLACK_DAYS = 1
-LOOKAROUND_DAYS = 30
 
 
 def category(code):
@@ -57,10 +56,9 @@ def resolve(site_key, start_at):
     """Live lookup for one visit. -> (activity, scope, note)."""
     import frappe
     day = _day(start_at)
-    around = [str(day - timedelta(days=LOOKAROUND_DAYS)), str(day + timedelta(days=LOOKAROUND_DAYS)) + " 23:59:59"]
     rows = frappe.get_all("SIG Evidence Event",
                           filters={"event_code": "TCN_GENERATED", "site_key": site_key,
-                                   "planned_activity": ["is", "set"], "occurred_at": ["between", around]},
+                                   "planned_activity": ["is", "set"]},
                           fields=["planned_activity", "occurred_at", "tcn_window_start", "tcn_window_end"],
                           limit_page_length=0)
     return match([{"activity": r.planned_activity, "start": r.tcn_window_start or r.occurred_at,

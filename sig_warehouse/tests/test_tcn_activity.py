@@ -67,3 +67,15 @@ def test_patch_rewrite_is_idempotent_and_adds_option():
     assert patch.MARKER in once and patch.rewrite(once) == once
     assert patch.add_option("\nINSTALL\nUNSPECIFIED", "PAT") == "\nINSTALL\nUNSPECIFIED\nPAT"
     assert patch.add_option("\nPAT", "PAT") == "\nPAT"
+
+
+def test_resolve_accepts_tcn_created_long_before_planned_window(monkeypatch):
+    import sys
+    import types
+    from types import SimpleNamespace
+    def get_all(doctype, filters, fields, limit_page_length):
+        assert "occurred_at" not in filters
+        return [SimpleNamespace(planned_activity="PAT", occurred_at="2026-01-01 00:00:00",
+                                tcn_window_start="2026-11-01", tcn_window_end="2026-11-02")]
+    monkeypatch.setitem(sys.modules, "frappe", types.SimpleNamespace(get_all=get_all))
+    assert ta.resolve("SITE1", "2026-11-01 10:00:00") == ("PAT", "PAT", "")
