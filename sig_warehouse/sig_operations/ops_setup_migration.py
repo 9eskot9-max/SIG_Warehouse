@@ -8,7 +8,7 @@ never guessed.
 """
 import copy
 
-from sig_warehouse.sig_operations.excel_setup_contract import FIELDS
+from sig_warehouse.sig_operations.excel_setup_contract import FIELDS, family_key
 
 # The hard-coded roster this migration replaces: (family, role) -> names.
 ROSTER = {
@@ -65,3 +65,36 @@ def migrate(stored, names, warehouse_employees, today):
         if (row["employee"], team_names.get(team)) in legacy_teams:
             row["effective_from"] = OPEN_START
     return out
+
+
+# Old TAWAL PMs per family, taken from the legacy Builder contact rows and PM assignments
+# (ERPNext/backups/ops_setup_legacy_20261124). Added unticked so one click re-activates them.
+OLD_TAWAL_PMS = {
+    "Capex": ("Muhammad Jawad Khan", "Ahmad Bahammam"),
+    "Incident": ("Turki Aljaber", "Ahmad Bahammam"),
+    "5G / Colocation": ("Hisham AwadAmeen Abas", "Mohammed Alzebak", "Abdulrhman A Mahmoud", "Muhanned Abusummah"),
+}
+
+
+def tawal_active_tick(rows, contact_ids_by_name, today):
+    """Turn dated family rows into one Active tick per family and add the old PMs unticked.
+
+    `rows` are the stored rows (with effective_from / effective_to). A row stays Active only if it
+    was in effect today; a family and contact appear once.
+    """
+    out = {}
+    for row in rows:
+        family = "5G / Colocation" if row.get("family") == "Colocation" else row.get("family")
+        start, end = str(row.get("effective_from") or "")[:10], str(row.get("effective_to") or "")[:10]
+        active = bool(row.get("enabled", True)) and (not start or start <= today) and (not end or today <= end)
+        key = (family_key(family), row.get("tawal_contact"))
+        if key not in out or active:
+            out[key] = {"id": row["id"], "family": family, "tawal_contact": row.get("tawal_contact"), "enabled": active}
+    for family, names in OLD_TAWAL_PMS.items():
+        for name in names:
+            contact = contact_ids_by_name.get(_norm(name))
+            key = (family_key(family), contact)
+            if contact and key not in out:
+                slug = "".join(ch if ch.isalnum() else "-" for ch in _norm(family + " " + name))
+                out[key] = {"id": "tawal-old-" + slug, "family": family, "tawal_contact": contact, "enabled": False}
+    return list(out.values())

@@ -3,7 +3,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
     const method = 'sig_warehouse.sig_operations.excel_setup.';
     const poSetupMethod = 'sig_warehouse.sig_operations.excel_setup_v3.';
     const root = $('<div class="sig-excel-setup"></div>').appendTo(page.main);
-    let state, poState = null, selected = 'family_tawal_defaults', dirty = false, peopleState = null, routingState = null, routingDirty = false, poSetupButton = null;
+    let state, poState = null, selected = 'family_tawal_defaults', dirty = false, peopleState = null, routingState = null, routingDirty = false, poSetupButton = null, directoryButton = null;
     const peopleLabels = {employees: __('Employees'), pc_routing: __('Employee petty cash routing'), project_assignments: __('Employee project assignments'), reporter_maps: __('Field reporter mappings'), candidates: __('Candidate onboarding'), onboarding: __('Employee onboarding checks')};
     const labels = {projects: __('Projects in workbook sync'), family_tawal_defaults: __('TAWAL PM by family'),
         ops_team_members: __('Operations team (PM, coordinator, Warehouse)'), operational_teams: __('Field crews'), team_memberships: __('Crew leader and members (dated)'),
@@ -105,10 +105,9 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
     const render = () => {
         root.attr('dir', frappe.boot.lang === 'ar' ? 'rtl' : 'ltr');
         if (page.btn_primary) page.btn_primary.text(setupGroupFor(selected).publish);
-        if (poSetupButton) {
-            if (typeof poSetupButton.toggle === 'function') poSetupButton.toggle(selected === 'projects');
-            else $(poSetupButton).toggle(selected === 'projects');
-        }
+        // Both buttons belong to the Projects and TAWAL PM area.
+        const inProjects = setupGroupFor(selected).key === 'projects';
+        [poSetupButton, directoryButton].forEach(button => { if (button) $(button).toggle(inProjects); });
         if (selected.startsWith('people:')) {
             const key = selected.slice(7), result = peopleState, group = setupGroupFor(selected);
             if (key === 'pc_routing') {
@@ -138,7 +137,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
             tag_upl_links: __('Link each Tags item to its UPL code; UPL descriptions and the detailed mapping are maintained in Mapping Master Excel. Use the optional qualifier only for a matching Tags sheet description. Blank PO and revision mean a shared rule; a PO-specific rule can replace shared links for that Tags item, so review all its codes.'),
             material_upl_links: __('Link warehouse items to UPL codes for AsBuilt. Direct 1:1 requires matching units; use Manual for review and Excluded for reviewed items with no link. Blank PO and revision mean a shared rule.'),
             builder_defaults: __('RV80 TCN purpose/reason, wording and implementer defaults. MOP template choice follows PO family in the workbook.'),
-            family_tawal_defaults: __('The client TAWAL PM used for every PO of a family during its dates. To change the PM from a date, end the current row the day before and add a new row. This is not the internal SIG project manager.'),
+            family_tawal_defaults: __('The ticked row is the client TAWAL PM for every PO of that family. To change PM, tick another row (the previous one unticks itself) and publish. Keep unticked rows to switch back later. Every change is in the revision history. Ticks do not limit the RV80 TCN batch prompt: for a one-off PM it lists every Active contact in the TAWAL contact directory. This is not the internal SIG project manager.'),
             operational_teams: __('Enabled crews appear in the Field Planner with their current leader. "No-visit message" includes the leader in the daily no-visit message.'),
             team_memberships: __('Crew leader and members with dates. Cover a leader on leave by ending their row and adding the cover; a crew needs exactly one active leader.'),
             ops_team_members: __('Role pm / coordinator / warehouse. Leave Project blank for the family team; a Project row replaces that role in the family team for that Project. Warehouse owners have no family. "Weekly PM check" applies to PMs only.'),
@@ -159,7 +158,7 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
             '<button class="btn btn-default es-history">' + __('Revision history') + '</button></div>' +
             '<p class="es-group-note">' + esc(group.description) + '</p>' +
             '<p class="text-muted">' + esc(note) + '</p>' +
-            '<div class="es-scroll"><table class="table table-bordered"><thead><tr>' + fields.map(f => '<th>' + esc(__(fieldLabels[f] || f)) + '</th>').join('') +
+            '<div class="es-scroll"><table class="table table-bordered"><thead><tr>' + fields.map(f => '<th>' + esc(__(selected === 'family_tawal_defaults' && f === 'enabled' ? 'Active' : (fieldLabels[f] || f))) + '</th>').join('') +
             (po ? '<th>' + esc(__('Family (from ERP Project)')) + '</th><th>' + esc(__('TAWAL PM now')) + '</th>' : '') +
             '</tr></thead><tbody>' + rows.map((row, i) => '<tr>' + fields.map(f => '<td>' +
                 (booleans.includes(f) ? '<input type="checkbox" data-row="' + i + '" data-field="' + f + '" ' + (row[f] ? 'checked' : '') + '>' :
@@ -173,6 +172,8 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
     };
     const load = async () => {
         state = await call('get_page_state');
+        const contactLabel = id => ((state.references.contacts || []).find(c => c.name === id) || {}).full_name || id;
+        (state.datasets.family_tawal_defaults || []).sort((a, b) => a.family.localeCompare(b.family) || (b.enabled - a.enabled) || contactLabel(a.tawal_contact).localeCompare(contactLabel(b.tawal_contact)));
         poState = await callPoSetup('get_po_setup_state').catch(() => null);
         if (selected === 'people:pc_routing') routingState = (await frappe.call({method: 'sig_warehouse.sig_operations.people_routing.get_state', freeze: true})).message;
         else if (selected.startsWith('people:')) peopleState = (await frappe.call({method: 'sig_warehouse.sig_operations.people_setup.get_section', args: {section: selected.slice(7)}, freeze: true})).message;
@@ -296,6 +297,12 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
     root.on('input change', '[data-field]:not(.es-lookup)', function (event) {
         const row = state.datasets[selected][Number(this.dataset.row)], field = this.dataset.field;
         row[field] = this.type === 'checkbox' ? this.checked : this.value;
+        if (selected === 'family_tawal_defaults' && (field === 'enabled' || field === 'family') && row.enabled) {
+            // One Active PM per family: ticking a row unticks the family's others.
+            const familyKey = value => value === 'Colocation' ? '5G / Colocation' : value;
+            state.datasets[selected].forEach(other => { if (other !== row && familyKey(other.family) === familyKey(row.family)) other.enabled = false; });
+            render();
+        }
         dirty = true;
     });
     root.on('focus', '.es-lookup-input', function () { openLookup(this, true); });
@@ -316,7 +323,8 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         window.setTimeout(() => { if (!box.isConnected) return; this.value = displayValue(box.dataset.refType, row[box.dataset.field] || ''); menu.hidden = true; this.setAttribute('aria-expanded', 'false'); }, 120);
     });
     root.on('click', '.es-add', () => {
-        const row = Object.fromEntries(state.fields[selected].map(f => [f, f === 'enabled' ? true : '']));
+        // A new TAWAL PM row starts inactive so adding it never changes who is on TCN.
+        const row = Object.fromEntries(state.fields[selected].map(f => [f, f === 'enabled' ? selected !== 'family_tawal_defaults' : '']));
         row.id = crypto.randomUUID(); state.datasets[selected].push(row); dirty = true; render();
     });
     root.on('click', '.es-history', async () => {
@@ -360,6 +368,8 @@ frappe.pages['excel-setup'].on_page_load = function (wrapper) {
         frappe.show_alert({message: __('Excel setup published'), indicator: 'green'});
     });
     page.add_inner_button(__('Reload'), () => { if (dirty || routingDirty) frappe.confirm(__('Discard unsaved edits?'), load); else load(); });
+    // The directory decides who can be picked by hand in the RV80 TCN batch prompt (every Active contact).
+    directoryButton = page.add_inner_button(__('TAWAL contact directory'), () => frappe.set_route('List', 'SIG TAWAL Contact'));
     poSetupButton = page.add_inner_button(__('PO workbook labels'), async () => {
         if (dirty) { frappe.msgprint(__('Publish or reload your setup edits first.')); return; }
         try {

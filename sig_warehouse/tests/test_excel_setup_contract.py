@@ -269,7 +269,8 @@ def test_crew_flags_default_and_overlapping_leaders_are_rejected():
 
 def test_setup_warnings_name_what_would_be_silently_skipped():
     datasets = contract.validate({
-        "family_tawal_defaults": [{"id": "f", "family": "Capex", "tawal_contact": "C", "effective_from": "2026-01-01"}],
+        "family_tawal_defaults": [{"id": "f", "family": "Capex", "tawal_contact": "C"},
+                                  {"id": "g", "family": "Incident", "tawal_contact": "C", "enabled": False}],
         "operational_teams": [{"id": "c", "team_name": "Crew A", "family": "Capex", "archetype": "Project"}],
         **ops()})
     notes = contract.setup_warnings(datasets, "2026-11-24")
@@ -334,3 +335,49 @@ def test_history_names_who_published_and_which_lists_changed(api):
     first, second = module.get_history()
     assert (first["published_by"], first["changed"]) == ("pm@x", ["ops_team_members (1)"])
     assert second["changed"] == [] and "configuration_json" not in first
+
+
+def test_the_same_contact_cannot_be_listed_twice_for_a_family():
+    rows = [{"id": "a", "family": "Capex", "tawal_contact": "C1"}, {"id": "b", "family": "Capex", "tawal_contact": "C1", "enabled": False}]
+    with pytest.raises(ValueError, match="duplicate scoped"):
+        contract.validate({"family_tawal_defaults": rows})
+    with pytest.raises(ValueError, match="unknown fields"):
+        contract.validate({"family_tawal_defaults": [dict(rows[0], effective_from="2026-01-01")]})
+
+
+def test_active_tick_migration_keeps_today_active_and_adds_old_pms_unticked():
+    mig = load_migration()
+    stored = [
+        {"id": "j", "family": "Capex", "tawal_contact": "JAWAD", "effective_from": "2026-11-05", "effective_to": "2026-11-23", "enabled": True},
+        {"id": "h", "family": "Capex", "tawal_contact": "HAZEM", "effective_from": "2026-11-24", "effective_to": "", "enabled": True},
+        {"id": "o", "family": "5G / Colocation", "tawal_contact": "OMAR", "effective_from": "2026-11-05", "effective_to": "", "enabled": True}]
+    ids = {mig._norm(n): n.split()[0].upper() for n in ("Muhammad Jawad Khan", "Ahmad Bahammam", "Turki Aljaber", "Hisham AwadAmeen Abas",
+                                                         "Mohammed Alzebak", "Abdulrhman A Mahmoud", "Muhanned Abusummah")}
+    ids[mig._norm("Muhammad Jawad Khan")] = "JAWAD"
+    out = mig.tawal_active_tick(stored, ids, "2026-11-25")
+    assert contract.validate({"family_tawal_defaults": out})
+    active = {r["family"]: r["tawal_contact"] for r in out if r["enabled"]}
+    assert active == {"Capex": "HAZEM", "5G / Colocation": "OMAR"}
+    assert [r["enabled"] for r in out if r["tawal_contact"] == "JAWAD"] == [False]   # not added twice
+    assert sum(1 for r in out if r["family"] == "5G / Colocation") == 5
+    assert mig.tawal_active_tick(out, ids, "2026-11-25") == out   # repeatable
+
+
+def test_v3_uses_the_single_active_row():
+    import ast
+    tree = ast.parse((ROOT / "sig_operations/excel_setup_v3.py").read_text(encoding="utf-8"))
+    node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_family_default")
+
+    def throw(message):
+        raise ValueError(message)
+    ns = {"family_key": contract.family_key, "frappe": SimpleNamespace(throw=throw)}
+    exec(compile(ast.Module(body=[node], type_ignores=[]), "v3", "exec"), ns)
+    rows = [{"family": "Capex", "tawal_contact": "J", "enabled": False}, {"family": "Capex", "tawal_contact": "H", "enabled": True},
+            {"family": "5G / Colocation", "tawal_contact": "O", "enabled": True}]
+    pick = ns["_family_default"]
+    assert pick({"family_tawal_defaults": rows}, "Capex")["tawal_contact"] == "H"
+    assert pick({"family_tawal_defaults": rows}, "Colocation")["tawal_contact"] == "O"
+    assert pick({"family_tawal_defaults": rows}, "Incident") is None
+    rows[0]["enabled"] = True
+    with pytest.raises(ValueError, match="More than one active"):
+        pick({"family_tawal_defaults": rows}, "Capex")
