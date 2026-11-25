@@ -12,13 +12,15 @@ def test_family_aliases_preserve_legacy_template_and_conflicts_are_unresolved():
     assert conflict["conflict"] and not conflict["family"]
 
 
-def test_family_defaults_cannot_overlap_across_legacy_aliases():
+def test_only_one_active_tawal_pm_per_family_across_legacy_aliases():
     rows = [
-        {"id": "a", "family": "Colocation", "tawal_contact": "C1", "effective_from": "2026-01-01", "enabled": True},
-        {"id": "b", "family": "5G / Colocation", "tawal_contact": "C2", "effective_from": "2026-06-01", "enabled": True},
+        {"id": "a", "family": "Colocation", "tawal_contact": "C1", "enabled": True},
+        {"id": "b", "family": "5G / Colocation", "tawal_contact": "C2", "enabled": True},
     ]
-    with pytest.raises(ValueError, match="Overlapping"):
+    with pytest.raises(ValueError, match="More than one active TAWAL PM"):
         validate({"family_tawal_defaults": rows})
+    rows[1]["enabled"] = False
+    assert [r["family"] for r in validate({"family_tawal_defaults": rows})["family_tawal_defaults"]] == ["5G / Colocation"] * 2
 
 
 def test_team_membership_rejects_invalid_calendar_date():

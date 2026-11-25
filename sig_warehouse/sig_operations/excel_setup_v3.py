@@ -14,9 +14,8 @@ from sig_warehouse.sig_operations.excel_setup import (
     SETUP,
     _state,
 )
-from sig_warehouse.sig_operations.excel_setup_contract import WORKBOOK_DATASETS, canonical, digest, validate
+from sig_warehouse.sig_operations.excel_setup_contract import WORKBOOK_DATASETS, canonical, digest, family_key, validate
 from sig_warehouse.sig_warehouse.project_family import resolve_project_family
-from frappe.utils import getdate, nowdate
 
 
 CONTRACT = "SIG_EXCEL_SETUP_V3"
@@ -39,22 +38,15 @@ def _meta_project_fields():
     return meta
 
 
-def _family_default(datasets, family, as_of=None):
+def _family_default(datasets, family):
+    """The family's one Active TAWAL PM row, or None."""
     if not family:
         return None
-    as_of = getdate(as_of or nowdate())
-    family_key = "Colocation" if family == "5G / Colocation" else family
-    matches = []
-    for row in datasets.get("family_tawal_defaults", []):
-        row_family = "Colocation" if row.get("family") == "5G / Colocation" else row.get("family")
-        if not row.get("enabled") or row_family != family_key:
-            continue
-        start = getdate(row["effective_from"])
-        end = getdate(row["effective_to"]) if row.get("effective_to") else None
-        if start <= as_of and (end is None or as_of <= end):
-            matches.append(row)
+    wanted = family_key(family)
+    matches = [row for row in datasets.get("family_tawal_defaults", [])
+               if row.get("enabled") and family_key(row.get("family")) == wanted]
     if len(matches) > 1:
-        frappe.throw("More than one effective TAWAL contact default exists for family " + family_key)
+        frappe.throw("More than one active TAWAL PM exists for family " + wanted)
     return matches[0] if matches else None
 
 
@@ -96,8 +88,6 @@ def _configured_project_rows(datasets):
         family_default = _family_default(datasets, family_state["family"])
         effective_contact = family_default.get("tawal_contact") if family_default else ""
         contact_source = "family default" if family_default else "unconfigured"
-        contact_from = family_default.get("effective_from", "") if family_default else ""
-        contact_to = family_default.get("effective_to", "") if family_default else ""
         project_row = {
             "id": str(setup_row["id"]),
             "project": project.name,
@@ -112,8 +102,9 @@ def _configured_project_rows(datasets):
             "default_contact": effective_contact,
             "contact_source": contact_source,
             "contact_rule_mode": "",
-            "contact_effective_from": contact_from,
-            "contact_effective_to": contact_to,
+            # Kept blank: the workbook's TCN snapshot still reads these two keys.
+            "contact_effective_from": "",
+            "contact_effective_to": "",
             "contact_family": family_state["family"],
             "enabled": True,
         }

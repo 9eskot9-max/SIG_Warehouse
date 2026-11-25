@@ -18,7 +18,7 @@ FIELDS = {
     "tag_upl_links": ("id", "tag_item", "cuc", "description", "tag_matcher", "builder_rule", "po", "upl_revision", "enabled"),
     "material_upl_links": ("id", "item_code", "cuc", "source_uom", "target_uom", "treatment", "quantity_basis", "po", "upl_revision", "enabled"),
     "builder_defaults": ("id", "kind", "key", "value", "value2", "po", "enabled"),
-    "family_tawal_defaults": ("id", "family", "tawal_contact", "effective_from", "effective_to", "enabled"),
+    "family_tawal_defaults": ("id", "family", "tawal_contact", "enabled"),
     "operational_teams": ("id", "team_name", "family", "archetype", "no_visit_message", "enabled"),
     "team_memberships": ("id", "team", "employee", "role", "effective_from", "effective_to", "enabled"),
     "ops_team_members": ("id", "family", "project", "employee", "role", "weekly_pm", "effective_from", "effective_to", "enabled"),
@@ -30,7 +30,7 @@ REQUIRED = {
     "tag_upl_links": ("id", "tag_item", "cuc"),
     "material_upl_links": ("id", "item_code", "treatment"),
     "builder_defaults": ("id", "kind", "key", "value"),
-    "family_tawal_defaults": ("id", "family", "tawal_contact", "effective_from"),
+    "family_tawal_defaults": ("id", "family", "tawal_contact"),
     "operational_teams": ("id", "team_name", "family", "archetype"),
     "team_memberships": ("id", "team", "employee", "role", "effective_from"),
     "ops_team_members": ("id", "employee", "role", "effective_from"),
@@ -97,7 +97,7 @@ def natural_key(dataset, row):
         "tag_upl_links": ("po", "upl_revision", "tag_item", "cuc", "tag_matcher"),
         "material_upl_links": ("po", "upl_revision", "item_code", "cuc"),
         "builder_defaults": ("po", "kind", "key"),
-        "family_tawal_defaults": ("family", "effective_from"),
+        "family_tawal_defaults": ("family", "tawal_contact"),
         "operational_teams": ("team_name",),
         "team_memberships": ("team", "employee", "role", "effective_from"),
         "ops_team_members": ("family", "project", "employee", "role", "effective_from"),
@@ -138,6 +138,12 @@ def validate(datasets):
             if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,120}", row["id"]) or row["id"] in ids:
                 raise ValueError(f"{name} row {index}: invalid/duplicate ID")
             ids.add(row["id"])
+            if name == "family_tawal_defaults":
+                # One family spelling, so "Colocation" and "5G / Colocation" cannot hide a duplicate.
+                if row["family"] not in FAMILIES:
+                    raise ValueError("TAWAL family defaults must use Capex, Incident or 5G / Colocation")
+                if row["family"] == "Colocation":
+                    row["family"] = "5G / Colocation"
             key = natural_key(name, row)
             if key in keys:
                 raise ValueError(f"{name} row {index}: duplicate scoped rule")
@@ -155,10 +161,6 @@ def validate(datasets):
                         raise ValueError("Direct material link needs CUC, both UOMs and reviewed quantity basis")
                     if row["source_uom"].casefold() != row["target_uom"].casefold():
                         raise ValueError("Direct material links cannot convert UOM")
-            if name == "family_tawal_defaults":
-                if row["family"] not in FAMILIES:
-                    raise ValueError("TAWAL family defaults must use Capex, Incident or 5G / Colocation")
-                _period(row, "TAWAL family default")
             if name == "pc_family_defaults" and row["family"] not in ("Capex", "Incident", "5G / Colocation"):
                 raise ValueError("PC family default needs Capex, Incident or 5G / Colocation")
             if name == "operational_teams":
@@ -195,7 +197,10 @@ def validate(datasets):
     for row in result["tag_definitions"]:
         if row["enabled"]:
             definitions.setdefault(row["item"].casefold(), set()).add(row["po"].casefold())
-    _no_overlap(result["family_tawal_defaults"], lambda r: family_key(r["family"]), "TAWAL family default")
+    active = [family_key(r["family"]) for r in result["family_tawal_defaults"] if r["enabled"]]
+    for family in sorted(set(active)):
+        if active.count(family) > 1:
+            raise ValueError("More than one active TAWAL PM for " + family + "; keep only one ticked Active")
     teams = {row["id"] for row in result["operational_teams"] if row["enabled"]}
     for row in result["team_memberships"]:
         if row["enabled"] and row["team"] not in teams:
@@ -233,8 +238,8 @@ def setup_warnings(datasets, day):
     """Plain-language problems an Operations editor should fix. Never blocks a save."""
     notes = []
     for family in ("Capex", "Incident", "Colocation"):
-        if not any(family_key(r["family"]) == family and active_on(r, day) for r in datasets.get("family_tawal_defaults", [])):
-            notes.append(f"No TAWAL PM default is active today for {family}: its POs get no PM in TCN.")
+        if not any(family_key(r["family"]) == family and r["enabled"] for r in datasets.get("family_tawal_defaults", [])):
+            notes.append(f"No TAWAL PM is ticked Active for {family}: its POs get no PM in TCN.")
         members = [r for r in datasets.get("ops_team_members", []) if active_on(r, day) and family_key(r["family"]) == family]
         for role in ("pm", "coordinator"):
             if not any(r["role"] == role for r in members):
