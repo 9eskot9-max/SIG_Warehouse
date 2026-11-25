@@ -185,7 +185,7 @@ frappe.pages['site-visits'].on_page_load = function (wrapper) {
             if (d.result !== 'ok') { panel.html(`<div class="text-muted">${__('Not found.')}</div>`); return; }
             const row = (lastPayload.rows || []).find((r) => r.name === name) || {};
             const cyc = d.cycle;
-            const cycleHtml = cyc ? `<button type="button" class="sig-sv-cycle-link">${esc(cyc.project || cyc.name)}</button>${cyc.stage ? ' · ' + esc(cyc.stage) : ''}` : `<span class="text-muted">—</span>`;
+            const cycleHtml = cyc ? `<button type="button" class="sig-sv-cycle-link">${esc(cyc.project || cyc.name)}</button>${cyc.stage ? ' · ' + esc(cyc.stage === '2 - Plan' ? __('2 - Execute') : cyc.stage) : ''}` : `<span class="text-muted">—</span>`;
             const project = familyLabel(d.project_family || row.project_family) || '—';
             const commentsHtml = (d.comments || []).map((c) => `<div class="small" style="margin-bottom:4px"><b>${esc(c.by)}</b> <span class="text-muted">${dt(c.at)}</span><br>${esc(c.content)}</div>`).join('') || `<div class="text-muted small">${__('No notes yet.')}</div>`;
             const endText = row.status === 'AUTO_CLOSED' ? __('Auto-closed; End not received') : (row.end_at ? dt(row.end_at) : '—');

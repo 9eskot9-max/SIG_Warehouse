@@ -4,6 +4,7 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
     const root = $('<main class="sig-cycles-page"></main>').appendTo(page.main);
     const state = {data: {}, family: '', project: '', periodDays: 10, stage: '', query: '', includeClosed: false, page: 1, selected: '', events: [], eventStatus: 'idle', loadId: 0};
     const pageSize = 50;
+    const stageLabel = (value) => value === '2 - Plan' ? __('2 - Execute') : value;
     const stageDefs = [
         ['1 - Initial', __('Mapping · BOQ'), 'initial'],
         ['2 - Plan', __('TCN · MIR · Visit'), 'plan'],
@@ -158,7 +159,7 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
             const movements = kpiCycles.flatMap((cycle) => (cycle.stage_exits_in_period || []).filter((item) => item.stage === stage));
             const durations = movements.map((item) => item.days).filter((value) => value !== null && value !== undefined && value !== '').map(Number).filter(Number.isFinite);
             const average = durations.length ? `${(durations.reduce((sum, value) => sum + value, 0) / durations.length).toFixed(1)} d` : '—';
-            return `<button type="button" data-stage="${esc(stage)}" data-tone="${tone}" class="${state.stage === stage ? 'active' : ''}"><strong>${count}</strong><span>${esc(stage)}</span><small>${esc(caption)}</small><div class="sig-cycles-stage-kpis"><small><span>${__('Completed /{0}d', [state.periodDays])}</span><b title="${esc(__('Stage movement count from accepted evidence.'))}">${movements.length}</b></small><small><span>${__('Average stage')}</span><b title="n=${durations.length}; ${__('reconstructed from recorded evidence')}">${esc(average)}</b></small></div></button>`;
+            return `<button type="button" data-stage="${esc(stage)}" data-tone="${tone}" class="${state.stage === stage ? 'active' : ''}"><strong>${count}</strong><span>${esc(stageLabel(stage))}</span><small>${esc(caption)}</small><div class="sig-cycles-stage-kpis"><small><span>${__('Completed /{0}d', [state.periodDays])}</span><b title="${esc(__('Stage movement count from accepted evidence.'))}">${movements.length}</b></small><small><span>${__('Average stage')}</span><b title="n=${durations.length}; ${__('reconstructed from recorded evidence')}">${esc(average)}</b></small></div></button>`;
         }).join('');
         root.find('.sig-cycles-stage-grid').html(stages).find('button[data-stage]').on('click', function () {
             state.stage = state.stage === $(this).data('stage') ? '' : $(this).data('stage');
@@ -172,7 +173,7 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
         const hasOperationalTask = (cycle.work || []).some((item) => item.key === 'asbuilt_operational');
         const tasks = items.length ? items.map((item) => {
             const stage = item.stage || cycle.stage;
-            const stageNote = stage !== cycle.stage ? `<small>${esc(stage)}</small>` : '';
+            const stageNote = stage !== cycle.stage ? `<small>${esc(stageLabel(stage))}</small>` : '';
             const owners = ownerLabel(item);
             return `<div class="sig-cycles-work-item"><span>${esc(item.label || __('Open item'))}</span><small>${owners ? esc(owners) : ''}</small>${stageNote}</div>`;
         }).join('') : (hasOperationalTask ? '' : `<span class="sig-cycles-muted">${__('No open stage item projected')}</span>`);
@@ -210,12 +211,12 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
             return `<tr data-cycle="${esc(cycle.name)}" class="${state.selected === cycle.name ? 'selected' : ''}">
                 <td><a href="#" class="sig-cycles-site" data-cycle="${esc(cycle.name)}">${esc(cycle.site)}</a>${woValue ? ` <span class="sig-cycles-value">- ${esc(woValue)}</span>` : ''}<small>${__('WO')}: ${esc(cycle.wo || '—')}</small></td>
                 <td><strong>${esc(cycle.ba || cycle.project_id || '—')}</strong><small>${esc(alias)}</small></td>
-                <td><span class="sig-cycles-stage tone-${stageTone(cycle.stage)}">${esc(cycle.stage)}</span></td>
+                <td><span class="sig-cycles-stage tone-${stageTone(cycle.stage)}">${esc(stageLabel(cycle.stage))}</span></td>
                 <td>${workHtml(cycle)}</td><td>${signal}${reason ? `<small>${esc(reason)}</small>` : ''}${cycle.stage_due_on ? `<small>${__('Due')}: ${date(cycle.stage_due_on)}</small>` : ''}</td></tr>`;
         }).join('');
         const pager = pageCount > 1 ? `<div class="sig-cycles-pager"><button type="button" class="btn btn-default btn-xs sig-cycles-prev" ${state.page <= 1 ? 'disabled' : ''}>${__('Previous')}</button>
             <span>${__('Page {0} of {1}', [state.page, pageCount])}</span><button type="button" class="btn btn-default btn-xs sig-cycles-next" ${state.page >= pageCount ? 'disabled' : ''}>${__('Next')}</button></div>` : '';
-        const table = `<div class="sig-cycles-table-title"><strong>${state.stage ? esc(state.stage) : state.includeClosed ? __('Cycles and closed history') : __('All open cycles')}</strong><span>${allRows.length} ${__('cycles')}</span></div>
+        const table = `<div class="sig-cycles-table-title"><strong>${state.stage ? esc(stageLabel(state.stage)) : state.includeClosed ? __('Cycles and closed history') : __('All open cycles')}</strong><span>${allRows.length} ${__('cycles')}</span></div>
             <table><thead><tr><th>${__('Site / WO')}</th><th>${__('Project')}</th><th>${__('Cycle stage')}</th><th>${__('Open items')}</th><th>${__('Signal')}</th></tr></thead>
             <tbody>${body || `<tr><td colspan="5" class="sig-cycles-empty">${__('No open cycles match these filters.')}</td></tr>`}</tbody></table>${pager}`;
         root.find('.sig-cycles-table-wrap').html(table);
@@ -244,7 +245,7 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
         const items = (cycle.work || []).map((item) => {
             if (item.key === 'asbuilt_operational') return '';
             const owners = ownerLabel(item);
-            return `<div class="sig-cycles-detail-item"><strong>${esc(item.label || __('Open item'))}</strong><small>${esc(item.stage || cycle.stage)}${owners ? ` · ${esc(owners)}` : ''}</small></div>`;
+            return `<div class="sig-cycles-detail-item"><strong>${esc(item.label || __('Open item'))}</strong><small>${esc(stageLabel(item.stage || cycle.stage))}${owners ? ` · ${esc(owners)}` : ''}</small></div>`;
         }).join('');
         const hasOperationalTask = (cycle.work || []).some((item) => item.key === 'asbuilt_operational');
         const operationalStatus = operationalStatusHtml(cycle);
@@ -253,13 +254,13 @@ frappe.pages['site-cycles'].on_page_load = function (wrapper) {
             const value = running ? item.elapsed_days : item.days;
             const duration = value === null || value === undefined || !Number.isFinite(Number(value))
                 ? '—' : `${Number(value).toFixed(1)} d`;
-            return `<div class="sig-cycles-timing-row ${running ? 'running' : value == null ? 'unknown' : ''}"><span>${esc(item.stage)}</span><b>${esc(duration)}</b></div>`;
+            return `<div class="sig-cycles-timing-row ${running ? 'running' : value == null ? 'unknown' : ''}"><span>${esc(stageLabel(item.stage))}</span><b>${esc(duration)}</b></div>`;
         }).join('');
         const elapsed = cycle.elapsed_days === null || cycle.elapsed_days === undefined || !Number.isFinite(Number(cycle.elapsed_days))
             ? '—' : `${Number(cycle.elapsed_days).toFixed(1)} d`;
         root.find('.sig-cycles-detail').html(`<div class="sig-cycles-detail-head"><div><h2>${esc(cycle.site)}</h2><p>${esc(cycle.ba || cycle.project_id || '—')} · ${esc(cycleAlias(cycle))}</p></div>
             <button type="button" class="btn btn-default btn-xs sig-cycles-open-form">${__('Open cycle')}</button></div>
-            <div class="sig-cycles-detail-body"><div class="sig-cycles-detail-stage">${esc(cycle.stage)}${cycle.wo ? ` · ${__('WO')} ${esc(cycle.wo)}` : ''}</div>
+            <div class="sig-cycles-detail-body"><div class="sig-cycles-detail-stage">${esc(stageLabel(cycle.stage))}${cycle.wo ? ` · ${__('WO')} ${esc(cycle.wo)}` : ''}</div>
                 <div class="sig-cycles-elapsed"><span>${cycle.terminal ? __('Elapsed') : __('Elapsed so far')}</span><b>${esc(elapsed)}</b></div>
                 <h3>${__('Time in each stage')}</h3><div class="sig-cycles-timing-list">${timingRows || `<p class="sig-cycles-muted">${__('Stage timing unavailable')}</p>`}</div>
                 ${operationalStatus ? `<h3>${__('As-Built Operational')}</h3>${operationalStatus}` : ''}
