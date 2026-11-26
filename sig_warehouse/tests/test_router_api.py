@@ -346,6 +346,7 @@ def test_business_decision_routes_remembers_and_creates_a_draft(api, monkeypatch
 
 
 def test_employee_advance_confirms_employee_without_marking_petty_cash(api, monkeypatch):
+    monkeypatch.setattr(api, "_is_finance_user", lambda: True)
     movement = Doc(name="M1", modified="v1", direction="DEBIT", kind="UNKNOWN", accounting_treatment="",
                    accounting_account="", counterparty="", route_source="", erp_document="", erp_doctype="",
                    link_method="", signals_json="{}", recognition_json="{}", payment_reference="")
@@ -1090,7 +1091,7 @@ def test_petty_cash_employee_search_requires_finance_and_scoped_movement(api, mo
     monkeypatch.setitem(sys.modules, funding.__name__, funding)
     api.frappe.get_doc = lambda *args: pytest.fail("must reject before reading movement")
     with pytest.raises(PermissionError, match="Finance required"):
-        api.search_petty_cash_employees("R", "Obed")
+        api.search_petty_cash_employees("R", "Obed", purpose="employee_salary")
 
     funding._require_finance = lambda: None
     checks = []
@@ -1104,10 +1105,39 @@ def test_petty_cash_employee_search_requires_finance_and_scoped_movement(api, mo
     assert calls[0][1]["filters"] == {"status": "Active", "company": "Co"}
     assert calls[0][1]["fields"] == ["name", "employee_name"]
     assert calls[0][1]["limit_page_length"] == 20
+    for purpose in api.EMPLOYEE_ROUTES:
+        assert api.search_petty_cash_employees("R", "Obed", purpose=purpose)[0]["name"] == "EMP-2"
+    movement.erp_document = "JV-1"
+    with pytest.raises(ValueError, match="unlinked outgoing"):
+        api.search_petty_cash_employees("R", "Obed", purpose="employee_advance")
+    movement.erp_document = ""
     movement.direction = "CREDIT"
     with pytest.raises(ValueError, match="unlinked outgoing"):
         api.search_petty_cash_employees("R", "Obed")
-    assert len(calls) == 1
+    assert len(calls) == 4
+
+
+@pytest.mark.parametrize("finance, linked", [(True, False), (False, False), (True, True)])
+def test_employee_purpose_validation_preserves_standard_scope_for_other_workflows(api, monkeypatch, finance, linked):
+    monkeypatch.setattr(api, "_is_finance_user", lambda: finance)
+    movement = Doc(direction="DEBIT", kind="UNKNOWN", erp_document="JV-1" if linked else "")
+    def deny_employee_read(*args):
+        raise PermissionError("Employee read denied")
+
+    monkeypatch.setattr(api, "_check_link", deny_employee_read)
+    monkeypatch.setattr(api.frappe, "db", types.SimpleNamespace(
+        get_value=lambda *args, **kwargs: Doc(status="Inactive", company="Co")), raising=False)
+    if finance and not linked:
+        with pytest.raises(ValueError, match="Choose an active Employee"):
+            api._validate_route_employee(movement, "EMP-2")
+        api.frappe.db.get_value = lambda *args, **kwargs: Doc(status="Active", company="Another company")
+        with pytest.raises(ValueError, match="Choose an active Employee"):
+            api._validate_route_employee(movement, "EMP-2")
+        api.frappe.db.get_value = lambda *args, **kwargs: Doc(status="Active", company="Co")
+        api._validate_route_employee(movement, "EMP-2")
+    else:
+        with pytest.raises(PermissionError, match="Employee read denied"):
+            api._validate_route_employee(movement, "EMP-2")
 
 
 def test_petty_cash_confirmation_rejects_unauthorized_or_invalid_employee_before_writes(api, monkeypatch):
