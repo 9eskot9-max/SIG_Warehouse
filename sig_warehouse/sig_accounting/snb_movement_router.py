@@ -307,6 +307,7 @@ def engine_status():
     return {"review_only_sync_version": 1, "auto_draft": settings._enabled, "auto_draft_from": str(settings._from or ""), "banks_configured": len(settings.scopes),
             "can_submit_payment_entry": bool(frappe.has_permission("Payment Entry", "submit")),
             "can_submit_journal_entry": bool(frappe.has_permission("Journal Entry", "submit")),
+            "can_search_router_employees": _is_finance_user(),
             "holding_customer": bool(settings.holding_customer), "counts": counts}
 
 
@@ -1177,6 +1178,22 @@ def _retarget_draft(doc, kind, target, cp, treatment=None):
     return None
 
 
+EMPLOYEE_ROUTES = frozenset(("employee_salary", "employee_advance", "employee_expense"))
+EMPLOYEE_MOVEMENT_KINDS = frozenset(("EMPLOYEE", "UNKNOWN", "EXPENSE_PAYMENT", "SUPPLIER_PAYMENT"))
+
+
+def _can_route_employee(doc):
+    return doc.direction == "DEBIT" and doc.kind in EMPLOYEE_MOVEMENT_KINDS and not doc.get("erp_document")
+
+
+def _validate_route_employee(doc, employee):
+    if not (_can_route_employee(doc) and _is_finance_user()):
+        _check_link("Employee", employee)
+    details = frappe.db.get_value("Employee", employee, ["status", "company"], as_dict=True)
+    if not details or details.status != "Active" or details.company != runtime.documents.COMPANY:
+        frappe.throw(_("Choose an active Employee of this company."))
+
+
 def _validate_business_route(cp, doc, target, treatment, resolved):
     """Validate the declared purpose independently of whether it is remembered."""
     route = str(target.get("business_route") or "").strip()
@@ -1194,13 +1211,10 @@ def _validate_business_route(cp, doc, target, treatment, resolved):
     }
     if treatment not in expected.get(route, ()):
         frappe.throw(_("The selected route and accounting treatment do not match."))
-    if route.startswith("employee_") and not cp.get("employee"):
+    if route in EMPLOYEE_ROUTES and not cp.get("employee"):
         frappe.throw(_("Confirm the Employee before remembering this route."))
-    if route.startswith("employee_"):
-        _check_link("Employee", cp.get("employee"))
-        employee = frappe.db.get_value("Employee", cp.get("employee"), ["status", "company"], as_dict=True)
-        if not employee or employee.status != "Active" or employee.company != runtime.documents.COMPANY:
-            frappe.throw(_("Choose an active Employee of this company."))
+    if route in EMPLOYEE_ROUTES:
+        _validate_route_employee(doc, cp.get("employee"))
     if route in ("client_receipt", "client_payout") and resolved.get("party_type") != "Customer":
         frappe.throw(_("A client route requires a Customer."))
     if route == "supplier" and resolved.get("party_type") != "Supplier":
@@ -1350,12 +1364,9 @@ def route_movement(name, modified, target):
         cp.display_name = typed_label
     employee = str(target.get("employee") or "").strip()
     if employee:
-        if not str(target.get("business_route") or "").startswith("employee_"):
+        if str(target.get("business_route") or "").strip() not in EMPLOYEE_ROUTES or treatment != "JOURNAL_ENTRY" or doc.direction != "DEBIT":
             frappe.throw(_("Choose an Employee purpose before linking an Employee."))
-        _check_link("Employee", employee)
-        details = frappe.db.get_value("Employee", employee, ["status", "company"], as_dict=True)
-        if not details or details.status != "Active" or details.company != runtime.documents.COMPANY:
-            frappe.throw(_("Choose an active Employee of this company."))
+        _validate_route_employee(doc, employee)
         if cp.get("is_company") or (cp.get("employee") and cp.employee != employee):
             frappe.throw(_("This payee is already linked to a different owner or Employee."))
         cp.employee, cp.is_employee = employee, 1
@@ -1546,8 +1557,8 @@ def confirm_petty_cash_employee(name, modified, employee, remember=0, counterpar
 
 
 @frappe.whitelist()
-def search_petty_cash_employees(name, query=""):
-    """Search the active company roster for the Finance petty-cash designation flow only."""
+def search_petty_cash_employees(name, query="", purpose=""):
+    """Search active company Employees for a Finance decision on an eligible movement."""
     _require("read")
     from sig_warehouse.sig_warehouse.pc_funding import _require_finance
     _require_finance()
@@ -1555,8 +1566,12 @@ def search_petty_cash_employees(name, query=""):
     movement = frappe.get_doc(DOCTYPE, name)
     movement.check_permission("read")
     movement.check_permission("write")
-    if (movement.direction != "DEBIT"
-            or movement.kind not in ("PETTY_CASH", "EMPLOYEE", "UNKNOWN", "EXPENSE_PAYMENT", "SUPPLIER_PAYMENT")
+    purpose = str(purpose or "").strip()
+    if purpose in EMPLOYEE_ROUTES:
+        if not _can_route_employee(movement):
+            frappe.throw(_("Choose an unlinked outgoing movement for this Employee purpose."))
+    elif (purpose or movement.direction != "DEBIT"
+            or movement.kind not in EMPLOYEE_MOVEMENT_KINDS | {"PETTY_CASH"}
             or movement.erp_document):
         frappe.throw(_("Choose an unlinked outgoing movement to designate for petty cash."))
 

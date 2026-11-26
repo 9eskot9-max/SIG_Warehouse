@@ -174,7 +174,8 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
             if (!(state.businessChoice[x.name] ?? x.business_route ?? '').startsWith('employee_')) employeeHost.insertAdjacentHTML('afterend', `<label><input type="checkbox" data-pc-remember checked> ${__('Remember this petty-cash purpose for tagged transfers')}</label>`);
             const route = state.businessChoice[x.name] ?? x.business_route ?? '';
             const initialEmployee = x.pc_employee || x.pc_employee_suggestion?.employee || '';
-            if (!route.startsWith('employee_')) {
+            const employeePurpose = route.startsWith('employee_');
+            if (!employeePurpose || (state.status?.can_search_router_employees && !x.erp_document)) {
                 employeeHost.innerHTML = `<label>${__('Employee')}</label><input type="search" class="form-control" data-pc-employee-search aria-label="${esc(__('Employee'))}" placeholder="${esc(__('Search active Employees…'))}" autocomplete="off"><div class="snb-employee-results" data-pc-employee-results></div>`;
                 const input = employeeHost.querySelector('[data-pc-employee-search]');
                 const results = employeeHost.querySelector('[data-pc-employee-results]');
@@ -198,7 +199,8 @@ frappe.pages['snb-movement-router'].on_page_load = function (wrapper) {
                     }
                     results.innerHTML = `<small>${__('Searching…')}</small>`;
                     try {
-                        const rows = (await frappe.call({method: api + 'search_petty_cash_employees', args: {name: x.name, query: term}})).message || [];
+                        const rows = (await frappe.call({method: api + 'search_petty_cash_employees',
+                            args: {name: x.name, query: term, purpose: employeePurpose ? route : ''}})).message || [];
                         if (currentRequest !== requestId) return;
                         results.innerHTML = rows.length ? rows.map(row => `<button type="button" class="snb-employee-option" data-pc-employee="${esc(row.name)}" data-pc-employee-label="${esc(row.employee_name)}"><strong>${esc(row.employee_name)}</strong><small>${esc(row.name)}</small></button>`).join('') : `<small>${__('No active Employees matched this search.')}</small>`;
                     } catch (e) {
