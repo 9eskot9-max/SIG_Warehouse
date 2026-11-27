@@ -33,6 +33,7 @@ TASK_STAGE = {
     "tcn": "2 - Plan", "mir": "2 - Plan", "visit": "2 - Plan",
     "tags": "3 - Handover", "asbuilt": "3 - Handover",
     "asbuilt_operational": "3 - Handover",
+    "invoice": "4 - Invoicing",
 }
 
 
@@ -412,6 +413,10 @@ def _cycle_view(row, project, today, operational=None):
         work.append({"key": "asbuilt", "label": "As-Built BOQ file", "owner_role": "pm",
                      "stage": "4 - Invoicing",
                      "closes_on": "ASBUILT_BOQ_GENERATED"})
+    # Once the As-Built BOQ is filed the next step is billing; without this the cycle had no task at all.
+    if not closed and row.get("asbuilt_at") and not row.get("invoice_at"):
+        work.append({"key": "invoice", "label": "Invoice", "owner_role": "pm",
+                     "stage": "4 - Invoicing", "closes_on": "INVOICE_GENERATED"})
     for item in work:
         item["owner_names"] = _owner_names(family, item.get("owner_role") or "either", str((project or {}).get("name") or row.get("erp_project") or ""))
         item["shared"] = True
