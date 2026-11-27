@@ -77,6 +77,20 @@ def test_ho_evidence_moves_open_asbuilt_boq_task_to_erp_invoicing_stage():
     assert co_tasks == []
 
 
+def test_a_filed_asbuilt_boq_makes_invoice_the_next_task_until_it_is_invoiced():
+    workbench = _workbench()
+    project = {"name": "10001134", "custom_family": "Incident"}
+    filed = workbench._cycle_view(_cycle(asbuilt_at="2026-10-01 10:00:00"), project, "2026-10-13")
+    assert [(i["key"], i["label"], i["stage"], i["owner_role"]) for i in filed["work"]] == [
+        ("invoice", "Invoice", "4 - Invoicing", "pm")]
+    tasks = workbench._stage_tasks_for_user([filed], [{"scope": "Incident", "role": "pm"}])
+    assert [(t["task"] if "task" in t else t["label"], t["stage"]) for t in tasks] == [("Invoice", "4 - Invoicing")]
+    invoiced = workbench._cycle_view(_cycle(asbuilt_at="2026-10-01 10:00:00", invoice_at="2026-10-05 09:00:00"), project, "2026-10-13")
+    assert all(i["key"] != "invoice" for i in invoiced["work"])
+    closed = workbench._cycle_view(_cycle(asbuilt_at="2026-10-01 10:00:00", terminal=1), project, "2026-10-13")
+    assert closed["work"] == []
+
+
 def test_cycle_response_preserves_evidence_derived_gross_value():
     workbench = _workbench()
     project = {"name": "10001134", "custom_family": "Incident"}
@@ -150,8 +164,9 @@ def test_asbuilt_file_closes_on_its_own_evidence_and_invoicing_stage_keeps_it_vi
     workbench = _workbench()
     project = {"name": "10001134", "custom_family": "Incident"}
     complete = workbench._cycle_view(_cycle(asbuilt_at="2026-08-24 10:00:00", ho_at=None), project, "2026-10-13")
-    assert complete["work"] == []
-    assert complete["needs_review"] is False
+    # the As-Built task is done; billing is now the open step, so an overdue cycle stays in review until it is invoiced
+    assert [(item["key"], item["stage"]) for item in complete["work"]] == [("invoice", "4 - Invoicing")]
+    assert complete["needs_review"] is True
     pending = workbench._cycle_view(_cycle(invoice_at="2026-08-25 10:00:00", ho_at=None), project, "2026-10-13")
     assert pending["stage"] == "4 - Invoicing"
     assert [(item["key"], item["stage"]) for item in pending["work"]] == [("asbuilt", "4 - Invoicing")]
