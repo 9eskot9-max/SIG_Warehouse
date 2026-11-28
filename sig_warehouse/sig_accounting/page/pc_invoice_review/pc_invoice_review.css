@@ -180,3 +180,9 @@
 .sig-pc-nav .sig-pc-vtools { padding: 0; border: 0; }
 .sig-pc-nav .sig-pc-pdf-switch { margin-inline-start: auto; }
 .sig-pc-viewer { height: max(400px, calc(100vh - 165px)); }
+.sig-pc-dupwarn { min-width: 0; overflow-wrap: anywhere; }
+.sig-pc-dupwarn summary { cursor: pointer; font-weight: 600; }
+.sig-pc-dupwarn p { margin: 6px 0; }
+.sig-pc-dupwarn ul { margin: 4px 0 0; padding-inline-start: 18px; }
+.sig-pc-dupwarn li { margin: 4px 0; }
+.sig-pc-side { min-width: 0; overflow-x: hidden; }

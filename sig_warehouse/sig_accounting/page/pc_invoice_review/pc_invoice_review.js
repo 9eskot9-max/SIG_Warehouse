@@ -112,11 +112,11 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
             const k = [r.employee_name, r.transaction_date, money(r.amount)].join('|');
             (byKey[k] = byKey[k] || []).push(r);
         });
-        const ids = (list, me) => list.filter((o) => o !== me).map((o) => o.source_id || o.name);
+        const others = (list, me) => list.filter((o) => o !== me);
         S.rows.forEach((r) => {
             const u = r.source_media_url ? byUrl[r.source_media_url] : null;
             const k = byKey[[r.employee_name, r.transaction_date, money(r.amount)].join('|')];
-            r._dup = u && u.length > 1 ? {kind: 'image', others: ids(u, r)} : (k.length > 1 ? {kind: 'same', others: ids(k, r)} : null);
+            r._dup = u && u.length > 1 ? {kind: 'image', others: others(u, r)} : (k.length > 1 ? {kind: 'same', others: others(k, r)} : null);
         });
     }
 
@@ -322,7 +322,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
     function card(x, total) {
         const selected = catOf(x);
         const options = CATEGORIES.map((c) => `<option value="${esc(c)}"${selected === c ? ' selected' : ''}>${esc(c)}</option>`).join('');
-        const dup = x._dup ? `<p class="sig-pc-dupwarn"><i class="fa fa-exclamation-triangle" aria-hidden="true"></i> ${x._dup.kind === 'image' ? __('Possible duplicate: same receipt image as {0}.', [x._dup.others.join(', ')]) : __('Possible duplicate: same sender, date and amount as {0}.', [x._dup.others.join(', ')])}</p>` : '';
+        const dup = x._dup ? `<details class="sig-pc-dupwarn"><summary><i class="fa fa-exclamation-triangle" aria-hidden="true"></i> ${__('Possible duplicate')} · ${x._dup.kind === 'image' ? __('Same source link') : __('Same sender, date and amount')}</summary><p>${__('Compare before confirming. Matching details do not establish a duplicate.')}</p><ul>${x._dup.others.map((other) => `<li><a href="#" data-route="${esc(JSON.stringify(['Form', 'SIG PC Transaction', other.name]))}">${esc(label(other.employee_name))} · ${esc(fmtDate(other.transaction_date))} · ${esc(groupedMoney(other.amount))} SAR</a></li>`).join('')}</ul></details>` : '';
         return `<article class="sig-pc-card-review" data-name="${esc(x.name)}"><div class="sig-pc-photo-wrap"><div class="sig-pc-nav"><button type="button" class="btn btn-default btn-sm" data-prev ${S.index === 0 ? 'disabled' : ''} aria-label="${__('Previous')}">←</button><span>${S.index + 1} / ${total}</span><button type="button" class="btn btn-default btn-sm" data-next ${S.index === total - 1 ? 'disabled' : ''} aria-label="${__('Next')}">→</button><button type="button" class="btn btn-default btn-sm sig-pc-pdf-switch">${__('Open in PDF viewer')}</button></div><div class="sig-pc-photo">${x.archive_status === 'Archived' ? `<div class="sig-pc-no-photo">${__('Loading archived receipt…')}</div>` : viewer(x.source_media_url)}</div></div><div class="sig-pc-side">
             <div class="sig-pc-title">${__('Receipt details')}</div>
             ${dup}
