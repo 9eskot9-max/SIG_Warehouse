@@ -56,7 +56,7 @@ def resolve_pc_employee_senders(phone_numbers=None):
     # aligned with its caller and prevents arbitrary Employee/Contact phone lookup.
     pending = frappe.get_list(
         "SIG PC Transaction",
-        filters={"closure_status": ["in", ["Draft", "Needs Review"]]},
+        filters={"closure_status": ["in", ["Draft", "Needs Review"]], "pc_removed": 0},
         fields=["employee_name"],
         limit_page_length=0,
     )
