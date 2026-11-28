@@ -374,7 +374,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
         c.querySelector('.sig-pc-archive').addEventListener('click', () => archiveTx(x, c));
         c.querySelector('.sig-pc-confirm').addEventListener('click', () => confirmTx(x, c));
         c.querySelector('.sig-pc-reject').addEventListener('click', () => rejectBox(x, c));
-        if (x.archive_status !== 'Archived' && isPdf(x.source_media_url)) switchButton.textContent = __('Open as image');
+        if (x.archive_status !== 'Archived' && isPdf(x.source_media_url)) switchButton.hidden = true;
         if (x.archive_status === 'Archived') loadArchivedPreview(x, c);
         else wireViewer(c);
     }
@@ -396,7 +396,8 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
             if (link) { link.href = url; link.textContent = __('Open archived receipt'); }
             const switchButton = cardElement.querySelector('.sig-pc-pdf-switch');
             switchButton.disabled = false;
-            switchButton.textContent = result.mime_type === 'application/pdf' ? __('Open as image') : __('Open in PDF viewer');
+            switchButton.hidden = result.mime_type === 'application/pdf';
+            switchButton.textContent = __('Open in PDF viewer');
             wireViewer(cardElement);
         } catch (error) {
             if (!cardElement.isConnected) return;
