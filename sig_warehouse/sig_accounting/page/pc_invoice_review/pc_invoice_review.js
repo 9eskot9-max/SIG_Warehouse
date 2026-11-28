@@ -190,7 +190,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
                 <p class="sig-pc-count">${__('Loading invoices…')}</p></div>
             <div class="sig-pc-header-actions">${navButtons()}<button type="button" class="sig-pc-ghost sig-pc-refresh"><i class="fa fa-refresh" aria-hidden="true"></i> ${__('Refresh')}</button></div>
         </header>
-        <section class="sig-pc-stats"></section>
+        <details class="sig-pc-filter"><summary>${__('Filters')}</summary><section class="sig-pc-stats"></section></details>
         <section class="sig-pc-review"><div class="sig-pc-empty">${__('Loading…')}</div></section>
         <section class="sig-pc-section">
             <div class="sig-pc-section-heading"><h2>${__('Journal Entry status')}</h2><p>${__('Status of confirmed receipts and their linked journals.')}</p></div>
@@ -248,11 +248,8 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
         view = {s: 1, x: 0, y: 0, r: 0, mode: null};
 
         const prevScroll = q('.sig-pc-queue-list') ? q('.sig-pc-queue-list').scrollTop : 0;
-        review.innerHTML = `<div class="sig-pc-bar">
-                <div class="sig-pc-progress"><strong>${esc(label(x.employee_name))}</strong> · ${__('Invoice {0} of {1}', [S.index + 1, rows.length])} · ${esc(fmtDate(x.transaction_date))}</div>
-                <div class="sig-pc-nav"><button type="button" class="btn btn-default btn-sm" data-prev ${S.index === 0 ? 'disabled' : ''}>← ${__('Previous')}</button><button type="button" class="btn btn-default btn-sm" data-next ${S.index === rows.length - 1 ? 'disabled' : ''}>${__('Next')} →</button></div></div>
-            ${unmatchedSender(x) ? `<p class="sig-pc-stagenote">${__('Unmatched sender: this receipt cannot be confirmed until the phone is recorded on the Employee or an Employee-linked Contact.')}</p>` : ''}
-            <div class="sig-pc-workarea">${queue(rows)}${card(x)}</div>`;
+        review.innerHTML = `${unmatchedSender(x) ? `<p class="sig-pc-stagenote">${__('Unmatched sender: this receipt cannot be confirmed until the phone is recorded on the Employee or an Employee-linked Contact.')}</p>` : ''}
+            <div class="sig-pc-workarea">${queue(rows)}${card(x, rows.length)}</div>`;
         review.querySelector('[data-prev]').addEventListener('click', () => step(-1));
         review.querySelector('[data-next]').addEventListener('click', () => step(1));
         wireQueue(rows, prevScroll);
@@ -309,9 +306,9 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
     }
 
     // ---- receipt viewer + form ----------------------------------------------------------------
-    function viewer(url, mime) {
+    function viewer(url, mime, forceImage) {
         if (!url) return `<div class="sig-pc-no-photo">${__('No receipt file URL')}</div>`;
-        if (mime === 'application/pdf' || isPdf(url)) return `<iframe class="sig-pc-pdf" src="${esc(url)}" title="${__('Invoice PDF')}"></iframe>`;
+        if (!forceImage && (mime === 'application/pdf' || isPdf(url))) return `<iframe class="sig-pc-pdf" src="${esc(url)}" title="${__('Invoice PDF')}"></iframe>`;
         return `<div class="sig-pc-viewer"><div class="sig-pc-vtools">
             <button type="button" data-z="out" title="${__('Zoom out')} (-)">−</button><span class="sig-pc-zoomlabel">${__('Fit')}</span><button type="button" data-z="in" title="${__('Zoom in')} (+)">+</button>
             <button type="button" data-z="mode" class="sig-pc-mode" title="F"></button><button type="button" data-z="actual" title="${__('Actual size')} (1)">100%</button>
@@ -321,21 +318,22 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
     }
     const field = (f, lbl, v, type, extra) => `<div class="sig-pc-field"><label>${lbl}</label><input data-f="${f}" class="form-control input-sm" type="${type || 'text'}" value="${esc(v)}"${extra || ''}></div>`;
 
-    function card(x) {
+    function card(x, total) {
         const selected = catOf(x);
         const options = CATEGORIES.map((c) => `<option value="${esc(c)}"${selected === c ? ' selected' : ''}>${esc(c)}</option>`).join('');
         const dup = x._dup ? `<p class="sig-pc-dupwarn"><i class="fa fa-exclamation-triangle" aria-hidden="true"></i> ${x._dup.kind === 'image' ? __('Possible duplicate: same receipt image as {0}.', [x._dup.others.join(', ')]) : __('Possible duplicate: same sender, date and amount as {0}.', [x._dup.others.join(', ')])}</p>` : '';
-        return `<article class="sig-pc-card-review" data-name="${esc(x.name)}"><div class="sig-pc-photo">${x.archive_status === 'Archived' ? `<div class="sig-pc-no-photo">${__('Loading archived receipt…')}</div>` : viewer(x.source_media_url)}</div><div class="sig-pc-side">
+        return `<article class="sig-pc-card-review" data-name="${esc(x.name)}"><div class="sig-pc-photo-wrap"><div class="sig-pc-nav"><button type="button" class="btn btn-default btn-sm" data-prev ${S.index === 0 ? 'disabled' : ''} aria-label="${__('Previous')}">←</button><span>${S.index + 1} / ${total}</span><button type="button" class="btn btn-default btn-sm" data-next ${S.index === total - 1 ? 'disabled' : ''} aria-label="${__('Next')}">→</button><button type="button" class="btn btn-default btn-sm sig-pc-pdf-switch">${__('Open in PDF viewer')}</button></div><div class="sig-pc-photo">${x.archive_status === 'Archived' ? `<div class="sig-pc-no-photo">${__('Loading archived receipt…')}</div>` : viewer(x.source_media_url)}</div></div><div class="sig-pc-side">
             <div class="sig-pc-title">${__('Receipt details')}</div>
             ${dup}
             ${x.archive_status === 'Failed' ? `<p class="sig-pc-error" data-archive-error>${__('Previous archive attempt failed.')}${x.last_archive_error ? ` ${esc(x.last_archive_error)}` : ''}</p>` : ''}
             ${field('amount', __('Amount (incl. VAT)'), x.amount, 'number', ' step="0.01" min="0"')}
             <label class="sig-pc-vat"><input data-f="has_vat" type="checkbox"${Number(x.has_vat) ? ' checked' : ''}> ${__('VAT invoice')} <span class="sig-pc-vat-amount"></span></label><p class="sig-pc-vatwarn"></p>
             <div class="sig-pc-field"><label>${__('Transaction category')}</label><select data-f="transaction_category" class="form-control input-sm"><option value="">${__('Choose category…')}</option>${options}</select>${isSuggested(x) ? `<p class="sig-pc-suggest">${__('Suggested from the receipt source. Check it, then confirm.')}</p>` : ''}</div>
+            <div class="sig-pc-review-actions"><button type="button" class="btn btn-primary sig-pc-confirm">${__('Confirm')}</button><button type="button" class="btn btn-danger sig-pc-reject">${__('Reject')}</button></div>
             <div class="sig-pc-field"><label>${__('Notes')}</label><textarea data-f="details" class="form-control input-sm" rows="2">${esc(x.details || x.invoice_number || '')}</textarea></div>
             <details class="sig-pc-more"${x.supplier_vat_number || x.merchant ? ' open' : ''}><summary>${__('Merchant evidence')}</summary>
                 ${field('merchant', __('Merchant'), x.merchant)}${field('supplier_vat_number', __('Supplier VAT number (15 digits)'), x.supplier_vat_number, 'text', ' inputmode="numeric" maxlength="15"')}</details>
-            <div class="sig-pc-actions"><button type="button" class="btn btn-default sig-pc-archive"${x.archive_status === 'Archived' ? ' disabled' : ''}>${x.archive_status === 'Archived' ? __('Receipt archived') : __('Archive now')}</button><button type="button" class="btn btn-primary sig-pc-confirm">${__('Confirm')}</button><button type="button" class="btn btn-danger sig-pc-reject">${__('Reject')}</button></div>
+            <button type="button" class="btn btn-default sig-pc-archive"${x.archive_status === 'Archived' ? ' disabled' : ''}>${x.archive_status === 'Archived' ? __('Receipt archived') : __('Archive now')}</button>
             <div class="sig-pc-msg"></div>
             <div class="sig-pc-links">${x.archive_status === 'Archived' || x.source_media_url ? `<a data-open-receipt href="${esc(x.source_media_url || '#')}" target="_blank" rel="noopener">${__('Open receipt')}</a> · ` : ''}${x.source_row_url ? `<a href="${esc(x.source_row_url)}" target="_blank" rel="noopener">${__('Source row')}</a> · ` : ''}<a href="#" data-route="${esc(JSON.stringify(['Form', 'SIG PC Transaction', x.name]))}">${__('Open record')}</a></div>
             <p class="sig-pc-hint">${__('Confirm archives and verifies the receipt before creating its draft Journal Entry. Previous/Next never change a receipt. Keys: ← → navigate, Ctrl+Enter confirm, + − 0 zoom, R rotate, F fit.')}</p></div></article>`;
@@ -362,9 +360,21 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
         c.addEventListener('change', () => refreshVat(c));
         c.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); confirmTx(x, c); } });
         refreshVat(c);
+        const switchButton = c.querySelector('.sig-pc-pdf-switch');
+        switchButton.disabled = x.archive_status === 'Archived' || !x.source_media_url;
+        switchButton.addEventListener('click', () => {
+            const url = x.archive_status === 'Archived' ? archiveUrl : x.source_media_url;
+            if (!url) return;
+            const photo = c.querySelector('.sig-pc-photo');
+            const showingPdf = !!photo.querySelector('.sig-pc-pdf');
+            photo.innerHTML = showingPdf ? viewer(url, 'image/jpeg', true) : viewer(url, 'application/pdf');
+            switchButton.textContent = showingPdf ? __('Open in PDF viewer') : __('Open as image');
+            if (showingPdf) wireViewer(c);
+        });
         c.querySelector('.sig-pc-archive').addEventListener('click', () => archiveTx(x, c));
         c.querySelector('.sig-pc-confirm').addEventListener('click', () => confirmTx(x, c));
         c.querySelector('.sig-pc-reject').addEventListener('click', () => rejectBox(x, c));
+        if (x.archive_status !== 'Archived' && isPdf(x.source_media_url)) switchButton.textContent = __('Open as image');
         if (x.archive_status === 'Archived') loadArchivedPreview(x, c);
         else wireViewer(c);
     }
@@ -384,6 +394,9 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
             photo.innerHTML = viewer(url, result.mime_type);
             const link = cardElement.querySelector('[data-open-receipt]');
             if (link) { link.href = url; link.textContent = __('Open archived receipt'); }
+            const switchButton = cardElement.querySelector('.sig-pc-pdf-switch');
+            switchButton.disabled = false;
+            switchButton.textContent = result.mime_type === 'application/pdf' ? __('Open as image') : __('Open in PDF viewer');
             wireViewer(cardElement);
         } catch (error) {
             if (!cardElement.isConnected) return;

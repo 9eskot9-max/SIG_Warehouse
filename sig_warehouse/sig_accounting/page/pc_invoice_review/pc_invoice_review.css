@@ -128,3 +128,40 @@
 @media (max-width: 1000px) { .sig-pc-workarea { display: block; } .sig-pc-queue, .sig-pc-side { position: static; } .sig-pc-queue { margin-bottom: 12px; } .sig-pc-queue-list { height: 230px; } .sig-pc-side { margin-top: 12px; } .sig-pc-viewer, .sig-pc-pdf { height: 70vh; min-height: 360px; } .sig-pc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .sig-pc-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 700px) { .sig-pc-home { padding: 10px 12px 25px; } .sig-pc-header { padding: 16px; } .sig-pc-header h1 { font-size: 20px; } .sig-pc-vhint { display: none; } }
 @media (max-width: 520px) { .sig-pc-grid, .sig-pc-stats { grid-template-columns: 1fr; } }
+/* Laptop review layout */
+.sig-pc-home { max-width: none; padding: 4px 10px 28px; }
+.sig-pc-header { padding: 6px 10px; margin-bottom: 5px; border-radius: 6px; gap: 8px; }
+.sig-pc-header::after, .sig-pc-eyebrow { display: none; }
+.sig-pc-header h1 { display: inline; font-size: 17px; }
+.sig-pc-header p { display: inline; margin-inline-start: 10px; font-size: 12px; }
+.sig-pc-ghost { padding: 4px 8px; }
+.sig-pc-filter { margin-bottom: 5px; }
+.sig-pc-filter summary { cursor: pointer; font-size: 12px; color: var(--sig-navy); }
+.sig-pc-stats { margin: 5px 0; }
+.sig-pc-workarea { grid-template-columns: clamp(180px, 15vw, 230px) minmax(0, 1fr) clamp(250px, 20vw, 310px); gap: 7px; }
+.sig-pc-photo-wrap { min-width: 0; }
+.sig-pc-nav { align-items: center; padding: 4px 6px; border: 1px solid var(--border-color); border-bottom: 0; background: var(--card-bg); }
+.sig-pc-nav span { min-width: 45px; text-align: center; font-variant-numeric: tabular-nums; }
+.sig-pc-pdf-switch { margin-inline-start: auto; }
+.sig-pc-queue, .sig-pc-side { position: static; }
+.sig-pc-queue { height: max(440px, calc(100vh - 125px)); }
+.sig-pc-queue-list { flex: 1; height: auto; min-height: 0; }
+.sig-pc-side { max-height: max(440px, calc(100vh - 125px)); overflow-y: auto; padding: 10px; }
+.sig-pc-review-actions { display: grid; gap: 6px; margin: 10px 0; }
+.sig-pc-review-actions .btn { min-height: 42px; width: 100%; font-weight: 600; }
+.sig-pc-viewer, .sig-pc-pdf { height: max(400px, calc(100vh - 165px)); }
+.sig-pc-vhint { display: none; }
+.sig-pc-no-photo { min-height: 180px; }
+@media (max-width: 1000px) and (min-width: 801px) {
+    .sig-pc-workarea { display: grid; grid-template-columns: 170px minmax(0,1fr) 250px; }
+    .sig-pc-queue { grid-row: auto; margin: 0; }
+    .sig-pc-side { grid-column: auto; margin: 0; }
+}
+@media (max-width: 800px) {
+    .sig-pc-workarea { display: flex; flex-direction: column; }
+    .sig-pc-photo-wrap, .sig-pc-queue, .sig-pc-side { width: 100%; }
+    .sig-pc-photo-wrap { order: 0; }
+    .sig-pc-side { order: 1; max-height: none; margin-top: 0; }
+    .sig-pc-queue { order: 2; height: 260px; margin-bottom: 0; }
+    .sig-pc-viewer, .sig-pc-pdf { height: 65vh; }
+}
