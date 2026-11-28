@@ -287,7 +287,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
             </div>
             <div class="sig-pc-queue-meta"><span>${__('Dates')}</span><span>${number(rows.length)} ${__('Invs')} · ${groupedMoney(rows.reduce((a, r) => a + (Number(r.amount) || 0), 0))} SAR</span></div>
             <div class="sig-pc-queue-list" role="listbox">${items}</div>
-            <div class="sig-pc-legend"><span><i class="sig-pc-dot sig-pc-dot--bad"></i>${__('No category')}</span><span><i class="sig-pc-dot sig-pc-dot--ok"></i>${__('Category set')}</span><span><i class="sig-pc-dot sig-pc-dot--sugg"></i>${__('Suggested')}</span><span><i class="sig-pc-dot sig-pc-dot--warn"></i>${__('Duplicate?')}</span></div>
+            <div class="sig-pc-legend"><span><i class="sig-pc-dot sig-pc-dot--bad"></i>${__('No category')}</span><span><i class="sig-pc-dot sig-pc-dot--ok"></i>${__('Category set')}</span><span><i class="sig-pc-dot sig-pc-dot--warn"></i>${__('Duplicate?')}</span></div>
         </aside>`;
     }
     function wireQueue(rows, prevScroll) {
