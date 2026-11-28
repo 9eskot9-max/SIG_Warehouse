@@ -129,3 +129,35 @@
 .sig-pc-status-cycle-summary-grid strong { display:block; margin-top:2px; color:#19365c; font-size:14px; font-variant-numeric:tabular-nums; }
 .sig-pc-status-cycle-summary-grid .sig-pc-status-cycle-balance strong { color:#24623c; }
 @media print { .sig-pc-status-cycle-summary-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } .sig-pc-status-cycle-summary-grid strong { font-size:12px; } }
+/* Compact screen workbench. The transaction register and print layout remain in document flow. */
+@media screen {
+    .sig-pc-status { max-width:none; padding:4px 10px 28px; }
+    .sig-pc-status-head { padding:6px 10px; border-radius:6px; border-bottom:0; gap:8px; }
+    .sig-pc-status-eyebrow { display:none; }
+    .sig-pc-status-head h1 { display:inline; font-size:17px; }
+    .sig-pc-status-head p { display:inline; margin-inline-start:10px; font-size:12px; }
+    .sig-pc-status-head .btn { padding:4px 8px; }
+    .sig-pc-status-workarea { grid-template-columns:clamp(180px, 15vw, 230px) minmax(0,1fr); gap:7px; margin-top:5px; }
+    .sig-pc-status-selected { grid-template-columns:minmax(0,1fr) clamp(250px,20vw,310px); gap:7px; }
+    .sig-pc-status-photo-wrap { min-width:0; }
+    .sig-pc-status-context { justify-content:flex-start; gap:6px; margin:0; padding:4px 6px; border-radius:8px 8px 0 0; }
+    .sig-pc-status-context > span { min-width:45px; text-align:center; font-variant-numeric:tabular-nums; }
+    .sig-pc-status-context .sig-pc-status-vtools { border:0; padding:0; }
+    .sig-pc-status-vhint { display:none; }
+    .sig-pc-status-viewer,.sig-pc-status-pdf { height:max(400px,calc(100vh - 125px)); }
+    .sig-pc-status-queue-list { height:max(300px,calc(100vh - 230px)); }
+    .sig-pc-status-side { max-height:max(400px,calc(100vh - 90px)); overflow:auto; padding:10px; }
+}
+@media screen and (max-width:800px) {
+    .sig-pc-status-workarea { grid-template-columns:170px minmax(0,1fr); }
+    .sig-pc-status-selected { grid-template-columns:minmax(0,1fr); }
+    .sig-pc-status-side { max-height:none; }
+}
+@media screen and (max-width:600px) {
+    .sig-pc-status-workarea { grid-template-columns:1fr; }
+    .sig-pc-status-queue-list { height:190px; }
+    .sig-pc-status-viewer,.sig-pc-status-pdf { height:65vh; }
+}
+@media screen and (min-width:801px) and (max-width:1150px) {
+    .sig-pc-status-side dl { display:block; }
+}

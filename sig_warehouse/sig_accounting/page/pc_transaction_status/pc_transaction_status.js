@@ -20,7 +20,6 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
     root.html('<header class="sig-pc-status-head">' +
         '<div><div class="sig-pc-status-eyebrow">' + __('Accounts') + '</div><h1>' + __('Petty Cash Status') + '</h1><p data-subtitle>' + __('Review approval and accounting status') + '</p></div>' +
         '<div class="sig-pc-status-actions"><button class="btn btn-default" data-review>' + __('Open PC Review') + '</button><button class="btn btn-default" data-refresh>' + __('Refresh') + '</button></div></header>' +
-        '<section class="sig-pc-status-context" aria-live="polite"></section>' +
         '<section class="sig-pc-status-workarea"><aside class="sig-pc-status-queue" aria-label="' + __('Employee transactions') + '">' +
         '<label class="sr-only" for="pc-status-employee">' + __('Employee') + '</label><select id="pc-status-employee" data-employee><option value="">' + __('Loading employees…') + '</option></select>' +
         '<input type="search" data-search placeholder="' + __('Search receipts…') + '" aria-label="' + __('Search receipts') + '">' +
@@ -198,10 +197,7 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
         state.archiveRequest += 1;
         if (state.archiveUrl) URL.revokeObjectURL(state.archiveUrl);
         state.archiveUrl = null;
-        q('.sig-pc-status-context').innerHTML = '<div><strong>' + esc(state.employees.get(state.employee) || '—') + '</strong> <span>' +
-            (row ? __('Transaction {0} of {1}', [index + 1, rows.length]) + ' · ' + date(row.transaction_date) : __('No transaction selected')) + '</span></div>' +
-            '<div><button class="btn btn-default btn-sm" data-prev ' + (index <= 0 ? 'disabled' : '') + '>' + __('← Previous') + '</button> <button class="btn btn-default btn-sm" data-next ' + (index < 0 || index === rows.length - 1 ? 'disabled' : '') + '>' + __('Next →') + '</button></div>';
-        q('.sig-pc-status-selected').innerHTML = row ? '<div class="sig-pc-status-photo">' + viewer(row.source_media_url) + '</div>' +
+        q('.sig-pc-status-selected').innerHTML = row ? '<div class="sig-pc-status-photo-wrap"><div class="sig-pc-status-context" aria-live="polite"><button type="button" class="btn btn-default btn-sm" data-prev ' + (index <= 0 ? 'disabled' : '') + ' aria-label="' + __('Previous') + '">←</button><span>' + (index + 1) + ' / ' + rows.length + '</span><button type="button" class="btn btn-default btn-sm" data-next ' + (index === rows.length - 1 ? 'disabled' : '') + ' aria-label="' + __('Next') + '">→</button></div><div class="sig-pc-status-photo">' + (row.archive_status === 'Archived' ? '<div class="sig-pc-status-no-receipt">' + __('Loading archived receipt…') + '</div>' : viewer(row.source_media_url)) + '</div></div>' +
             '<div class="sig-pc-status-side"><h3>' + __('Transaction status') + '</h3>' + detail(row) +
             (row.source_media_url ? '<a data-open-receipt href="' + esc(row.source_media_url) + '" target="_blank" rel="noopener">' + __('Open receipt') + '</a>' : '') +
             (row.archive_status === 'Archived' ? '' : (row.source_media_url ? '<p><button type="button" class="btn btn-default btn-sm" data-archive>' + __('Archive receipt') + '</button></p>' : '')) +
@@ -228,6 +224,7 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
             state.archiveUrl = URL.createObjectURL(blob);
             const photo = q('.sig-pc-status-photo');
             if (photo) {
+                q('.sig-pc-status-context .sig-pc-status-vtools')?.remove();
                 photo.innerHTML = viewer(state.archiveUrl, payload.mime_type);
                 wireViewer(q('.sig-pc-status-selected'));
             }
@@ -291,7 +288,7 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
             state.selected = name;
             renderSelected();
         }
-        if (scroll) q('.sig-pc-status-context').scrollIntoView({behavior: 'smooth', block: 'start'});
+        if (scroll) q('.sig-pc-status-selected').scrollIntoView({behavior: 'smooth', block: 'start'});
     }
     function step(delta) {
         const rows = visibleRows(), index = rows.findIndex((row) => row.name === state.selected);
@@ -385,6 +382,7 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
     function wireViewer(c) {
         const stage = vstage(), img = vimg();
         if (!stage) return;
+        q('.sig-pc-status-context').appendChild(c.querySelector('.sig-pc-status-vtools'));
         if (img.complete && img.naturalWidth) layout(true); else img.addEventListener('load', () => layout(true));
         stage.addEventListener('wheel', (e) => {
             e.preventDefault();
@@ -403,7 +401,12 @@ frappe.pages['pc-transaction-status'].on_page_load = function (wrapper) {
             if (a === 'in') zoomCenter(1.3); else if (a === 'out') zoomCenter(1 / 1.3);
             else if (a === 'mode') toggleMode(); else if (a === 'actual') actualSize(); else if (a === 'rot') rotate();
         });
-        img.addEventListener('error', () => { const v = q('.sig-pc-status-viewer'); if (v) v.outerHTML = `<div class="sig-pc-status-no-receipt">${__('Receipt preview unavailable — use Open receipt')}</div>`; });
+        img.addEventListener('error', () => {
+            if (!img.isConnected) return;
+            c.querySelector('.sig-pc-status-context .sig-pc-status-vtools')?.remove();
+            const viewerElement = c.querySelector('.sig-pc-status-viewer');
+            if (viewerElement) viewerElement.outerHTML = `<div class="sig-pc-status-no-receipt">${__('Receipt preview unavailable — use Open receipt')}</div>`;
+        });
     }
 
     let resizeTimer;
