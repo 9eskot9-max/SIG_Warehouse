@@ -17,7 +17,7 @@ def _routed_pending(matrix, employees):
     routed = []
     pending = frappe.get_all(
         "SIG PC Transaction",
-        filters={"closure_status": ["in", ["Draft", "Needs Review"]]},
+        filters={"closure_status": ["in", ["Draft", "Needs Review"]], "pc_removed": 0},
         fields=["name", "employee_name"], limit_page_length=0,
     )
     for row in pending:

@@ -4,6 +4,8 @@ Account identities come from ERP configuration. No Supplier, PI or Payment Entry
 is constructed. Frappe's normal Journal Entry create/validation path is retained.
 """
 
+from html import escape
+
 import frappe
 from frappe.utils import get_datetime, now_datetime
 
@@ -177,7 +179,7 @@ def pending_receipts():
     if not context["roles"].intersection(REVIEWERS):
         _deny("You need an authorised petty-cash reviewer role.")
     return frappe.get_list(TRANSACTION, fields=FIELDS,
-                           filters={"closure_status": ["in", ["Draft", "Needs Review"]],
+                           filters={"closure_status": ["in", ["Draft", "Needs Review"]], "pc_removed": 0,
                                     "transaction_date": [">=", PAGE_DISPLAY_CUTOFF]},
                            order_by="employee_name asc, transaction_date asc", limit_page_length=0)
 
@@ -212,7 +214,7 @@ def transaction_status_report(employee=None, from_date=None, to_date=None, cycle
             _deny("The selected funding cycle is not available for this Employee.")
         effective_from = max(str(selected_cycle["funding_date"]), PAGE_DISPLAY_CUTOFF)
         to_date = selected_cycle["end_date"]
-    filters = {}
+    filters = {"pc_removed": 0}
     if to_date:
         filters["transaction_date"] = ["between", [effective_from, to_date]]
     else:
@@ -476,7 +478,7 @@ def confirm_receipt(transaction_id, expected_modified=None, transaction_category
             return {"ok": True, "existing": True, "journal_entry": journal.name,
                     "closure_status": doc.closure_status}
         frappe.throw("This receipt already has a journal. Reload its existing clearance; no new draft was created.")
-    if doc.closure_status not in ("Draft", "Needs Review"):
+    if doc.get("pc_removed") or doc.closure_status not in ("Draft", "Needs Review"):
         frappe.throw("Only pending receipts can be confirmed.")
     if get_datetime(expected_modified) != get_datetime(doc.modified):
         frappe.throw("This receipt changed after you opened it. Reload and review the latest version.")
@@ -550,7 +552,7 @@ def reject_receipt(transaction_id, expected_modified=None, notes=None):
     _authorize(doc, context)
     if not expected_modified or get_datetime(expected_modified) != get_datetime(doc.modified):
         frappe.throw("Reload the receipt before rejecting it.")
-    if doc.closure_status not in ("Draft", "Needs Review") or doc.journal_entry or doc.purchase_invoice or doc.payment_entry:
+    if doc.get("pc_removed") or doc.closure_status not in ("Draft", "Needs Review") or doc.journal_entry or doc.purchase_invoice or doc.payment_entry:
         frappe.throw("Only pending receipts without accounting documents can be rejected.")
     if not isinstance(notes, str) or not notes.strip() or len(notes) > 2000:
         frappe.throw("Enter a rejection reason of at most 2000 characters.")
@@ -559,6 +561,54 @@ def reject_receipt(transaction_id, expected_modified=None, notes=None):
     doc.save(ignore_permissions=True)
     return {"ok": True, "closure_status": "Rejected"}
 
+
+
+@frappe.whitelist(methods=["POST"])
+def removed_receipts():
+    context = _context()
+    if not context["roles"].intersection(REVIEWERS):
+        _deny("You need an authorised petty-cash reviewer role.")
+    return frappe.get_list(
+        TRANSACTION,
+        fields=["name", "modified", "employee_name", "transaction_date", "amount", "pc_removed_reason", "pc_removed_by", "pc_removed_at"],
+        filters={"pc_removed": 1}, order_by="pc_removed_at desc", limit_page_length=0,
+    )
+
+
+@frappe.whitelist(methods=["POST"])
+def set_receipt_removed(transaction_id, expected_modified=None, reason=None, restore=0):
+    context = _context()
+    doc = _locked_receipt(transaction_id)
+    _authorize(doc, context)
+    if not expected_modified or get_datetime(expected_modified) != get_datetime(doc.modified):
+        frappe.throw("Reload the receipt before changing its removal status.")
+    restoring = str(restore) == "1"
+    if doc.journal_entry or doc.purchase_invoice or doc.payment_entry:
+        frappe.throw("Only pending receipts without accounting documents can be removed or restored.")
+    if frappe.db.exists("Journal Entry", {"custom_pc_receipt": doc.name, "docstatus": ["<", 2]}):
+        frappe.throw("This receipt has a linked journal. Finance must reconcile it first.")
+    if restoring:
+        if not doc.get("pc_removed") or doc.closure_status != "Removed":
+            frappe.throw("This receipt is not removed.")
+        if doc.get("pc_removed_prior_status") not in ("Draft", "Needs Review"):
+            frappe.throw("The previous review status is missing. Finance must inspect this receipt.")
+        doc.pc_removed = 0
+        doc.closure_status = doc.pc_removed_prior_status
+        doc.add_comment("Comment", "Restored to petty-cash review by {}.".format(escape(context["user"])))
+    else:
+        if doc.get("pc_removed") or doc.closure_status not in ("Draft", "Needs Review"):
+            frappe.throw("This receipt is already removed.")
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 2000:
+            frappe.throw("Enter a removal reason of at most 2000 characters.")
+        doc.pc_removed = 1
+        doc.pc_removed_prior_status = doc.closure_status
+        doc.closure_status = "Removed"
+        doc.pc_removed_reason = reason.strip()
+        doc.pc_removed_by = context["user"]
+        doc.pc_removed_at = now_datetime()
+        doc.add_comment("Comment", "Removed from petty-cash review by {}. Reason: {}".format(escape(context["user"]), escape(reason.strip())))
+    doc.save(ignore_permissions=True)
+    return {"ok": True, "removed": bool(doc.pc_removed)}
 
 def guard_legacy_cycle(doc, method=None):
     """Serialise the two known writers; never book both routes for one custodian."""

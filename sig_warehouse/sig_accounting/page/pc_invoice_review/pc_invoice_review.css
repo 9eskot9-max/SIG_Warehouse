@@ -186,3 +186,9 @@
 .sig-pc-dupwarn ul { margin: 4px 0 0; padding-inline-start: 18px; }
 .sig-pc-dupwarn li { margin: 4px 0; }
 .sig-pc-side { min-width: 0; overflow-x: hidden; }
+.sig-pc-remove { margin: 2px 0 6px; }
+.sig-pc-removebox { margin: 8px 0; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; }
+.sig-pc-removebox label { display: block; font-weight: 600; }
+.sig-pc-removebox p { margin: 6px 0; color: var(--text-muted); font-size: 12px; }
+.sig-pc-removed-row { display: flex; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border-color); overflow-wrap: anywhere; }
+.sig-pc-removed-row small { color: var(--text-muted); }

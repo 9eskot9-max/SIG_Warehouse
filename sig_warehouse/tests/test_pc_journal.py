@@ -283,6 +283,7 @@ def test_pending_review_queue_excludes_pre_october_transactions(app, monkeypatch
     assert module.pending_receipts() == []
     assert seen[0][1]["filters"] == {
         "closure_status": ["in", ["Draft", "Needs Review"]],
+        "pc_removed": 0,
         "transaction_date": [">=", "2026-10-01"],
     }
 
@@ -312,7 +313,7 @@ def test_status_report_reads_only_docstatus_of_the_matching_linked_journal(app, 
     assert result[0]["review_group_lead"] == "PM lead"
     assert seen[0][0] == "SIG PC Transaction"
     assert seen[0][1]["filters"] == {
-        "transaction_date": ["between", ["2026-10-01", "2026-10-31"]]}
+        "transaction_date": ["between", ["2026-10-01", "2026-10-31"]], "pc_removed": 0}
 
 
 def test_status_report_clamps_requested_range_to_october(app, monkeypatch):
@@ -322,7 +323,7 @@ def test_status_report_clamps_requested_range_to_october(app, monkeypatch):
     result = module.transaction_status_report(from_date="2026-09-01", to_date="2026-10-31")
     assert result == []
     assert seen[0]["filters"] == {
-        "transaction_date": ["between", ["2026-10-01", "2026-10-31"]]}
+        "transaction_date": ["between", ["2026-10-01", "2026-10-31"]], "pc_removed": 0}
 
 
 def test_status_report_returns_empty_for_range_before_october(app, monkeypatch):
@@ -652,3 +653,69 @@ def test_incident_group_is_additional_reviewer_for_capex_employees_named_by_owne
 def test_petty_cash_materials_do_not_post_to_the_stock_consumption_account():
     # 5121 receives warehouse issues; the accountant moved 24 of 25 material receipts to 5126 by hand before submitting.
     assert rules.CATEGORY_ACCOUNTS["Construction/Operational Material"] == "5126"
+
+
+def test_remove_and_restore_preserve_state_and_audit(app):
+    module, fake, receipt, _ = app
+    module.set_receipt_removed(receipt.name, expected_modified=STAMP, reason="Duplicate copy")
+    assert receipt.pc_removed == 1
+    assert receipt.closure_status == "Removed"
+    assert receipt.pc_removed_reason == "Duplicate copy"
+    assert not fake.journals
+    assert any(item[0] == "comment" for item in fake.trace)
+    # The lightweight Record fake stores attribute assignments separately from dict.get.
+    receipt["pc_removed"] = receipt.pc_removed
+    receipt["pc_removed_prior_status"] = receipt.pc_removed_prior_status
+    with pytest.raises(RuntimeError, match="Only pending"):
+        module.confirm_receipt(receipt.name, expected_modified=receipt.modified, transaction_category="Hotel Rent")
+    module.set_receipt_removed(receipt.name, expected_modified=receipt.modified, restore=1)
+    assert receipt.pc_removed == 0
+    assert receipt.closure_status == "Needs Review"
+
+
+def test_remove_requires_reason_and_current_version(app):
+    module, _, receipt, _ = app
+    with pytest.raises(RuntimeError, match="reason"):
+        module.set_receipt_removed(receipt.name, expected_modified=STAMP, reason="  ")
+    with pytest.raises(RuntimeError, match="Reload"):
+        module.set_receipt_removed(receipt.name, expected_modified="2026-10-18 13:00:00", reason="Duplicate")
+    assert not receipt.get("pc_removed")
+
+
+@pytest.mark.parametrize("field", ["journal_entry", "purchase_invoice", "payment_entry"])
+def test_removal_never_changes_linked_accounting_records(app, field):
+    module, _, receipt, _ = app
+    receipt[field] = "LINKED"
+    with pytest.raises(RuntimeError, match="without accounting"):
+        module.set_receipt_removed(receipt.name, expected_modified=STAMP, reason="Duplicate")
+    assert not receipt.get("pc_removed")
+
+
+def test_removed_list_uses_scoped_get_list(app, monkeypatch):
+    module, fake, _, _ = app
+    calls = []
+    monkeypatch.setattr(fake, "get_list", lambda doctype, **kwargs: calls.append((doctype, kwargs)) or [], raising=False)
+    assert module.removed_receipts() == []
+    assert calls[0][1]["filters"] == {"pc_removed": 1}
+
+def test_remove_denies_out_of_scope_and_self(app):
+    module, _, receipt, context = app
+    context["actor"] = context["employees"][0]
+    with pytest.raises(Denied, match="own receipts"):
+        module.set_receipt_removed(receipt.name, expected_modified=STAMP, reason="Duplicate")
+    assert not receipt.get("pc_removed")
+
+
+def test_remove_denies_unlisted_journal(app):
+    module, fake, receipt, _ = app
+    fake.db.exists = lambda doctype, filters: doctype == "Journal Entry" and filters.get("custom_pc_receipt") == receipt.name
+    with pytest.raises(RuntimeError, match="linked journal"):
+        module.set_receipt_removed(receipt.name, expected_modified=STAMP, reason="Duplicate")
+    assert not receipt.get("pc_removed")
+
+
+def test_removed_receipts_cannot_be_rejected(app):
+    module, _, receipt, _ = app
+    receipt["pc_removed"] = 1
+    with pytest.raises(RuntimeError, match="Only pending"):
+        module.reject_receipt(receipt.name, expected_modified=STAMP, notes="Duplicate")

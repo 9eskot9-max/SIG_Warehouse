@@ -189,7 +189,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
             <div><div class="sig-pc-eyebrow">${__('Accounts')}</div>
                 <h1>${__('Petty cash')}</h1>
                 <p class="sig-pc-count">${__('Loading invoices…')}</p></div>
-            <div class="sig-pc-header-actions">${navButtons()}<button type="button" class="sig-pc-ghost sig-pc-refresh"><i class="fa fa-refresh" aria-hidden="true"></i> ${__('Refresh')}</button></div>
+            <div class="sig-pc-header-actions">${navButtons()}<button type="button" class="sig-pc-ghost sig-pc-removed-list">${__('Removed transactions')}</button><button type="button" class="sig-pc-ghost sig-pc-refresh"><i class="fa fa-refresh" aria-hidden="true"></i> ${__('Refresh')}</button></div>
         </header>
         <details class="sig-pc-filter"><summary>${__('Filters')}</summary><section class="sig-pc-stats"></section></details>
         <section class="sig-pc-review"><div class="sig-pc-empty">${__('Loading…')}</div></section>
@@ -206,6 +206,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
     root.on('click', '[data-nav]', function () { go(NAV.filter(canOpen)[Number($(this).data('nav'))]); });
     root.on('click', '[data-link]', function () { go(LINKS[Number($(this).data('link'))]); });
     root.on('click', '.sig-pc-refresh', () => { load(); loadJournalStatus(); });
+    root.on('click', '.sig-pc-removed-list', showRemovedReceipts);
     root.on('click', '[data-journal-status]', () => frappe.set_route('pc-transaction-status'));
     async function loadJournalStatus() {
         const container = q('.sig-pc-journal-status');
@@ -330,7 +331,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
             ${field('amount', __('Amount (incl. VAT)'), x.amount, 'number', ' step="0.01" min="0"')}
             <label class="sig-pc-vat"><span class="sig-pc-vat-label"><input data-f="has_vat" type="checkbox"${Number(x.has_vat) ? ' checked' : ''}> ${__('VAT')}</span><span class="sig-pc-vat-amount"></span></label>
             <div class="sig-pc-field"><label>${__('Transaction category')}</label><select data-f="transaction_category" class="form-control input-sm"><option value="">${__('Choose category…')}</option>${options}</select></div>
-            <div class="sig-pc-review-actions"><button type="button" class="btn btn-primary sig-pc-confirm">${__('Confirm')}</button><button type="button" class="btn btn-danger sig-pc-reject">${__('Reject')}</button></div>
+            <div class="sig-pc-review-actions"><button type="button" class="btn btn-primary sig-pc-confirm">${__('Confirm')}</button><button type="button" class="btn btn-danger sig-pc-reject">${__('Reject')}</button></div><button type="button" class="btn btn-default btn-sm sig-pc-remove">${__('Remove transaction')}</button>
             <div class="sig-pc-field"><label>${__('Notes')}</label><textarea data-f="details" class="form-control input-sm" rows="1">${esc(x.details || x.invoice_number || '')}</textarea></div>
             <details class="sig-pc-more"${x.supplier_vat_number || x.merchant ? ' open' : ''}><summary>${__('Merchant evidence')}</summary>
                 ${field('merchant', __('Merchant'), x.merchant)}${field('supplier_vat_number', __('Supplier VAT number (15 digits)'), x.supplier_vat_number, 'text', ' inputmode="numeric" maxlength="15"')}</details>
@@ -394,6 +395,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
         c.querySelector('.sig-pc-archive').addEventListener('click', () => archiveTx(x, c));
         c.querySelector('.sig-pc-confirm').addEventListener('click', () => confirmTx(x, c));
         c.querySelector('.sig-pc-reject').addEventListener('click', () => rejectBox(x, c));
+        c.querySelector('.sig-pc-remove').addEventListener('click', () => removeBox(x, c));
         if (x.archive_status !== 'Archived' && isPdf(x.source_media_url)) switchButton.hidden = true;
         if (x.archive_status === 'Archived') loadArchivedPreview(x, c);
         else wireViewer(c);
@@ -473,6 +475,50 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
         } finally {
             S.busy = false;
         }
+    }
+
+    function removeBox(x, c) {
+        if (S.busy || c.querySelector('.sig-pc-removebox')) return;
+        const box = document.createElement('div');
+        box.className = 'sig-pc-removebox';
+        box.innerHTML = `<label>${__('Reason for removing this transaction')}</label><textarea class="form-control" maxlength="2000"></textarea><p>${__('It will leave the review queue and status totals. You can restore it from Removed transactions.')}</p><div class="sig-pc-actions"><button type="button" class="btn btn-primary btn-sm" data-remove-go>${__('Remove transaction')}</button><button type="button" class="btn btn-default btn-sm" data-remove-cancel>${__('Cancel')}</button></div>`;
+        c.querySelector('.sig-pc-msg').before(box);
+        box.querySelector('textarea').focus();
+        box.querySelector('[data-remove-cancel]').addEventListener('click', () => box.remove());
+        box.querySelector('[data-remove-go]').addEventListener('click', async () => {
+            const reason = box.querySelector('textarea').value.trim();
+            if (!reason) { showMsg(c, `<div class="sig-pc-error">${__('Enter a reason for removal.')}</div>`); return; }
+            setBusy(c, true); showMsg(c, '');
+            try {
+                await call('sig_warehouse.sig_warehouse.pc_journal.set_receipt_removed', {transaction_id: x.name, expected_modified: x.modified, reason});
+                setBusy(c, false); afterRemoval(x);
+                frappe.show_alert({message: __('Transaction removed from review.'), indicator: 'green'});
+            } catch (error) {
+                setBusy(c, false); showMsg(c, `<div class="sig-pc-error">${esc(error.message)}</div>`);
+            }
+        });
+    }
+
+    async function showRemovedReceipts() {
+        const dialog = new frappe.ui.Dialog({title: __('Removed transactions'), size: 'large', fields: [{fieldname: 'list', fieldtype: 'HTML'}]});
+        const container = dialog.fields_dict.list.$wrapper[0];
+        dialog.show();
+        async function refreshList() {
+            container.textContent = __('Loading…');
+            try {
+                const rows = await call('sig_warehouse.sig_warehouse.pc_journal.removed_receipts', {});
+                container.innerHTML = rows.length ? rows.map((row, index) => `<div class="sig-pc-removed-row"><div><strong>${esc(label(row.employee_name))}</strong> · ${esc(fmtDate(row.transaction_date))} · ${esc(groupedMoney(row.amount))} SAR<br><span>${esc(row.pc_removed_reason || '')}</span><br><small>${esc(row.pc_removed_by || '')} · ${esc(row.pc_removed_at || '')}</small></div><button type="button" class="btn btn-default btn-sm" data-restore="${index}">${__('Restore')}</button></div>`).join('') : `<p>${__('No removed transactions.')}</p>`;
+                container.querySelectorAll('[data-restore]').forEach((button) => button.addEventListener('click', async () => {
+                    const row = rows[Number(button.dataset.restore)];
+                    button.disabled = true;
+                    try {
+                        await call('sig_warehouse.sig_warehouse.pc_journal.set_receipt_removed', {transaction_id: row.name, expected_modified: row.modified, restore: 1});
+                        await refreshList(); load(); loadMetrics();
+                    } catch (error) { button.disabled = false; frappe.msgprint(esc(error.message || __('Unable to restore transaction.'))); }
+                }));
+            } catch (error) { container.textContent = error.message || __('Unable to load removed transactions.'); }
+        }
+        await refreshList();
     }
 
     function rejectBox(x, c) {
