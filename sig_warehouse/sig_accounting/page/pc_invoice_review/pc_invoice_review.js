@@ -44,7 +44,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
     // A receipt's category is the saved one, or the suggestion carried by the receipt source (`purpose`).
     const catOf = (x) => x.transaction_category || (CATEGORIES.includes(x.purpose) ? x.purpose : '');
     const isSuggested = (x) => !x.transaction_category && !!catOf(x);
-    const countText = (n) => (n === 1 ? __('1 receipt') : __('{0} receipts', [n]));
+    const countText = (n) => `${number(n)} ${__('Invs')}`;
     const senderOf = (v) => (S.senders[phoneKey(v)] || {}).employee_name;
     const unmatchedSender = (x) => isPhone(x.employee_name) && !senderOf(x.employee_name);
 
@@ -271,7 +271,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
             g.items.push({x, i}); g.total += Number(x.amount) || 0;
         });
         const showWho = S.person === ALL;
-        const items = groups.map((g) => `<div class="sig-pc-day"><span>${esc(fmtDate(g.date))}</span><small>${countText(g.items.length)} · ${money(g.total)} SAR</small></div>` +
+        const items = groups.map((g) => `<div class="sig-pc-day"><span>${esc(fmtDate(g.date))}</span><small>${countText(g.items.length)} · ${groupedMoney(g.total)} SAR</small></div>` +
             g.items.map(({x, i}) => {
                 const state = x._dup ? 'warn' : (x.transaction_category ? 'ok' : isSuggested(x) ? 'sugg' : 'bad');
                 return `<button type="button" class="sig-pc-qi ${i === S.index ? 'active' : ''}" data-i="${i}" role="option" aria-selected="${i === S.index}">
