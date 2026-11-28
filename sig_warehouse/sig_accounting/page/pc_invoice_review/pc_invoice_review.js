@@ -38,12 +38,13 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
     };
     const isPdf = (v) => /\.pdf(?:[?#]|$)/i.test(String(v || '')) || /[?&]\w*=pdf(?:&|$)/i.test(String(v || ''));
     const money = (n) => (Math.round((Number(n) || 0) * 100) / 100).toFixed(2);
+    const groupedMoney = (n) => new Intl.NumberFormat('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}).format(Number(n) || 0);
     const number = (n) => new Intl.NumberFormat(language.replace('_', '-'), {maximumFractionDigits: 0}).format(n);
     const fmtDate = (d) => !d ? '—' : (frappe.datetime && frappe.datetime.str_to_user ? frappe.datetime.str_to_user(String(d).slice(0, 10)) : String(d).slice(0, 10));
     // A receipt's category is the saved one, or the suggestion carried by the receipt source (`purpose`).
     const catOf = (x) => x.transaction_category || (CATEGORIES.includes(x.purpose) ? x.purpose : '');
     const isSuggested = (x) => !x.transaction_category && !!catOf(x);
-    const countText = (n) => (n === 1 ? __('1 receipt') : __('{0} receipts', [n]));
+    const countText = (n) => `${number(n)} ${__('Invs')}`;
     const senderOf = (v) => (S.senders[phoneKey(v)] || {}).employee_name;
     const unmatchedSender = (x) => isPhone(x.employee_name) && !senderOf(x.employee_name);
 
@@ -229,7 +230,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
         const unmatched = S.rows.filter(unmatchedSender).length;
         const dups = S.rows.filter((x) => x._dup).length;
         const total = S.rows.reduce((a, r) => a + (Number(r.amount) || 0), 0);
-        setCount(__('{0} pending · {1} SAR', [S.rows.length, money(total)]));
+        setCount(__('{0} pending · {1} SAR', [S.rows.length, groupedMoney(total)]));
         const chip = (key, text, count, variant) => `<button type="button" class="sig-pc-stat ${variant} ${S.filter === key ? 'active' : ''}" data-filter="${key}"><strong>${esc(count)}</strong><span>${esc(text)}</span></button>`;
         q('.sig-pc-stats').innerHTML = chip('all', __('Pending review'), S.rows.length, '') + chip('nocat', __('Need a category'), nocat, 'is-warning') +
             chip('dup', __('Possible duplicates'), dups, 'is-bad') + chip('unmatched', __('Unmatched senders'), unmatched, 'is-neutral');
@@ -270,12 +271,12 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
             g.items.push({x, i}); g.total += Number(x.amount) || 0;
         });
         const showWho = S.person === ALL;
-        const items = groups.map((g) => `<div class="sig-pc-day"><span>${esc(fmtDate(g.date))}</span><small>${countText(g.items.length)} · ${money(g.total)} SAR</small></div>` +
+        const items = groups.map((g) => `<div class="sig-pc-day"><span>${esc(fmtDate(g.date))}</span><small>${countText(g.items.length)} · ${groupedMoney(g.total)} SAR</small></div>` +
             g.items.map(({x, i}) => {
                 const state = x._dup ? 'warn' : (x.transaction_category ? 'ok' : isSuggested(x) ? 'sugg' : 'bad');
                 return `<button type="button" class="sig-pc-qi ${i === S.index ? 'active' : ''}" data-i="${i}" role="option" aria-selected="${i === S.index}">
                     <i class="sig-pc-dot sig-pc-dot--${state}" aria-hidden="true"></i>
-                    <span class="sig-pc-qi-main"><b>${money(x.amount)}</b><span class="sig-pc-qi-cat ${catOf(x) ? (isSuggested(x) ? 'is-suggested' : '') : 'is-missing'}">${esc(catOf(x) || __('No category'))}${isSuggested(x) ? ` · ${__('suggested')}` : ''}</span>
+                    <span class="sig-pc-qi-main"><b>${money(x.amount)}</b><span class="sig-pc-qi-cat ${catOf(x) ? (isSuggested(x) ? 'is-suggested' : '') : 'is-missing'}">${esc(catOf(x) || __('No category'))}</span>
                     ${showWho ? `<small>${esc(label(x.employee_name))}</small>` : ''}</span>
                     ${x._dup ? `<em class="sig-pc-badge">${__('Duplicate?')}</em>` : ''}</button>`;
             }).join('')).join('');
@@ -284,9 +285,9 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
                 <select class="sig-pc-person-select form-control input-sm" aria-label="${__('Review person')}"><option value="${ALL}"${S.person === ALL ? ' selected' : ''}>${__('All senders')} (${visibleRows().length})</option>${people.map((p) => `<option value="${esc(p)}"${p === S.person ? ' selected' : ''}>${esc(p)} (${counts[p]})</option>`).join('')}</select>
                 <input type="search" class="sig-pc-search form-control input-sm" placeholder="${__('Search receipts…')}" value="${esc(S.search)}">
             </div>
-            <div class="sig-pc-queue-meta"><span>${__('Pending dates')}</span><span>${countText(rows.length)} · ${money(rows.reduce((a, r) => a + (Number(r.amount) || 0), 0))} SAR</span></div>
+            <div class="sig-pc-queue-meta"><span>${__('Dates')}</span><span>${number(rows.length)} ${__('Invs')} · ${groupedMoney(rows.reduce((a, r) => a + (Number(r.amount) || 0), 0))} SAR</span></div>
             <div class="sig-pc-queue-list" role="listbox">${items}</div>
-            <div class="sig-pc-legend"><span><i class="sig-pc-dot sig-pc-dot--bad"></i>${__('No category')}</span><span><i class="sig-pc-dot sig-pc-dot--ok"></i>${__('Category set')}</span><span><i class="sig-pc-dot sig-pc-dot--sugg"></i>${__('Suggested')}</span><span><i class="sig-pc-dot sig-pc-dot--warn"></i>${__('Duplicate?')}</span></div>
+            <div class="sig-pc-legend"><span><i class="sig-pc-dot sig-pc-dot--bad"></i>${__('No category')}</span><span><i class="sig-pc-dot sig-pc-dot--ok"></i>${__('Category set')}</span><span><i class="sig-pc-dot sig-pc-dot--warn"></i>${__('Duplicate?')}</span></div>
         </aside>`;
     }
     function wireQueue(rows, prevScroll) {
@@ -327,16 +328,16 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
             ${dup}
             ${x.archive_status === 'Failed' ? `<p class="sig-pc-error" data-archive-error>${__('Previous archive attempt failed.')}${x.last_archive_error ? ` ${esc(x.last_archive_error)}` : ''}</p>` : ''}
             ${field('amount', __('Amount (incl. VAT)'), x.amount, 'number', ' step="0.01" min="0"')}
-            <label class="sig-pc-vat"><input data-f="has_vat" type="checkbox"${Number(x.has_vat) ? ' checked' : ''}> ${__('VAT invoice')} <span class="sig-pc-vat-amount"></span></label><p class="sig-pc-vatwarn"></p>
-            <div class="sig-pc-field"><label>${__('Transaction category')}</label><select data-f="transaction_category" class="form-control input-sm"><option value="">${__('Choose category…')}</option>${options}</select>${isSuggested(x) ? `<p class="sig-pc-suggest">${__('Suggested from the receipt source. Check it, then confirm.')}</p>` : ''}</div>
+            <label class="sig-pc-vat"><span class="sig-pc-vat-label"><input data-f="has_vat" type="checkbox"${Number(x.has_vat) ? ' checked' : ''}> ${__('VAT')}</span><span class="sig-pc-vat-amount"></span></label>
+            <div class="sig-pc-field"><label>${__('Transaction category')}</label><select data-f="transaction_category" class="form-control input-sm"><option value="">${__('Choose category…')}</option>${options}</select></div>
             <div class="sig-pc-review-actions"><button type="button" class="btn btn-primary sig-pc-confirm">${__('Confirm')}</button><button type="button" class="btn btn-danger sig-pc-reject">${__('Reject')}</button></div>
-            <div class="sig-pc-field"><label>${__('Notes')}</label><textarea data-f="details" class="form-control input-sm" rows="2">${esc(x.details || x.invoice_number || '')}</textarea></div>
+            <div class="sig-pc-field"><label>${__('Notes')}</label><textarea data-f="details" class="form-control input-sm" rows="1">${esc(x.details || x.invoice_number || '')}</textarea></div>
             <details class="sig-pc-more"${x.supplier_vat_number || x.merchant ? ' open' : ''}><summary>${__('Merchant evidence')}</summary>
                 ${field('merchant', __('Merchant'), x.merchant)}${field('supplier_vat_number', __('Supplier VAT number (15 digits)'), x.supplier_vat_number, 'text', ' inputmode="numeric" maxlength="15"')}</details>
             <button type="button" class="btn btn-default sig-pc-archive"${x.archive_status === 'Archived' ? ' disabled' : ''}>${x.archive_status === 'Archived' ? __('Receipt archived') : __('Archive now')}</button>
             <div class="sig-pc-msg"></div>
             <div class="sig-pc-links">${x.archive_status === 'Archived' || x.source_media_url ? `<a data-open-receipt href="${esc(x.source_media_url || '#')}" target="_blank" rel="noopener">${__('Open receipt')}</a> · ` : ''}${x.source_row_url ? `<a href="${esc(x.source_row_url)}" target="_blank" rel="noopener">${__('Source row')}</a> · ` : ''}<a href="#" data-route="${esc(JSON.stringify(['Form', 'SIG PC Transaction', x.name]))}">${__('Open record')}</a></div>
-            <p class="sig-pc-hint">${__('Confirm archives and verifies the receipt before creating its draft Journal Entry. Previous/Next never change a receipt. Keys: ← → navigate, Ctrl+Enter confirm, + − 0 zoom, R rotate, F fit.')}</p></div></article>`;
+            </div></article>`;
     }
 
     // ---- card behaviour -----------------------------------------------------------------------
@@ -348,8 +349,15 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
     function refreshVat(c) {
         const v = values(c), amount = Number(v.amount) || 0, on = v.has_vat === '1';
         const vat = on ? Math.round(amount * VAT_RATE / (1 + VAT_RATE) * 100) / 100 : 0;
-        c.querySelector('.sig-pc-vat-amount').textContent = on ? __('VAT {0} · net {1} SAR', [money(vat), money(amount - vat)]) : '';
-        c.querySelector('.sig-pc-vatwarn').textContent = on ? __('VAT is receipt evidence. The draft books gross expense; Finance assesses VAT before submission.') : '';
+        const amountNode = c.querySelector('.sig-pc-vat-amount');
+        amountNode.replaceChildren();
+        if (on) {
+            [__('VAT {0} SAR', [groupedMoney(vat)]), __('Net {0} SAR', [groupedMoney(amount - vat)])].forEach((text) => {
+                const line = document.createElement('span');
+                line.textContent = text;
+                amountNode.appendChild(line);
+            });
+        }
     }
     const showMsg = (c, html) => { c.querySelector('.sig-pc-msg').innerHTML = html; };
     const setBusy = (c, busy) => {
@@ -377,6 +385,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
             const url = x.archive_status === 'Archived' ? archiveUrl : x.source_media_url;
             if (!url) return;
             const photo = c.querySelector('.sig-pc-photo');
+            c.querySelector('.sig-pc-nav .sig-pc-vtools')?.remove();
             const showingPdf = !!photo.querySelector('.sig-pc-pdf');
             photo.innerHTML = showingPdf ? viewer(url, 'image/jpeg', true) : viewer(url, 'application/pdf');
             switchButton.textContent = showingPdf ? __('Open in PDF viewer') : __('Open as image');
@@ -402,6 +411,7 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
             if (archiveUrl) URL.revokeObjectURL(archiveUrl);
             archiveUrl = URL.createObjectURL(new Blob([bytes], {type: result.mime_type}));
             const url = archiveUrl;
+            cardElement.querySelector('.sig-pc-nav .sig-pc-vtools')?.remove();
             photo.innerHTML = viewer(url, result.mime_type);
             const link = cardElement.querySelector('[data-open-receipt]');
             if (link) { link.href = url; link.textContent = __('Open archived receipt'); }
@@ -532,6 +542,8 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
     function wireViewer(c) {
         const stage = vstage(), img = vimg();
         if (!stage) return;
+        const toolbar = c.querySelector('.sig-pc-vtools');
+        c.querySelector('.sig-pc-nav').insertBefore(toolbar, c.querySelector('.sig-pc-pdf-switch'));
         if (img.complete && img.naturalWidth) layout(true); else img.addEventListener('load', () => layout(true));
         stage.addEventListener('wheel', (e) => {
             e.preventDefault();
@@ -550,7 +562,11 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
             if (a === 'in') zoomCenter(1.3); else if (a === 'out') zoomCenter(1 / 1.3);
             else if (a === 'mode') toggleMode(); else if (a === 'actual') actualSize(); else if (a === 'rot') rotate();
         });
-        img.addEventListener('error', () => { const v = q('.sig-pc-viewer'); if (v) v.outerHTML = `<div class="sig-pc-no-photo">${__('Receipt preview unavailable — use Open receipt')}</div>`; });
+        img.addEventListener('error', () => {
+            const viewerElement = c.querySelector('.sig-pc-viewer');
+            c.querySelector('.sig-pc-nav .sig-pc-vtools')?.remove();
+            if (viewerElement) viewerElement.outerHTML = `<div class="sig-pc-no-photo">${__('Receipt preview unavailable — use Open receipt')}</div>`;
+        });
     }
 
     let resizeTimer;
