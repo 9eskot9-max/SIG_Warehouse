@@ -167,3 +167,14 @@
     .sig-pc-queue { order: 2; height: 260px; margin-bottom: 0; }
     .sig-pc-viewer, .sig-pc-pdf { height: 65vh; }
 }
+/* Compact review details and shared receipt toolbar. */
+.sig-pc-queue-meta { align-items: center; gap: 4px; }
+.sig-pc-queue-meta span:last-child { text-align: end; white-space: nowrap; }
+.sig-pc-vat { align-items: center; justify-content: space-between; }
+.sig-pc-vat-label { display: inline-flex; align-items: center; gap: 6px; }
+.sig-pc-vat-amount { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; line-height: 1.3; }
+.sig-pc-field textarea[data-f="details"] { min-height: 42px; height: 42px; resize: vertical; }
+.sig-pc-nav { flex-wrap: wrap; }
+.sig-pc-nav .sig-pc-vtools { padding: 0; border: 0; }
+.sig-pc-nav .sig-pc-pdf-switch { margin-inline-start: auto; }
+.sig-pc-viewer { height: max(400px, calc(100vh - 165px)); }
