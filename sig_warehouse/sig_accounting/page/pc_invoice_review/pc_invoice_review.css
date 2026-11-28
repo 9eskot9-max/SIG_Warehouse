@@ -144,6 +144,8 @@
 .sig-pc-nav span { min-width: 45px; text-align: center; font-variant-numeric: tabular-nums; }
 .sig-pc-pdf-switch { margin-inline-start: auto; }
 .sig-pc-queue, .sig-pc-side { position: static; }
+.sig-pc-queue { grid-row: auto; }
+.sig-pc-side { grid-column: auto; }
 .sig-pc-queue { height: max(440px, calc(100vh - 125px)); }
 .sig-pc-queue-list { flex: 1; height: auto; min-height: 0; }
 .sig-pc-side { max-height: max(440px, calc(100vh - 125px)); overflow-y: auto; padding: 10px; }

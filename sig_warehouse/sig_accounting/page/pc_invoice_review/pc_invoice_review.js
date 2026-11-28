@@ -352,7 +352,18 @@ frappe.pages['pc-invoice-review'].on_page_load = function (wrapper) {
         c.querySelector('.sig-pc-vatwarn').textContent = on ? __('VAT is receipt evidence. The draft books gross expense; Finance assesses VAT before submission.') : '';
     }
     const showMsg = (c, html) => { c.querySelector('.sig-pc-msg').innerHTML = html; };
-    const setBusy = (c, b) => { S.busy = b; c.querySelectorAll('button').forEach((x) => { x.disabled = b; }); };
+    const setBusy = (c, busy) => {
+        S.busy = busy;
+        c.querySelectorAll('button').forEach((button) => {
+            if (busy) {
+                button.dataset.wasDisabled = button.disabled ? '1' : '0';
+                button.disabled = true;
+            } else if (button.dataset.wasDisabled !== undefined) {
+                button.disabled = button.dataset.wasDisabled === '1';
+                delete button.dataset.wasDisabled;
+            }
+        });
+    };
 
     function wireCard(x) {
         const c = q('.sig-pc-card-review');
